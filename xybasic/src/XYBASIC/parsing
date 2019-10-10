@@ -1,0 +1,711 @@
+;PARSING 8/26/79
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979 by Mark Williams Company, Chicago
+;parsing routines
+
+;Register use for all parsing routines, except as noted.
+;Call:	(textp)	address of next text char
+;Retn:	A	clobbered
+;	BC,DE	preserved
+;	HL	address of next unparsed char
+;	(textp)	ditto
+;	Carry	set iff failure
+
+;GTCHA fetches the next nonspace character.
+gtcha:	lhld	textp
+gtch1:	mov	a,m		;fetch character
+	inx	h		;point to next
+	cpi	' '
+	jz	gtch1		;try again if space
+	shld	textp		;store new text pointer
+	ret
+
+;GTCHO looks ahead to the next nonspace char.
+gtcho:	call	gtcha
+bakup:	dcx	h		;back up textp
+	shld	textp
+	ret
+
+;GTALP fetches the next char if alphabetic, returns Carry if not.
+gtalp:	call	gtcho
+	call	isalp
+	rc			;not a letter
+read1:	inx	h
+	shld	textp		;else read it
+	ret
+
+;GTCOM gets a comma.
+gtcom:	call	gtcha
+	cpi	','
+	rz
+	jmp	bkupc		;back up textp and return Carry
+
+;GTCND gets a comma not followed by a delimiter.
+gtcnd:	call	gtcom
+	rc			;no comma
+	call	dtst0		;look for delimiter
+	cmc			;carry set iff delimiter follows comma
+	ret
+
+;GTD returns carry reset and moves up textp if next char matches (D), else
+;returns carry set and leaves (textp) unchanged.
+;GTDSN gets a char which must match (D), else SN error is issued.
+;GTDTR does a GTDSN and echoes the char if trace print is desired.
+gtd:	call	gtcha
+	cmp	d
+	rz
+bkupc:	stc			;return carry set if no match
+	jmp	bakup		;back up textp and return
+	if	not compl
+gtdtr:	lda	inlhs
+	ora	a
+	jz	gtdsn		;do not echo unless INLHS
+	lda	vtrac
+	ral			;carry set iff trace print desired
+	mov	a,d
+	cc	writc		;write it if so
+	endif			;and fall through to GTDSN
+gtdsn:	call	gtd
+	rnc
+	jmp	snerr
+	if	compl
+gtdtr	equ	gtdsn
+	endif
+gtreq:	mvi	d,')'
+	call	gtdsn		;skip ) and fall through to skip =
+gtequ:	mvi	d,eqult
+	jmp	gtdsn		;skip = token
+
+;GTDEL scans text until delimiter is found.
+gtdel:	call	dtst0		;test if current is delimiter
+	rnc			;delimiter, done
+	call	read1		;no, read the current
+	cpi	'"'
+	cz	gtclq		;watch for quoted strings
+	jmp	gtdel		;and try the next
+
+;GTCLQ scans to close quote or <cr>.
+;Call:	HL	next char addr
+;Retn:	HL	addr of " or cr
+;	textp	reset
+gtclq:	mov	a,m		;fetch next
+	cpi	cr
+	rz			;done if cr
+	call	read1		;else read it
+	cpi	'"'
+	jnz	gtclq		;and keep reading if not close "
+	dcx	h		;point to "
+	ret
+
+;ISDIG presrves A and returns Carry set iff (A) is not ASCII digit.
+isdig:	cpi	'0'
+	rc			;too small
+	cpi	'9'+1
+	cmc
+	ret
+
+;ISHEX converts an ASCII hex digit to binary.
+;Both upper and lower case alphabetic characters are allowed.
+;Call:	A	character
+;Retn:	Carry	set iff not a hex digit
+;	A	binary value if Carry reset, clobbered if Carry
+;	BCDEHL	preseved
+ishex:	sui	'0'		;subtract bias
+	cpi	'G'+20H-'0'
+	cmc
+	rc			;return Carry set if < '0' or > 'f'
+	cpi	10
+	cmc			;Carry reset for '0' to '9'
+	rnc			;decimal digit
+	ani	1FH		;mask to convert lower case to upper
+	sui	'A'-'0'		;'A' becomes 0, 'B' becomes 1...
+	cpi	6
+	cmc
+	rc			;return Carry if not legal hex digit
+	adi	10		;'A' becomes 10, 'B' becomes 11...
+	ret
+
+;GTILD gets the next letter or digit without skipping spaces, and is
+;called by GTNAM and GTFIL to build a variable or file name.
+;Call:	HL	address of next char to parse
+;Retn:	A	next char
+;	BC,DE	preserved
+;	HL	incremented
+;	(textp)	value of HL when called
+;	Carry	set iff next not letter or digit
+gtild:	mov	a,m
+	shld	textp		;leave textp set for failure
+	inx	h
+ldtst:	call	isdig
+	rnc			;digit
+isalp:	cpi	'A'
+	rc			;neither
+	cpi	'Z'+1
+	cmc			;carry iff not letter
+	ret
+
+;GTDEC scans an unsigned decimal integer and returns its value.
+;An unsigned decimal integer is a string of decimal digits.
+;The digit count (not including leading 0s) is used for overflow detection.
+;1-4 digits indicates no overflow.
+;6+ digits indicates overflow.
+;5 digits indicates overflow iff (value of 4 digits)*10 > 65535 or
+;	(value of 4 digits)*10 + (value of digit 5) > 65535.
+;	Note that 9999*5 is always < 65535.
+;Retn:	Carry	set iff no decimmal digit
+;	Zero	set if overflow, i.e. integer > 65535
+;	A	clobbered
+;	BC	preserved
+;	DE	integer value 0 <= n <= 65535 if Carry and Zero reset
+;	DE	0 if Carry or Zero
+;	HL	address of next nondigit
+;GTDE0 is called from GTDEC to scan through leading 0s.
+gtde0:	inx	h
+	shld	textp		;read leading 0
+	mov	a,m		;fetch next char
+	sui	'0'
+	jz	gtde0		;another leading 0
+	cpi	10		;carry set iff decimal digit
+	jc	gtde1		;digit follows leading 0s
+retnc:	ora	a		;nondigit, return C,Z reset and result 0
+	ret
+gtdec:	lxi	d,0		;default value to DE
+	call	gtcho		;next char to A, textp to HL
+	sui	'0'		;subtract ASCII bias
+	jz	gtde0		;strip off leading 0s
+	cpi	10
+	jc	gtde1		;digit
+	mov	a,m		;refetch next
+	ora	a		;clear Zero
+	stc			;and set Carry
+	ret
+gtde1:	mov	e,a		;first digit value to DE
+	push	b		;save BC
+	mvi	b,-6 and 255	;-(max # digits + 1) to B
+gtde2:	inr	b		;# digits read - max # - 1
+	inx	h
+	mov	a,m		;fetch next char
+	sui	'0'		;subtract ASCII bias
+	cpi	10
+	jnc	gtde3		;nondigit, done
+	push	h		;save textp
+	mov	h,d
+	mov	l,e		;copy value to HL
+	call	hl10a		;10 * old value + current digit = new value
+	xchg			;to DE
+	pop	h		;restore textp
+	jnc	gtde2		;get next if no overflow
+	inr	b		;bump digit count to assure > 5 on overflow
+	jmp	gtde2		;and get next char
+gtde3:	shld	textp		;update textp
+	mov	a,b		;fetch digit count - max - 1
+	pop	b		;restore BC
+	ora	a
+	rm			;count <= max #, return both C and Z reset
+	xra	a		;overflow, return C reset and Z set
+	mov	d,a
+	mov	e,a		;and 0 in DE
+	ret
+
+;GTLNO returns a legal line # in DE, using GTDEC.
+;Brances to fatal US error if GTDEC returns overflow or 0.
+;Otherwise 	(1) nonexistent or 	(2) 0 < n < 2 ^ 16.
+;Retn:	A	next non-space char	clobbered
+;	BC	preserved		preserved
+;	DE	0			n
+;	HL	addr of next nondigit	address of next nondigit
+;	Carry	set			reset
+gtlno:	call	gtdec		;look for decimal integer
+	rc			;none, return Carry
+	mov	a,d
+	ora	e
+	rnz			;legal line #, return Carry reset
+userr:	error	f, U, S		;fatal US error -- illegal line #
+
+;GTLIT gets a literal, and is called by EVAL, READ, INPUT and VAL.
+;The literal may be preceeded by optional spaces and untokenized + and - signs.
+;Call:	HL	(textp)
+;Retn:	Carry	set iff no literal found
+;	A	type token
+;	BC	value if integer
+;	C,DE	value if string
+;	(TEMP)BCD	value if floating
+gtlit:	mov	a,m		;fetch next
+	inx	h		;and point to following
+gtlt1:	push	psw
+	xra	a
+	sta	temp		;sign = positive
+	pop	psw
+gtlt2:	call	isdig		;check if char is digit
+	jnc	gtlid
+	if	float
+	cpi	'.'
+	jz	gtlif		;get floating literal
+	endif
+	shld	textp		;else read the char
+	if	strng
+	cpi	'"'
+	jz	gtlis		;get string literal
+	endif
+	lxi	b,intst shl 8	;overflow flag to B, 0 to C
+	mov	d,c
+	mov	e,c		;embryo value 0 to DE
+	cpi	'#'
+	jz	gtlih		;get hex literal
+	cpi	'&'
+	jz	gtlib		;get binary literal
+	cpi	' '
+	jz	gtlt3		;leading space -- ignore
+	cpi	'+'
+	jz	gtlt3		;unary +
+	cpi	'-'		;check for unary -
+	jnz	bkupc		;else back up TEXTP and return Carry
+	lda	temp		;unary minus -- complement sign
+	cma
+	sta	temp
+gtlt3:	mov	a,m
+	inx	h		;point to next
+	jmp	gtlt2		;and keep looking
+;get a string literal, i.e. quoted string
+	if	strng
+gtlis:	push	h		;save string location
+	call	gtclq		;scan to close " or cr
+	pop	d		;location to DE
+gtls1:	mov	a,l		;last+1 -- EVUNQ entry point
+	sub	e		;last+1-first = length
+	mov	c,a		;to C
+	mvi	a,strst		;type = string
+	ora	a		;return Carry reset
+	ret
+	endif
+;get binary integer literal
+gtlib:	xchg			;textp to DE, value to HL
+gtlb1:	ldax	d		;fetch char
+	sui	'0'		;subtract ASCII bias
+	cpi	2
+	jnc	ovtst		;not a binary digit, done
+	inx	d
+	inr	c		;bump count
+	dad	h		;shift value left one bit
+	cc	ovset		;set overflow flag
+	rar			;current digit to Carry
+	jnc	gtlb1		;try next
+	inx	h		;add current digit to value
+	jmp	gtlb1		;and try next
+;get hex integer literal
+gtlih:	xchg			;textp to DE, value to HL
+gtlh1:	ldax	d		;fetch next
+	call	ishex
+	jc	ovtst		;not a hex digit, done
+	inx	d
+	inr	c		;bump count
+	push	psw
+	mov	a,h
+	ani	0F0H		;Zero reset if overflow will occur
+	cnz	ovset		;set overflow flag
+	pop	psw		;restore current nibble
+	dad	h
+	dad	h
+	dad	h
+	dad	h		;value left four bits
+	ora	l
+	mov	l,a		;add in current nibble
+	jmp	gtlh1
+;common exit for binary and hex integer literals
+ovtst:	xchg			;textp to HL
+	shld	textp		;and reset
+	mov	a,c		;digit count to A
+	ora	a
+	jz	bkupc		;no digits after # or &, return Carry
+	mov	a,b		;fetch result type
+	mov	b,d
+	mov	c,e		;result to DE
+	cpi	intst
+	rz			;return type integer if no overflow
+;issue nonfatal OV error and return max integer value in BC
+iover:	error	n, O, V		;else issue nonfatal OV error
+	lxi	b,7FFFH		;max positive value to BC
+	mvi	a,intst		;result is integer
+	ora	a		;carry reset
+	ret
+ovset:	dcr	b
+	ret
+;get numeric literal with first char digit
+gtlid:	push	h		;save textp
+	call	gtdec		;get decimal number
+	mov	a,m		;fetch next char
+	pop	h		;old textp to HL
+	if	float
+	jz	gtlif		;get floating literal if too big
+	cpi	'.'
+	jz	gtlif		;or if next is .
+	cpi	'E'
+	jz	gtlif		;or if next is E
+	cpi	'E'+20H
+	jz	gtlif		;also allow lower case e in case untokenized
+	mov	a,d
+	ora	a
+	jm	gtlif		;or if value is > 32767 but < 65536
+	else
+	jz	iover		;OV error if too big in nonfloating version
+	endif
+	lda	temp		;fetch sign
+	ora	a
+	cnz	cplde		;complement value if negative desired
+	mov	b,d
+	mov	c,e		;value to BC
+	mvi	a,intst
+	rnc			;return unless cannot complement
+	if	float
+gtlif:	dcx	h
+	call	finp		;get floating literal
+	sta	temp		;save A
+	mvi	a,sngst
+	ora	a		;return Carry reset
+	ret
+	else
+	jmp	iover
+	endif
+
+;GTNAM gets a variable name into buffer at BUFAD, its type into VARTY,
+;	and its length into A.
+;A name is <letter> [<letter> | <digit>]* [$ | <exclam> | %] without spaces.
+;After MAXNL characters, additional chars are scanned but ignored.
+;The first letter determines the variable type according to TYBUF,
+;	unless the trailing character $ | <exclam> | % is specified.
+;Call:	(textp)	current text pointer
+;Retn:	A	length of variable name
+;	HL	address of first char after name
+;	(bufad)	symbol name string
+;	(varty)	variable type
+;	Carry	set iff no name, i.e. first char not letter
+gtnam:	call	gtalp		;get letter
+	rc
+	push	b
+	push	d
+	mov	b,a		;save first char
+	if	strng or float	;must find var type if noninteger version
+	xchg			;save HL in DE
+	lxi	h,tybuf-'A'
+	call	adahl		;address default type byte
+	mov	a,m		;fetch it
+	xchg			;restore HL
+	else
+	mvi	a,intst		;else type is integer
+	endif
+	sta	varty		;store type in VARTY
+	mov	a,b		;restore char
+	lxi	b,bufad
+	mvi	d,1		;char count to D
+gtnm1:	stax	b		;store a char
+gtnm2:	call	gtild		;get next char
+	jc	gtnm3		;no more
+	mov	e,a		;save new char
+	mov	a,d
+	cpi	maxnl		;compare count to max name length
+	jnc	gtnm2		;count >= length, so don't insert
+	mov	a,e		;restore char
+	inx	b
+	inr	d		;bump count and pointer
+	jmp	gtnm1		;and insert
+gtnm3:	cpi	'%'
+	cz	gtnm4		;type is integer
+	if	float
+	cpi	'!'
+	cz	gtnm6		;type is floating
+	endif
+	if	strng
+	cpi	'$'
+	cz	gtnm7		;type is string
+	endif
+	if	camac
+	cpi	'#'
+	cz	gtnm8
+	endif
+	ldax	b
+	ori	80H
+	stax	b		;end of string bit on
+	mov	a,d
+	pop	d
+	pop	b
+	ret
+gtnm4:	mvi	a,intst		;integer token to A
+gtnm5:	shld	textp		;move textp past trailing char
+	inx	h
+	sta	varty		;reset VARTY to specified type
+	xra	a		;clear A for following compares
+	ret
+	if	float
+gtnm6:	mvi	a,sngst		;single precision token to A
+	jmp	gtnm5
+	endif
+	if	strng
+gtnm7:	mvi	a,strst		;string token to A
+	jmp	gtnm5
+	endif
+	if	camac
+gtnm8:	mvi	a,camst
+	jmp	gtnm5
+	endif
+
+;FDVAR looks for variable name, returns carry set if none.
+;If var not found in symbol table, assumes its type to be simple and
+;builds a new symbol table entry for it.
+;Retn:	DE	entry type address
+;	HL	address following name in entry
+fdvar:	call	gtnam
+	rc
+	mov	c,a		;save length
+	call	stlku		;look up symbol in symbol table
+	rnc			;found it
+fdva1:	lda	varty		;fetch var type -- unary user fn entry point
+	if	camac
+	cpi	camst		;check if camvar
+	jz	snerr		;SN error if undefined camvar
+	endif
+	call	bytsd		;# bytes per entry to DE
+	xchg			;and to HL
+	mvi	b,0		;length to BC
+	inx	h		;+length
+	inx	h		;+type
+	inx	h		;+dims
+	dad	b		;entry length to HL
+	call	stpsh		;build the entry
+	dcx	d		;DE points to type byte
+	mvi	m,0		;zero the dim byte
+	ret
+
+;GTVAR performs a variable reference.
+;Gets a variable name from text, returns with carry set if none.
+;If variable name not found in symbol table, assumes its type to be simple
+;and builds a new symbol table entry for it.
+;Prints trace info if INLHS and either TRACE or variable break bit on,
+;and sets VTRAC accordingly.
+;Issues BS error if subscript out of bounds.
+;Retn:	A	type token of referenced variable
+;	DE	type byte address of referenced var
+;	HL	address of referenced variable
+;	Carry	set iff no name found
+;	(vtrac)	bit 7 set iff trace desired
+gtvar:	call	fdvar
+	rc			;no name found
+	if	not compl
+	lda	inlhs
+	ora	a
+	cnz	trset		;set VTRAC if in lhs
+	endif
+	mov	a,m		;fetch # dims
+	mov	c,a		;and save in C
+	inx	h
+	ora	a		;zero set iff simple var
+	lda	varty		;value to return to A
+	rz			;simple var
+	if	camac
+	cpi	camst		;check if camvar reference
+	jnz	gtva0		;no
+	mvi	a,intst		;yes, value of camvar ref is integer
+gtva0:	ora	a		;reset Carry for return
+	endif
+	push	psw		;save value to return
+	push	d
+	call	bytsd		;find bytes per entry
+	mov	b,e		;and save in B
+	push	b		;save bytes per entry and # dims
+	lxi	b,1		;product to BC
+	lxi	d,0		;sum to DE
+	push	d		;and saved
+	mvi	d,'('
+;GTVA1 is executed for each subscript of the variable.  The stack contains
+;the result type, type byte address, bytes per entry/# dimensions, and sum
+;of subscripts thus far.  BC contains the product of bounds thus far, and
+;HL points to the next bound.
+gtva1:	push	h		;save pointer
+	call	gtdtr		;skip (
+	pop	h		;restore pointer
+	mov	e,m
+	inx	h
+	mov	d,m		;next bound to DE
+	inx	h		;point to next
+	xthl			;save pointer, sum to HL
+	push	b		;save product
+	push	d		;save dim
+	push	h		;save sum
+	push	b		;save product
+	call	gtsub		;get subscript to BC
+	pop	d		;product to DE
+	call	mulbd		;subscript * product to HL
+	pop	d		;sum to DE
+	dad	d		;new sum = sum + subscript * product to HL
+	pop	d		;bound to DE
+	pop	b		;product to BC
+	inx	d		;bound+1
+	push	h		;save sum
+	call	mulbd		;new product = product * (bound+1) to HL
+	pop	d		;sum to DE
+	xthl			;product to stack, pointer to HL
+	pop	b		;product to BC
+	xthl			;pointer to stack, counts to HL
+	dcr	l		;decrement # dims count
+	jz	gtva2		;done
+	xthl			;save counts, restore pointer
+	push	d		;save sum
+	mvi	d,','
+	jmp	gtva1		;and do some more dimensions
+gtva2:	mov	a,h		;bytes per entry to A
+	pop	h		;pointer to HL
+gtva3:	dad	d		;add sum once for each value byte
+	dcr	a
+	jnz	gtva3		;pointer * sum = location
+	push	h
+	mvi	d,')'
+	call	gtdtr		;skip )
+	pop	h
+	pop	d		;restore type byte address
+	pop	psw		;and value to return
+	ret
+
+;GTSUB gets a subscript expression, issuing nonfatal BS error if out of bounds.
+;The subscript value is printed if VTRAC is negative.
+;Call:	DE	bound
+;Retn:	BC	subscript, 0 <= (BC) <= (DE)
+gtsub:	if	not compl
+	lda	inlhs
+	ora	a		;check if INLHS
+	jm	gtsu2		;yes -- fix so no extraneous tracing
+	endif
+gtsu0:	push	d		;save bound
+	lxi	d,stack+stakm+10-stakl
+	call	cplde
+	xchg
+	dad	sp		;number of bytes left to HL
+	jnc	bserr		;fatal BS error if too little room left
+	call	gtexp		;expr to BC
+	lxi	d,0
+	mov	a,b
+	ora	a		;check sign of subscript
+	cm	gtsu1		;negative
+	pop	d		;restore bound
+	call	cmbds
+	rc			;< bound
+	rz			;= bound
+gtsu1:	mov	b,d
+	mov	c,e		;replace expr with bound
+	error	n, B, S		;nonfatal BS error and return
+	if	not compl
+gtsu2:	xra	a
+	sta	inlhs		;reset INLHS
+	call	gtsu0		;get the subscript
+	mvi	a,255
+	sta	inlhs		;turn INLHS back on
+	lda	vtrac
+	ora	a
+	rp
+	jmp	wrtbu		;print subscript val if tracing
+	endif
+bserr:	error	f, B, S		;fatal BS error
+
+;GTIVA is called from SCALL to perform an integer variable reference.
+;Retn:	Carry	Set if not integer var ref
+;	BC	value of integer var
+;	DE	preserved
+gtiva:	push	d
+	call	gtvar		;look for var ref
+	pop	d
+	rc			;not found
+	mov	c,m
+	inx	h
+	mov	b,m		;value to BC
+	if	strng or float
+	cpi	intst
+	rz			;return Carry reset if integer
+	stc			;and Carry set if not
+	endif
+	ret
+
+	if	not compl
+;TRSET determines if trace printing is desired, setting VTRAC accordingly
+;and echoing the variable name if so.
+;A trailing type char is printed if the type is not the default type.
+;Call:	DE	addr of var type byte
+;Retn:	A	clobbered
+;	BC,DE,HL	preserved
+;	Carry	reset
+;	(vtrac)	minus iff trace printing desired
+trset:	push	h
+	lhld	trace		;INLHS to H, TRACE to L
+	ldax	d		;type byte to A -- A7 set iff var break
+	ora	l		;minus iff var break or TRACE on
+	ana	h		;minus iff tracing desired
+	sta	vtrac
+	jp	trst1		;done if not tracing
+	call	bprnt		;echo line number if not done already
+	mov	h,d
+	mov	l,e
+	inx	h		;name addr to HL
+	if	strng or float
+	push	h		;and saved
+	call	prtst		;print it
+	pop	h		;restore addr
+	mov	a,m		;refetch first char
+	ani	7FH		;mask off possible high bit
+	lxi	h,tybuf-'A'
+	call	adahl		;address default type buffer location
+	ldax	d		;fetch type byte
+	ani	1FH		;mask to type
+	cmp	m		;compare to default
+	jz	trst1		;same as default, no trailing char
+	call	tycha		;type char to H
+	mov	a,h
+	call	writc		;and printed
+	else			;NOT STRNG and NOT FLOAT
+	call	prtst		;just print the name
+	endif
+trst1:	pop	h
+	ret
+
+;TYCHA returns type char in H for type in A.
+	if	strng or float
+tycha:	if	strng
+	mvi	h,'$'
+	cpi	strst
+	rz			;string
+	endif
+	if	float
+	mvi	h,'!'
+	cpi	sngst
+	rz			;floating
+	endif
+	if	camac
+	mvi	h,'#'
+	cpi	camst
+	rz			;camvar
+	endif
+	mvi	h,'%'
+	ret			;integer
+	endif			;end of STRNG or FLOAT conditional
+	endif			;end of NOT COMPL conditional
+
+;CMPST compares the strings at (DE) and M.  Zero set iff match.
+cmpst:	ldax	d
+	cmp	m
+	inx	d
+	inx	h
+	rnz			;return zero reset if no match
+	ora	a
+	jp	cmpst		;keep comparing
+	xra	a		;match -- set zero and return
+	ret
+
+;CPYST copies a string from (DE) to M.
+cpys0:	lxi	d,bufad
+cpyst:	ldax	d
+	mov	m,a
+	inx	d
+	inx	h
+	ora	a
+	jp	cpyst
+	ret
+
+
+;end of PARSING
+	page

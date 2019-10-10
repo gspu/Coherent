@@ -1,0 +1,261 @@
+.\" Coherent 386 release 4.2
+.\" Copyright (c) 1982, 1993 by Mark Williams Company.
+.\" All rights reserved. May not be copied without permission.
+.\" For copying permission and licensing info, write licensing@mwc.com
+.\"
+.\" tmac.eps - position encapsulated PostScript images under COHERENT troff
+.\" By fwb (fred@lepanto.mwc.com), 02/03/1992
+.\"
+.ig
+mail from Steve Ness on handling encapsulated PostScript images - for the
+reader's enlightenment:
+
+"In the example you sent me, bounding box parameters are
+
+	-257 298 -179 353
+
+"which means that the lower left corner is [-257, 298] and the upper right
+corner is [-179, 353].  Thus, the image is -179-(-257)=78 horizontal points by
+353-298=55 vertical points, or about 1.08" x .76, and it is centered at
+-257+(78/2) = -218 x, 298+(55/2) = 325.5 y.  If you want it centered at a 
+given position [x, y] on the page, e.g. [4", 3"], compute as follows:
+
+	4" = 288 pts., 288+218 = 506
+	3" = 216 pts., 216-325.5 = -109.5
+
+"Thus, if you do a
+
+	506 -109.5 translate
+
+before printing the image, it should land where you want, centered 4" from
+the left margin and 3" up from bottom (not down from top) of the page."
+
+This set of macros assumes that an .eps file has a corresponding binding file
+that defines the following items:
+
+	.nr lX - X point of the image's lower-left corner
+	.nr lY - Y point of the image's lower-left corner
+	.nr uX - X point of the image's upper-right corner
+	.nr uY - Y point of the image's upper-right corner
+	.ds iN - full path name of the file that holds the image
+
+In effect, the set of binding files constitutes a data base of information
+about images, which is easily read by troff.
+
+A call to a macro passes it the X and Y scaling factors and the full path
+name of the binding file.  In the future, we'll add an argument to do rotation.
+
+This method may seem complex, but it's the best solution we've come up with
+to transfer large amounts of information easily into troff.  If you have a
+better idea, we'd love to hear it.
+
+This package also uses the following number registers:
+
+	iW - image width:  point at which the image is centered horizontally
+	iH - image height:  point at which the image is centered vertically
+	iB - breadth of the image, in decipoints
+	iL - length of the image, in decipoints
+	lW - width of an image set flush left, plus gutter
+	rW - width of an image set flush right, plus gutter
+	sX - X scaling factor
+	sY - Y scaling factor
+
+and the string:
+
+	bN - name of binding file
+
+These are all computed internally from the image's bindings and troff's
+internal registers that record just where on the page we are right now.
+You should not attempt to manipulate these registers by hand.
+..
+.\"
+.\" Translate Picture - reset the printer to center image on selected field.
+.\" This takes four arguments:
+.\" x,y of point on page where image is to be centered;
+.\" and the image's X,Y scaling factors
+.\" All x,y elements must be in points - *not* troff-style decipoints.
+.de TP
+.nr iW (\\n(lX*\\$3)+(((\\n(uX*\\$3)-(\\n(lX*\\$3))/2)
+.nr iH (\\n(lY*\\$4)+(((\\n(uY*\\$4)-(\\n(lY*\\$4))/2)
+.br
+.co
+gsave
+.co
+.co \\$1-\\n(iW \\$2-\\n(iH
+translate
+.co
+.co \\$3 \\$4
+scale
+.co
+.rb \\*(iN
+.co
+grestore
+.co
+..
+.\" Picture Here - center a picture on the page at the point where this
+.\" macro is called.  Takes three arguments:
+.\" the image's X scaling factor;
+.\" the image's Y scaling factor;
+.\" and full path name of the image's binding file.
+.\" The macro ensures that enough space is on the page to print the
+.\" and repositions the text and the image appropriately so there's
+.\" no collision or overwriting.  If there's not enough space, the image
+.\" is bumped to the next page.
+.\" example call:  .PH 1 1 /usr/PostScript/bbl/pj12.bnd
+.de PH
+.nr iB 0
+.nr iL 0
+.nr iW 0
+.nr iH 0
+.nr iB 0
+.nr lX 0
+.nr lY 0
+.nr uX 0
+.nr uY 0
+.sp \\n(pDu
+.so \\$3
+.nr iL ((\\n(uY-\\n(lY)*\\$2)*10
+.if \\n(iL>\\n(.t .bp
+.nr iB (\\n(.l/2)+\\n(.o
+.TP \\n(iB/10 (\\n(.p-(\\n(.h+(\\n(iL/2)))/10 \\$1 \\$2
+.sp \\n(iLu
+.sp \\n(pDu
+..
+.\" Picture Fill - fill up the rest of the white space on the current page with
+.\" a picture.  Takes three arguments:
+.\" the image's X scaling factor;
+.\" the image's Y scaling factor;
+.\" and full path name of the image's binding file.
+.\" If the remaining white space on the page cannot hold the image, it
+.\" prints nothing.
+.\" example call:  .PF 1 1 /usr/PostScript/bbl/pj12.bnd
+.de PF
+.nr iB 0
+.nr iL 0
+.nr iW 0
+.nr iH 0
+.nr lX 0
+.nr lY 0
+.nr uX 0
+.nr uY 0
+.sp \\n(pDu
+.so \\$3
+.nr iL ((\\n(uY-\\n(lY)*\\$2)*10
+.nr iB (\\n(.l/2)+\\n(.o
+.if \\n(iL<\\n(.t \\{\\
+.TP \\n(iB/10 (\\n(.p-(\\n(.h+((\\n(.t-\\n(iL)/2)+(\\n(iL/2)))/10 \\$1 \\$2\\}
+..
+.\" Picture Left - an image flush left on the page at the point where this
+.\" macro is called.  Takes three arguments:
+.\" the image's X scaling factor;
+.\" the image's Y scaling factor;
+.\" and full path name of the image's binding file.
+.\" Unlike the IF and IH macros, which clear clear out a horizontal band
+.\" on the page, PL sets a trap and indents properly, so text can flow
+.\" around the image.  If the image will not fit on this page, do nothing.
+.\" example call:  .PL 1 1 /usr/PostScript/bbl/pj12.bnd
+.de PL
+.\" set a trap to ensure that no line break occurs
+.nr sX 0
+.nr sY 0
+.nr sX \\$1
+.nr sY \\$2
+.ds bN \\$3
+.wh \\n(.hu+\\n(.vu Pl
+..
+.de Pl
+.nr iB 0
+.nr iL 0
+.nr iH 0
+.nr iW 0
+.nr lX 0
+.nr lY 0
+.nr uX 0
+.nr uY 0
+.so \\*(bN
+.nr iB ((\\n(uX-\\n(lX)*\\n(sX)*10
+.nr iL ((\\n(uY-\\n(lY)*\\n(sY)*10
+.\" IF THERE'S NOT ENOUGH SPACE ON THE PAGE, THE IMAGE SHOULD BE PLACED
+.\" AT THE TOP OF THE NEXT PAGE; BUT I'M NOT SURE YET HOW TO DO THAT.
+.if \\n(iL<\\n(.t \\{\\
+.TP (\\n(.o+(\\n(iB/2))/10 (\\n(.p-(\\n(.h+(\\n(iL/2)))/10 \\n(sX \\n(sY
+.nr lW \\n(iBu+0.1i
+.po +\\n(lWu
+.ll -\\n(lWu
+.wh \\n(.hu+\\n(iLu+\\n(.vu LU\\}
+.ch Pl
+..
+.\" Picture Beginning - an image flush left on the page at the point where this
+.\" macro is called.  Unlike .PL, does *not* have to have text appear before
+.\" it on the page.  Used for initial capitals and things like that.
+.\" Takes three arguments:
+.\" the image's X scaling factor;
+.\" the image's Y scaling factor;
+.\" and full path name of the image's binding file.
+.\" example call:  .PB 1 1 /usr/PostScript/bbl/pj12.bnd
+.de PB
+.nr iB 0
+.nr iL 0
+.nr iH 0
+.nr iW 0
+.nr lX 0
+.nr lY 0
+.nr uX 0
+.nr uY 0
+.so \\$3
+.sp \\n(.vu
+.nr iB ((\\n(uX-\\n(lX)*\\$1)*10
+.nr iL ((\\n(uY-\\n(lY)*\\$2)*10
+.TP (\\n(.o+(\\n(iB/2))/10 (\\n(.p-(\\n(.h+(\\n(iL/2)))/10 \\$1 \\$2
+.nr lW \\n(iBu+0.1i
+.po +\\n(lWu
+.ll -\\n(lWu
+.wh \\n(.hu+\\n(iLu+\\n(.vu LU
+.sp \\n(.vu
+..
+.\" Left Undo - undo the indentation set by .PL or .PB
+.de LU
+'po -\\n(lWu
+'ll +\\n(lWu
+'ch LU
+..
+.\" Picture Right - set an image flush right on the page at the point where this
+.\" macro is called.  Takes three arguments:
+.\" the image's X scaling factor;
+.\" the image's Y scaling factor;
+.\" and full path name of the image's binding file.
+.\" example call:  .PR 1 1 /usr/PostScript/bbl/pj12.bnd
+.de PR
+.\" set a trap to ensure that no line break occurs
+.nr sX 0
+.nr sY 0
+.nr sX \\$1
+.nr sY \\$2
+.ds bN \\$3
+.wh \\n(.hu+\\n(.vu Pr
+..
+.de Pr
+.nr iB 0
+.nr iL 0
+.nr iH 0
+.nr iW 0
+.nr lX 0
+.nr lY 0
+.nr uX 0
+.nr uY 0
+.so \\*(bN
+.nr iB ((\\n(uX-\\n(lX)*\\n(sX)*10
+.nr iL ((\\n(uY-\\n(lY)*\\n(sY)*10
+.if \\n(iL<\\n(.t \\{\\
+.TP (\\n(.o+(\\n(.l-(\\n(iB/2)))/10 (\\n(.p-(\\n(.h+(\\n(iL/2)))/10 \\n(sX \\n(sY
+.nr rW \\n(iBu+0.1i
+.ll -\\n(rWu
+.wh \\n(.hu+\\n(iLu+\\n(.vu RU\\}
+.ch Pr
+..
+.\" Right Undo - undo the indentation set by .PR
+.de RU
+.ll +\\n(rWu
+.ch RU
+..
+.\" End of tmac.eps

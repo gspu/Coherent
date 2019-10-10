@@ -1,0 +1,774 @@
+.TH termcap "" "" "System Administration"
+.PC "Terminal-description language"
+.B /etc/termcap
+.PP
+.II libterm
+.II "library^termcap"
+.B termcap
+is a language for describing terminals and their capabilities.
+Terminal descriptions are collected in the file
+.B /etc/termcap
+and are read by \fBtgetent\fR and its related programs
+to ensure that output to a particular terminal is in a format
+that that terminal can understand.
+.PP
+\*(CO also supports the terminal-description language
+.BR terminfo .
+For a description of how these languages differ, see the Lexicon entry for
+.BR terminfo .
+.SH Overview
+A terminal description written in \fBtermcap\fR consists of a series
+of fields, which are separated from each other by colons \*(Ql:\*(Qr.
+Every line in the description, with the exception of the last line,
+must end in a backslash \*(Ql\e\*(Qr.
+Tab characters are ignored.
+Lines that begin with a \*(Ql#\*(Qr are comments.
+A \fBtermcap\fR description must not exceed 1,024 characters.
+.PP
+The first field names the terminal.
+Several different names may be used, each
+separated by a vertical bar \*(Ql|\*(Qr;
+each name given, however, must be unique within the file \fB/etc/termcap\fR.
+By convention, the first listed must be two characters long.
+The second name is the name by which the terminal is most commonly known;
+this name may contain no blanks in it.
+Other versions of the name may follow.
+By convention, the last version is the full name of the terminal; here, spaces
+may be used for legibility.
+Any of these may be used to name your terminal to the \*(CO system.
+For example, the name field for the VT-100 terminal is as follows:
+.DM
+	d1|vt100|vt-100|pt100|pt-100|dec vt100:\e
+.DE
+.PP
+Note that the names are separated by vertical bars \*(Ql|\*(Qr,
+that the field ends with a colon, and that the line ends with a
+backslash.
+Using any of these names in an \fBexport\fR command will 
+make the correct terminal description available to programs that
+need to use it.
+.PP
+The remaining fields in the entry describe the
+.I capabilities
+of the terminal.
+Each capability field consists of a two-letter code, and may include
+additional information.
+There are three types of capability:
+.IP \fIBoolean\fR
+This indicates whether or not a terminal has a specific feature.
+If the field is present, the terminal is assumed to have the feature;
+if it is absend, the terminal is assumed not to have that feature.
+For example, the field
+.DM
+	\fBam:\fR
+.DE
+.IP
+is present, \fBtermcap\fR assumes
+that the terminal has automatic margins, whereas if that
+field is not present, the program using
+.B termcap
+assumes that the terminal does not have them.
+.IP \fINumeric\fR
+This gives the size of some aspect of the terminal.
+Numeric capability fields have the capability code, followed by a \*(Ql#\*(Qr
+and a number.
+For example, the entry
+.DM
+	\fBco#80:\fR
+.DE
+.IP
+means that the terminal screen is 80 columns wide.
+.IP "\fIString capabilities\fR"
+These give a sequence of characters that trigger a terminal operation.
+These fields consist of the capability code,
+an equal sign \*(Ql=\*(Qr, and the string.
+.IP
+Strings often include escape sequences.
+A \*(QL\fB\eE\fR\*(QR indicates an \fB<ESC>\fR character;
+a control character is indicated with a carat \*(Ql^\*(Qr plus the
+appropriate letter; and the sequences \fB\eb, \ef, \en, \er\fR,
+and \fB\et\fR are, respectively, backspace, formfeed, newline, \fB<return>\fR,
+and tab.
+.IP
+An integer or an integer followed by
+an asterisk in the string (e.g., \*(Ql\fIint\fR*\*(Qr)
+indicates that execution of the function should be
+delayed by \fIint\fR milliseconds; this delay is termed
+\fIpadding\fR.
+Thus, deletion on lines on the Microterm Mime-2A is coded as:
+.DM
+	dl=20*^W:
+.DE
+.IP
+\fBdl\fR is the capability code for \fIdelete\fR, the equal sign
+introduces the deletion sequence, \fB20*\fR indicates that each
+line deletion should be delayed by 20 milliseconds, and \fB^W\fR
+indicates that the line-deletion code on the Mime-2A is \fB<ctrl-W>\fR.
+.IP
+The asterisk indicates that the padding required is
+proportional to the number of lines affected by the operation.
+In the above example, the deletion of four lines on the Mime-2A
+generates a total of 80 milliseconds of padding; if no
+asterisk were present, however, the padding would be only 20 milliseconds,
+no matter how many lines were deleted.
+Also, when an asterisk is used,
+the number may be given to one decimal place, to show tenths of a
+millisecond of padding.
+.IP
+Note that with string capabilities,
+characters may be given as a backslash followed by the three octal
+digits of the character's ASCII code.
+Thus, a colon in a capability field may be given by \fB\e072\fR.
+To put a null character into the string, use \fB\e200\fR, because
+.B termcap
+strips the high bit from each character.
+.IP
+Finally, the literal characters \*(Ql\fB^\fR\*(Qr
+and \*(Ql\fB\e\fR\*(Qr are given by \*(QL\fB\e^\fR\*(QR
+and \*(QL\fB\e\e\fR\*(QR.
+.SH "Capability Codes"
+The following table lists \fBtermcap\fR's capability codes.
+\fBType\fR indicates whether the code is boolean, numeric,
+or string; a dagger \*(Ql\(dg\*(Qr indicates that this capability
+may include padding, and a dagger plus an asterisk \*(QL\(dg*\*(QR
+indicates that it may be used with the asterisk padding function
+described above.
+.LB
+.ta 1.0i 2.0i
+.tc
+\fIVariable	Type	Definition\fR
+.tc . 0.1i
+\fBae\fR	string\(dg	End alternate set of characters
+\fBal\fR	string\(dg*	Add blank line
+\fBam\fR	boolean	Automatic margins
+\fBas\fR	string\(dg	Start alternate set of characters
+\fBbc\fR	string	Backspace character, if not \fB<ctrl-H>\fR
+\fBbs\fR	boolean	Backspace character is \fB<ctrl-H>\fR
+\fBbt\fR	string\(dg	Backtab
+\fBbw\fR	boolean	Backspace wraps from column 0 to last column
+\fBCC\fR	string	Command character in prototype if it can be set at terminal
+\fBcd\fR	string\(dg*	Clear to end of display
+\fBce\fR	string\(dg	Clear line
+\fBch\fR	string\(dg	Horizontal cursor motion
+\fBcl\fR	string\(dg*	Clear screen
+\fBcm\fR	string\(dg	Cursor motion, both vertical and horizontal
+\fBco\fR	number	Number of columns
+\fBcr\fR	string\(dg*	\fB<return>\fR; default \fB<ctrl-M>\fR
+\fBcs\fR	string\(dg	Change scrolling region (DEC VT100 only); resembles \fBcm\fR
+\fBcv\fR	string\(dg	Vertical cursor motion
+\fBda\fR	boolean\(dg	Display above may be retained
+\fBdB\fR	number	Milliseconds of delay needed by \fBbs\fR
+\fBdb\fR	boolean	Display below may be retained
+\fBdC\fR	number	Milliseconds of delay needed by \fBcr\fR
+\fBdc\fR	string\(dg*	Delete a character
+\fBdF\fR	number	Milliseconds of delay needed by \fBff\fR
+\fBdl\fR	string\(dg*	Delete a line
+\fBdm\fR	string	Enter delete mode 
+\fBdN\fR	number	Milliseconds of delay needed by \fBnl\fR
+\fBdo\fR	string	Move down one line
+\fBdT\fR	number	Milliseconds of delay needed by tab
+\fBed\fR	string	Leave delete mode
+\fBei\fR	string	Leave insert mode; use \fB:ei=:\fR if this string is the same as \fBic\fR
+\fBeo\fR	string	Erase overstrikes with a blank
+\fBff\fR	string\(dg*	Eject hardcopy terminal page; default \fB<ctrl-L>\fR
+\fBhc\fR	boolean	Hardcopy terminal
+\fBhd\fR	string	Move half-line down, i.e., forward 1/2 line feed)
+\fBho\fR	string	Move cursor to home position; use if \fBcm\fR is not set
+\fBhu\fR	string	Move half-line up, i.e., reverse 1/2 line feed
+\fBhz\fR	string	Cannot print tilde \*(Ql~\*(Qr (Hazeltine terminals only)
+\fBic\fR	string\(dg	Insert a character
+\fBif\fR	string	Name of the file that contains \fBis\fR
+\fBim\fR	string	Begin insert mode; use \fB:im=:\fR if \fBic\fR has not been set
+\fBin\fR	boolean	Nulls are distinguished in display
+\fBip\fR	string\(dg*	Insert padding after each character listed
+\fBis\fR	string	Initialize terminal
+\fBk0-k9\fR	string	Codes sent by function keys 1 through 10 (\fBk0\fR = F10)
+\fBkb\fR	string	Code sent by backspace key
+\fBkd\fR	string	Code sent by down-arrow key
+\fBke\fR	string	Leave \*(QLkeypad transmit\*(QR mode
+\fBkh\fR	string	Code sent by home key
+\fBkl\fR	string	Code sent by left-arrow key
+\fBkn\fR	number	No. of function keys; default is 10
+\fBko\fR	string	Entries for for all other non-function keys
+\fBkr\fR	string	Code sent by right-arrow key
+\fBks\fR	string	Begin \*(QLkeypad transmit\*(QR mode
+\fBku\fR	string	Code sent by up-arrow key
+\fBl0-l9\fR	string	Function keys labels if not f0-f9
+\fBli\fR	number	Number of lines
+\fBll\fR	string	Move cursor to first column of last line (\fBcm\fR not set)
+\fBma\fR	string	Map keypad-to-cursor movement for \fBvi\fR version 2
+\fBmi\fR	boolean	Cursor may be safely moved while in insert mode
+\fBml\fR	string	Turn on memory lock for area of screen above cursor
+\fBms\fR	boolean	Cursor can be moved while in standout or underline mode
+\fBmu\fR	string	Turn off memory lock
+\fBnc\fR	boolean	\fB<return>\fR does not work
+\fBnd\fR	string	Move cursor right non-destructively
+\fBnl\fR	string\(dg*	Newline character; default is \fB\en\fR (\fIObsolete\fR)
+\fBns\fR	boolean	Terminal is CRT, but does not scroll
+\fBos\fR	boolean	Terminal can overstrike
+\fBpc\fR	string	Pad character any character other than null
+\fBPS\fR	string	Print start: redirect input to auxiliary port
+\fBPN\fR	string	Print end: stop redirecting input to auxiliary port
+\fBpt\fR	boolean	Terminal's tabs set by hardware; may need to be set with \fBis\fR
+\fBse\fR	string	Exit standout mode
+\fBsf\fR	string\(dg	Scroll forward
+\fBsg\fR	number	Blank characters left by \fBso\fR or \fBse\fR
+\fBso\fR	string	Enter standout mode
+\fBsr\fR	string\(dg	Reverse scroll
+\fBta\fR	string\(dg	Tab character other than \fB<ctrl-I>\fR, or with padding
+\fBtc\fR	string	Similar terminal \(em must be last field in entry
+\fBte\fR	string	End a program that uses \fBcm\fR
+\fBti\fR	string	Begin a program that uses \fBcm\fR
+\fBuc\fR	string	Underscore character and skip it
+\fBue\fR	string	Leave underscore mode
+\fBug\fR	number	Blank characters left by \fBus\fR or \fBue\fR
+\fBul\fR	boolean	Terminal underlines but does not overstrike
+\fBup\fR	string	Move up one line
+\fBus\fR	string	Begin underscore mode
+\fBvb\fR	string	Visible bell; may not move cursor
+\fBve\fR	string	Exit open/visual mode
+\fBvs\fR	string	Begin open/visual mode
+\fBxb\fR	boolean	Beehive terminal (f1=\fB<esc>\fR, f2=\fB<crtl-C>\fR)
+\fBxn\fR	boolean	Newline is ignored after wrap
+\fBxr\fR	boolean	\fB<return>\fR behaves like \fBce \er \en\fR
+\fBxs\fR	boolean	Standout mode is not erased by writing over it
+\fBxt\fR	boolean	Tabs are destructive
+.SH Examples
+The following is the \fBtermcap\fR description for the IBM Personal
+Computer, also known as
+.BR ansipc .
+This is the default description used with your COHERENT system console:
+.DM
+.ta 0.5i
+ap|ansipc|ansi personal computer:\e
+	:al=\eE[L:am:bs:bt=\eE[Z:bw:cd=\eE[O:ce=\eE[K:ch=\eE[%i%d`:\e
+	:cl=\eE[2O:cm=\eE[%i%d;%dH:co#80:cs=\eE[%i%d;%dr:\e
+	:cv=\eE[%i%dd:dl=\eE[M:ho=\eE[H:is=\eE[25f\eE[2K\eE[m\eE[H:\e
+	:k0=\eE[0x:k1=\eE[1x:k2=\eE[2x:k3=\eE[3x:k4=\eE[4x:k5=\eE[5x:\e
+	:k6=\eE[6x:k7=\eE[7x:k8=\eE[8x:k9=\eE[9x:kb=^h:kd=\eE[B:kh=\eE[H:\e
+	:kl=\eE[D:kr=\eE[C:ku=\eE[A:li#24:ll=\eE[24;1H:hd=\eE[C:se=\eE[m:\e
+	:sf=\eE[S:sg#0:so=\eE[7m:sr=\eE[T:ue=\eE[m:up=\eE[A:us=\eE[4m:\e
+	:KI=\eE[5x:KD=\eE[3x:Kd=\eE[P:KB=\eE[6x:KU=\eE[4x:Ku=\eE[@:\e
+	:KM=\eE[7x:KJ=\eE[8x:Kt=\eE[Z:KT=\et:KL=\eE[1x:KR=\eE[2x:KP=\eE[U:\e
+	:Kp=\eE[V:KX=\eE[9x:KC=\eE[0x:KE=\eE[24H:KW=^F:Kw=^R:Kr=^N:do=\eE[B:
+.DE
+.PP
+The first field, which occupies line 1,
+gives the various aliases for this device.
+The remaining fields mean the following:
+.IP \fB:al=\eE[L:\e\fR 1.2i
+\fB<esc>L\fR adds new blank line; use
+one millisecond for each line added.
+.IS \fB:am:\e\fR
+Terminal has automatic margins.
+.IS \fB:bs:\e\fR
+Backspace character is \fB<ctrl>-H\fR (the default).
+.IS \fB:bt=\eE[Z:\e\fR
+\fB<esc>[Z\fR back-tabs.
+.IS \fB:bw:\e\fR
+On this device, a backspace character wraps from column 0 to the last column
+(in this case, column 79) on the previous line.
+.IS \fB:cd=\eE[O:\e\fR
+\fB<esc>[O\fR clears to the end of display.
+.IS \fB:ce=\eE[K:\e\fR
+\fB<esc>[K\fR clears to end of line.
+.IS \fB:ch=\eE[%i%d`:\e\fR
+The string for horizontal cursor motion (described later).
+.IS \fB:cl=\eE[2O:\e\fR
+\fB<esc>[2O\fR clears screen.
+.IS \fB:cm=\eE[%i%d;%dH:\e\fR
+Cursor motion (described later).
+.IS \fB:co#80:\e\fR
+Screen has 80 columns.
+.IS \fB:cs=\eE[%i%d;%dr:\e\fR
+String for changing the scrolling region.
+.IS \fB:cv=\eE[%i%dd:\e\fR
+String for vertical cursor motion.
+.IS \fB:dl=\eE[M:\e\fR
+\fB<esc>E[M\fR deletes a line.
+.IS \fB:ho=\eE[H:\e\fR
+\fB<esc>[H\fR moves cursor to home position.
+.IS \fB:is=\eE[25f\eE[2K\eE[m\eE[H:\e\fR
+The string with which the device is initialized.
+.IS \fB:k0=\eE[0x:\e\fR
+Function key 10 sends sequence
+\fB<esc>[0x\fR.
+.IS \fB:k1=\eE[1x:\e\fR
+Function key 1 sends sequence
+\fB<esc>[1x\fR.
+.IS \fB:k2=\eE[2x:\e\fR
+Function key 2 sends sequence
+\fB<esc>[2x\fR.
+.IS \fB:k3=\eE[3x:\e\fR
+Function key 3 sends sequence
+\fB<esc>[3x\fR.
+.IS \fB:k4=\eE[4x:\e\fR
+Function key 4 sends sequence
+\fB<esc>[4x\fR.
+.IS \fB:k5=\eE[5x:\e\fR
+Function key 5 sends sequence
+\fB<esc>[5x\fR.
+.IS \fB:k6=\eE[6x:\e\fR
+Function key 6 sends sequence
+\fB<esc>[6x\fR.
+.IS \fB:k7=\eE[7x:\e\fR
+Function key 7 sends sequence
+\fB<esc>[7x\fR.
+.IS \fB:k8=\eE[8x:\e\fR
+Function key 8 sends sequence
+\fB<esc>[8x\fR.
+.IS \fB:k9=\eE[9x:\e\fR
+Function key 9 sends sequence
+\fB<esc>[9x\fR.
+.IS \fB:kb=^h:\e\fR
+Backspace key sends \fB<Ctrl>-H\fR.
+.IS \fB:kd=\eE[B:\e\fR
+Down-arrow key sends \fB<esc>[B\fR.
+.IS \fB:kh=\eE[H:\e\fR
+Home key sends \fB<esc>[H\fR.
+.IS \fB:kl=\eE[D:\e\fR
+Left-arrow key sends \fB<esc>[D\fR.
+.IS \fB:kr=\eE[C:\e\fR
+Right-arrow key sends \fB<esc>[C\fR.
+.IS \fB:ku=\eE[A:\e\fR
+Up-arrow key sends \fB<esc>[A\fR.
+.IS \fB:li#24:\e\fR
+Terminal has 24 lines.
+.IS \fB:ll=\eE[24;1H:\e\fR
+\fB<esc>[24;1H\fR moves the cursor to the first column of the last line.
+.IS \fB:hd=\eE[C:\e\fR
+\fB<esc>[C\fR moves the cursor downward by one-half line.
+.IS \fB:se=\eE[m:\e\fR
+\fB<esc>[m\fR exits standout mode.
+.IS \fB:sf=\eE[S:\e\fR
+\fB<esc>[S\fR scrolls the screen forward.
+.IS \fB:sg#0:\e\fR
+The \fBso\fR and \fBse\fR instructions leave zero blank lines on the screen.
+.IS \fB:so=\eE[7m:\e\fR
+\fB<esc>[7m\fR begins standout mode.
+.IS \fB:sr=\eE[T:\e\fR
+\fB<esc>[T\fR reverse-scrolls the screen.
+.IS \fB:ue=\eE[m:\e\fR
+\fB<esc>m\fR ends underline mode.
+.IS \fB:up=\eE[A:\e\fR
+\fB<esc>[A\fR moves the cursor up one line.
+.IS \fB:us=\eE[4m:\e\fR
+\fB<esc>4m\fR begins underscore mode.
+.\".IS \fB:KI=\eE[5x:\e\fR
+.\".IS \fB:KD=\eE[3x:\e\fR
+.\".IS \fB:Kd=\eE[P:\e\fR
+.\".IS \fB:KB=\eE[6x:\e\fR
+.\".IS \fB:KU=\eE[4x:\e\fR
+.\".IS \fB:Ku=\eE[@:\e\fR
+.\".IS \fB:KM=\eE[7x:\e\fR
+.\".IS \fB:KJ=\eE[8x:\e\fR
+.\".IS \fB:Kt=\eE[Z:\e\fR
+.\".IS \fB:KT=\et:\e\fR
+.\".IS \fB:KL=\eE[1x:\e\fR
+.\".IS \fB:KR=\eE[2x:\e\fR
+.\".IS \fB:KP=\eE[U:\e\fR
+.\".IS \fB:Kp=\eE[V:\e\fR
+.\".IS \fB:KX=\eE[9x:\e\fR
+.\".IS \fB:KC=\eE[0x:\e\fR
+.\".IS \fB:KE=\eE[24H:\e\fR
+.\".IS \fB:KW=^F:\e\fR
+.\".IS \fB:Kw=^R:\e\fR
+.\".IS \fB:Kr=^N:\e\fR
+.IS \fB:do=\eE[B:\fR
+\fB<esc>E[B\fR moves cursor down one line.
+.PP
+Note that the last field did \fInot\fR end with a backslash; this
+indicated to the \*(CO system that the \fBtermcap\fR description
+was finished.
+.PP
+A terminal description does not have to be nearly so detailed.
+If you wish to use a new terminal, first
+check the following table to see if it already appears by \fBtermcap\fR.
+If it does not, check the terminal's documentation to see if it
+mimics a terminal that is already in \fB/etc/termcap\fR, and use
+that description, modifying it if necessary and changing the name
+to suit your terminal.
+If you must create an entirely new description, first prepare a
+skeleton file that contains the following basic elements:
+number of lines, number of columns, backspace, cursor motion, line delete,
+clear screen, move cursor to home position, newline, move cursor up a line,
+and non-destructive right space.
+For example, the following is the \fBtermcap\fR description for
+the Lear-Siegler ADM-3A terminal:
+.DM
+.ta 0.5i
+la|adm3a|3a|lsi adm3a:\e
+	:am:bs:cd=^W:ce=^X:cm=\eE=%+ %+ :cl=^Z:co#80:ho=^^:li#24:\e
+	:nd=<ctrl-L>:up=^K:
+.DE
+.PP
+Once you have installed and debugged the skeleton description,
+add details gradually until every feature of the terminal is
+described.
+.SH "Cursor Motion"
+The cursor motion characteristic contains
+\fBprintf\fR-like escape sequences not used elsewhere.
+These encode the line and column positions of the cursor,
+whereas other characters are passed unchanged.
+If the \fBcm\fR string is considered as a function, then its arguments
+are the line and the column to which the cursor is to move; the \fB%\fR
+codes have the following meanings:
+.IP "\fB%d\fR"
+Decimal number, as in
+.BR printf .
+The origin is 0.
+.IP "\fB%2\fR"
+Two-digit decimal number.
+The same as \fB%2d\fR in
+.BR printf() .
+.IP "\fB%3\fR"
+Three-digit decimal number.
+The same as \fB%3d\fR in
+.BR printf() .
+.IP "\fB%.\fR"
+Single byte.
+The same as \fB%c\fR in
+.BR printf() .
+.IP "\fB%+\fIn\fR"
+Add
+.I n
+to the current position value.
+.I n
+may be either a number or a character.
+.IP "\fB%>\fInm\fR"
+If the current position value is greater than
+\fIn\fB+\fIm\fR;
+then there is no output.
+.IP "\fB%r\fR"
+Reverse order of line and column, giving column first and then line.
+No output.
+.IP "\fB%i\fR"
+Increment line and column.
+.IP "\fB%%\fR"
+Give a \fB%\fR sign in the string.
+.IP "\fB%n\fR"
+Exclusive or line and column with 0140 (Datamedia 2500 terminal only).
+.IP "\fB%B\fR"
+Binary coded decimal (16 * (\fIn\fR/10))+(\fIn\fR%10).
+No output.
+.IP "\fB%D\fR"
+Reverse coding (\fIn\fB-(2*(\fIn\fB%16)\fR).
+No output (Delta Data terminal only).
+.PP
+To send the cursor to line 3, column 12 on the Hewlett-Packard 2645,
+the terminal must be sent \fB<esc>&a12c03Y\fR padded for 6 milliseconds.
+Note that the column is given first and then the line, and that the line and
+column are given as two digits each.
+Thus, the
+.B cm
+capability for the Hewlett-Packard 2645 is given by:
+.DM
+	:cm=6\eE&%r%2c%2Y:
+.DE
+.PP
+The Microterm ACT-IV needs the current position sent preceded by
+a \fB<Ctrl-T>\fR, with the line and column encoded in binary:
+.DM
+	:cm=^T%.%.:
+.DE
+.PP
+Terminals that use \fB%.\fR must be able to backspace the cursor (\fBbs\fR
+or \fBbc\fR) and to move the cursor up one line on the screen (\fBup\fR).
+This is because transmitting \fB\et\fR, \fB\en\fR, \fB\er\fR,
+or \fB<ctrl-D>\fR may
+have undesirable consequences or be ignored by the system.
+.SH "Similar Terminals"
+If your system uses two similar terminals, one can be defined as resembling
+the other, with certain exceptions.
+The code
+.B tc
+names the similar terminal.
+This field must be
+.I last
+in the \fBtermcap\fR entry,
+and the combined length of the two entries cannot exceed
+1,024 characters.
+Capabilities given first over-ride those in the similar terminal,
+and capabilities in the similar terminal can be cancelled by \fBxx@\fR
+where
+.I xx
+is the capability.
+For example, the entry
+.DM
+	hn|2621nl|HP 2621nl:ks@:ke@:tc=2621
+.DE
+.PP
+defines a Hewlett-Packard 2621 terminal that does not have the
+.B ks
+and
+.B ke
+capabilities, and thus cannot turn on the function keys when in visual mode.
+.SH Initialization
+A terminal initialization string may be given with the
+.B is
+capability; if the string is too long, it may be read from a file given
+by the
+.B if
+code.
+Usually, these strings set the tabs on a terminal with settable
+tabs.
+If both
+.B is
+and
+.B if
+are given,
+.B is
+will be printed first to clear the tabs, then the tabs will be set from
+the file specified by
+.BR if .
+The Hewlett-Packard 2626 has:
+.DM
+	:is=\eE&j@\er\eE3\er:if=/usr/lib/tabset/stdcrt:
+.DE
+.SH "Programming With termcap"
+.II libterm.a
+.II "library^terminal operations"
+The \*(CO library
+.B libterm.a
+contains the following routines that extract and use the descriptions for
+.BR termcap :
+.IP \fBtgetent()\fR 1.0i
+Read a \fBtermcap\fR entry.
+.IP \fBtgetflag()\fR
+Check if a given Boolean capability is present in the terminal's \fBtermcap\fR
+entry.
+.IP \fBtgetnum()\fR
+Return the value of a numeric \fBtermcap\fR
+feature (e.g., the number of columns on the terminal).
+.IP \fBtgetstr()\fR
+Read and decode a \fBtermcap\fR string feature.
+.IP \fBtgoto()\fR
+Read and decode a cursor-addressing string.
+.IP \fBtputs()\fR
+Read and decode the leading padding information of a \fBtermcap\fR
+string feature.
+.PP
+See the Lexicon entry for each function for details.
+.PP
+.II ospeed
+.II PC
+The external variable
+.B ospeed
+is the output speed to the terminal as encoded by
+.BR stty .
+The external variable
+.B PC
+is a padding character if a NUL (\fB<crtl-@>\fR) is not appropriate.
+.PP
+The following example shows how to read a
+.B termcap
+entry:
+.DM
+#include <stdio.h>
+.DE
+.DM
+static char *CM, *SO, *SE, *CL;
+static int rows, cols;
+static int am;
+static int errflag;
+static char *ptr;
+static char *tv_stype;
+.DE
+.DM
+.ta 3.0i
+extern char *tgoto();	/* termcap cursor position command */
+extern char *tgetstr();	/* get string code from termcap */
+extern int tgetflag();	/* get boolean flag from termcap */
+extern int tgetnum();	/* get numeric code from termcap */
+extern void tputs();	/* termcap put data command */
+extern char PC;	/* termcap's pad character */
+.DE
+.DM
+/*
+ * Get a required termcap string or exit with a message.
+ */
+static char *
+qgetstr(ref)
+char *ref;
+{
+	register char *tmp;
+.DE
+.DM
+	if ((tmp = tgetstr(ref, &ptr)) == NULL) {
+		printf("/etc/termcap terminal %s must have a %s= entry\en",
+			tv_stype, ref);
+		errflag = 1;
+	}
+	return (tmp);
+}
+.DE
+.DM
+/*
+ * Get required termcap information for this terminal type.
+ */
+static void
+tcapopen()
+{
+	extern char *getenv(), *realloc();
+	char *tcapbuf;
+	char tcbuf[1024]; /* this must hold the whole tml entry */
+	char *p;
+.DE
+.DM
+	/* set up termcap type */
+	if ((tv_stype = getenv("TERM")) == NULL) {
+		printf("Environment variable TERM not defined\en");
+		exit(1);
+	}
+.DE
+.DM
+	if (tgetent(tcbuf, tv_stype) != 1) {
+		printf("Terminal type %s not in /etc/termcap\en", tv_stype);
+		exit(1);
+	}
+.DE
+.DM
+	/* get far too much and shrink later */
+	if ((ptr = tcapbuf = malloc(1024)) == NULL) {
+		printf("out of space\en");
+		exit(1);
+	}
+.DE
+.DM
+	/* get termcap entries for later use */
+	CM = qgetstr("cm"); /* this string used by tgoto() */
+	CL = qgetstr("cl"); /* this string used to clear screen */
+	SO = qgetstr("so"); /* this string used to set standout */
+	SE = qgetstr("se"); /* this string used by clear standout */
+	if (errflag)	/* set if any missing entries */
+		exit(1);
+.DE
+.DM
+	/* set termcap's pad char */
+	PC = (((p = tgetstr("pc", &ptr)) == NULL) ? 0 : *p);
+.DE
+.DM
+	if (tcapbuf != realloc(tcapbuf, (unsigned)(ptr - tcapbuf))) {
+		printf("Buffer not shrunk in place!\en");
+		exit(1);
+	}
+.DE
+.DM
+	if ((cols = tgetnum("co")) < 0)	/* Get rows and columns */
+		cols = 80;
+	if ((rows = tgetnum("li")) < 0)
+		rows = 24;
+.DE
+.DM
+	am = tgetflag("am");	/* automatic margins ? */
+}
+.DE
+.DM
+/*
+ * output char function.
+ */
+static void
+ttputc(c)
+{
+	fputc(c, stdout);
+}
+.DE
+.DM
+/*
+ * output command string, set padding to one line affected.
+ * use ttputc as character output function. Use only for
+ * termcap created data not your own strings.
+ */
+void
+putpad(str)
+char *str;
+{
+	tputs(str, 1, ttputc);
+}
+.DE
+.DM
+/*
+ * Move cursor.
+ */
+void
+move(col, row)
+{
+	putpad(tgoto(CM, col, row));
+}
+.DE
+.DM
+/*
+ * Demonstrate termcap.
+ */
+main()
+{
+	tcapopen();
+.DE
+.DM
+	putpad(CL);			/* clear the screen */
+.DE
+.DM
+	move(30, 5);
+	putpad(SO);			/* standout mode */
+	printf("Termcap Demo");
+	putpad(SE);			/* end standout mode */
+.DE
+.DM
+	move(0, 7);
+	printf("This terminal has %d columns and %d rows.", cols, rows);
+.DE
+.DM
+	if (am) {
+		move(0, 8);
+		printf("Automatic margins.");
+	}
+.DE
+.DM
+	move(0, rows);	/* quit at bottom of screen */
+	exit(0);
+}
+.DE
+.SH Files
+\fB/etc/termcap\fR \(em Terminal-description data base
+.br
+\fB/usr/lib/libterm.a\fR \(em Routines for reading a \fBtermcap\fR description
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "captoinfo," captoinfo
+.Xr "curses," curses
+.Xr "libterm," libterm
+.Xr "terminal," terminal
+.Xr "terminfo," terminfo
+.Xr "tgetent()," tgetent
+.Xr "tgetflag()," tgetflag
+.Xr "tgetnum()," tgetnum
+.Xr "tgetstr()," tgetstr
+.Xr "tgoto()," tgoto
+.Xr "tputs()" tputs
+.br
+Strang, J., Mui, L., O'Reilly, T.:
+\fITermcap & Terminfo.\fR
+Sebastopol, CA:
+O'Reilly & Associates, Inc., 1991.
+\fIHighly recommended.\fR
+.SH Notes
+To see which terminals are currently supported, see file
+.BR /etc/termcap .
+.PP
+\*(CO also supports
+.BR terminfo ,
+a clone of the \*(UN System-V terminal-description system.
+.B terminfo
+enjoys a number of features not available under
+.BR termcap ,
+and is the preferred system under \*(CO.
+.PP
+Should you wish to convert to
+.BR terminfo ,
+the command
+.B captoinfo
+converts a file of
+.B termcap
+descriptions to their
+.B terminfo
+analogues.

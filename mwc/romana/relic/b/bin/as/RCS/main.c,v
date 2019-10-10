@@ -1,0 +1,364 @@
+head     1.7;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.7; strict;
+comment  @ * @;
+
+
+1.7
+date     93.03.25.10.06.30;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     93.03.01.08.46.12;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     93.02.24.08.52.28;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.18.14.37.29;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.11.23.10.21.37;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.10.29.08.22.34;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.09.11.12.54.09;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.7
+log
+@cef: fixed problems with messages meant for stderr not always being
+written to stderr. This manifested itself as a core dump when 'as'
+was invoked with no args.
+@
+text
+@/*
+ * Initialize the assembler
+ */
+#include <asm.h>
+
+#ifdef COHERENT
+#define SLASH '/'
+#else
+#define SLASH '\\'
+#endif
+
+#if 0
+	/* This is used only to get the Syntax error message into the docs. */
+
+	yyerror("Syntax error");
+	/* The syntax of this statement makes no sense to the parser.
+	 * This can be a variety of problems. */
+#endif
+
+static char swChars[] = "VwQXaxfpbgnlo:?E:D:"; /* list for getargs */
+static int savArgc;
+static char **savArgv;
+static char dodefsw;	/* -D or -E used */
+
+/*
+ * Do -E and -D definitions. 
+ * -Dx=y is the same as x .define y
+ * -Ea=5 is the same as a .equ 5
+ * This is called every pass.
+ */
+void
+dodefs()
+{
+	register char *p, c;
+
+	if (!dodefsw)	/* no -D or -E to process */
+		return;
+
+	optix = 1;	/* reset getargs */
+	while (EOF != (c = getargs(savArgc, savArgv, swChars))) {
+		switch(c) {
+		case 'D':
+		case 'E':
+			if (NULL == (p = strchr(optarg, '=')) || p == optarg)
+				fatal("Invalid option on -%c switch", c);
+				/* The syntax of -D and -E switches is
+				 * -Dname=string
+				 * -Ename=number */
+			*p++ = '\0';
+			if ('D' == c) {
+				defCt++;
+				defMac(gcpy(optarg, 0),
+				       gcpy(p, offset(parm, str)),
+				       MACSTR);
+			}
+			else
+				symLookUp(gcpy(optarg, 0), S_XSYM, atol(p), 0);
+			*--p = '=';
+		default:
+			continue;
+		}
+	}
+}
+
+/*
+ * Invalid usage message.
+ */
+void
+usage()
+{
+	fprintf(stderr, "usage: as [-wXxfpbgnlQ] [-o output] filename\n");
+	exit(1);
+}
+
+/*
+ * process arguments and call yyparse.
+ */
+main(argc, argv)
+char **argv;
+{
+	register char *p, c;
+	char *fileName;
+
+	errdev = stderr;	/* errors normally go to stderr */
+
+	initStor();		/* init storage control */
+	segInit();		/* init segment data */
+	indPass();		/* init indefinite branch logic */
+	newLevel(NORMAL);	/* set base level for if else etc */
+
+	_addargs("AS", &argc, &argv);
+	savArgv = argv;
+	savArgc = argc;
+
+	fileName = NULL;
+	while (EOF != (c = getargs(argc, argv, swChars))) {
+		switch(c) {
+		case 0:
+			if (NULL != fileName)	/* one time only */
+				fatal("more than one file to process");
+				/* The assembler will only process one file
+				 * at a time. */
+			fileName = optarg;
+			break;
+
+		case 'a':	/* align data objects */
+			alignon = alignonX ^= 1;
+			break;
+
+		case 'n':	/* No fixes for chip errata */
+			nswitch = nswitchX ^= 1; 
+			break;
+
+		case 'w':	/* No warning messages */
+			wswitchX ^= 1;	
+			break;
+
+		case 'X':	/* don't output .L local symbols */
+			Xswitch ^= 1;	
+			break;
+
+		case 'x':	/* no local symbols in object file */
+			xswitch ^= 1;	
+			break;
+
+		case 'f':	/* reverse order of operands */
+			fswitch = fswitchX ^= 1; 
+			break;
+
+		case 'p':	/* don't use % on register names */
+			rswitch ^= 1;	
+			break;
+
+		case 'b':	/* reverse bracket sense */
+			bswitch = bswitchX ^= 1; 
+			break;
+
+		case 'Q':	/* No messages at all */
+			Qswitch ^= 1;
+			break;
+
+		case 'g':	/* treat unrefrenced symbols as globl */
+			gswitch = 1;	
+			break;
+
+		case 'l':	/* print a listing */
+			errdev = (lswitchX ^= 1) ? stdout : stderr;
+			break;
+
+		case 'o':
+			outName = optarg;
+			if ((NULL == (p = strrchr(outName, '.'))) ||
+			    strcmp(p, ".o"))
+				fatal("Unlikely output file '%s'", outName);
+			/* Output file-names should have \fB.o\fR suffixes.
+			 * Because this is generally a typographical error,
+			 * \fBas\fR aborts to
+			 * avoid overwriting an important file. */
+			break;
+
+		case 'D':	/* process in dodefs */
+		case 'E':
+			dodefsw = 1;
+		case 'V':
+			fprintf(stderr, "Mark Williams 80386 assembler\n");
+			break;
+
+		case '?':
+		default:
+			usage();
+		}
+	}
+
+	if (fileName == NULL)
+		fatal("no work");
+		/* There were no files listed on the command line. */
+
+	symInit();		/* init symbol table */
+
+	fileOpen(fileName);
+	title = scpy(fileName, 0);
+
+	if(NULL == outName) {	/* develop output filename */
+		char *q;
+		int len;
+
+		/* point p at input file name */
+		if (NULL != (q = strrchr(p = fileName, SLASH)))
+			p = q + 1;
+
+		outName = alloc((unsigned)(3 + (len = strlen(p))));
+		strcpy(outName, p);
+
+		p = outName + len - 2;	/* right spot for .  */
+		if ('.' != *p)		/* if no . append .o */
+			p += 2;
+
+		strcpy(p, ".o");
+	}
+
+	/* get ctime without \n */
+	{
+		long t;
+
+		time(&t);
+		c = strlen(dTime = ctime(&t)) - 1;
+		dTime[c] = '\0';
+	}
+
+	dodefs();
+	yyparse();
+	fatal("Unexpected return from parser"); /* TECH */
+}
+@
+
+
+1.6
+log
+@cef: fixed -a option
+@
+text
+@d84 2
+d147 1
+a147 1
+			lswitchX ^= 1;	
+a179 2
+	errdev = lswitchX ? stdout : stderr;
+
+@
+
+
+1.5
+log
+@cef: fixed bug with aligned .long and now puts errors to stderr
+@
+text
+@d20 1
+a20 1
+static char swChars[] = "VwQXxfpbgnlo:?E:D:"; /* list for getargs */
+d104 4
+@
+
+
+1.4
+log
+@cef: new assembler for GNU compiler distribution
+@
+text
+@d174 2
+@
+
+
+1.3
+log
+@cef: adding code to understand gcc output
+@
+text
+@d179 1
+d181 1
+d185 1
+a185 1
+		outName = alloc((unsigned)(strlen(p) + 3));
+d187 6
+a192 9
+		if(NULL == (p = strrchr(outName, '.'))) {
+			p = strrchr(outName, 0);
+			*p++ = '.';
+			*p++ = 'o';
+		}
+		else {
+			*++p = 'o';
+			*++p = '\0';
+		}
+@
+
+
+1.2
+log
+@Update by cef for x87 suppt
+@
+text
+@d20 1
+a20 1
+static char swChars[] = "wQXxfpbgnlo:?E:D:"; /* list for getargs */
+a107 3
+		case 'Q':	/* No messages at all */
+			Qswitch ^= 1;
+
+d132 4
+d158 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d20 5
+d26 40
+a82 1
+	extern char *optarg;
+d90 3
+d94 1
+a94 1
+	while (EOF != (c = getargs(argc, argv, "wQXxfpbgnlo:?"))) {
+d153 6
+d202 1
+@

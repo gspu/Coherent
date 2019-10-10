@@ -1,0 +1,349 @@
+.TH SMAIL 8
+.SH NAME
+smail, rmail \- UUCP mailer with routing
+.SH SYNOPSIS
+.B smail
+[ options ] address ...
+.br
+.B rmail
+[ options ] address ...
+.SH DESCRIPTION
+The
+.I smail/rmail
+program replaces
+.IR /bin/rmail (1)
+to become the UUCP mail transport mechanism.
+They are links to the same executable.
+.I rmail
+receives mail from UUCP,
+.I smail
+introduces mail into UUCP.
+.PP
+.I smail/rmail
+can work with or without
+.IR sendmail (8),
+or another intelligent mail system.
+For hosts with just
+.IR /bin/mail (1),
+.I smail/rmail
+subsumes some of the functions of
+.I sendmail,
+and hands only local mail to
+.I /bin/mail.
+For hosts with
+.I sendmail,
+.I smail/rmail
+can act as UUCP front and back ends to
+.I sendmail,
+allowing
+.I sendmail
+to process all mail through the host.
+As distributed, 'bang' mail that is not bound for a local
+recipient will be passed directly to
+.I uux
+without calling
+.I sendmail.
+.PP
+To varying degrees,
+.I smail/rmail
+automatically routes the addresses it processes.
+.I smail/rmail
+most often routes domain style addresses (i.e. user@domain), producing
+a UUCP path (i.e. host!address) or a local address (i.e. user), but it can
+also reroute explicit UUCP paths.
+.SH OPTIONS
+.TP
+.B \-A
+Print the resolved addresses.  Don't collect a message or invoke a mailer.
+.TP
+.B \-d
+Be verbose and don't invoke other mailers.
+.TP
+.B \-v
+Be verbose, but still invoke other mailers.
+.TP
+.BI \-h " hostname"
+Set hostname.  The default is configuration dependent, but usually provided
+by a system call such as
+.IR gethostname (2)
+or
+.IR uname (2).
+.TP
+.BI \-H " hostdomain"
+set hostdomain.  The default is configuration dependent.
+.TP
+.BI \-F " address"
+use
+.I address
+on the From: line in locally generated mail.
+.TP
+.BI \-p " pathfile"
+Set path database file name if not /usr/lib/uucp/paths.
+.TP
+.BI \-a " aliasfile"
+For sites without sendmail, set alias database file name if not in
+the place defined at compile time (see ALIASES in defs.h).
+This is usually
+.I /usr/lib/aliases
+.TP
+.BI \-n " namelist"
+.I smail
+supports another type of aliasing intended for full name resolution
+using a sorted file,
+.I namelist,
+of name/address pairs.
+This allows mail to George.P.Burdell@gatech.edu to be delivered
+appropriately.  These aliases are by their nature very simple
+since they are not composed of long lists of recipients for each alias.
+They are also numerous, since mail to George.P.Burdell may be addressed
+to Burdell, G.Burdell, George.Burdell, P.Burdell, G.P.Burdell, or
+George.P.Burdell.  This simpler form of aliasing uses the same
+fast searching algorithm that is used for the paths file, so
+it keeps resolution time manageable.
+.TP
+.BI \-q " number"
+Take
+.I number
+as the queueing threshold.
+When routing mail (
+.I -r, -R,
+or domain addressed mail
+) to a given host, if the cost listed in the
+.I paths
+file is less than the queueing threshold, then the mail
+will be sent immediately.  This overrides the default threshold
+(see QUEUECOST in defs.h) of DEDICATED+LOW.
+.TP
+.BI \-m " number"
+At most 
+.I number
+jobs will be handed to uux for immediate delivery
+by a single invocation of
+.I smail
+(see MAXNOQUEUE in defs.h).
+.TP
+.BI \-u " uuxflags"
+Use
+.I uuxflags
+as the flags passed to uux for remote mail.
+This overrides any of the default values and other queueing strategies.
+.TP
+.B -c
+Consult the paths file for the cost of the path even when not routing
+the mail.  This makes it possible to use the cost information when
+sending pure UUCP path mail without rerouting it.
+.TP
+.B \-r
+Route the first component of a UUCP path (host!address) in addition to routing
+domain addresses (user@domain).
+.TP
+.B \-R
+Reroute UUCP paths, trying successively larger righthand substrings
+of a path until a component is recognized.
+.TP
+.B \-l
+Instead of routing a domain address, send it to the local mailer for
+processing.  Normally, only local addresses go to the local mailer.
+.TP
+.B \-L
+Send all addresses to the local mailer for processing, including UUCP paths.
+.PP
+Most of the flags are also compile time options, since
+.I uux
+does not normally invoke
+.I rmail
+with the desired flags.
+.I smail
+resets any preset
+.B -l
+or
+.B -L
+flags.
+.B -l
+flag causes 
+.B rmail
+to send all domain addresses through the local mailer,
+to process addresses for non UUCP domains.
+The
+.B -L
+flag causes
+.B rmail
+to send even explicit UUCP paths through the local mailer,
+presumably to make use of other transport mechanisms.
+In both cases, rmail defers any routing until smail gets hold it.
+.SH ADDRESSES
+.I smail/rmail
+understands "user@domain" to be a domain address, "host!address" to be a
+UUCP path, and anything else to be a local address.
+.PP
+Because hostile
+.I rmail's
+unpredictably interpret mixed UUCP/domain addresses,
+.I smail/rmail
+understands "domain!user" to be a domain address, and generates
+"path!domain!user" when mailing to a cognate
+.I smail/rmail
+host.
+To distinguish domain "domain!user" from UUCP "host!address", "domain"
+contains at least one (1) period.
+Unlike the old
+.I /bin/rmail,
+.I smail/rmail
+gives precedence to @ over ! when parsing mixed addresses,
+thus a!b@c is parsed as (a!b)@c, rather than a!(b@c).
+.SH ROUTING
+Because
+.I smail/rmail
+is the UUCP transport mechanism, it can only effect delivery on UUCP paths 
+and local addresses; domain addresses require resolution into UUCP paths or
+local addresses.  
+To resolve a domain address,
+.I smail/rmail
+finds a route to the most specific part of the domain specification listed
+in the routing table.
+Two degrees of resolution can occur:
+.RS
+.PP
+Full resolution:
+.I smail/rmail
+finds a route for the entire domain specification, and tacks the user
+specification onto the end of the UUCP path.
+The address can also fully resolve to a local address (the UUCP path is null).
+.PP
+Partial resolution:
+.I smail/rmail
+finds a route for only righthand part of the domain specification, so it 
+tacks the complete address (in the form domain!user) onto the end of the 
+UUCP path.
+Since this syntax is not widely understood, UUCP gateways listed in
+the path database must install new UUCP software, either
+.I smail/rmail
+or new
+.I sendmail
+configuration files (or both).
+.RE
+.PP
+It is an error if a partially resolved address routes to the local host 
+(a null UUCP path), since according to the routing table, the local
+host is responsible for resolving the address more fully.
+.PP
+The
+.B -r
+flag causes
+.I smail/rmail
+to attempt to route the first component of a UUCP path, probably so it
+can impress people with how many UUCP hosts it knows.
+If this fails, it passes the unrouted address to
+.I uux,
+in case the path database is not complete.
+The 
+.B -R
+flag causes
+.I smail/rmail
+to take a UUCP path and route the rightmost component of the path (save
+the user name) possible.
+This is mostly for hosts that have very up-to-date routing tables.
+.PP
+If a route cannot be discerned from the available routing database,
+then one more attempt to route the mail is made by searching for an
+entry in the database for a route to a
+.I smart-host.
+If this entry exists, then the mail will be forwarded along that route
+to be delivered.  This allows a host to depend on another, presumably
+better informed, host for delivering its mail.
+This kind of arrangement should be worked out,
+.I in advance,
+with the
+.IR smart-host 's
+administrator.
+.PP
+After
+.I smail/rmail
+resolves an address, it reparses it to see if it is now a UUCP path or
+local address.  If the new address turns out to be another
+domain address, smail complains because we don't like to resolve more than once.
+This error occurs when an address partially resolves the local host.
+.PP
+By default,
+.I smail
+will not alter the explicit bang path routing of any mail message.
+If the stated path is unuseable, (i.e., the next hop host is unknown)
+then smail will apply ALWAYS routing, and attempt to deliver the mail
+to the potentially new address.  If this fails too, then REROUTE routing
+will be applied to the address, and another attempt to deliver is made.
+Lastly, an attempt to find a path to a better informed host
+.I smart-host
+will be made and the mail passed to that host.
+.SH FROMMING
+.I smail/rmail
+collapses From_ and >From_ lines to generate a simple from argument, which
+it can pass to
+.I sendmail
+or use to create its own "From" line.
+The rule for fromming is: concatenate each "remote from" host (separating 
+them by !'s), and tack on the address on the last From_ line; if that address 
+is in user@domain format, rewrite it as domain!user; ignore host or
+domain if either is simply the local hostname.  It also removes redundant
+information from the From_ line.  For instance:
+.sp
+.ce
+ ...!myhost!myhost.mydomain!...
+.sp
+becomes
+.sp
+.ce
+ ...!myhost!...
+.sp
+Leading occurrences of the local host name are elided as well.
+.PP
+.I smail/rmail
+generates it own From_ line, unless it is feeding
+.I sendmail,
+which is happy with the
+.BI -f from
+argument.
+For UUCP bound mail,
+.I smail/rmail
+generates a "remote from hostname", where hostname is the UUCP hostname
+(not the domain name), so that From_ can indicate a valid UUCP path, leaving
+the sender's domain address in From:.
+.SH HEADERS
+Certain headers, To:, From:, Date, etc., are required by RFC822.
+If these headers are absent in locally generated mail, they will
+be inserted by smail.  Also, a line of trace information, called
+a Received: line, will be inserted at the top of each message.
+.SH UNDELIVERABLE MAIL"
+Although nobody likes to have a mail message fail to reach its
+intended destination, it somtimes happens that way.
+Mail that is found to be undeliverable
+(i.e., unknown user or unknown host)
+will be returned to the sender.
+.SH FILES
+/usr/lib/uucp/paths		ascii path database
+.br
+/usr/lib/aliases		ascii alias database
+.br
+/usr/spool/uucp/mail.log		log of mail
+.br
+/tmp/mail.log			record of mail
+.SH SUPPORT
+Enhancements, enhancement requests, trouble reports, etc.,
+should be sent to
+.sp
+.ce
+uucp-problem@Stargate.COM.
+.sp
+.SH "SEE ALSO"
+.IR uux (1),
+.IR paths (8),
+.IR aliases (8)
+.br
+.IR sendmail (8)
+.br
+.IR binmail (1)
+on BSD systems only
+.br
+.IR mail (1)
+on System V systems
+.SH VERSION
+@(#)smail.8	2.5 (smail) 9/15/87

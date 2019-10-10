@@ -1,0 +1,234 @@
+ 	      WHAT YOU NEED TO KNOW ABOUT PATHALIAS
+	   AND WHAT PATHALIAS NEEDS TO KNOW ABOUT YOU
+			       or
+		   HOW PATHALIAS MAKES DOMAINS
+
+		        Christopher Seiwald
+
+This note describes the host connectivity data and domain data
+needed to effect UUCP domain-style address routing.  This
+describes mostly the domain data, but also discusses how to
+distribute connectivity data.  Look elsewhere for a discussion of
+domains.
+
+Briefly, the connectivity data (what's in mod.map) connects
+all hosts in the UUCP network into one big directed graph, and
+the domain data superimposes a domain tree onto that graph.
+Pathalias converts these two sets of data into a routing database
+which smail/rmail, a UUCP mail routing program, uses.
+
+1.  Domains and Gateways for UUCP
+
+For domains in the UUCP zone, the top of a subdomain is all
+gateway hosts for that domain; the top of the UUCP zone will
+probably be nearly a hundred hosts.  As a transition aid, we
+also consider an individual host at the bottom of the domain tree a
+subdomain "host.UUCP", with one gateway and no further subdomains.  
+(We expect to phase this out eventually.)
+
+A gateway host for a domain must do four things:
+	I)	Pass mail bound for that domain to the
+		appropriate host.
+	II)	Pass mail bound for outside that domain to a
+		gateway in the parent domain.
+	III)	Pass mail bound for a subdomain to a gateway of
+		that subdomain.
+	IV)	Recognise the domain!user address syntax.
+
+smail/rmail already provides (IV).  With the data described here,
+pushed through pathalias, smail/rmail can then provide (I)-(III).
+
+2.  The Zone Registry
+
+For any sizeable zone, one gateway host supports the zone registry.
+For other zones, such as BITNET, CSNET, DDN, etc., registries are
+supported, using conventions appropriate to those zones.  Contact
+electronic mail addresses are supported for queries, and updates to
+configuration information may also be handled via mail.  In the UUCP
+zone, the id's "uucpmap@cbosgd.ATT.COM" and "domains@cbosgd.ATT.COM"
+serve to collect the connectivity and domain data, respectively, for
+that zone.
+
+The registry for a zone speaks for that zone, communicating
+chiefly with its peers, the registry of the parent domain, and
+the registries of the subdomains.
+
+3.  Functions of Domain Data
+
+Each gateway for a domain must map the domain-style names into
+the UUCP host names for all hosts of the domain.  This host name
+mapping provides (I) above.
+
+Each gateway for a domain knows a) at least one gateway for each
+immediate subdomain, and b) at least one gateway host of the
+parent domain.  This provides (II) and (III) above.
+
+For consistency across the gateways of a domain, each gateway for
+the domain should know a) ALL gateways for each immediate
+subdomain; and b) ALL gateways for the parent domain.  Pathalias
+will pick the closest. In this way, one single database can
+describe the domain structure for all gateways on a domain,
+without variations for each gateway. 
+
+In order to aid routing and avoid overloading the parent gateway,
+gateways should also know most gateways for peer level domains.
+This information is also provided by the map and used by pathalias.
+When a new peer domain is created, traffic can be routed through the
+parent (which must be updated immediately) until information about
+the peer can be propagated.
+
+Additionally, a gateway could know about domains more than one
+level above or below it so that mail doesn't stop for address
+resolution at every gateway along its path.
+
+4.  Format of Domain Data
+
+4.1  Host Name List
+
+The host name list aliases the domain style address of a host to
+the UUCP host name.  The pathalias input format is:
+
+		uucp-name .domain-name[, ...]
+
+The .UUCP suffix is implicit in the uucp-name (smail/rmail does
+this), and is not needed.
+Upper/lower case doesn't matter in a dotted domain name.
+Examples:
+	
+		ihnp4 = .ATT.COM
+		ucbvax = .Berkeley.EDU
+		cbosgd = .osgd.cb.att.com, .cbosgd.att.com
+
+Might produce from pathalias:
+
+		ihnp4			mtxinu!ihnp4!%s
+		.ihnp4.ATT.COM		mtxinu!ihnp4!%s
+		ucbvax			ucbvax!%s
+		.Berkeley.EDU		ucbvax!%s
+		cbosgd			cbosgd!%s
+		.osgd.cb.att.com	cbosgd!%s
+		.cbosgd.att.com		cbosgd!%s
+
+A single host may have more than one domain style address; in
+fact, a host may be in several domains at once.  However, each
+host must have a single primary location in the domain tree,
+and other addresses should be viewed as transition aids.  For
+example, cbosgd might be known as cbosgd, cbosgd.UUCP,
+cbosgd.ATT.UUCP, cbosgd.btl.csnet, and cbosgd.ATT.COM, but
+the primary name is the one in the organizational domain (COM)
+which applies to all networks, and the others are temporary
+names for upward compatibility only.
+
+4.2  Domain Gateway List
+
+The domain gateway list aliases the domain style address of a
+domain to the UUCP host name of the closest gateway of that
+domain.  This involves a trick in pathalias, and employs a
+extra network name domain-gw.  The pathalias input format is:
+
+		domain-gw .domain-name
+
+Again, the .UUCP suffix is implicit in the uucp-name, and is
+not needed.  
+Examples:
+
+		decwrl .DEC.COM
+		decuac .DEC.COM
+
+		cbosgd .ATT.COM
+		clyde .ATT.COM
+
+Might generate from pathalias:
+
+		.DEC.COM	seismo!decuac!%s
+		.ATT.COM	cbosgd!%s
+
+Note that pathalias chooses the closest host from inside the {}'s.
+The (DEAD)'s prevent pathalias from following along the mock network
+called "domain-gw".
+
+5.  Distribution of Domain Data
+
+A zone registry maintains a Host Name List (in the format of 4.1
+above) of all hosts within its domain and a Domain Gateway List
+(in the format of 4.2 above) of all gateways of the domain.
+
+Up: A registry collects the Domain Gateway List from the registry
+of each of its subdomains, and transmits to the registry of its
+parent domain its own Domain Gateway List and, if it chooses, the
+Domain Gateway Lists of some or all of its subdomains.  Whether
+it includes lists from its subdomains depends on how important it
+considers them to the parent domain.
+
+Down: Similarly, a registry collects the Domain Gateway List from
+the registry of its parent domain, and transmits to the registry
+of each of its subdomains its Domain Gateway List and the Domain
+Gateway List of its parent domain.  Note that the Domain Gateway
+List of the parent domain may include lists from the parent's
+other subdomains.
+
+A registry may decide not to use the parent domain's Domain
+Gateway List or not to transmit it to its subdomains' registries.
+(This should be done only with the consent of the subdomains.) In
+this case, the registry must introduce a domain gateway alias for
+all top level domains, to ensure that all the mail gets delivered.
+
+Across: a registry transmits to each of the gateways of its
+domain its Host Name List, its Domain Gateway List, and collected
+Domain Gateway Lists.  The registry also transmits to each normal
+host (one gateway, no subdomains) of its domain its Domain
+Gateway List.
+
+Together, "up," "down," and "across" insure that each gateway has
+the Host Name List for its domain, and the Domain Gateway List of
+its own domain and at least its parent domain and subdomains.
+"Up" and "across" will probably take place on demand by mail.
+"Down" will probably be broadcast via netnews on a regular
+schedule.  In particular, the second level information for the UUCP
+zone (one entry per organization) and the complete top level domain
+information make up the postings to mod.map.
+
+6.  Distribution of Connectivity Data
+
+The distribution of connectivity data will probably follow the
+path of domain data: registries passing connectivity data up,
+down, and across the domain tree, with the exception that the
+connectivity within a third (or lower) level domain will be
+discouraged from leaving the domain, so the data the UUCP zone
+registry distributes will include only the first and second
+level gateways.  Local information about internal subdomains and
+machines of organizations should not be included in globally
+published information, but rather distributed locally as needed.
+
+7.  Various Notes
+
+The following are examples of data that should be joined together
+as input to pathalias.
+
+	Parent Domain Gateway List
+	Parent Connectivity Data
+	This Level Domain Gateway List
+	This Level Host Name List
+	This Level Connectivity Data
+	Collected Subdomains' Domain Gateway Lists
+	Collected Subdomains' Connectivity Data
+	Private Additions
+	Alias for "this host"
+
+This note does not describe the inclusion of private additions to
+the domain or connectivity data.
+
+Because domain names intermix with host names (and the .UUCP
+suffix is implicit), you can address hosts known at your gateway
+as "uucp-host.UUCP".  We discourage this, because the address is 
+then particular to the sender's location.
+
+
+		/+\
+5/1/85		+\	chris@cbosgd.att.com
+		\+/
+
+[Updated 5/9/86 by Mark Horton.]
+#
+#@(#)Domains	2.5 (smail) 9/15/87
+#

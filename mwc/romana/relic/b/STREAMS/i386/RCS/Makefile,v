@@ -1,0 +1,582 @@
+head     2.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.4;
+comment  @# @;
+
+
+2.4
+date     93.08.09.13.38.47;  author bin;  state Exp;
+branches ;
+next     2.3;
+
+2.3
+date     93.07.20.11.14.25;  author bin;  state Exp;
+branches ;
+next     2.2;
+
+2.2
+date     93.07.14.11.12.04;  author root;  state Exp;
+branches ;
+next     2.1;
+
+2.1
+date     93.07.07.10.34.30;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+2.4
+log
+@Kernel 82 changes
+@
+text
+@#
+#	makefile for Coherent 386 - overall system build
+#
+#	Do not use this makefile directly!  Use a build script.
+#	(Unless you know what you are doing.)
+#
+
+all:	$(K386LIB)/k386.a
+
+clean:
+	@@:
+
+AR=exec /bin/ar
+ARFLAGS=rs
+AS=exec /bin/as
+CC=exec /bin/cc
+CFLAGS=-VPSTR
+
+USRSRC=/usr/src
+USRINC=/usr/include
+SYSINC=$(USRINC)/sys
+
+IOOBJ =\
+	$(K386OBJ)/aha.o $(K386OBJ)/aha_dsl.o $(K386OBJ)/scsi.o \
+	$(K386OBJ)/at.o \
+	$(K386OBJ)/hai.o \
+	$(K386OBJ)/ss.o \
+	$(K386OBJ)/kb.o $(K386OBJ)/nkb.o $(K386OBJ)/vtkb.o $(K386OBJ)/vtnkb.o \
+	$(K386OBJ)/mm.o $(K386OBJ)/mmas.o \
+	$(K386OBJ)/vtmm.o $(K386OBJ)/vtmmas.o \
+	$(K386OBJ)/xla.o $(K386OBJ)/xlft.o $(K386OBJ)/xl_dec.o \
+	$(K386OBJ)/fdc.o $(K386OBJ)/fl386.o \
+	$(K386OBJ)/albaud.o \
+	$(K386OBJ)/alx.o $(K386OBJ)/com1.o $(K386OBJ)/com2.o \
+	$(K386OBJ)/hs.o \
+	$(K386OBJ)/asy.o \
+	$(K386OBJ)/pty.o \
+	$(K386OBJ)/lp.o \
+	$(K386OBJ)/bufq.o \
+	$(K386OBJ)/ct.o \
+	$(K386OBJ)/dmareq.o \
+	$(K386OBJ)/fdisk.o \
+	$(K386OBJ)/ft.o \
+	$(K386OBJ)/ipc.o \
+	$(K386OBJ)/msg.o \
+	$(K386OBJ)/putchar.o \
+	$(K386OBJ)/rm.o \
+	$(K386OBJ)/sem386.o \
+	$(K386OBJ)/shm1.o \
+	$(K386OBJ)/tty.o
+
+COHOBJ =\
+	$(K386OBJ)/alloc.o \
+	$(K386OBJ)/bio.o \
+	$(K386OBJ)/clist.o \
+	$(K386OBJ)/clock.o \
+	$(K386OBJ)/clocked.o \
+	$(K386OBJ)/exec.o \
+	$(K386OBJ)/fd.o \
+	$(K386OBJ)/fifo.o \
+	$(K386OBJ)/fs1.o \
+	$(K386OBJ)/fs2.o \
+	$(K386OBJ)/fs3.o \
+	$(K386OBJ)/main.o \
+	$(K386OBJ)/misc.o \
+	$(K386OBJ)/nlp.o \
+	$(K386OBJ)/null.o \
+	$(K386OBJ)/pipe.o \
+	$(K386OBJ)/printf.o \
+	$(K386OBJ)/proc.o \
+	$(K386OBJ)/rlock.o \
+	$(K386OBJ)/seg.o \
+	$(K386OBJ)/sig.o \
+	$(K386OBJ)/support.o \
+	$(K386OBJ)/sys1.o \
+	$(K386OBJ)/sys2.o \
+	$(K386OBJ)/sys3.o \
+	$(K386OBJ)/sys4.o \
+	$(K386OBJ)/sys5.o \
+	$(K386OBJ)/syscoh.o \
+	$(K386OBJ)/timeout.o \
+	$(K386OBJ)/var.o \
+	$(K386OBJ)/ker_data.o \
+	$(K386OBJ)/poll.o	# Soon to disappear
+
+I386OBJ0 =\
+	$(K386OBJ)/as.o \
+	$(K386OBJ)/xdt.o \
+
+I386OBJ1 =\
+	$(K386OBJ)/atcon.o \
+	$(K386OBJ)/defer.o \
+	$(K386OBJ)/die.o \
+	$(K386OBJ)/dmac.o \
+	$(K386OBJ)/dmalock.o \
+	$(K386OBJ)/fakedma.o \
+	$(K386OBJ)/ff.o \
+	$(K386OBJ)/md.o \
+	$(K386OBJ)/mem_cache.o \
+	$(K386OBJ)/mmu.o \
+	$(K386OBJ)/msig.o \
+	$(K386OBJ)/ndp.o \
+	$(K386OBJ)/ndpas.o \
+	$(K386OBJ)/shm0.o \
+	$(K386OBJ)/sys1632.o \
+	$(K386OBJ)/tioc.o \
+	$(K386OBJ)/trap.o \
+	$(K386OBJ)/work.o \
+	$(K386OBJ)/memory.o
+
+I386OBJ = $(I386OBJ0) $(I386OBJ1)
+
+STUBS = $(K386OBJ)/stubs.o
+
+# LIBLIST is the .a files needed for 386 installation.
+# k386.a is an aggregate used since 92/11/11 for driver kit kernel links.
+# kl386.a was used in COH 4.0.0 and 4.0.1 to link a kernel on customer's
+#   hard drive during installation.
+LIBLIST= \
+	$(K386LIB)/k386.a \
+	$(K386LIB)/k0.o
+
+# k386.a is used for linking driver kit kernels.
+$(K386LIB)/k386.a: $(I386OBJ1) $(COHOBJ) $(IOOBJ)
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $(I386OBJ1) $(COHOBJ) $(IOOBJ)
+
+$(K386LIB)/k0.o: $(I386OBJ0)
+	ld -r -o $@@ $(I386OBJ0)
+
+coh:
+	cd ../coh.386; make "CFLAGS=$(CFLAGS)" "CC=$(CC)"
+
+io:
+	cd ../io.386; make "CFLAGS=$(CFLAGS)" "CC=$(CC)"
+
+libs:	coh io $(LIBLIST)
+	@@/bin/echo "Installation libraries up to date."
+
+$(K386OBJ)/as.o: as.s as.inc
+	$(AS) -g -o $@@ as.s
+
+$(K386OBJ)/xdt.o: xdt.s as.inc
+	$(AS) -g -o $@@ xdt.s
+
+$(K386OBJ)/atcon.o:			\
+		$(SYSINC)/coherent.h	$(SYSINC)/types.h $(USRINC)/kernel/timeout.h \
+					$(USRINC)/kernel/reg.h $(USRINC)/kernel/param.h \
+		$(SYSINC)/con.h		\
+		$(USRINC)/mtype.h	\
+		$(SYSINC)/stat.h	\
+		atcon.c
+	$(CC) $(CFLAGS) -c -o $@@ atcon.c
+
+$(K386OBJ)/defer.o: defer.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/die.o: die.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/dmac.o:	dmac.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/dmalock.o:	dmalock.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/fakedma.o:	fakedma.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/ff.o: ff.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/fvcon.o:			\
+		$(SYSINC)/coherent.h	$(SYSINC)/types.h $(USRINC)/kernel/timeout.h \
+					$(USRINC)/kernel/reg.h $(USRINC)/kernel/param.h \
+		$(SYSINC)/con.h		\
+		$(USRINC)/mtype.h	\
+		$(SYSINC)/stat.h	\
+		fvcon.c
+	$(CC) $(CFLAGS) -c -o $@@ fvcon.c
+
+$(K386OBJ)/md.o: md.c
+	$(CC) $(CFLAGS) -D_ENABLE_STREAMS=1 -c -o $@@ $<
+
+$(K386OBJ)/mem_cache.o: mem_cache.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/memory.o: memory.s
+	$(AS) -o $@@ memory.s
+
+$(K386OBJ)/mmu.o: mmu.c
+	$(CC) $(CFLAGS) -VSUVAR -c -o $@@ $<
+
+$(K386OBJ)/msig.o: msig.c $(SYSINC)/coherent.h
+	$(CC) $(CFLAGS) -VSUVAR -c -o $@@ msig.c
+
+$(K386OBJ)/ndpas.o: ndpas.s
+	$(AS) -g -o $@@ ndpas.s
+
+$(K386OBJ)/ndp.o: ndp.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/shm0.o: shm0.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/stubs.o: stubs.s
+	$(AS) -g -o $@@ stubs.s
+
+$(K386OBJ)/sys1632.o: sys1632.c \
+		$(SYSINC)/coherent.h	$(SYSINC)/types.h $(USRINC)/kernel/timeout.h \
+					$(USRINC)/kernel/reg.h $(USRINC)/kernel/param.h \
+		$(SYSINC)/acct.h	\
+		$(SYSINC)/buf.h		\
+		$(SYSINC)/con.h		\
+		$(USRINC)/sys/errno.h	\
+		$(SYSINC)/filsys.h	\
+		$(SYSINC)/ino.h		\
+		$(SYSINC)/inode.h	\
+		$(USRINC)/l.out.h	\
+		$(SYSINC)/proc.h	\
+		$(SYSINC)/sched.h	\
+		$(SYSINC)/seg.h		\
+		$(USRINC)/signal.h	\
+		$(SYSINC)/uproc.h	\
+		$(USRINC)/kernel/reg.h		\
+		$(USRINC)/kernel/systab.h	\
+		$(SYSINC)/oldstat.h	\
+		$(SYSINC)/timeb.h	\
+		$(SYSINC)/fd.h		\
+		$(USRINC)/sgtty.h
+	$(CC) $(CFLAGS) -c -o $@@ sys1632.c
+
+$(K386OBJ)/tioc.o: tioc.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+
+$(K386OBJ)/trap.o: trap.c $(USRINC)/kernel/systab.h
+	$(CC) $(CFLAGS) -VSUVAR -c -o $@@ trap.c
+
+$(K386OBJ)/work.o: work.c
+	$(CC) $(CFLAGS) -c -o $@@ $<
+@
+
+
+2.3
+log
+@*** empty log message ***
+@
+text
+@d8 5
+d17 1
+a17 1
+CFLAGS=-VPSTR -D__COHERENT__
+d24 15
+d43 2
+d46 2
+d49 2
+a50 1
+	$(K386OBJ)/shm1.o
+d66 1
+d68 1
+d113 1
+a113 1
+STREAMSOBJ= $(K386LIB)/drivers.o
+a114 39
+STUBS = $(K386OBJ)/stubs.o
+
+OPTS =\
+	$(K386OBJ)/aha.o \
+	$(K386OBJ)/aha_dsl.o \
+	$(K386OBJ)/albaud.o \
+	$(K386OBJ)/alx.o \
+	$(K386OBJ)/asy.o \
+	$(K386OBJ)/at.o \
+	$(K386OBJ)/com1.o \
+	$(K386OBJ)/com2.o \
+	$(K386OBJ)/ft.o \
+	$(K386OBJ)/hai.o \
+	$(K386OBJ)/hs.o \
+	$(K386OBJ)/ipc.o \
+	$(K386OBJ)/kb.o \
+	$(K386OBJ)/kb_d.o \
+	$(K386OBJ)/kb_f.o \
+	$(K386OBJ)/lp.o \
+	$(K386OBJ)/mm.o \
+	$(K386OBJ)/mmas.o \
+	$(K386OBJ)/nkb.o \
+	$(K386OBJ)/pipe.o \
+	$(K386OBJ)/pty.o \
+	$(K386OBJ)/putchar.o \
+	$(K386OBJ)/scsi.o \
+	$(K386OBJ)/sem386.o \
+	$(K386OBJ)/ss.o \
+	$(K386OBJ)/tty.o \
+	$(K386OBJ)/vtmm.o \
+	$(K386OBJ)/vtmmas.o \
+	$(K386OBJ)/vtkb.o \
+	$(K386OBJ)/vtkb_d.o \
+	$(K386OBJ)/vtkb_f.o \
+	$(K386OBJ)/vtnkb.o \
+	$(K386OBJ)/xla.o \
+	$(K386OBJ)/xl_dec.o \
+	$(K386OBJ)/xlft.o
+
+d121 1
+a121 10
+	$(K386LIB)/kb.a \
+	$(K386LIB)/kb_d.a \
+	$(K386LIB)/kb_f.a \
+	$(K386LIB)/kl386.a \
+	$(K386LIB)/mm.a \
+	$(K386LIB)/nkb.a \
+	$(K386LIB)/vt.a \
+	$(K386LIB)/vtkb.a \
+	$(K386LIB)/vtkb_d.a \
+	$(K386LIB)/vtkb_f.a
+d123 2
+a124 1
+$(K386LIB)/kb.a:	$(K386OBJ)/kb.o
+d126 1
+a126 1
+	$(AR) $(ARFLAGS) $@@ $<
+d128 2
+a129 3
+$(K386LIB)/kb_d.a:	$(K386OBJ)/kb_d.o
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+a130 80
+$(K386LIB)/kb_f.a:	$(K386OBJ)/kb_f.o
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/nkb.a:	$(K386OBJ)/nkb.o
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/mm.a: \
+	$(K386OBJ)/mm.o \
+	$(K386OBJ)/mmas.o
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/vt.a: \
+	$(K386OBJ)/vtmm.o \
+	$(K386OBJ)/vtmmas.o \
+	$(K386OBJ)/vtnkb.o 
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/vtkb.a: \
+	$(K386OBJ)/vtmm.o \
+	$(K386OBJ)/vtmmas.o \
+	$(K386OBJ)/vtkb.o 
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/vtkb_d.a: \
+	$(K386OBJ)/vtmm.o \
+	$(K386OBJ)/vtmmas.o \
+	$(K386OBJ)/vtkb_d.o 
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/vtkb_f.a: \
+	$(K386OBJ)/vtmm.o \
+	$(K386OBJ)/vtmmas.o \
+	$(K386OBJ)/vtkb_f.o 
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+# k386.a is used for linking driver kit kernels.
+$(K386LIB)/k386.a: $(I386OBJ) $(COHOBJ) $(IOOBJ) $(STREAMSOBJ)
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $(I386OBJ1) $(COHOBJ) $(IOOBJ) $(STREAMSOBJ)
+
+# kl386.a is used for linking customer kernels.
+$(K386LIB)/kl386.a: \
+	$(K386OBJ)/aha.o \
+	$(K386OBJ)/aha_dsl.o \
+	$(K386OBJ)/albaud.o \
+	$(K386OBJ)/asy.o \
+	$(K386OBJ)/at.o \
+	$(K386OBJ)/fdc.o \
+	$(K386OBJ)/fl386.o \
+	$(K386OBJ)/ft.o \
+	$(K386OBJ)/hai.o \
+	$(K386OBJ)/ipc.o \
+	$(K386OBJ)/lp.o \
+	$(K386OBJ)/msg.o \
+	$(K386OBJ)/pipe.o \
+	$(K386OBJ)/pty.o \
+	$(K386OBJ)/putchar.o \
+	$(K386OBJ)/rm.o \
+	$(K386OBJ)/scsi.o \
+	$(K386OBJ)/sem386.o \
+	$(K386OBJ)/shm1.o \
+	$(K386OBJ)/ss.o \
+	$(K386OBJ)/tty.o \
+	$(K386OBJ)/xla.o \
+	$(K386OBJ)/xl_dec.o \
+	$(K386OBJ)/xlft.o \
+	$(K386OBJ)/memory.o
+	rm -f $@@
+	$(AR) $(ARFLAGS) $@@ $<
+
+$(K386LIB)/ker386.o: $(I386OBJ) coh io conf $(STUBS)
+	ld -r -o $@@ $(I386OBJ) $(COHOBJ) $(IOOBJ) $(STREAMSOBJ)
+
+d137 2
+a138 2
+conf:
+	cd ../conf; make
+a139 3
+libs:	$(LIBLIST)
+	@@/bin/echo "Installation libraries up to date."
+
+d147 2
+a148 3
+		$(SYSINC)/coherent.h	$(SYSINC)/types.h $(SYSINC)/timeout.h \
+					$(SYSINC)/reg.h $(SYSINC)/param.h \
+					$(SYSINC)/fun.h \
+d174 2
+a175 3
+		$(SYSINC)/coherent.h	$(SYSINC)/types.h $(SYSINC)/timeout.h \
+					$(SYSINC)/reg.h $(SYSINC)/param.h \
+					$(SYSINC)/fun.h \
+d210 2
+a211 3
+		$(SYSINC)/coherent.h	$(SYSINC)/types.h $(SYSINC)/timeout.h \
+					$(SYSINC)/reg.h $(SYSINC)/param.h \
+					$(SYSINC)/fun.h \
+d225 2
+a226 2
+		$(SYSINC)/reg.h		\
+		$(SYSINC)/systab.h	\
+d236 2
+a237 2
+$(K386OBJ)/trap.o: trap.c
+	$(CC) $(CFLAGS) -VSUVAR -c -o $@@ $<
+@
+
+
+2.2
+log
+@From Nigel
+@
+text
+@a82 2
+#	$(K386OBJ)/memcpy.o \
+#	$(K386OBJ)/memset.o
+d99 2
+d124 2
+a125 2
+	$(K386OBJ)/xl_dec.o 
+#	$(K386OBJ)/xlft.o
+d208 2
+d224 1
+a227 3
+#	$(K386OBJ)/memcpy.o \
+#	$(K386OBJ)/memset.o
+#	$(K386OBJ)/xlft.o
+a244 1
+	echo $(K386OBJ)
+a296 6
+#$(K386OBJ)/memcpy.o: memcpy.s
+#	$(AS) -g -o $@@ memcpy.s
+#
+#$(K386OBJ)/memset.o: memset.s
+#	$(AS) -g -o $@@ memset.s
+
+d335 1
+a335 1
+		$(SYSINC)/oldtimeb.h	\
+@
+
+
+2.1
+log
+@Last Pre-STREAMS kernel
+@
+text
+@a41 1
+	$(K386OBJ)/poll.o \
+d55 3
+a57 1
+	$(K386OBJ)/var.o
+a72 2
+	$(K386OBJ)/memcpy.o \
+	$(K386OBJ)/memset.o \
+d81 4
+a84 1
+	$(K386OBJ)/work.o
+d88 2
+a100 5
+	$(K386OBJ)/ft.o \
+	$(K386OBJ)/haiscsi.o \
+	$(K386OBJ)/haiAha.o \
+	$(K386OBJ)/haiCt.o \
+	$(K386OBJ)/haiSd.o \
+a122 1
+	$(K386OBJ)/xlft.o \
+d125 1
+d195 1
+a195 1
+$(K386LIB)/k386.a: $(I386OBJ) $(COHOBJ) $(IOOBJ)
+d197 1
+a197 1
+	$(AR) $(ARFLAGS) $@@ $(I386OBJ1) $(COHOBJ) $(IOOBJ)
+a207 5
+	$(K386OBJ)/ft.o \
+	$(K386OBJ)/haiscsi.o \
+	$(K386OBJ)/haiAha.o \
+	$(K386OBJ)/haiCt.o \
+	$(K386OBJ)/haiSd.o \
+a219 1
+	$(K386OBJ)/xlft.o \
+d222 1
+a222 2
+	$(K386OBJ)/memcpy.o \
+	$(K386OBJ)/memset.o
+d225 3
+d229 2
+a230 2
+$(K386LIB)/ker386.o: $(I386OBJ) coh io $(STUBS)
+	ld -r -o $@@ $(I386OBJ) $(COHOBJ) $(IOOBJ)
+d238 3
+d245 1
+d290 1
+a290 1
+	$(CC) $(CFLAGS) -c -o $@@ $<
+d295 2
+a296 2
+$(K386OBJ)/memcpy.o: memcpy.s
+	$(AS) -g -o $@@ memcpy.s
+d298 5
+a302 2
+$(K386OBJ)/memset.o: memset.s
+	$(AS) -g -o $@@ memset.s
+d329 1
+a329 1
+		$(USRINC)/errno.h	\
+d342 1
+a342 1
+		$(SYSINC)/timeb.h	\
+@

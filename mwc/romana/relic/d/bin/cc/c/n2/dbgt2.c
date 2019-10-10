@@ -1,0 +1,265 @@
+/*
+ * Debug table management.
+ */
+#ifdef vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+#define NDHASH 16
+#define hash(p) ((((int)(p))>>4)&15)
+
+struct dline {
+	struct dline *d_dp;	/* List link */
+	INS *d_ip;		/* Referenced instruction */
+	int d_nv;		/* Vector size */
+	int d_dv[];		/* Vector of drefnum numbers */
+};
+
+struct dline *dhash[NDHASH];	/* Hash table */
+
+struct dline *newdn();
+struct dline *mrgdlin();
+struct dline **getdlin();
+extern int vflag;
+
+/*
+ * Generate a debug table entry during first pass.
+ *	level == 0 called from outside a function body.
+ *	level == 1 called from inside a function body.
+ *	The label information is invariably copied to output
+ *	either via outdlab or tcpy.
+ *	DC_LINE and DC_LAB items are hashed to the current ins node
+ *	so their ultimate locations can be known.
+ */
+gendbgt(level)
+register int level;
+{
+	static int drefnum;
+	int nline, class;
+
+	/* Read class */
+	class = bget();
+
+	/* Output the information in some form */
+	if (isvariant(VASM)) {
+		bput(DLABEL);
+		tcpy(class);
+	} else
+		outdlab(0, class);
+	if (class == DC_LINE || class == DC_LAB) {
+		if (level == 0) {
+			if (isvariant(VASM)) {
+				bput(DLOCAT);
+				iput(drefnum);
+			} else
+				outdloc(drefnum);
+		} else
+			newdlin(drefnum);
+	}
+	drefnum += 1;
+}
+
+/*
+ * Enter a new dline item into the initial list.
+ * dline records are initially stored in a list starting at
+ * dhash[0].
+ */
+newdlin(drefnum)
+{
+	register struct dline *dp;
+
+	dp = newdn(1);
+	dp->d_ip = ins.i_bp;
+	dp->d_dv[0] = drefnum;
+	if (dhash[0] == NULL || ins.i_bp != dhash[0]->d_ip) {
+		dp->d_dp = dhash[0];
+		dhash[0] = dp;
+	} else {
+		dhash[0] = mrgdlin(dp, dhash[0]);
+	}
+}
+
+/*
+ * Merge two dline items into a single item.
+ * Retain the link's of dp2.
+ */
+struct dline *
+mrgdlin(dp1, dp2)
+struct dline *dp1, *dp2;
+{
+	struct dline *dp;
+	int nv1, nv2, nv;
+	register int *ip1, *ip2, *ip;
+
+	nv1 = dp1->d_nv;
+	nv2 = dp2->d_nv;
+	nv = nv1 + nv2;
+	dp = newdn(nv);
+	dp->d_dp = dp2->d_dp;
+	dp->d_ip = dp2->d_ip;
+	ip = dp->d_dv;
+	ip1 = dp1->d_dv;
+	ip2 = dp2->d_dv;
+	while (--nv >= 0) {
+		if (nv1 == 0) {
+	cp2:		*ip++ = *ip2++;
+			--nv2;
+		} else if (nv2 == 0) {
+	cp1:		*ip++ = *ip1++;
+			--nv1;
+		} else if (*ip2 < *ip1) {
+			goto cp2;
+		} else {
+			goto cp1;
+		}
+	}
+	free(dp1);
+	free(dp2);
+	return (dp);
+}
+
+/*
+ * Allocate a dline record for n items.
+ */
+struct dline *
+newdn(n)
+register int n;
+{
+	register struct dline *dp;
+	register int size;
+
+	size = n * sizeof(int);
+	size += sizeof(struct dline);
+	dp = (struct dline *)malloc(size);
+	if (dp == NULL)
+		cnomem("newdn");
+	dp->d_dp = NULL;
+	dp->d_ip = NULL;
+	dp->d_nv = n;
+	return (dp);
+}
+
+/*
+ * Advance the ip field of each debug table item
+ * and enter into hash table based off the ip field.
+ */
+fixdbgt()
+{
+	register struct dline *dp, *ddp, **dpp;
+	int	seg = SCODE;
+
+	dp = dhash[0];
+	dhash[0] = NULL;
+	while (dp != NULL) {
+		int	t;
+		register INS	*ip;
+
+		do {
+			ip = dp->d_ip = dp->d_ip->i_fp;
+			if ((t=ip->i_type) == ENTER)
+				seg = ip->i_seg;
+		} while (seg!=SCODE
+		 || t!=PROLOG && t!=EPILOG && t!=CODE && t!=JUMP);
+		ddp = dp->d_dp;
+		dp->d_dp = NULL;
+		dpp = getdlin(ip);
+		*dpp = *dpp!=NULL ? mrgdlin(dp, *dpp) : dp;
+		dp = ddp;
+	}
+}
+
+/*
+ * Search dhash for a dp referencing instruction ip.
+ * Return a pointer to the link to that ip.
+ */
+struct dline **
+getdlin(ip)
+register INS *ip;
+{
+	register struct dline *dp, **dpp;
+
+	dpp = &dhash[hash(ip)];
+	while ((dp = *dpp) != NULL && dp->d_ip != ip)
+		dpp = &dp->d_dp;
+	return (dpp);
+}
+
+/*
+ * Merge the debug table entries on ip1, if any, onto ip2.
+ *	called from within optim loop.
+ */
+mrgdbgt(ip1, ip2)
+INS *ip1, *ip2;
+{
+	register struct dline *dp, **dpp1, **dpp2;
+
+	dpp1 = getdlin(ip1);
+	if ((dp = *dpp1) != NULL) {
+		*dpp1 = dp->d_dp;
+		dpp2 = getdlin(ip2);
+		if (*dpp2 == NULL) {
+			dp->d_dp = NULL;
+			dp->d_ip = ip2;
+			*dpp2 = dp;
+		} else {
+			*dpp2 = mrgdlin(dp, *dpp2);
+		}
+	}
+}
+
+/*
+ * Assemble the debug table entries associated with ip1.
+ *	called from assembler loop.
+ */
+asmdbgt(ip1)
+INS *ip1;
+{
+	register struct dline *dp, **dpp;
+	register int *ip;
+
+	dpp = getdlin(ip1);
+	if ((dp = *dpp) != NULL) {
+		ip = dp->d_dv;
+		while (--dp->d_nv >= 0) {
+			if (isvariant(VASM)) {
+				bput(DLOCAT);
+				iput(ip[0]);
+			} else {
+				outdloc(ip[0]);
+			}
+			ip += 1;
+		}
+		*dpp = dp->d_dp;
+		free(dp);
+	}
+}
+
+#if !TINY
+/*
+ * Compiler debugging printout.
+ */
+dprint(ip)
+INS *ip;
+{
+	ddprint(*getdlin(ip));
+}
+
+
+ddprint(dp)
+register struct dline *dp;
+{
+	register int *vp;
+	register int nv;
+
+	if (dp != NULL) {
+		vp = dp->d_dv;
+		nv = dp->d_nv;
+		while (--nv >= 0) {
+			printf(" %d", *vp++);
+		}
+		printf("\n");
+	}
+}
+#endif

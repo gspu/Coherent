@@ -1,0 +1,151 @@
+The MWC screen generator is designed to build data structures
+describing background data and input fields form a simple input file.
+
+	scn xyz
+
+Produces xyz.c with internal structures xyz_data and xyz_locs as well
+as any defined fields. It also produces an xyz.h file with externs to
+those defined fields and an include of scn.h.
+
+The input file first contains a list of all the fields in order of
+appearence in the screen. This is terminated by a %% line.
+
+Each input line must contain
+	Field name	A C name for the field. This will normally be built
+			in the generated .c file.
+
+	Field Length	The displayed size of the field. One will be added
+			to this for zero termination on the internal field.
+
+	Optionaly lines may contain.
+	default string	String is a C string with the starting value of the
+			field.
+
+	default field	Field is a C field name where the starting value of
+			the field may be found.
+
+	help string	String is a C string displayed at the bottom of the
+			screen before the field is entered.
+
+	help field	Field is a field name of a C string displayed at the
+			bottom of the screen before the field is entered.
+
+	verify routine	Routine is the C name of a function used to check the
+			field for validity. A return of 0 means invalid field
+			a return of non zero means value. A return of -1
+			triggers the skip factor. A return of -2 finishes the
+			screen as though ctl-z had been entered.
+ 
+	skip number	Number is the number of fields to skip if the verify
+			field returns -1.
+
+	external	Means the field definition for this field is elsewhere
+			and prevents scn from building one in it's .c file.
+
+	long		Means that the field is arbitrairly long, its field
+			defination will be a char *, and it will be malloc()ed
+			as needed.
+
+	readonly	Means the field is readonly.
+
+Examples:
+
+f1 5 default "xyz", verify ver1	# comment to end of line
+f2 5 verify ver2
+f3 5 verify yNo skip 1 \
+	help "Enter n to skip next field"
+f4 5
+
+Often it is convienient to input data into arrays of fields.
+
+do 3	
+expect 20
+send 20
+done
+
+Says that there are 3 expect and send fields. This generates 
+char expect[3][21];
+char send[3][21];
+
+While inside a do group is is legal to use a skip factor of 'group'.
+scn will replace this with the number of fields required to skip out
+of the current do group.
+
+After %% comes the input screen formatteed exactly as it should appear.
+The beginning of each input field should be marked with a '!'. This
+may be changed with a designator statement.
+
+desagnator "#"
+Causes the field designator to be # not !. The change is for the entire
+file.
+
+xyz_data contains the background data for the screen. It is decribed
+by the struct backGrnd in scn.h. Each structure is a line of data
+followed by its screen position. The array of structures ends with a
+data pointer of NULL.
+
+xyz_locs contains the input field data for the screen. It is described
+by the struct loc in scn.h. It contains a pointer to the input field
+and the row and collumn of the data.
+
+		Driver Functions.
+
+setUpScreen(lines, at)
+	This initializes the screen driver and sets up a window for
+	error messages or conversational messages. setUpScreen(2, 22)
+	reserves line 22 and 23 for messages.
+
+closeUp()
+	Shuts down the screen dirver, always call it at the end of job.
+
+showError(s, ...)
+	Takes the same format as printf, shows an error message and
+	waits for any key to continue.
+
+Query(s, ...)
+	Prints a query message waits for any key and returns that key.
+
+clearArea(row, col, len)
+	Clears the screen at row, col for len.
+
+showBak(back)
+	Displays screen background. showBak(my_data);
+
+clearBak(back, locs)
+	Clears the screen background and the area set aside for data.
+
+showDefs(back, fields)
+	Show the background and all default data. showDefs(my_data, my_locs);
+
+scnDriv(back, fields)
+	Show the background and get all data.
+
+getAll(fields)
+	Get and verify all data fields.
+
+getField(fields, field)
+	Get one field. getField(my_locs, myString);
+	myString must be a field name in your screen file.
+
+putField(fields, field)
+	Display one field. putField(my_locs, myString);
+	myString must be a field name in your screen file.
+
+numeric(str)
+	Returns 1 if str is numeric else 0.
+
+nonNull(str)
+	Returns 1 if str has some data in it else 0.
+
+yesNo(str)
+	Returns 1 if str is in [yYnN] else 0.
+
+noWhite(str)
+	Returns 1 if str contains no whitespace else 0
+
+noVerify(str)
+	Returns 1. This is used where no verify routine is given.
+
+checkEnd(str)
+	Returns -1 for a null field else 1. This is used for the
+	entry of long fields.

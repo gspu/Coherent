@@ -1,0 +1,91 @@
+% project.ps 11/29/90
+% Projection routines.
+
+% Given:
+%	an observer at point A = [ax, ay, az],
+% 	an object at point C = [cx, cy, cz],
+%	a point D = [dx, dy, dz] which projects to the origin of the
+%		projection plane, and
+%	a scalar disp giving the location of projection plane along D-A;
+%		typically, 0 < disp <= 1, where disp = .1 gives a very wide
+%		view and disp=1 puts the plane at D.
+% Find:
+%	the projection P = [px, py] of C onto the plane normal to B'.
+% Point B = A + disp * (D-A) defines the origin of the projection plane
+% and B' = disp * (D-A) represents B in observer-based coordinates.
+% Rotate around Y axis, taking B' -> B'' with B''x = 0.
+% Rotate around X axis, taking B'' -> B''' with B'''x = B'''y = 0
+% and B'''z = -|B'|.
+% Then the projection plane z = -|B'| is normal to B''' and coordinates of the
+% projection of C into the plane are the desired P = [px, py].
+
+/observer 3 array def
+/projdict 20 dict def
+
+% Initialize projection constants based on given parameters.
+% disp dx dy dz ax ay az projinit -
+/projinit
+{
+	projdict begin
+	/az exch def
+	/ay exch def
+	/ax exch def
+	/dz exch def
+	/dy exch def
+	/dx exch def
+	/disp exch def
+
+	% Save observer coordinates for benefit of others.
+	observer 0 ax put
+	observer 1 ay put
+	observer 2 az put
+
+	% Let B' be disp * (D-A) (observer-based coordinates).
+	/bpx dx ax sub disp mul def
+	/bpy dy ay sub disp mul def
+	/bpz dz az sub disp mul def
+	/bpmag bpx bpx mul bpy bpy mul add bpz bpz mul add sqrt def
+	/bppz bpx bpx mul bpz bpz mul add sqrt neg def
+	/costheta bpz bppz div def		% Y axis rotation
+	/sintheta bpx bppz div def
+	/cosphi bppz bpmag div neg def		% X axis rotation
+	/sinphi bpy bpmag div def
+	end
+} bind def
+
+% Compute projection [px, py] of point C = [cx, cy, cz] onto projection plane.
+% cx cy cz project px py
+% Translate C to observer coordinates,
+% rotate around Y axis,
+% rotate around X axis,
+% project onto the plane z = -|B'|.
+/project
+{
+	projdict begin
+
+	% Translate to observer coordinates.
+	az sub /cz exch def
+	ay sub /cy exch def
+	ax sub /cx exch def
+
+	% Rotate through theta around Y axis.
+	cz costheta mul cx sintheta mul add	% new cz
+	cx costheta mul cz sintheta mul sub	% cz cx
+	/cx exch def
+	/cz exch def
+
+	% Rotate through phi around X axis.
+	cy cosphi mul cz sinphi mul add		% new cy
+	cz cosphi mul cy sinphi mul sub		% cy cz
+	/cz exch def
+	/cy exch def
+
+	% Project onto the projection plane z = -|B|.
+	bpmag neg cz div dup			% factor factor
+	cx mul exch				% px factor
+	cy mul					% px py
+
+	end
+} bind def
+
+% end of project.ps

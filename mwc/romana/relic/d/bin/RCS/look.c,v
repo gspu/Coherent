@@ -1,0 +1,442 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.14.44.47;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init version. prov by stevesf.
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*	look.c - look for matching lines of text in a sorted file.
+ */
+#include	<stdio.h>
+#include	<ctype.h>
+
+#define	TRUE	1
+#define	FALSE	0
+#define	EQ	1
+#define	LESS	0
+#define	GREATER	2
+#define	TAB	'	'
+#define	BSIZ	512
+
+extern	long	ftell() ;
+
+/*	Globals
+ */
+
+int	d_mode, f_mode ;
+long	top, bottom ;
+long	fsiz ;
+FILE	*fildes ;
+char	stbuf[BSIZ], rbuf[BSIZ] ;
+char	*rbufp ;
+
+/*	getx -	Get the nex character from the character buffer.
+ *		If the buffer is empty get the next block.
+ */
+
+/*  getx()
+ *  {
+ *  	if (rbufp < &rbuf[BSIZ])
+ *  		return(*rbufp++) ;
+ *  	else {
+ *  		gnb() ;
+ *  		return(getx()) ;
+ *  	}
+ *  }
+ */
+
+#ifdef	FIXED /* Bug in 8086 compiler */
+#define	getx()	((rbuf < &rbuf[BSIZ]) ? *rbufp++ : (gnb(), *rbufp++))
+#else
+getx()
+{
+	if (rbufp >= &rbuf[BSIZ])
+		gnb();
+	return (*rbufp++);
+}
+#endif
+
+/*	order - Order relation for characters. Returns GREATER, LESS or EQ.
+ */
+
+/*  order(a, b)
+ *  {
+ *  	if (a > b)
+ *  		return(GREATER) ;
+ *  	else if (a < b)
+ *  		return(LESS) ;
+ *  	return(EQ) ;
+ *  }
+ */
+
+#define	order(a, b)	((a > b) ? GREATER : ((a < b) ? LESS : EQ))
+
+/*	isdict - Test for a dictionary character. From the class :
+ *		 [a-zA-Z0-9 ].
+ */
+
+/* isdict(ch)
+ * {
+ * 	if (isalnum(ch) || (ch == ' '))
+ * 		return(1) ;
+ * 	return(0) ;
+ * }
+ */
+
+#define	isdict(ch)	((isalnum(ch) || (ch == ' ')) ? 1 : 0)
+
+/*	main	- Get args, set flags and get the ball rolling.
+ */
+
+main(argc, argv)
+register char	*argv[] ;
+{
+	++argv ;
+	switch (argc) {
+
+	case 4 :
+	case 3 :
+			if (setop(argv[0])) {
+				++argv ;
+				--argc ;
+			} else
+				if (argc == 4) {
+					form() ;
+					break ;
+				}
+	case 2 :
+			if (argc == 3)
+				gfile(argv[1]) ;
+			else
+				gfile(NULL) ;
+			if (gstring(argv[0])) {
+				look() ;
+				exit(0) ;
+				break ;
+			}
+	default :
+			form() ;
+	}
+	exit(1) ;
+}
+
+/*	setop - set option flags d_mode and f_mode. d_mode marks an occurance
+ *		of -d[f] or -[f]d and f_mode marks an occurance of -f[d] or
+ *		-[d]f.
+ */
+
+setop(fp)
+register char	*fp ;
+{
+	register int	i ;
+
+	d_mode = FALSE ;
+	f_mode = FALSE ;
+
+	if (*fp++ != '-')
+		return(0) ;
+	else {
+		for (i = 0; i < 2; i++) {
+			switch (*fp++) {
+
+			case 'd' :
+					d_mode = TRUE ;
+					break ;
+			case 'f' :
+					f_mode = TRUE ;
+					break ;
+			case '\0' :
+					--fp ;
+					return(1) ;
+			default :
+					return(0) ;
+			}
+		}
+		if (*fp != '\0')
+			return(0) ;
+		return(1) ;
+	}
+}
+
+/*	gstring - gets the match string <string> and places it in the 
+ *		  stbuf buffer after conforming it to the d_mode and
+ *		  f_mode options (That will make the compare routine 
+ *		  faster). Returns the number of characters in stbuf.
+ */
+
+gstring(fp)
+register char	*fp ;
+{
+	register int	nc ;
+	register char	*st ;
+
+	nc = 0 ;
+	st = stbuf ;
+	while ((nc++ < BSIZ) && (*fp != '\0')) {
+		if (d_mode && !isdict(*fp)) {
+			fp++ ;
+			nc-- ;
+			continue ;
+		}
+		if (f_mode && islower(*fp)) {
+			*st++ = toupper(*fp++) ;
+			continue ;
+		}
+		*st++ = *fp++ ;
+	}
+	if (nc >= BSIZ)
+		return(0) ;
+	return(nc) ;
+}
+
+
+/*	gfile - Gets the specified file and opens it for reading.
+ *		If no file is specified /usr/dict/words is opened.
+ */
+
+gfile(fp)
+register char	*fp ;
+{
+	register char	*file ;
+
+	if (fp == NULL) {
+		file = "/usr/dict/words" ;
+		d_mode = TRUE ;
+		f_mode = TRUE ;
+	} else
+		file = fp ;
+	
+	if ((fildes = fopen(file, "r")) == NULL) {
+		aww("look : Cannot open file") ;
+		exit(1) ;
+	}
+
+	bottom = 0 ;
+	if (fseek(fildes, 0L, 2) == -1) {
+		aww("look : Cannot seek on file") ;
+		exit(1) ;
+	}
+
+	top = ftell(fildes) ;
+	top -= 2 ;
+	fsiz = top ;
+
+
+	return(1) ;
+}
+
+/*	aww - Error condition. Prints out the passed string.
+ */
+
+aww(sp)
+char	*sp ;
+{
+	fprintf(stderr, "%s\n", sp) ;
+}
+
+/*	form - Prints out a Usage message.
+ */
+
+form()
+{
+	fprintf(stderr, "Usage : look [-df] string [file]\n") ;
+}
+
+/*	look - Binary search looking for a string match. If a match
+ *	       is found (the EQ case) all the strings that match
+ *	       are printed and then we quit else the window is 
+ *	       decreased and the test goes on.
+ */
+
+look()
+{
+	register int	nmove ;
+	long	mid1, mid2 ;
+	long	gll() ;
+	long	gteol() ;
+
+	while (top != bottom) {
+		mid1 = (top - bottom)/2 + bottom ;
+		mid2 = gll(mid1) ;
+		nmove = comstr() ;
+		switch (nmove) {
+
+		case EQ :
+				wstr(mid2) ;
+				return(1) ;
+		case GREATER :
+				bottom = gteol(mid1) ;
+				break ;
+		case LESS :
+				top = mid2 - 2 ;
+				break ;
+		}
+		if (top < bottom)
+			top = bottom ;
+	}
+}
+
+
+/*	wstr -	We found a string that matches but we are not sure that
+ *		this is the only occurance of a matched string and hence
+ *		we must back up until we find a non match and print 
+ *		forward till we find a non match in the other direction.
+ */
+
+wstr(seek)
+long	seek ;
+{
+	long	temp1, temp2 ;
+	long	gll() ;
+
+	if (seek != 0) {
+		temp2 = seek ;
+		temp1 = gll(seek - 2) ;
+		while (comstr() == EQ) {
+			temp2 = temp1 ;
+			if (temp1 == 0)
+				break ;
+			else
+				temp1 = gll(temp1 - 2) ;
+		}
+	} else
+		temp2 = 0 ;
+	fseek(fildes, temp2, 0) ;
+	while (ftell(fildes) <= seek) {
+		fgets(rbuf, BSIZ, fildes) ;
+		fputs(rbuf, stdout) ;
+	}
+	fgets(rbuf, BSIZ, fildes) ;
+	rbufp = rbuf ;
+	while (comstr() == EQ) {
+		fputs(rbuf, stdout) ;
+		fgets(rbuf, BSIZ, fildes) ;
+		rbufp = rbuf ;
+	}
+	return(1) ;
+}
+
+/*	comstr - Compare the base string to the input line.
+ *		 Returns a stat telling what the difference between the
+ *		 two strings is. EQ is equal, GREATER implies the base string
+ *		 is greater then the input string and LESS is vice versa.
+ */
+
+comstr()
+{
+	register int	state ;
+	register int	ch ;
+	register char	*sp ;
+
+	sp = stbuf ;
+	while (*sp != '\0') {
+		ch = getx() ;
+		if (ch == '\n')
+			return(GREATER) ;
+		if (d_mode && !isdict(ch)) {
+			continue ;
+		}
+		if (f_mode && islower(ch))
+			ch = toupper(ch) ;
+		if ((state = order(*sp, ch)) != EQ) {
+			return(state) ;
+		}
+		++sp ;
+	}
+	return(EQ) ;
+}
+
+/*	gll -	Get last line. Using the seek variable, returns a pointer to
+ *		the beginning of the last line of text. If neccesary
+ *		gll will wind back seek a block at a time looking for
+ *		the last line.
+ */
+
+long
+gll(seek)
+long	seek ;
+{
+	register char	*cp ;
+	register int	tmp ;
+
+	if (seek == 0) {
+		rbufp = rbuf ;
+		return(0) ;
+	}
+
+	if (seek < BSIZ) {
+		cp = &rbuf[(int) seek] ;
+		seek = 0 ;
+		fseek(fildes, 0L, 0) ;
+	} else {
+		cp = &rbuf[BSIZ - 1] ;
+		seek -= BSIZ ;
+		fseek(fildes, seek, 0) ;
+	}
+	fread(rbuf, sizeof(*cp), BSIZ, fildes) ;
+
+	while (cp >= rbuf) {
+		if (*cp == '\n')
+			break ;
+		--cp ;
+	}
+
+	if (*cp == '\n') {
+		rbufp = ++cp ;
+		tmp = cp - rbuf ;
+		seek += (long) tmp ;
+		if (seek > fsiz)
+			return(-1) ;
+		fseek(fildes, seek, 0) ;
+		fread(rbuf, sizeof(*rbufp), BSIZ, fildes) ;
+		rbufp = rbuf ;
+		return(seek) ;
+	} else
+		return(gll(seek)) ;
+}
+
+/*	gnb -	Get the next block from the file and adjust the 
+ *		character buffer pointer.
+ */
+
+gnb()
+{
+	fseek(fildes, 512L, 1) ;
+	fread(rbuf, sizeof(*rbufp), BSIZ, fildes) ;
+	rbufp = rbuf ;
+	return(1) ;
+}
+
+/*	gteol - Go to end of line. Returns the seek adress of the end of line.
+ */
+
+long
+gteol(seek)
+long	seek ;
+{
+	if (seek >= fsiz)
+		return(fsiz) ;
+	fseek(fildes, seek, 0) ;
+	while (fgetc(fildes) != '\n')
+		;
+	return(ftell(fildes)) ;
+}
+
+@

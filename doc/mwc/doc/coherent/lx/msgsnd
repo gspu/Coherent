@@ -1,0 +1,173 @@
+.TH msgsnd() "" "" "General Function (libc)"
+.PC "Send a message"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/msg.h>"
+\fBmsgsnd(\fIid\^\fB, \fIbuffer\^\fB, \fIsize\^\fB, \fIflag\^\fB)\fR
+\fBint \fIid\^\fB, \fIsize\^\fB, \fIflag\^\fB; long *\fIbuffer\^\fB;\fR
+.PP
+.II "message passing^msgsnd()"
+The function
+.B msgsnd()
+inserts a message into the queue associated with identifier
+.IR id .
+.PP
+.I buffer
+points to a user-defined buffer that holds a code that defines the type
+of the message, and the text of the message.
+.I buffer
+can be described by a structure something like the following
+(if we pretend
+.B "mtext[]"
+is legal C):
+.DM
+.ta 0.5i 2.75i
+struct msgbuf {
+	long mtype;	/* message type */
+	char mtext[];	/* message text */
+};
+.DE
+.PP
+Field
+.B mtype
+is a positive long integer that gives the type of message this is.
+Function
+.B msgrcv()
+examines this field to see if this message is of the type that it seeks.
+The text of the message immediately follows
+.B mtype
+in memory, for
+.I size
+bytes.
+.I size
+can range from zero to a maximum defined in the kernel variable
+.BR NMSC .
+.PP
+If any of the following error conditions occurs,
+.B msgsnd()
+does not send the message, sets
+.B errno
+to the value given in parentheses, and returns \-1:
+.IP \(bu 0.3i
+.I id
+is not a valid message queue identifier (\fBEINVAL\fR).
+.IP \(bu
+The calling process does not have permission to manipulate this queue
+(\fBEACCES\fR).
+.IP \(bu
+Field
+.B mtype
+in the structure pointed to by
+.I buffer
+is less than one (\fBEINVAL\fR).
+.IP \(bu
+.I size
+is less than zero or greater than the system-imposed limit (\fBEINVAL\fR).
+.IP \(bu
+.I buffer
+points to an illegal address (\fBEFAULT\fR).
+.PP
+Sending a message may exceed a system-defined limit.
+There are two such limits:
+one limits the size of a queue, and the other
+sets the total number of messages available to your system.
+The maximum size of this queue is given in the field
+.B msg_qbytes
+of the structure
+.B msqid_ds
+that controls that queue.
+If issuing a message
+.I size
+bytes long would push the total size of the queue's messages past the value of
+.BR msg_qbytes ,
+then an error occurs.
+Likewise, an error occurs if the system already holds the maximum
+maximum number of message available to it, as set by the kernel variable
+.BR NMSG .
+.PP
+.I flag
+indicates how
+.B msgsnd()
+is to react to either of the above conditions.
+If
+.I flag
+is OR'd to include value
+.BR IPC_NOWAIT ,
+then
+.B msgsnd()
+reacts as it does with any other error:
+it does not send the message, it returns \-1, and it sets
+.B errno
+to an appropriate value (in this case, \fBEAGAIN\fR).
+If, however,
+.I flag
+is
+.I not
+OR'd to include
+.BR IPC_NOWAIT ,
+then
+.B msgsnd()
+waits until any of the following happens:
+.IP \fB1.\fR 0.3i
+The error condition resolves.
+In this case,
+.B msgsnd()
+sends the message and returns normally.
+.IP \fB2.\fR
+The message queue identified by
+.I id
+is removed from the system.
+In this case,
+.B msgsnd()
+does not send the message;
+it sets
+.B errno
+to
+.BR EIDRM ;
+and it returns \-1.
+.IP \fB3.\fR
+The process that issued the call to
+.B msgsnd()
+receives a signal.
+In this case,
+.B msgsnd()
+does not send the message,
+sets
+.B errno
+to
+.BR EINTR ,
+and returns \-1.
+The calling process then
+executes the action requested by the signal.
+For information on the behavior that each signal invokes,
+see the Lexicon entry for
+.BR signal() .
+.PP
+.B msgsnd()
+successfully sends a message,
+returns zero and modifies the message queue in the following manner:
+.IP \(bu 0.3i
+It increments by one the value in field
+.BR msg_qnum .
+.IP \(bu
+It sets field
+.B msg_lspid
+to the process ID of the calling process.
+.IP \(bu
+It sets
+.B msg_stime
+to the current time.
+.SH Example
+For an example of this function, see the Lexicon entry for
+.BR msgget() .
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/msg.h
+.R
+.SH "See Also"
+.Xr "libc," libc
+.Xr "msgctl()," msgctl
+.Xr "msgget()," msgget
+.Xr "msgrcv()" msgrcv

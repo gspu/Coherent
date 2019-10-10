@@ -1,0 +1,164 @@
+#include <stdio.h>
+#include "bc.h"
+
+
+/*
+ *	The current output base is encoded in several variables.
+ *	If every digit in the base can be represented by a single
+ *	char (ie. outbase <= maxsobase) then smallbase is TRUE and
+ *	obase contains the output base.  If not then smallbase is
+ *	FALSE and obase contains 10.  In any case, outbase contains
+ *	the current output base.
+ */
+
+static int	smallbase = TRUE;	/* TRUE iff 2 <= output base <= 16 */
+static int	logobase;		/* max number of chars per digit */
+
+
+/*
+ *	Putnum writes the rvalue pointed to by `a' onto the standard
+ *	output.
+ */
+
+putnum(a)
+rvalue	*a;
+{
+	register int	scale;
+	mint		intp,
+			fracp;
+	register mint	*intpart = &intp,
+			*fracpart = &fracp;
+
+	minit(intpart);
+	minit(fracpart);
+	scale = a->scale;
+	mdiv(&a->mantissa, pow10(scale), intpart, fracpart);
+	if (!ispos(&a->mantissa)) {
+		mneg(intpart, intpart);
+		mneg(fracpart, fracpart);
+		pstring("-", 0);
+	}
+	if (!zerop(intpart) || scale == 0)
+		if (smallbase)
+			smallint(intpart);
+		else
+			bigint(intpart);
+	mvfree(intpart);
+	if (scale != 0)
+		pfrac(fracpart, scale);
+	mvfree(fracpart);
+}
+
+
+/*
+ *	Smallint prints out the positive integer a in obase.
+ */
+
+static
+smallint(a)
+mint	*a;
+{
+	register char	*str;
+
+	str = mtos(a);
+	pstring(str, 0);
+	mpfree(str);
+}
+
+
+/*
+ *	Bigint prints out the positive integer a in outbase which
+ *	is assumed to be "big".  It uses recursion to print the large
+ *	"digits" in the correct order.
+ *	Note that on exit, the value of `a' is grabage.
+ */
+
+static
+bigint(a)
+register mint	*a;
+{
+	mint	rm;
+	register mint	*rem = &rm;
+	register char	*str;
+
+	minit(rem);
+	mdiv(a, &outbase, a, rem);
+	str = mtos(rem);
+	mvfree(rem);
+	if (zerop(a))
+		pstring(str, 0);
+	else {
+		bigint(a);
+		pstring(" ", 0);
+		pstring(str, logobase);
+	}
+	mpfree(str);
+}
+
+
+/*
+ *	Pfrac is used to print the fractional part when the output base
+ *	is not 10.  `fracpart' is the fractional part times 10 to the
+ *	`scale'.  Note that `fracpart' is destroyed.
+ */
+
+pfrac(fracpart, scale)
+register mint	*fracpart;
+int		scale;
+{
+	register int	digcnt;
+	char		*str;
+	mint		dig;
+
+	pstring(".", 0);
+	if (smallbase && obase == 10) {
+		str = mtos(fracpart);
+		pstring(str, scale);
+		mpfree(str);
+	} else {
+		digcnt = (smallbase ? scale : (scale+logobase-1)/logobase);
+		minit(&dig);
+		do {
+			mult(fracpart, &outbase, fracpart);
+			mdiv(fracpart, pow10(scale), &dig, fracpart);
+			str = mtos(&dig);
+			pstring(str, logobase);
+			if (!smallbase)
+				pstring(" ", 0);
+			mpfree(str);
+		} while (--digcnt > 0);
+		mvfree(&dig);
+	}
+}
+
+
+/*
+ *	Sobase takes the rvalue pointed to by lval and sets the output
+ *	base to it if it is an acceptable value.
+ */
+
+sobase(lval)
+register rvalue	*lval;
+{
+	mint		tmp,
+			rem;
+	register mint	*temp = &tmp;
+
+	minit(temp);
+	shift(&lval->mantissa, - lval->scale, temp);
+	if (mcmp(mone, temp) >= 0)
+		bcmerr("Invalid output base");
+	mcopy(temp, &outbase);
+	smallbase = mcmp(&outbase, &maxsobase) <= 0;
+	if (smallbase)
+		obase = mtoi(&outbase);
+	else {
+		obase = 10;
+		msub(temp, mone, temp);
+		minit(&rem);
+		for (logobase = 0; !zerop(temp); ++logobase)
+			mdiv(temp, &ten, temp, &rem);
+		mvfree(&rem);
+	}
+	mvfree(temp);
+}

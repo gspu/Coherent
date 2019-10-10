@@ -1,0 +1,124 @@
+% star.ps 11/23/90
+% Based on PacificPage demo disk program star.ps.
+% Modifications by steve: caption, clipbox, projection, coding.
+% Requires from lib: caption.ps, clipbox.ps, project.ps.
+% Something is buggy in the projection, it does not look kosher.
+
+/inch { 72 mul } bind def
+(star 11/23/90) 1 7.75 inch .4 inch caption
+.04 7 inch 9.5 inch .75 inch .75 inch clipbox
+.6 0 0 0 .9 -.5 9 projinit
+0 setlinewidth
+
+280 400 translate
+70 70 scale
+
+% vector for light source
+/lx .40 def
+/ly .23 def
+/lz .23 def
+
+% vertices of dodecahedron
+/verts [
+	[+.809 +.809 +.809]
+	[+.809 +.809 -.809]
+	[+.809 -.809 +.809]
+	[+.809 -.809 -.809]
+	[-.809 +.809 +.809]
+	[-.809 +.809 -.809]
+	[-.809 -.809 +.809]
+	[-.809 -.809 -.809]
+	[+.5  0 +1.309]
+	[+.5  0 -1.309]
+	[-.5  0 +1.309]
+	[-.5  0 -1.309]
+	[+1.309 +.5  0]
+	[+1.309 -.5  0]
+	[-1.309 +.5  0]
+	[-1.309 -.5  0]
+	[ 0 +1.309 +.5]
+	[ 0 +1.309 -.5]
+	[ 0 -1.309 +.5]
+	[ 0 -1.309 -.5]
+] def
+
+% sets of vertices for each face
+/faces [
+	[ 5 17  1  9 11]
+	[ 5 14 15  7 11]
+	[19  3  9 11  7]
+	[13 12  1  9  3]
+	[17 16  4 14  5]
+	[15  6 18 19  7]
+	[18  2 13  3 19]
+	[12  0 16 17  1]
+	[14  4 10  6 15]
+	[ 6 10  8  2 18]
+	[ 2  8  0 12 13]
+	[ 0  8 10  4 16]
+] def
+
+% given x2 y2 z2 x1 y1 z1 on stack
+% given cx cy cz as third point
+% these 3 points give the triangular face
+% compute normal vector to face = (p1-pc) X (p2-pc)
+/facecolor
+{
+	% d1 = p1-pc
+	/d1x 3 index cx sub def
+	/d1y 2 index cy sub def
+	/d1z 1 index cz sub def
+
+	% d2 = p2-pc
+	/d2x 6 index cx sub def
+	/d2y 5 index cy sub def
+	/d2z 4 index cz sub def
+
+	% calc d1 X d2 (normal to face)
+	/nx d1y d2z mul d2y d1z mul sub def
+	/ny d1z d2x mul d2z d1x mul sub def
+	/nz d1x d2y mul d2x d1y mul sub def
+
+	% calc dot product with light source
+	/colr nx lx mul ny ly mul nz lz mul add add def
+	/colr colr 2.0 add 4.0 div def
+	colr setgray
+} def
+
+% x2 y2 z2 x1 y1 z1 doface x2 y2 z2
+/doface
+{
+	facecolor
+	cx cy cz project moveto		% from point of star
+	project lineto			% to vertex 1
+	2 index 2 index 2 index		% x2 y2 z2 x2 y2 z2
+	project lineto			% to vertex 2
+	closepath			% to point
+	fill
+} bind def
+
+faces
+{						% now have 1 face on stack
+	/cx 0 def				% center point of face
+	/cy 0 def
+	/cz 0 def
+	{					% vertex vi
+		verts exch get			% [x y z]
+		aload pop			% x y z
+		/cx 3 index cx add def
+		/cy 2 index cy add def
+		/cz 1 index cz add def		% leave x y z on stack
+	} forall
+
+	% finish center pt calc
+	/cx cx 5 div 4 mul def			% extend center to form point
+	/cy cy 5 div 4 mul def
+	/cz cz 5 div 4 mul def
+
+	14 index 14 index 14 index		% dup last x y z pt at front
+	doface doface doface doface doface
+	pop pop	pop
+}
+forall
+
+showpage

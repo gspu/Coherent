@@ -1,0 +1,734 @@
+;EVAL 06/10/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;expression evaluator
+
+;EVAL evaluates an expression.
+;Space above the control stack is used as a working stack, called the
+;E(xpression)STACK.  Each expression component already scanned is stored on
+;the ESTACK as a byte identifier specifying its type (e.g. delimiter, paren,
+;unary op) and precedence.  Fns and ops have an addtional byte containing
+;the fn id.  Values are stored as a type byte followed by value bytes.  String
+;values saved in the ESTACK are addressed by string temporaries, for access
+;during garbage collection.
+;Many types of errors may occur during EVAL.
+;SN error occurs if an expression is illformed.
+;OM error occurs if ESTACK overflows the available space.
+;TM error occurs if arguments are of wrong type.
+;FC, OV, BY and similar errors can occur during fn/op execution.
+;EX errors should never occur, and indicate something is wrong.
+;Retn:	Carry	Set iff no <expr> found, i.e. first char parsed is bad
+;	A	type token of result, preserved if Carry
+;	BC, DE	preserved
+;	HL	pointer to type (followed by value bytes), preserved if Carry
+
+eval:	push4			;save all in case failure
+	mvi	c,isdel+1	;delimiter type/prec to C
+
+;EVAL0 saves the token in C on the ESTACK.  If it is a fn or op,
+;the id in B is also ESTACKed.
+eval0:	mov	a,c		;fetch type/prec
+	cpi	isop1
+	jc	eva0a		;not a fn/op, just ESTACK type/prec
+	mov	c,b		;else id to C
+	mov	b,a		;save type/prec in B
+	call	espsh		;ESTACK the id
+	mov	c,b		;restore type/prec to C
+eva0a:	call	espsh		;ESTACK the type/prec
+
+;EVAL1 is the 'expecting value' state
+;The next item parsed must be a literal, variable reference or 0-ary fn
+;(evaluated and ESTACKed, then expecting op), or else a fn name, ( or
+;unary op (ESTACKed, then expecting value).  Any other acts as delimiter.
+eval1:	lhld	textp
+eva1a:	mov	a,m		;fetch next text char
+	inx	h
+	cpi	' '
+	jz	eva1a		;try next if space
+	cpi	40H
+	jc	evlip		;0-3FH, must be literal or (
+	ora	a
+	jp	evvar		;40-7FH, must be var ref
+	call	gttyp		;type to A, id info to BC
+	jc	evalx		;not a fn or op
+	shld	textp		;read the fn or op
+	cpi	isop1
+	jc	evfn0		; 0-ary or user-defined function
+	jz	eval0		;ESTACK unary op
+	cpi	isop2
+	jz	evopu		;binary op must be unary + or -
+eva1b:	mvi	d,'('		;otherwise must be a function id
+	call	gtdsn		;so skip ( after fn
+	jmp	eval0		;ESTACK type/prec and id and expect value
+
+;EVAL2 pushes a value (type token and value bytes) to ESTACK.
+eval2:	call	esval		;value to ESTACK
+
+;EVAL3 is the 'expecting op' state.
+;The next item parsed should be a comma [fn(expr,expr)] or
+;binary op [expr op expr] or ) [fn(expr) or fn(expr,expr) or (expr)].
+;Any other is treated as a delimiter.
+eval3:	lhld	estkp
+	mov	a,m
+	ani	tmask
+	mov	d,a		;previous type to D
+	mov	a,m
+	ani	pmask
+	inr	a
+	mov	e,a		;previous precedence + 1 to E
+	lxi	b,vbyts
+	dad	b		;address new ESTACK top
+	shld	estkp		;and update the pointer
+	call	gtcho		;look at next item
+	call	gttyp		;find its type
+	cc	evarp		;not an op, must be ) or comma or delimiter
+	cpi	isop2		;check if binary op
+	jnz	eval4		;no, must be delimiter -- reduce
+;Compare precedences of current and previous op and reduce when appropriate.
+	mov	a,c		;fetch current type/prec
+	ani	pmask
+	cmp	e		;compare current to previous+1
+	jc	eval4		;reduce
+	call	gtcha		;else read current
+	jmp	eval0		;and stack the info bytes
+
+;At EVAL4 previous .>=. current precedence, so the stacktop is reduced
+eval4:	lhld	estkp
+	lxi	b,-vbyts+1
+	dad	b		;address value on ESTACK
+	mov	a,d		;fetch previous type
+	cpi	isdel
+	jz	eval5		;delimiter, done
+	cpi	isop1
+	jz	evop1		;unary op
+	cpi	isop2
+	jz	evop2		;binary op
+	push	h		;otherwise current char must be )
+	call	gtcha		;so read it
+	cpi	')'
+	jnz	snerr
+	pop	h		;and restore value pointer
+	mov	a,d		;restore previous type
+	cpi	iscom
+	jz	evfn2		;comma -- do a binary function
+	cpi	islp
+	jz	evpar		;( <expr> ) becomes <expr>
+	cpi	isfn1
+	jz	evfn1		;unary function
+	cpi	isufn
+	jz	evuf1		;unary user-defined function
+	cpi	isfn2
+	jz	snerr		;binary fn with one arg
+	jmp	exerr		;else fatal EX error -- something wrong
+
+;EVAL5 is the exit from a successful EVAL.
+eval5:	pop	d		;discard saved PSW value
+	pop	d		;and also saved HL value
+	push	h		;save return value for HL
+	mov	a,m		;fetch result type
+	dcx	h		;NB carry is reset from CPI ISDEL
+	dcx	h		;HL points to location before delimiter
+eval6:	shld	estkp		;reset ESTACK past delimiter
+pop3:	pop	h		;value to HL
+	pop	d
+pop1:	pop	b		;restore registers
+	ret			;and done
+
+;EVALX is the abnormal exit from EVAL.  If ESTACK contains only the
+;initial delimiter, returns with Carry.  Otherwise issues SN error.
+evalx:	lhld	estkp
+	mov	a,m		;fetch top ESTACK item
+	cpi	isdel+1		;compare to delimiter type/prec
+	jnz	snerr		;ESTACK nonempty, SN error
+	dcx	h		;else point past delimiter
+	pop	psw		;restore A
+	stc			;set Carry
+	jmp	eval6		;restore and return
+
+
+;ESVAL pushes a value to the ESTACK.
+;Entry:	A	type token
+;	BC	value if integer
+;	C,DE	value if string
+;	(TEMP),BCD	value if floating
+esval:	lhld	estkp
+	inx	h
+	mov	m,a		;store type token
+	inx	h		;point to first value byte
+	if	float
+	cpi	sngst
+	jnz	esvl1		;not floating
+	lda	temp		;recover value for A
+	if	f9511
+	jmp	sto95		;store floating value on ESTACK and return
+	else
+	jmp	fstor		;store floating value on ESTACK and return
+	endif
+	endif
+esvl1:	if	strng
+	cpi	strst
+	jnz	esvl2		;not string
+	call	atemp		;assign ESTACK location to string temp
+	mov	m,c		;length to ESTACK
+	inx	h
+	mov	m,e
+	inx	h
+	mov	m,d		;location to ESTACK
+	ret
+	endif
+esvl2:	cpi	intst
+	jnz	exerr		;not integer
+	mov	m,c
+	inx	h
+	mov	m,b		;integer value to ESTACK
+	ret
+
+;EVLIP looks for ( and stacks if present, else falls through to...
+;EVLIT evaluates a literal, jumps to EVALX if none.
+evlip:	cpi	'('
+	jnz	evlit		;not (, must be literal
+	shld	textp		;read the (
+	mvi	c,islp+2	;type/prec to C
+	jmp	eval0		;( to ESTACK and expect value next
+evlit:	call	gtlt1		;get literal
+	jc	evalx		;exit if not found
+	jmp	eval2		;and ESTACK it
+
+;EVVAR evaluates a variable reference.
+evvar:	call	gtvar		;perform variable reference
+	jc	evalx		;no var
+	if	strng
+	cpi	strst		;check if type string
+	jnz	evva0		;nonstring
+	xchg
+	lhld	estkp
+	inx	h
+	inx	h		;point to value destination
+	call	atemp		;assign string temporary
+	xchg			;restore value location
+	mvi	a,strst		;and restore type token
+	endif
+evva0:	mov	b,h		;EVFN0 entry point
+	mov	c,l		;source to BC
+evva1:	lhld	estkp		;EVPAR entry point
+	inx	h
+	mov	m,a		;ESTACK the type
+	inx	h		;value destination to HL
+	mvi	e,vbyts-1	;byte count to E
+	call	movd0		;move value to ESTACK
+	jmp	eval3		;and expect op
+
+;EVOPU deals with unary + and -.
+evopu:	mov	a,b		;refetch id
+	cpi	plust-udfnt
+	jz	eval1		;ignore unary plus
+	lxi	b,isop1+12	;id=0 to B, type/prec to C for unary minus
+	cpi	mint-udfnt
+	jz	eval0		;stack unary minus
+	call	bakup		;else unread the binary op
+	jmp	evalx		;and exit
+
+;EVPAR reduces (<expr>) to <expr>.
+evpar:	mov	a,m		;type to A
+	push	h
+	dcx	h		;address (
+	dcx	h		;address previous
+	shld	estkp		;reset ESTACK
+	pop	b
+	inx	b		;value location to BC
+	jmp	evva1		;and move down the value
+
+;EVARP deals with ) or comma in expecting op state, loading C with type/prec.
+;The previous item must be checked because of cases like DIM A (2,3).
+evarp:	mov	a,d		;fetch previous type
+	cpi	isdel
+	jz	evar1		;previous was delim, treat current as delim
+	mov	a,b		;refetch current
+	mvi	c,isrp+2	;right paren type/prec to C
+	cpi	')'
+	rz
+	mvi	c,iscom+3	;comma type/prec to C
+	cpi	','
+	jnz	evar1		;treat others as delimiters
+	mvi	a,iscom		;comma type to A
+	cmp	d		;compare to previous type
+	mvi	a,isop2		;for compare on return
+	rnz			;return unless currant and previous both comma
+	dcr	e		;to allow successive commas for ternary fns
+	ret
+evar1:	mvi	c,isdel		;treat any other as delimiter
+	ret
+
+;EVFN0 evaluates a 0-ary function and evaluates (if 0-ary)
+;or ESTACKs (if N-ary) a user-defined function.
+evfn0:	cpi	isfn0
+	mov	a,b		;fn id to A
+	jz	excut		;execute 0-ary function
+;The current item is a user-defined function call.
+	call	gtnam		;get function name
+	dcx	h
+	push	h		;save TEXTP
+	mvi	a,ufnst
+	call	stlk0		;look up the fn name
+	jc	snerr		;not found
+	lda	varty
+	mov	c,a		;save desired result type in C
+	ldax	d		;fetch type
+	ani	0E0H		;mask off type bytes
+	jz	exuf0		;execute 0-ary user-defined function
+	cpi	20H
+	jnz	fcerf		;not 0-ary or N-ary, must be active already
+;N-ary user-definable function information is ESTACKed.
+	push	b		;save desired result type
+	push	h
+	mov	b,d
+	mov	c,e		;type byte addr to BC
+	call	epsh2		;and ESTACKed
+	pop	h
+	mov	c,m
+	inx	h
+	mov	b,m		;bound var addr to BC
+	call	epsh2		;and ESTACKed
+	pop	b		;recover desired result type
+	call	espsh		;and ESTACK it
+	pop	h		;pop TEXTP
+	mvi	c,isufn+2	;type token to C
+	jmp	eva1b		;skip ( and ESTACK type
+exuf0:	mov	a,m
+	inx	h
+	mov	h,m
+	mov	l,a		;function body address to HL
+	shld	textp		;reset TEXTP to scan fn body
+	lhld	symta
+	push	h		;save SYMTA
+	mov	a,c		;desired result type to A
+	jmp	exufn		;and execute the fn
+
+;EVUFN evaluates a user-defined function.
+evuf1:	mvi	b,1		;number of args is in B
+evufn:	xchg			;bound var val addr to DE
+	lhld	textp
+	push	h		;save TEXTP
+	lhld	symta
+	push	h		;and SYMTA
+	lxi	h,-7
+	dad	d
+	shld	estkp		;reset ESTACK
+	call	modem		;fetch type byte addr
+	push	d		;and save it
+	call	modem		;bound var addr to DE
+	xchg
+	shld	textp		;bound var addr to TEXTP
+	xchg
+	inx	h
+	mov	a,m
+	push	psw		;save desired result type
+	inx	h
+	inx	h		;point to bound var value
+evuf2:	push	h		;save value location
+	push	b		;save # args left
+	push	h		;and save value location
+	call	gtnam		;scan the bound var
+	jc	exerr
+	mov	c,a		;name length to C
+	call	fdva1		;and build a new symbol table entry for it
+	inx	h		;point to value destination
+	xthl			;save destination, bound var value loc to HL
+	lda	varty		;bound var type
+	call	cnvrt		;convert to desired type
+	if	strng
+	cpi	strst
+	cz	scopv		;free temp and copy to string space if string
+	endif
+	inx	h		;point to value
+	xthl			;destination to HL
+	pop	b		;value loc to BC
+	call	bytsd		;byte count to DE
+	call	moved		;copy value to destination
+	pop	b		;arg count to B
+	dcr	b		;and decremented
+	jz	evuf3		;no more args
+	mvi	d,','
+	call	gtdsn		;skip comma
+	pop	h		;value location to HL
+	lxi	d,vbyts+1
+	dad	d		;address next value
+	jmp	evuf2		;and repeat for next bound var
+evuf3:	pop	h		;pop saved value location
+	call	gtreq		;skip ) = after last bound var
+	pop	psw		;restore desired result type
+	pop	d		;type byte location to DE
+				;and execute the fn
+;EXUFN executes a user-defined function.
+;Entry:	A	desired result type
+;	DE	symbol table FN entry type byte addr
+;	Stacked	SYMTA and TEXTP values
+exufn:	push	psw
+	ldax	d		;refetch type byte
+	ori	80H		;turn on active bit
+	stax	d		;and store
+	xchg
+	lxi	d,stack+stakm-stakl
+	call	cplde
+	xchg
+	dad	sp		;check for stack overflow
+	jnc	fcerf		;fatal FC error, recursion too deep
+	call	eval		;evaluate the fn body
+	push	psw		;save Carry status
+	ldax	d
+	ani	7FH
+	stax	d		;reset active bit
+	pop	psw
+	xchg			;save result location in DE
+	pop	h
+	mov	a,h		;desired result type to A
+	pop	h
+	shld	symta		;reset SYMTA
+	pop	h
+	shld	textp		;and reset TEXTP
+	jc	fcerf		;unsuccessful eval
+	xchg			;recover result location
+	call	cnvrt		;convert result to desired type
+	inx	h		;point to value
+	jmp	evva0		;and ESTACK the result
+
+;EVCOM deals with ternary MID$ and INSTR and N-ary user-defined fns.
+evcom:	pop	b		;pop the saved arg address
+	mvi	b,2		;# args seen thus far to B
+evco1:	inx	h		;point to arg
+	cpi	isufn+2
+	jz	evufn		;N-ary user-defined fn
+	if	strng
+	cpi	isfn2+2
+	jz	evfn3		;binary fn, must be ternary MID$ or INSTR
+	endif
+	cpi	iscom+3		;look for another comma
+	jnz	snerr		;not found, something is wrong
+	inr	b		;bump arg count
+	dad	d		;address next token of ESTACK
+	mov	a,m		;and fetch it
+	jmp	evco1		;and look for more
+
+;EVFN3 deals with the special cases ternary MID$ and ternary INSTR.
+;Branches to routine IINST3 or MID3 with arg pointers to args 1,2,3
+;in BC,DE,HL and return address to EVAL2 stacked.
+	if	strng
+evfn3:	mov	a,b
+	sui	3
+	jnz	snerr		;number of args must be 3
+	push	h
+	dcx	h
+	dcx	h
+	mov	a,m		;fetch fn id
+	dcx	h
+	shld	estkp		;reset ESTACK
+	lxi	d,vbyts+1
+	lxi	h,eval2
+	xthl			;push return address, arg1 addr to HL
+	push	h
+	dad	d		;address arg2
+	push	h
+	dad	d		;address arg3
+	pop	d
+	pop	b
+	cpi	instt-udfnt
+	jz	inst3		;ternary INSTR
+	cpi	midst-udfnt
+	jz	mid3		;ternary MID$
+	jmp	snerr		;else SN error
+	endif
+
+;EVOP1 evaluates a unary op.
+;EVFN1 evaluates a unary function.
+;EVFN2 evaluates a binary function.
+evfn2:	push	h		;save arg2 address
+	lxi	d,-vbyts-2
+	dad	d
+	mov	a,m		;fetch type/prec byte
+	cpi	isfn2+2
+	jnz	evcom		;must be ternary fn or N-ary user-defined fn
+	inx	h		;point to arg1
+	pop	d		;arg2 address to DE
+evop1:
+evfn1:	mov	b,h
+	mov	c,l		;arg1 address to BC
+	dcx	h		;to type
+	dcx	h		;to id
+	mov	a,m		;fn id to A
+	jmp	evopa		;and execute it
+
+;EVOP2 evaluates a binary operator.
+evop2:	push	h		;save arg2 address
+	dcx	h
+	dcx	h
+	mov	a,m		;op id to A
+	lxi	d,-vbyts
+	dad	d
+	pop	d		;arg2 addr to DE
+	mov	b,h
+	mov	c,l		;arg1 addr to BC
+evopa:	dcx	h
+	shld	estkp		;reset ESTACK
+				;and fall through to EXCUT to execute
+
+;EXCUT executes a function or operator.
+;Entry:	A	fn/op identifier
+;	BC	pointer to arg1 (if any) in expr stack
+;	DE	pointer to arg2 (if any) in expr stack
+;Exit:	A	result token
+;	BC	result if integer
+;	C,DE	result if string
+;	(FACC)	result if floating
+;EXCUT fetches the desired arg types, fn/op address and result type from
+;the fn/op type information table.  If the desired arg type is nonzero
+;(zero means no arg or arg of ambiguous type), the desired and actual
+;arg types are compared and conversion to the desired type performed if
+;necessary.  If the desired arg type is integer, the
+;pointer in BC or DE is replaced by the actual value of the arg.  If
+;the desired arg1 type is floating, the value is loaded to FACC.  Otherwise
+;EXCUT branches to the fn/op routine with the pointers in BC and DE intact.
+;The result type is returned from the fn/op routine if type AMBST, otherwise
+;the specified result type is taken as the actual result type.
+excut:	mvi	h,0
+	mov	l,a		;id * 1
+	dad	h		;id * 2
+	dad	h		;id * 4
+	call	adahl		;id * 5
+	push	d
+	lxi	d,funta
+	dad	d		;+ base address = first info addr
+	pop	d
+	mov	a,m		;fetch arg2 desired type
+	ora	a
+	jz	excu1		;skip conversion
+	push	b		;save arg1 address
+	mov	b,d
+	mov	c,e		;arg2 addr to BC
+	call	cnvtb		;convert arg2 to desire type
+	mov	d,b
+	mov	e,c		;and return to DE
+	pop	b		;restore arg1
+excu1:	inx	h
+	mov	a,m		;fetch arg1 desired type
+	ora	a
+	cnz	cnvtb		;convert arg1
+	inx	h
+	mov	a,m
+	inx	h
+	push	h		;save info pointer
+	mov	h,m
+	mov	l,a		;fn/op address to HL
+	push	h
+	lxi	h,exret
+	xthl			;return addr to stack, fn/op addr to HL
+	pchl			;execute it
+exret:	pop	h		;restore info pointer
+	inx	h
+	sta	temp		;save returned result type info
+	mov	a,m
+	if	f9511
+	cpi	sngst		;check if 9511 floating point op
+	jz	exre1		;yes
+	endif
+	ora	a
+	jnz	eval2		;return specified result type
+	lxi	h,temp
+	mov	a,m		;else pass returned result type
+	mov	m,e		;and save E in TEMP in case floating
+	jmp	eval2		;and ESTACK the result
+	if	f9511
+exre1:	call	fet95		;fetch result from 9511 stack
+	sta	temp		;save A value
+	mov	a,m		;restore floating result type
+	jmp	eval2		;and ESTACK the result
+	endif
+
+;CNVRT converts between differing variable types.
+;Call:	A	desired type token
+;	HL	pointer to value to convert
+;Retn:	A,BC,DE,HL	preserved, HL now pointing to converted value.
+;A nonfatal TM error occurs if conversion is impossible.
+;An EX error should never occur.
+;EVALT does an EVALS, then converts result to type LHSTY.
+evalt:	call	evals
+	lda	lhsty		;fetch desired type, fall through to...
+cnvrt:	cmp	m		;compare actual to desired type
+	rz			;actual = desired, done
+	push	b
+	push	d
+	push	h		;save registers
+	mov	b,a		;save desired type in B
+	if	strng
+	cpi	strst
+	jz	tmerr		;desired=string, actual=numeric
+	mov	a,m		;fetch actual
+	cpi	strst
+	jz	tmerr		;desired=numeric, actual=string
+	mov	a,b		;restore desired
+	endif
+	if	float
+	cpi	intst
+	jz	cnvfi		;convert floating to integer
+	cpi	sngst
+	jnz	exerr
+;Float an integer value
+	mov	a,m		;fetch actual
+	cpi	intst
+	jnz	exerr		;must be integer
+	mov	m,b		;store new type = floating
+	inx	h
+	if	f9511		;load integer value to 9511 stack
+	push	h		;save location
+	mov	a,m		;fetch low order byte
+	out	d9511		;and stack
+	inx	h
+	mov	a,m		;fetch high order byte
+	out	d9511		;and stack
+	mvi	a,flt95
+	call	o9511		;float the integer value
+	call	fet95		;fetch value from 9511 stack
+	pop	h		;restore value destination
+	call	sto95		;and store on ESTACK
+	jmp	cnvrx		;restore registers and return as below
+	else
+	push	h
+	mov	c,m		;lsbyte of value to C
+	inx	h
+	mov	b,m		;msbyte to B
+	if	fpbcd
+	call	fflot		;float the value
+	else
+	lxi	d,0		;0 to DE
+	mvi	a,16		;scale factor to A
+	call	flot1		;float the value
+	endif
+	pop	h
+	call	fstor		;and store the floated value
+	jmp	cnvrx		;restore registers and return as below
+	endif
+;CNVFI fixes a floating value.
+cnvfi:	mov	a,m		;fetch actual
+	cpi	sngst
+	jnz	exerr		;actual must be floating
+	mov	m,b		;store new actual type = integer
+	inx	h
+	push	h		;save location
+	if	f9511
+	call	lod95		;value to 9511 stack
+	call	int95		;fix floating value
+	jnc	cnvf1		;successful conversion
+	error	n, o, v		;else nonfatal OV error
+	else
+	call	fload		;load value to FACC
+	call	iint		;convert to integer
+	cc	iover		;cannot fix, nonfatal OV error
+	endif
+cnvf1:	pop	h		;restore value loc
+	mov	m,c		;store lsbyte
+	inx	h
+	mov	m,b		;store msbyte
+cnvrx:	pop	h		;restore location
+	mov	a,m		;type to A
+	pop	d		;restore DE
+	pop	b		;and BC
+	ret
+	endif
+tmerr:	error	c, T, M		;issue TM error and scan on
+
+;CNVRB is called from EXCUT to perform type conversion on arguments.
+;Call:	A	type token
+;	BC	arg pointer
+;Retn:	A,DE,HL	preserved
+;	BC	arg pointer to converted type, or arg value if integer
+;	FACC	arg value if floating
+cnvbi:	mvi	a,intst		;convert to integer
+cnvtb:	push	b
+	xthl			;HL saved, pointer to HL
+	call	cnvrt		;do the conversion
+	cpi	intst
+	jz	cnvb1		;integer, fetch it
+	if	float
+	cpi	sngst
+	cz	fetcf		;floating, load the FACC
+	endif
+	xthl			;pointer saved, HL restored
+	pop	b		;pointer to BC
+	ret
+cnvb1:	call	fetci		;fetch integer value
+	pop	h		;restore HL
+	ret
+
+;GTTYP gets type and precedence info for a fn/op.
+;Call:	A	token
+;Retn:	A	token type (precedence masked off)
+;	B	fn id (offset into function table), ISDEL if Carry
+;	C	type/precedence byte
+;	DE, HL	preserved
+;	Carry	Set iff (A) not fn/op token
+gttyp:	mov	b,a		;char to B
+	sui	udfnt		;subtract first fn/op token
+	rc
+	cpi	nfuns		;compare to # of fns
+	cmc
+	rc
+	mov	b,a		;id to B
+	push	h
+	lxi	h,typta
+	call	adahl		;addr type/prec byte
+	mov	c,m		;type/prec byte to C
+	pop	h
+	mov	a,c
+	ani	tmask		;type to A
+	ret
+
+;ESPSH pushes C to ESTACK and checks for OM error.
+;Since a value will be ESTACKed next, ESPSH assures that
+;at least VBYTS of space remain above the pushed token.
+epsh2:	call	espsh		;push one byte
+	mov	c,b		;and fall through to push another
+espsh:	lhld	symta
+	lxi	d,-vbyts-1
+	dad	d
+	xchg			;SYMTA - VBYTS - 1 to DE
+	lhld	estkp
+	inx	h		;ESTKP + 1 to HL
+	call	cmdhu
+	jc	eserr		;SYMTA <= ESTKP + VBYTS + 1
+	mov	m,c		;store value
+	shld	estkp		;and update pointer
+	ret
+eserr:	lhld	eofad
+	call	cspst		;reset control stack
+	error	c, O, M		;issue OM error and scan to next
+
+;EVALS does an EVAL, issues SN error if no <expr> found.
+evals:	call	eval
+	rnc
+	jmp	snerr
+
+;IEVAL does an EVAL, converts result to integer and returns it in BC.
+ieval:	push	h
+	call	eval
+	jc	ieva1		;no expr
+	mvi	a,intst
+	call	cnvrt		;convert to integer
+	call	fetci		;result integer to BC
+ieva1:	pop	h		;restore HL
+	ret
+
+;GTEXP does an IEVAL, issues SN error if no <expr> found.
+gtexp:	call	ieval
+	rnc
+	jmp	snerr
+
+;GTBEX gets a byte-valued expression.
+;GTCBE gets a comma followed by a byte-valued expression, branches to SN error
+;if comma is not present.
+gtcbe:	call	gtcom
+	jc	snerr
+gtbex:	call	gtexp
+	jmp	isbyt
+
+
+;end of EVAL
+	page

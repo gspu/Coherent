@@ -1,0 +1,177 @@
+.TH lp "" "" Command
+.PC "Spool a file for printing"
+\fBlp [\-d\fIprinter\^\fB] [\-t \fItitle\^\fB] [\-n\fIcopies\^\fB] [\-R \fIpage \fB[\fIpage\^\fB]] [\-Smws] \fIfile ...\fR
+.PP 
+.HS
+.SH Options:
+.IC "\fB\-R \fIrequest\fR"
+Print a job beginning from the first \fIpage\fR
+and continuing either to the second \fIpage\fR or to the end of the document
+(if no second \fIpage\fR is specified)
+.IC \fB\-S\fR
+Shut down the spooler daemon \fBlpsched\fR
+.IC "\fB\-d\fIprinter\fR"
+Print \fIfile1\fR through \fIfileN\fR on \fIprinter\fR
+.IC "\fB\-m\fR"
+Send mail to the user when the spooled job is printed
+.IC "\fB\-n\fIcopies\fR"
+Print \fIcopies\fR copies of \fIfile1\fR through \fIfileN\fR
+.IC \fB\-s\fR
+Silent \(em do not acknowlege submissions
+.IC "\fB\-t \fItitle\fR"
+Give this job \fItitle\fR
+.IC \fB\-w\fR
+Write to the user when the request is printed
+.HE
+The command
+.B lp
+spools text for printing.
+If you name no
+.I file
+on its command line,
+.B lp
+spools what it receives from the standard input.
+.PP
+.B lp
+prefaces the spooled text with a header that describes, among other things,
+on what device you want to print the text;
+then it copies the text into directory
+.BR /usr/spool/mlp/queue ,
+where it remains until it is removed by the printer daemon
+.BR lpsched .
+.II "printer^job"
+.II job
+The spooled text, which may comprise multiple files, plus its header is
+called a
+.IR job .
+.PP
+The following describes the header with which
+.B lp
+prefaces each file:
+.DS
+.ta 0.5iC 1.35iC 1.85i
+	\fIOffset	Length	Description\fR
+	0	14	User who spooled the file
+	14	14	Name of the printer on which to print file
+	28	10	Type of file (application specific)
+	38	3	Length of output page (default, 66 lines)
+	41	4	Number of pages (maximum, 9,999)
+	45	2	Number of copies to print (default, one; maximum, 99)
+	47	1	Set life expectancy of job (see below)
+	48	1	If `M', send user mail after printing
+	49	1	If `W', write user after printing
+	50	14	Name of data base (application specific)
+	64	14	Name of program (application specific)
+	78	10	Date/time stamp (no. of seconds since 1/1/1970)
+	88	60	Description or title
+.DE
+.PP
+Note that the fields marked ``application specific'' are not use by
+.B lp
+or
+.BR lpsched .
+Rather, they are available to applications, such as filters,
+that may be used with
+.B lp
+to print files.
+.PP
+The ``life expectancy'' byte of the header defines how long the job remains
+alive in
+.BR /usr/spool/mlp/queue .
+Jobs labeled \fBT\fR (temporary) live for 30 minutes after being spooled;
+those labeled \fBS\fR (short-term) live for 24 hours; and those labeled
+\fBL\fR (long-term) live for 72 hours.
+Once a job's life expectancy has expired, the printer daemon
+.B lpsched
+removes it.
+The default is life expectancy is \fBS\fR.
+To change the life expectancy of a job, use the command
+.BR chreq .
+You can also change the above default ``lifetimes'' by editing the file
+.BR /usr/spool/mlp/controls .
+.PP
+When
+.B lp
+creates a job, it gives the job a seven-character name.
+The name's first character gives the status of the job:
+.B R
+indicates that the file is being printed or is pending printing, whereas
+.B r
+indicates that the job has already been printed.
+The second character gives the job's priority status, from 0 through 9:
+zero gives highest priority, nine the lowest.
+The default priority is 2.
+The last five characters of the name give a zero-padded sequence number.
+To change a job's status or priority, use the command
+.BR chreq ;
+or the system administrator can alter either simply by renaming the file.
+.PP
+.B lp
+recognizes the following options:
+.IP "\fB\-R \fIrequest\fR" 1.0i
+Print a job beginning from the first \fIpage\fR
+and continuing either to the second \fIpage\fR or to the end of the document
+(if no second \fIpage\fR is specified).
+Note that the printer daemon
+.B lpsched
+identifies pages by counting lines of input, so this feature works only with
+straight text.
+It does \fInot\fR work correctly with ``cooked'' input, such as
+files of PostScript or PCL.
+.IP \fB\-S\fR9
+Shut down the spooler daemon \fBlpsched\fR.
+.IP "\fB\-d\fIprinter\fR"
+Print the job on \fIprinter\fR.
+.IP "\fB\-m\fR"
+Send mail to the user once the spooled job has been printed.
+.IP "\fB-n\fIcopies\fR"
+Print \fIcopies\fR copies of the job.
+.IP \fB\-s\fR
+Silent \(em do not acknowlege submissions.
+Normally,
+.B lp
+writes on the standard output the sequence number of the job you just spooled.
+You can use that number to remove or abort a job, or otherwise manipulate it.
+.IP "\fB\-t \fItitle\fR"
+Give this job \fItitle\fR.
+This is the title that appears in the queue displayed by the command
+.BR lpstat .
+.IP \fB\-w\fR
+Write a message on the user's screen once the job has been printed.
+.PP
+.B lp
+sends you mail if one of your print jobs failed due to an error.
+.PP
+For more information on
+.B lp
+and its related commands, see the Lexicon entry
+.BR printer .
+.SH "See Also"
+.Xr "chreq," chreq
+.Xr "commands," commands
+.Xr "controls," controls
+.Xr "lp [device driver]," lp.d
+.Xr "lpadmin," lpadmin
+.Xr "lpsched," lpsched
+.Xr "pclfont," pclfont
+.Xr "printer" printer
+.SH Notes
+Because most users find banners annoying rather than helpful,
+.B lp
+does not print banners.
+It ignores the option
+.BR \-b ,
+which under orthodox implementations of
+.B lp
+prints a banner page.
+Applications that desire a banner page should make provision for it in
+the individual printer's control file.
+For details, see the Lexicon entry for the command
+.BR lpadmin .
+.PP
+If you wish to use
+.B lp
+to download a PCL bitmapped font to your PCL printer, you must first process
+the font with the command
+.BR pclfont .
+For details, see its Lexicon entry.

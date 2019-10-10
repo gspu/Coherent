@@ -1,0 +1,254 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.15.42.56;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@#include <stdio.h>
+#include <assert.h>
+#include "bc.h"
+
+/*
+ *	Sscale takes the rvalue pointed to by lval and sets
+ *	the scale register to it if it is in range (ie. non-negative
+ *	and small enough to fit in an int).
+ */
+
+sscale(lval)
+rvalue *lval;
+{
+	register int	res;
+
+	res = rtoint(lval);
+	if (res < 0)
+		bcmerr("Invalid scale register value");
+	scale = res;
+}
+
+/*
+ *	Bcclean frees up the automatic variables and parameters on
+ *	function exit.  `fnc' is the function from which we are returning
+ *	and `stkp' is a pointer to the top thing to remove.
+ */
+
+bcclean(fnc, stkp)
+func	*fnc;
+stkent	*stkp;
+{
+	register type	*tp;
+	register int	left;
+
+	tp = &fnc->types[fnc->nautos + fnc->nparams];
+	for (left = fnc->nautos; --left >= 0; --stkp)
+		switch (*--tp) {
+		case SCALAR:
+			mvfree(&stkp->rvalue.mantissa);
+			break;
+		case ARRAY:
+			arfree(stkp->alvalue);
+			mpfree(stkp->alvalue);
+			break;
+		default:
+			assert(FALSE);
+		}
+	for (left = fnc->nparams; --left >= 0; --stkp)
+		switch (*--tp) {
+		case SCALAR:
+			mvfree(&stkp->rvalue.mantissa);
+			break;
+		case ARRAY:
+			break;
+		default:
+			assert(FALSE);
+		}
+}
+
+/*
+ *	Bcadd adds the rvalue pointed to by `src' to that pointed to
+ *	by `dst'.  Note that `src' is freed.
+ */
+
+bcadd(src, dst)
+register rvalue	*src, *dst;
+{
+	if (dst->scale >= src->scale)
+		rescale(src, dst->scale);
+	else
+		rescale(dst, src->scale);
+	madd(&dst->mantissa, &src->mantissa, &dst->mantissa);
+	mvfree(&src->mantissa);
+}
+
+/*
+ *	Bcmul multiplies the rvalue pointed to by `dst' by that
+ *	pointed to by `src'.  Note that `src' is freed.
+ *	The scale factor of the result is set to
+ *	min( src->scale + dst->scale, max(scale, src->scale, dst->scale)).
+ */
+
+bcmul(src, dst)
+register rvalue *src, *dst;
+{
+	register int	scl;
+
+	mult(&dst->mantissa, &src->mantissa, &dst->mantissa);
+	mvfree(&src->mantissa);
+	scl = src->scale;
+	if (scl < scale)
+		scl = scale;
+	if (scl < dst->scale)
+		scl = dst->scale;
+	dst->scale += src->scale;
+	if (scl < dst->scale)
+		rescale(dst, scl);
+}
+
+/*
+ *	Bcdiv divides the rvalue pointed to by `dst' by that pointed
+ *	to by `src'.  Note that `src' is freed.  The scale of the
+ *	result is alway equal to the value of the scale register.
+ */
+
+bcdiv(src, dst)
+register rvalue	*src, *dst;
+{
+	if (zerop(&src->mantissa))
+		bcmerr("Division by zero");
+	rescale(dst, src->scale + scale);
+	mdiv(&dst->mantissa, &src->mantissa, &dst->mantissa, &src->mantissa);
+	dst->scale = scale;
+	mvfree(&src->mantissa);
+}
+
+/*
+ *	Bcrem sets the rvalue pointed to by `dst' to the remainder one
+ *	would get when divideing `dst' by `src'.  Note that `src' is freed.
+ */
+
+bcrem(src, dst)
+register rvalue *src, *dst;
+{
+	if (zerop(&src->mantissa))
+		bcmerr("Modulo zero");
+	rescale(dst, src->scale + scale);
+	mdiv(&dst->mantissa, &src->mantissa, &src->mantissa, &dst->mantissa);
+	mvfree(&src->mantissa);
+}
+
+/*
+ *	Bcexp raises the rvalue pointed to by `dst' to the `src' power.
+ *	Note that first `src' is truncated to an integer.  Note that
+ *	`src' is freed.  The scale factor of the result is as if the
+ *	corresponding multiplications had been done.
+ *	Negative exponents are computed by inverting dst.
+ */
+
+bcexp(src, dst)
+register rvalue	*src, *dst;
+{
+	register int	limit;
+	rvalue		temp;
+	int		rem;
+
+	minit(&temp.mantissa);
+	if ( ! ispos(&src->mantissa)) {
+		mneg(&src->mantissa, &src->mantissa);
+		mcopy(mone, &temp.mantissa);
+		temp.scale = 0;
+		bcdiv(dst, &temp);
+		*dst = temp;
+		minit(&temp.mantissa);
+	}
+	shift(&src->mantissa, - src->scale, &temp.mantissa);
+	sdiv(&temp.mantissa, 2, &temp.mantissa, &rem);
+	if (rem == 0) {
+		mvfree(&src->mantissa);
+		*src = *dst;
+		minit(&dst->mantissa);
+		mcopy(mone, &dst->mantissa);
+		dst->scale = 0;
+	} else {
+		mcopy(&dst->mantissa, &src->mantissa);
+		src->scale = dst->scale;
+	}
+	limit = (src->scale > scale ? src->scale : scale);
+	while (!zerop(&temp.mantissa)) {
+		mult(&src->mantissa, &src->mantissa, &src->mantissa);
+		src->scale *= 2;
+		if (src->scale > limit)
+			rescale(src, limit);
+		sdiv(&temp.mantissa, 2, &temp.mantissa, &rem);
+		if (rem != 0) {
+			mult(&src->mantissa, &dst->mantissa, &dst->mantissa);
+			dst->scale += src->scale;
+			if (dst->scale > limit)
+				rescale(dst, limit);
+		}
+	}
+	mvfree(&temp.mantissa);
+	mvfree(&src->mantissa);
+}
+
+/*
+ *	Bcsqrt relaces the rvalue pointed to by `dst' with its
+ *	square root.  The scale factor of the result is the maximum
+ *	of the scale register and of the scale of the argument.
+ */
+
+bcsqrt(dst)
+register rvalue	*dst;
+{
+	register int	prec;
+	mint		temp;
+
+	if ( ! ispos(&dst->mantissa))
+		bcmerr("Square root of negative");
+	prec = scale;
+	if (prec < dst->scale)
+		prec = dst->scale;
+	rescale(dst, 2 * prec);
+	minit(&temp);
+	msqrt(&dst->mantissa, &dst->mantissa, &temp);
+	mvfree(&temp);
+	dst->scale = prec;
+}
+
+/*
+ *	Bccmp returns an int which compares to zero as the rvalue `dst'
+ *	compares to the rvalue `src'.  Note that both `src' and `dst'
+ *	are freed.
+ */
+
+bccmp(src, dst)
+register rvalue	*src, *dst;
+{
+	register int	res;
+
+	if (dst->scale >= src->scale)
+		rescale(src, dst->scale);
+	else
+		rescale(dst, src->scale);
+	res = mcmp(&dst->mantissa, &src->mantissa);
+	mvfree(&src->mantissa);
+	mvfree(&dst->mantissa);
+	return (res);
+}
+@

@@ -1,0 +1,157 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.15.08.32;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver. prov. by stevesf.
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * split.c
+ * Usage: split [ -n ] [ infile [ outfile ]]
+ *
+ * split copies its input file into n-line pieces
+ * with output filenames ending in "aa", "ab", ... "zz".
+ * "n" (default 1000) is the number of lines per output file,
+ * "infile" (default or "-" is standard input) is the file to read,
+ * "outfile" (default "x") is the initial part of the output file name.
+ * A "-n" option beginning with 'c' (e.g. "-c100000") splits
+ * a binary file into characters instead of an ASCII file into lines.
+ */
+
+#include <stdio.h>
+
+/*
+ * Globals.
+ */
+int	binary = 0;		/* 0 for ASCII lines, 1 for binary characters */
+long	chunk = 1000L;		/* number of lines or chars per output file */
+FILE	*ifp = stdin;		/* input file pointer */
+char	*outname = "xaa";	/* first output filename */
+
+/*
+ * Functions.
+ */
+long	atol();
+void	copy();
+void	fatal();
+char	*malloc();
+void	nextname();
+void	options();
+char	*strcat();
+char	*strcpy();
+
+main(argc, argv) int argc; char *argv[];
+{
+	register int c;
+	register FILE *ofp;
+	register char *mode;
+	register char *tail;
+
+	options(argc, argv);
+	tail = outname + strlen(outname) - 1;
+	mode = (binary) ? "wb" : "w";
+	while (!feof(ifp) && (c = getc(ifp)) != EOF) {
+		ungetc(c, ifp);
+		if ((ofp = fopen(outname, mode)) == NULL)
+			fatal("split: cannot open output file \"%s\"\n",
+				outname);
+		copy(ofp);
+		if (fclose(ofp) == EOF)
+			fatal("split: cannot close output file \"%s\"\n",
+				outname);
+		nextname(tail);
+	}
+	exit(0);
+}
+
+/*
+ * Copy "chunk" lines or characters from "ifp" to "ofp".
+ */
+void copy(ofp) register FILE *ofp;
+{
+	register int c;
+	register long num;
+
+	for (num = chunk; (c = getc(ifp)) != EOF; ) {
+		putc(c, ofp);
+		if ((binary || c == '\n') && --num <= 0)
+			return;
+	}
+}
+
+/*
+ * Cry and die.
+ * Avoids the nonportable "%r" format by assuming char * "cp" follows "fmt".
+ * The second argument is omitted if the "fmt" does not require it.
+ */
+void fatal(fmt, cp) register char *fmt, *cp;
+{
+	fprintf(stderr, fmt, cp);
+	exit(1);
+}
+
+/*
+ * Set "outname" to the next output file name.
+ * If there are no more output files, issue an error message and exit.
+ */
+void nextname(cp) register char *cp;
+{
+	if (++*cp <= 'z')
+		return;
+	*cp = 'a';
+	if (++*--cp <= 'z')
+		return;
+	fatal("split: too many output files\n");
+}
+
+/*
+ * Process command line options and initialize globals.
+ */
+void options(argc, argv) register int argc; register char *argv[];
+{
+	register char *cp;
+
+	if (--argc > 0 && **++argv == '-') {
+		cp = ++*argv;
+		if (*cp == 'c') {
+			binary = 1;
+			++cp;
+		}
+		chunk = atol(cp);
+		++argv;
+		--argc;
+	}
+	if (chunk <= 0L || argc > 2)
+		fatal("Usage: split [ -n ] [ infile [ outfile ]]\n");
+	if (argc > 0) {
+		cp = *argv++;
+		if (strcmp(cp, "-") != 0
+		 && (ifp = fopen(cp, (binary) ? "rb" : "r")) == NULL)
+			fatal("split: cannot open input file \"%s\"\n", cp);
+	}
+	if (argc > 1) {
+		cp = *argv++;
+		if ((outname = malloc(strlen(cp) + 3)) == NULL)
+			fatal("split: \"%s\" too long\n", cp);
+		strcpy(outname, cp);
+		strcat(outname, "aa");
+	}
+}
+@

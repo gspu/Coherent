@@ -1,0 +1,295 @@
+.TH filter "" "" "Command"
+.PC "Filter incoming messages before adding to mailbox"
+.nf
+.B filter
+\fB[\-qvl] [-o \fIoutput\^\fB] [\-f \fIrules-file\^\fB]\fR
+.br
+.B filter
+[\-n] [\-f \fIrules-file\^\fB]\fR
+.br
+.B filter
+[\-r] [\-o \fIoutput\^\fB] [\-f \fBrules-file\^\fB]\fR
+.br
+.B filter
+[\-c] [\-s] [\-o \fIoutput\^\fB] [\-f \fIrules-file\^\fB]\fR
+.br
+.B filter
+[\-c] [\-S] [\-o \fIoutput\^\fB] [\-f \fIrules-file\^\fB]\fR
+.PP
+Command
+.B filter
+reads incoming mail messages.
+If a mail message matches some pattern that you have specified,
+.B filter
+takes the action with the message; this can be to log the message,
+reply to it automatically, save it in a file, or throw it away unread.
+.SH "Invoking filter"
+.II rmail
+.B filter
+normally is invoked through the mail-management program
+.BR rmail .
+To tell
+.B rmail
+to invoke
+.BR filter ,
+embed the following instruction in file
+.BR $HOME/.forward :
+.DM
+	"|/usr/local/bin/filter"
+.DE
+.PP
+Note that the command is enclosed by quotation marks.
+This is important to protect the command against being interpreted by the
+shell.
+Note, too, that it begins with a pipe character `|'.
+This is also important; if you do not include this symbol,
+.B rmail
+will think that the binary file for
+.B filter
+is a mail message of some sort, and all sorts of problems will occur.
+.PP
+Please note that because
+.B filter
+is invoked by
+.BR rmail ,
+it sees your mail messages
+.I before
+they are written into your mailbox.
+This affects the actions of a number of
+.BR filter 's
+instructions, as will be described below.
+.SH "Instructions"
+.II filter-rules
+The rules by which
+.B filter
+processes messages are kept in file
+.BR $HOME/.elm/filter-rules .
+They have the format:
+.DS
+	if  (\fIexpression\fB)  then  \fIaction\fR
+.DE
+.PP
+.I expression
+can be one of the following:
+.DS
+        \fIexpression\fB  ::=  {  not  }  \fIcondition expr2\fR
+        \fIexpr2\fB  ::=  \fINULL\fB  |  and\fI  condition  expr2\fR
+        \fIcondition\fB  ::=  \fIfield  relationship  value\fR
+		\fB::=  \fBlines\fI  relop  numvalue\fR
+		\fB::=  \fBalways\fR
+.DE
+.PP
+These further break down as:
+.DS
+        \fIfield\fB  ::=  from  |  subject  |  to  |  lines | sender\fR
+        \fIrelationship\fB  ::=  =  |  !=\fR
+        \fIrelop\fB  ::=  =  |  !=  |  <  |  >  |  <=  |  >=\fR
+        \fIvalue\fB  ::=  \fIany  quoted  string\fR
+        \fInumvalue\fB  ::=  \fIany  integer  value\fR
+.DE
+.PP
+.I action
+can be any of the following instructions:
+.IP \fBdelete\fR
+Throw away the message unread.
+.IP "\fBexecute \fIcommand\fR"
+Execute
+.IR command ,
+which can be any normal \*(CO command, and feed it the mail message
+as input.
+When
+.I command
+has finished executing, throw away the mail message.
+.IP "\fBexecutec \fIcommand\fR"
+Like
+.BR execute ,
+except that
+.B filter
+writes message
+into your mailbox after
+.I command
+has finished executing.
+.IP "\fBforward \fIaddress\fR"
+Send a copy of the message to
+.IR address .
+.IP \fBleave\fR
+Stop processing the message, and exit.
+.IP "\fBsave \fIfoldername\fR"
+Write the message into directory
+.IR foldername ;
+do not write it into your mailbox.
+.IP "\fBsavecopy \fIfoldername\fR"
+Write the message into directory
+.IR foldername ,
+but also write it into your mailbox.
+.SH "Example Instructions"
+.BR filter 's
+matching expressions can be quite complicated; however,
+most often it simply consists a tag for one of the lines in the message's
+header, followed by a string being sought.
+The header to every mail message contains lines with the following stubs:
+.DS
+.ta 0.5i 2.5i
+	\fBReceived:\fR	The date the message was received
+	\fBMessage-Id:\fR	Its unique identifier
+	\fBDate:\fR	The date received
+	\fBFrom:\fR	The user who sent it
+	\fBTo:\fR	The person receiving it
+	\fBSubject:\fR	The subject
+.DE
+.PP
+The lines
+.BR Received ,
+.BR Message-Id ,
+and
+.B Date
+are not terribly useful.
+An
+.I expression
+usually will consist of matching the contents of lines
+.BR From ,
+.BR To ,
+or
+.B Subject
+with a string.
+.PP
+For example, consider that you subscribe to a mail listing on a technical
+subject.
+Normally, the level of discourse is quite high, but someone insists on
+posting limericks to the list, and you wish to throw them away.
+Fortunately, that person is courteous enough to include the word ``limerick''
+in the subject of each such message; so to discard the limericks
+automatically, insert the following line into
+.BR filter-rules :
+.DM
+	if (Subject = "limerick") then delete
+.DE
+.PP
+Please note that the `=' in this instruction is a little misleading:
+it throws away every message whose
+.B Subject
+line
+.I includes
+the word ``limerick'' \(em not just the messages whose
+.B Subject
+lines consist of ``limerick'' alone.
+.PP
+.II "Lesscracker, Kris"
+In another example,
+suppose that you are being plagued by mail from someone named
+Kris Lesscracker; and you decide to throw away that person's messages unread.
+To do so, write the following instruction into file
+.BR $HOME/.elm/filter-rules :
+.DM
+	if (From = "Lesscracker") then delete
+.DE
+.PP
+In another example, suppose that a system administrator has had all
+mail sent to the superuser
+.B root
+redirected to her account.
+Administrators sometimes do this so they will see
+.BR root 's
+mail immediately.
+If she wishes to be notified as soon she receives a message addressed to
+.BR root ,
+she can insert the following into
+.BR filter-rules :
+.DM
+	if (To = "root") then executec "msg anne \e"Root mail has arrived.\e""
+.DE
+.PP
+where
+.B anne
+is the administrator's login identifier.
+.PP
+Finally, you may not be interested in any mail messages except those that
+have ``money'' as their subject.
+To discard all except messages except those that talk about money, place
+the following instruction into
+.BR filter-rules :
+.DM
+	if (Subject != "money") then discard
+.DE
+.PP
+.B filter-rules
+can, of course, contain many instructions, so you can fine-tune what you
+receive.
+.II "junk mail"
+As the Internet continues to become clogged with junk mail, a well-tuned
+set of such filtering instructions will become ever more useful.
+.SH "Command-line Options"
+.B filter
+recognizes the following command-line options:
+.IP \fB\-c\fR
+Clear logs.
+If used with the options
+.B \-s
+or
+.BR \-S ,
+.B filter
+removes its log files after it summarizes them.
+.IP "\fB\-f \fIrules-file\fR"
+Get rules from
+.I rules-file
+instead of from
+.BR $HOME/.elm/filter-rules .
+.IP \fB\-l\fR
+Log actions only; do not log information about mailed messages.
+.IP "\fB\-n\fR"
+Not-really option:
+display what would happen if given a message from the standard input,
+but do not do actually do it.
+.IP "\fB-o \fIfile\fR"
+Redirect messages into
+.IR file .
+This option does not affect
+.BR filter 's
+logging of its filtering actions.
+.IP \fB\-q\fR
+Quiet:
+do not log filtering actions.
+.IP \fB\-r\fR
+Rules:
+Display the rules currently being used.
+.IP \fB\-s\fR
+Summarize:
+display a summary of the message-filtering log.
+.IP \fB\-S\fR
+The same as
+.BR \-s ,
+but also includes message-by-message information.
+.IP \fB\-v\fR
+Verbose:
+Give output on standard out for each message filtered.
+message arrives
+.SH Files
+.nf
+\fB$HOME/.elm/filter-rules\fR \(em Default rules file
+\fB$HOME/.elm/filterlog\fR \(em Log of what has been done
+\fB$HOME/.elm/filtersum\fR \(em Summary of what has been done
+.SH "See Also"
+.B
+commands,
+elm,
+mail (overview)
+.R
+.SH Notes
+Release 2.4 of
+.B elm
+is copyright \(co 1988-1992 by The USENET Community Trust.
+It is derived from
+.B elm
+release 2.0, which is copyright \(co 1986, 1987 by Dave Taylor.
+.PP
+.B filter
+was ported to \*(CO by Mark Williams Company.
+Please send bug reports concerning the \*(CO version of
+.B filter
+to support@mwc.com.
+.B filter
+in general is maintained by the Elm Development Group.
+.II "Weinstein, Syd"
+Please send messages concerning the general design of
+.B filter
+to Syd Weinstein (elm@DSI.COM).

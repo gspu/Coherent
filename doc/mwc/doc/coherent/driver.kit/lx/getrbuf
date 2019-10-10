@@ -1,0 +1,133 @@
+.TH getrbuf() "" "" "DDI/DKI Kernel Routine"
+.PC "Allocate a buffer header for raw I/O"
+.B "#include <sys/buf.h>"
+.B "#include <sys/ddi.h>"
+.B "#include <sys/kmem.h>"
+\fBbuf_t *getrbuf(\fIflag\^\fB)\fR
+\fBlong \fIflag\^\fB;\fR
+.PP
+.B getrbuf()
+allocates a buffer header to be used for performing raw I/O.
+The driver can then initialize this header to the values that
+control I/O, then pass its address to the routines that perform I/O.
+.PP
+.I flag
+indicates whether the function is willing to sleep while it awaits
+free space.
+Setting
+.I flag
+to
+.B KM_SLEEP
+tells the kernel that if not enough memory is available to allocate
+a buffer header, the driver is willing to sleep until enough memory
+becomes available.
+Setting it to
+.B KM_NOSLEEP
+tells the kernel that the driver will not sleep.
+.PP
+.B getrbuf()
+returns NULL if something goes wrong; for example,
+insufficient memory is available to allocate a buffer header and
+.I flag
+is set to
+.BR KM_NOSLEEP .
+If all goes well, however, it returns the address of the header,
+which is an object of type
+.BR buf_t .
+.PP
+After the kernel has allocated the buffer header and returned its address,
+the driver must initialize the fields of the buffer header as follows:
+.IP \fBb_bcount\fR
+The number of bytes to be transferred.
+.IP \fBb_blkno\fR
+The number of the block to be accessed.
+.IP \fBb_bufsiz\fR
+The size of the buffer that is associated with this header.
+.IP \fBb_dev\fR
+The non-extended device number.
+Note that this applies only to \*(CO.
+.IP \fBb_edev\fR
+The number of the device being manipulated.
+.IP \fBb_flags\fR
+The direction of data transfer:
+.B B_READ
+if the transfer moves from the kernel to the user's buffer; or
+.B B_WRITE
+if data moves from the user's buffer to the kernel.
+The setting must match that in field
+.BR b_req .
+See below for details.
+.IP \fBb_iodone\fR
+The address of the function to call when the raw I/O has finished.
+.IP \fBb_paddr\fR
+The system global address of the data area.
+Note that this applies only to \*(CO.
+.IP \fBb_req\fR
+Set this to either
+.B BREAD
+or
+.BR BWRITE .
+The setting must match that in field
+.BR b_flags .
+See below for details.
+.IP \fBb_resid\fR
+The number of bytes to transfer.
+This field's value must match that of field
+.BR b_bcount .
+.IP \fBb_un.b_addr\fR
+The virtual address of the buffer that the user supplies.
+Note that whatever program invokes
+.B getrbuf() 
+must also obtain the data area.
+It must do this before it calls
+.B physiock()
+or any other function to which it can pass a buffer.
+.PP
+The following gives the proper way to set or unset
+.B b_flags
+and
+.B b_req
+for reading or writing:
+.IP \fIReading\fR
+.DM
+	bp->b_flags |= B_READ;
+	bp->b_req = BREAD;
+.DE
+.IP \fIWriting\fR
+.DM
+	bp->b_flags &= ~B_READ;
+	bp->b_req = BWRITE;
+.DE
+.PP
+By default, the buffer header has
+.B B_READ
+set to off.
+The driver is not allowed to modify flags pell-mell,
+or the results may crash the system.
+.SH "See Also"
+.B
+buf,
+DDI/DKI kernel routines,
+freerbuf()
+.R
+.SH Notes
+If
+.I flag
+is set to
+.BR KM_SLEEP ,
+.B getrbuf()
+has base level and can sleep;
+if it is set to
+.BR KM_NOSLEEP ,
+it has base or interrupt level and does not sleep.
+.PP
+If
+.I flag
+is set to
+.BR KM_SLEEP ,
+a function can hold
+driver-defined basic locks and read/write locks across a call to this function;
+otherwise, it cannot.
+A function can hold a sleep lock across a call to this function regardless of
+the value of
+.IR flag .

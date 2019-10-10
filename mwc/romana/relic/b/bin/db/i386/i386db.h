@@ -1,0 +1,160 @@
+/*
+ * db/i386/i386db.h
+ * A debugger.
+ * i386-specific header file.
+ * i386/mdb.h contains definitions used by machine-independent code.
+ * i386/mdbdefs.h defines externals referenced by machine-independent code.
+ * i386/i386db.h contains definitions used only by machine-dependent code.
+ */
+
+#include "db.h"
+
+/* Macros. */
+#define	rup(x)	(((x) + 0xF) & ~0xF)	/* round up to 16-byte boundary */
+#define	get_code(nbytes) getb(segn, ibp, (nbytes))
+
+/*
+ * Registers from the user area after a core dump.
+ * get_regs() reads data to one of these with one getb() call for :r,
+ * so the members must correspond to the offsets in <sys/ptrace.h>.
+ */
+typedef	struct	ureg	{
+	ADDR_T	ur_gs;
+	ADDR_T	ur_fs;
+	ADDR_T	ur_es;
+	ADDR_T	ur_ds;
+	ADDR_T	ur_di;
+	ADDR_T	ur_si;
+	ADDR_T	ur_bp;
+	ADDR_T	ur_fill;		/* sp */
+	ADDR_T	ur_bx;
+	ADDR_T	ur_dx;
+	ADDR_T	ur_cx;
+	ADDR_T	ur_ax;
+	ADDR_T	ur_trapno;
+	ADDR_T	ur_err;
+	ADDR_T	ur_ip;
+	ADDR_T	ur_cs;
+	ADDR_T	ur_fw;			/* efl */
+	ADDR_T	ur_sp;			/* uesp */
+	ADDR_T	ur_ss;
+	ADDR_T	ur_sig;
+	struct	_fpstate ur_fpstate;
+} UREG;
+#define	UREG_BASE	PTRACE_GS	/* pseudo-offset of ureg base for ptrace() */
+#define	UREG_GEN_SIZE	(sizeof(UREG)-sizeof(struct _fpstate))
+#define	UREG_ALL_SIZE	(sizeof(UREG))
+
+/*
+ * Register names and corresponding ptrace() offsets.
+ * The flags are used in printing the register info for :r.
+ */
+typedef	struct	regname	{
+	int	r_flag;
+	char	*r_name;
+	int	r_offset;
+} REGNAME;
+#define	NGREGS	16		/* number of general registers */
+#define	NREGS	24		/* total number of registers */
+#define	RF_16	1		/* 16-bit value */
+#define	RF_1632	2		/* 16- or 32-bit value */
+#define	RF_NDP	3		/* NDP register */
+
+/*
+ * NDP miscellaneous opcode table.
+ */
+typedef	struct	ndpmtab	{
+	int	ndpm_val;		/* 2-byte value */
+	char	*ndpm_op;		/* name */
+} NDPMTAB;
+
+/*
+ * i386 opcodes.
+ * Most are needed for the code which plants return breakpoints and
+ * prints tracebacks.
+ */
+#define	ADDSP1	0x83			/* add %esp, $imm byte 1	*/
+#define	ADDSP2	0xC4			/* add %esp, $imm byte 2	*/
+#define	CALL	0xE8			/* call				*/
+#define	ENTER	0xC8			/* enter			*/
+#define	ICALL1	0xFF			/* icall byte 1			*/
+#define	IC2MSK	0x38			/* icall byte 2 mask (reg)	*/
+#define	ICALL2	0x10			/* icall byte 2 (masked)	*/
+#define	INT	0xCD			/* int (COH286 syscall)		*/
+#define	LCALL	0x9A			/* lcall (COH386 syscall)	*/
+#define	LEAVE	0xC9			/* leave			*/
+#define	POPECX	0x59			/* pop %ecx			*/
+#define	PUSHEBP	0x55			/* push %ebp			*/
+#define	PUSHESI	0x56			/* push %esi			*/
+#define	TRAP	0xCC			/* int 3			*/
+
+/*
+ * Functions.
+ * i386/mdbdefs.h defines additional routines
+ * which are referenced by machine-independent code.
+ */
+/* i386db1.c */
+extern	int	get_fp_reg	__((struct _fpreg *fpregp, double *dp));
+extern	int	get_sized	__((int s, ADDR_T *lp));
+extern	ADDR_T	get_sp		__((void));
+
+/* i386db2.c */
+extern	int	ad_size		__((void));
+extern	int	adj_op_size	__((int c2));
+extern	char	*format		__((char *isp, char *dest));
+extern	int	genRegIndex	__((int c2));
+#if	0
+extern	int	get_code	__((int nbytes));
+#endif
+extern	int	get_modRM	__((void));
+extern	int	get_nbytes	__((int mysize));
+extern	int	get_sib		__((void));
+extern	int	getValData	__((int is_signed, int mysize));
+extern	ADDR_T	get_value	__((int mysize, int is_signed, int flag));
+extern	int	op_size		__((void));
+extern	void	out_addr	__((ADDR_T v));
+extern	void	out_disp	__((int fmt, int is_signed, ADDR_T val));
+extern	void	out_modRM	__((int dispsize, int fmt, int addrsize, int is_signed));
+extern	void	out_modRM16	__((int c2));
+extern	void	out_modRM32	__((int c2));
+extern	void	output		__((char *src));
+extern	void	out_segpre	__((void));
+extern	void	out_sib		__((int dispsize, int m));
+
+/*
+ * Global symbols.
+ * i386/mdbdefs.h defines additional globals
+ * which are referenced by machine-independent code.
+ */
+/* i386db0.c */
+extern	int	NDP_flag;		/* NDP instructions are usable	*/
+extern	ADDR_T	sys_add;		/* Address of op after syscall	*/
+extern	BIN	sys_in;			/* Instruction after sys call	*/
+extern	UREG	ureg;			/* Child program registers	*/
+
+/*
+ * Tables.
+ */
+/* i386db0.c */
+extern	char	*formtab[4][4];		/* Formats			*/
+extern	REGNAME	reg_name[];		/* Register names		*/
+#if	0
+extern	char	*sysitab[];		/* System calls			*/
+#endif
+/* i386db3.c */
+extern	char	*op_map_1[];		/* Instruction map 1		*/
+extern	char	*op_map_2[];		/* Instruction map 2		*/
+extern	char	*grp_map[9][8];		/* Instruction groups		*/
+extern	char	*NDP_op[8][8];		/* NDP opcode table m!=3	*/
+extern	char	*NDP_op_3[8][8];	/* NDP opcode table m==3	*/
+extern	NDPMTAB	NDP_misc_op[];		/* NDP misc opcode table m==3	*/
+extern	char	*segReg[];		/* Segment registers		*/
+extern	char	*genReg[3][8];		/* General registers		*/
+extern	char	*ctrlReg[];		/* Control registers		*/
+extern	char	*dbgReg[];		/* Debug registers		*/
+extern	char	*tstReg[];		/* Test registers		*/
+extern	char	*NDPReg[];		/* NDP registers		*/
+extern	char	*modRMtab[2][8];	/* modR/M indirect addressing	*/
+extern	char	*sibtab[4][8];		/* SIB indexed addressing	*/
+
+/* end of db/i386/i386db.h */

@@ -1,0 +1,184 @@
+ttmmppffiillee() -- STDIO Function (libc)
+
+Create a temporary file
+#iinncclluuddee <ssttddiioo.hh>
+FFIILLEE *ttmmppffiillee(vvooiidd);
+
+The function  ttmmppffiillee() creates a file to hold  data temporarily.  The file
+is opened  into binary update mode (wwbb+) and  is removed automatically when
+it is  closed or  when the program  exits.  There is  no way to  access the
+temporary file by  name.  If your program needs to  do so, it should open a
+file explicitly.
+
+ttmmppffiillee() returns  NULL if  it could  not create a  temporary file.   If it
+could, it returns a pointer to the FFIILLEE associated with the temporary file.
+The function eexxiitt() removes all files created by ttmmppffiillee().
+
+_E_x_a_m_p_l_e
+This example implements a primitive  file editor that can edit large files.
+It uses  two temporary files to  keep all changes.  The  editor accepts the
+following commands:
+
+    ddnn  delete; dd5522 deletes line 52
+    iinn  insert; ii77 inserts line before line 7
+    ppnn  print; pp1177 prints line 17
+    pp   print the entire file
+    ww   write the edited file and quit
+    qq   quit without writing the file
+
+The entire temporary file is copied with each command.
+
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdarg.h>
+
+FILE *fp, *tmp[2];
+int linecount;
+
+fatal(message)
+char *message;
+{
+    fprintf(stderr, "%s\n", message);
+    exit(EXIT_FAILURE);
+}
+
+/*
+ * Copy up to line number or EOF.
+ * Return number of lines copied.
+ */
+static int
+copy(line, *ifp, ofp)
+int line; FILE *ifp, *ofp;
+{
+    int i, c, count;
+
+    count = 0;
+    for(c=i=1; (i<line || line==-1) && c!=EOF; i++) {
+        while((c = fgetc(ifp)) != EOF && c != '\n')
+            fputc(c, ofp);
+
+        if(c == '\n') {
+            count++;
+            fputc('\n', ofp);
+        }
+    }
+    return(count);
+}
+
+/*
+ * Read a file until line number is read.
+ * Return 1 if line is found before EOF.
+ */
+static int
+find(line, ifp)
+int line; FILE *ifp;
+{
+    int i, c;
+
+    for(c=i=1; i<line && c!=EOF; i++)
+        while((c = fgetc(ifp)) != EOF && c != '\n')
+            ;
+    return(c != EOF);
+}
+
+main(int argc, char *argv[])
+{
+    int i, line, args;
+    char c, cmdbuf[80];
+
+    if(argc != 2)
+        fatal("usage: tmpfile filename\n");
+
+    if((tmp[0]=tmpfile())==NULL||(tmp[1]=tmpfile())==NULL)
+        fatal("Error opening tmpfile\n");
+
+    if((fp = fopen(argv[1], "r")) == NULL)
+        fatal("Error opening input file\n");
+
+    linecount = copy(-1, fp, tmp[i = 0]);
+    fclose(fp);
+
+    /* one file pass per command */
+    for(;;) {
+        if(gets(cmdbuf) == NULL)
+            fatal("EOF on stdin\n");
+
+        if(!(args = sscanf(cmdbuf, "%c%d", &c, &line)))
+            continue;
+        fseek(tmp[i], 0L, SEEK_SET);
+
+        switch(c) {
+        /* Write edited file */
+        case 'w':
+            if((fp = fopen(argv[1], "w")) ==  NULL)
+                fatal("Error opening file\n");
+            copy(linecount + 1, tmp[i], fp);
+            fclose(fp);
+
+        /* Quit */
+        case 'q':
+            exit(EXIT_SUCCESS);
+
+        /* Print entire file */
+        case 'p':
+            if(args == 1) {
+                copy(linecount + 1, tmp[i], stdout);
+                continue;
+            }
+            if(find(line, tmp[i]))
+                copy(2, tmp[i], stdout);
+            continue;
+
+        /* Delete a line */
+        case 'd':
+            if(args == 1)
+                printf("dn where n is a number\n");
+            else if(line > linecount)
+                printf("only %d lines\n", linecount);
+
+            else {
+                copy(line, tmp[i], tmp[i^1]);
+                if(find(2, tmp[i]))
+                    copy(-1, tmp[i], tmp[i^1]);
+
+                linecount--;
+                fseek(tmp[i], 0L, SEEK_SET);
+                i ^= 1;
+            }
+            continue;
+
+        /* Insert a line */
+        case 'i':
+            if(1 == args)
+                printf("in where n is a number\n");
+            else if(line > linecount)
+                printf("only %d lines\n", linecount);
+
+            else {
+                copy(line, tmp[i], tmp[i^1]);
+                printf("Enter inserted line\n");
+                copy(2, stdin, tmp[i^1]);
+                copy(-1, tmp[i], tmp[i^1]);
+                linecount++;
+
+                fseek(tmp[i], 0L, SEEK_SET);
+                i ^= 1;
+            }
+            continue;
+
+        default:
+            printf("Invalid request\n");
+            continue;
+        }
+    }
+}
+
+_S_e_e _A_l_s_o
+mmkktteemmpp(), lliibbcc, tteemmppnnaamm(), ttmmppnnaamm()
+ANSI Standard, section 7.9.4.3
+POSIX Standard, section 8.1
+
+_N_o_t_e_s
+If a program exits abnormally or aborts, the files created by ttmmppffiillee() may
+not be removed.

@@ -1,0 +1,256 @@
+#include <stdio.h>
+#include <setjmp.h>
+#include <assert.h>
+#include "bc.h"
+
+
+/*
+ *	The jump buffer bcmenv is used to hold the environment of
+ *	the bc-machine interpreter.  If some error is detected while
+ *	executing some bc-machine code, after an error message is
+ *	printed, return is to the environment saved here.
+ */
+
+static jmp_buf	bcmenv;
+
+
+/*
+ *	Interp is the routine which interprets bc-machine code.
+ */
+
+interp()
+{
+	stkent		stack[MAXSTACK];
+	register stkent	*tos = &stack[-1];
+	register code	*pc = cstream;
+	register rvalue	*temp;
+	stkent		*frame;
+	func		*fnc;
+
+	if (setjmp(bcmenv)) {
+		/* One might wonder if things on the stack
+		 * should be cleaned up?
+		 */
+		return;
+	}
+	for (;;) {
+		if (tos >= &stack[MAXSTACK - 1])
+			bcmerr("Out of runtime stack");
+		switch (pc++->opcode) {
+		case LOAD:
+			temp = tos->lvalue;
+			minit(&tos->rvalue.mantissa);
+			mcopy(&temp->mantissa, &tos->rvalue.mantissa);
+			tos->rvalue.scale = temp->scale;
+			break;
+		case LIBASE:
+			minit(&(++tos)->rvalue.mantissa);
+			mitom(ibase, &tos->rvalue.mantissa);
+			tos->rvalue.scale = 0;
+			break;
+		case LOBASE:
+			minit(&(++tos)->rvalue.mantissa);
+			mcopy(&outbase, &tos->rvalue.mantissa);
+			tos->rvalue.scale = 0;
+			break;
+		case LSCALE:
+			minit(&(++tos)->rvalue.mantissa);
+			mitom(scale, &tos->rvalue.mantissa);
+			tos->rvalue.scale = 0;
+			break;
+		case STORE:
+			temp = (--tos)->lvalue;
+			*tos = tos[1];
+			mcopy(&tos->rvalue.mantissa, &temp->mantissa);
+			temp->scale = tos->rvalue.scale;
+			break;
+		case SIBASE:
+			sibase(&tos->rvalue);
+			break;
+		case SOBASE:
+			sobase(&tos->rvalue);
+			break;
+		case SSCALE:
+			sscale(&tos->rvalue);
+			break;
+		case POP:
+			mvfree(&tos--->rvalue.mantissa);
+			break;
+		case PRVAL:
+			temp = tos++->lvalue;
+			minit(&tos->rvalue.mantissa);
+			mcopy(&temp->mantissa, &tos->rvalue.mantissa);
+			tos->rvalue.scale = temp->scale;
+			break;
+		case PGLSC:
+		case PLISC:
+			(++tos)->lvalue = pc++->lvalue;
+			break;
+		case PLOSC:
+			(++tos)->lvalue = &frame[pc++->ivalue].rvalue;
+			break;
+		case PGLAE:
+			temp = select(pc++->alvalue, rtoint(&tos->rvalue));
+			mvfree(&tos->rvalue.mantissa);
+			tos->lvalue = temp;
+			break;
+		case PLOAE:
+			temp = select(frame[pc++->ivalue].alvalue,
+				rtoint(&tos->rvalue));
+			mvfree(&tos->rvalue.mantissa);
+			tos->lvalue = temp;
+			break;
+		case PGLAR:
+			(++tos)->alvalue = pc++->alvalue;
+			break;
+		case PLOAR:
+			(++tos)->alvalue = frame[pc++->ivalue].alvalue;
+			break;
+		case STOP:
+			return;
+		case CALL:
+			chkcall(pc[0].dvalue, pc[1].ivalue);
+			fnc = &pc->dvalue->globalv.fvalue;
+			tos = pauto(fnc, tos, &stack[MAXSTACK-1]);
+			tos->bcstate.spc = pc + 2;
+			tos->bcstate.sfp = frame;
+			tos->bcstate.stos = frame = newframe(fnc, tos);
+			pc = fnc->body;
+			break;
+		case RETURN:
+			temp = &tos->rvalue;
+			bcclean(&pc->dvalue->globalv.fvalue, tos - 2);
+			pc = tos[-1].bcstate.spc;
+			frame = tos[-1].bcstate.sfp;
+			tos = tos[-1].bcstate.stos;
+			tos->rvalue = *temp;
+			break;
+		case INC:
+			madd(&tos->rvalue.mantissa, pow10(tos->rvalue.scale),
+				&tos->rvalue.mantissa);
+			break;
+		case DEC:
+			msub(&tos->rvalue.mantissa, pow10(tos->rvalue.scale),
+				&tos->rvalue.mantissa);
+			break;
+		case PRNUM:
+			putnum(&tos->rvalue);
+			mvfree(&dot.mantissa);
+			dot = tos->rvalue;
+			--tos;
+			break;
+		case PRSTR:
+			pstring(pc++->svalue, 0);
+			break;
+		case PRNL:
+			pnewln();
+			break;
+		case LENGTH:
+			mitom(tos->rvalue.mantissa.len, &tos->rvalue.mantissa);
+			tos->rvalue.scale = 0;
+			break;
+		case SCALE:
+			mitom(tos->rvalue.scale, &tos->rvalue.mantissa);
+			tos->rvalue.scale = 0;
+			break;
+		case SQRT:
+			bcsqrt(&tos->rvalue);
+			break;
+		case ADD:
+			bcadd(&tos[0].rvalue, &tos[-1].rvalue);
+			--tos;
+			break;
+		case SUB:
+			mneg(&tos[0].rvalue.mantissa,
+				&tos[0].rvalue.mantissa);
+			bcadd(&tos[0].rvalue, &tos[-1].rvalue);
+			--tos;
+			break;
+		case MUL:
+			bcmul(&tos[0].rvalue, &tos[-1].rvalue);
+			--tos;
+			break;
+		case DIV:
+			bcdiv(&tos[0].rvalue, &tos[-1].rvalue);
+			--tos;
+			break;
+		case REM:
+			bcrem(&tos[0].rvalue, &tos[-1].rvalue);
+			--tos;
+			break;
+		case EXP:
+			bcexp(&tos[0].rvalue, &tos[-1].rvalue);
+			--tos;
+			break;
+		case NEG:
+			mneg(&tos[0].rvalue.mantissa, &tos[0].rvalue.mantissa);
+			break;
+		case BRALW:
+			pc += pc->address;
+			break;
+		case BRNEV:
+			pc += 2;
+			break;
+		case BRLT:
+			if (bccmp(&tos[0].rvalue, &tos[-1].rvalue) < 0)
+				pc += pc->address;
+			else
+				++pc;
+			tos -= 2;
+			break;
+		case BRLE:
+			if (bccmp(&tos[0].rvalue, &tos[-1].rvalue) <= 0)
+				pc += pc->address;
+			else
+				++pc;
+			tos -= 2;
+			break;
+		case BREQ:
+			if (bccmp(&tos[0].rvalue, &tos[-1].rvalue) == 0)
+				pc += pc->address;
+			else
+				++pc;
+			tos -= 2;
+			break;
+		case BRGE:
+			if (bccmp(&tos[0].rvalue, &tos[-1].rvalue) >= 0)
+				pc += pc->address;
+			else
+				++pc;
+			tos -= 2;
+			break;
+		case BRGT:
+			if (bccmp(&tos[0].rvalue, &tos[-1].rvalue) > 0)
+				pc += pc->address;
+			else
+				++pc;
+			tos -= 2;
+			break;
+		case BRNE:
+			if (bccmp(&tos[0].rvalue, &tos[-1].rvalue) != 0)
+				pc += pc->address;
+			else
+				++pc;
+			tos -= 2;
+			break;
+		case EXIT:
+			exit(0);
+			break;
+		default:
+			assert(FALSE);
+		}
+	}
+}
+
+/*
+ *	Bcmerr is called when any bc-machine error occurrs.
+ *	It prints out an error message and causes interp to
+ *	return.
+ */
+
+bcmerr(str)
+char	*str;
+{
+	fprintf(stderr, "%r\n", &str);
+	longjmp(bcmenv, TRUE);
+}

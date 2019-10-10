@@ -1,0 +1,105 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @@;
+
+
+1.2
+date     93.05.19.08.44.32;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.28.09.20.35;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@steve: fixed a bug reported by Jim West where atan2(1.,-1.) and atan2(-1.,1.)
+returned the wrong values with -VNDP
+@
+text
+@//////////
+/ /usr/src/libm/i387/atan287.s
+/ i387 mathematics library
+/ atan2(y, x)
+//////////
+
+RASIZE	=	4
+
+	.globl	atan2
+	.globl	_cfcc
+	.globl	_tstcc
+
+//////////
+/ double
+/ atan2(y, x)
+/ double y, x;
+//////////
+
+y	=	RASIZE		/ y arg offset
+x	=	RASIZE+8	/ x arg offset
+
+atan2:
+	fldl	y(%esp)		/ Load argument y.
+	fldl	x(%esp)		/ Load argument x.
+
+	call	_tstcc
+	jne	?1		/ Jump if x nonzero.
+	fcompp			/ x = 0, compare 0 to y and pop x and y.
+	call	_cfcc
+	fld1			/ 1
+	fchs			/ -1
+	fldpi			/ pi, -1
+	fscale			/ pi/2, -1
+	fstp	%st(1)		/ pi/2
+	jbe	?0		/ 0 <= y, return pi/2.
+	fchs			/ 0 > y, return -pi/2.
+
+?0:
+	ret
+
+?1:
+	fpatan			/ atan(y/x)
+	ret
+
+/ end of atan287.s
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d42 1
+a42 7
+	pushf			/ Save flags with sign of x.
+	fld	%st(1)		/ y, x, y
+	fxch			/ x, y, y
+	fpatan			/ atan(y/x), y
+	popf			/ Restore flags.
+	jb	?2		/ x < 0, must adjust by pi.
+	fstp	%st(1)		/ atan(y/x)
+a44 12
+?2:
+	fxch			/ y, atan(y/x)
+	call	_tstcc
+	fstp	%st		/ atan(y/x)
+	fldpi			/ pi, atan(y/x)
+	jae	?3		/ y >= 0, add pi.
+	fchs			/ y < 0, subtract pi.
+
+?3:
+	fadd			/ atan(y/x) + pi
+	ret
+
+@

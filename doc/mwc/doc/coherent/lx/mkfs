@@ -1,0 +1,287 @@
+.TH mkfs "" "" Command
+.PC "Make a new file system"
+\fB/etc/mkfs [-b \fIboot\fP] [-d] [-f \fIname\fP] [-i \fIinodes\fP] [-m \fIarg\fP] [-n \fIarg\fP] [-p \fIpack\fP] \fIfilesystem proto\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB\-b \fIboot\fR"
+Specifies the file to use as the ``bootstrap'' for the file system.
+.IC \fB\-d\fR
+Preserve file dates and times.
+.IC "\fB\-f \fIname\fR"
+Label the file system with the given \fIname\fP.
+\fIname\fR must be less than seven characters in length.
+.IC "\fB\-i \fIinodes\fR"
+Use \fIinodes\fP as the number of i-nodes for the file system.
+.IC "\fB\-m \fIarg\fR"
+Number of blocks to skip when incrementing virtual block number
+.IC "\fB\-n \fIarg\fR\fR"
+Size of a ``virtual cylinder''
+.IC "\fB\-p \fIpack\fR"
+Set the file system ``pack name'' to \fIpack\fP.
+\fIpack\fR must be less than seven characters in length.
+.Pp
+If \fIproto\fR is a number, it is the size in blocks of an empty file system;
+otherwise, it names a prototype description file, as created by the command
+\fBbadscan\fR.
+.HE
+.B mkfs
+makes a new file system.
+.I filesystem
+names the file (normally a block special file) where the
+new file system will reside.
+The contents of the newly created file system are described in
+.IR proto .
+.I proto
+can be either a number or a file name.
+.PP
+If
+.I proto
+is a number,
+.B mkfs
+creates an empty file system (containing only a root directory) of the size
+in blocks given by
+.IR proto .
+The number of i-nodes is calculated as a percentage of this number.
+The command
+.DM
+	/etc/mkfs /dev/fha0 2400
+.DE
+.PP
+creates a file system on a high-density, 5.25-inch diskette
+in drive 0.
+If the disk is a high-density, 3.5-inch diskette, use the command:
+.DM
+	/etc/mkfs /dev/fva0 2880
+.DE
+.PP
+If
+.I proto
+is a file name, however, the contents of that file will be used as a prototype
+for modeling the new file system.
+This prototype file must be laid out in the following manner:
+.DS
+\fIbootstrap_file_name  file_system_name  device_name\fR
+\fIno._of_blocks  no._of_i-nodes  n   m
+%b \fIXX XX XX\fR
+\&...
+\fIdirectory_name\fR
+	\fIdirectory_name mode user_id group_id contents\fR
+	...
+	$
+$
+.DE
+.PP
+Each line is described below.
+.PP
+The first line has three fields.
+Field 1,
+.IR bootstrap_file_name ,
+contains the name of a file that holds the boot strap,
+which must fit into block 0 of the disk.
+Field 2,
+.IR file_system_name ,
+gives the name of the file system; and
+field 3,
+.IR device_name ,
+gives the name of file system's physical device (for example,
+\fB/dev/hd1\fR).
+Only the first six characters in field 2 and 
+the first 11 in field 3 are
+significant; all characters after them are ignored.
+.PP
+The second line contains four fields.
+Field 1,
+.IR no._of_blocks ,
+gives the size of the file system in blocks;
+field 2,
+.IR no_of_i-nodes ,
+gives the number of i-nodes in the file system.
+Because each file or directory requires one i-node, this number represents the
+limit on the number of files that may be created in the file system.
+A ratio of seven blocks per i-node generally works well.
+.PP
+Fields 3 and 4 control free list interleaving on your disk.
+.I n
+is the size of a ``virtual cylinder'':
+.B fsck
+allocates all the blocks on one virtual cylinder before
+it advances to the next virtual cylinder.
+The value of
+.I n
+must be less than or equal to 255, and should evenly
+divide the actual size of a cylinder on the device.
+.I m
+tells the system how many blocks to skip each time it increments a free list
+block number, i.e., the free list ``interleave'';
+.I n
+mod
+.I m
+must be zero.
+Choosing an optimal interleave value may improve system performance
+for the device.
+The optimal values for
+.I n
+and
+.I m
+are hardware-specific and can be determined by experimentation.
+.PP
+Next, the third line and following begin with \fB%b\fR.
+These list the bad blocks on your storage device.
+One or more block numbers may appear on each line, separated by white space.
+These blocks are allocated to the bad block file (i-node 1).
+.PP
+The remaining lines in the \fIproto\fR file define the names, modes,
+and contents of the directories and files in the file system.
+These lines are divided into fields separated by white space
+(blanks or tabs) as follows:
+.IP \(bu 0.3i
+The first field names the file or directory to be created.
+This field is missing on the first line, which describes the root
+directory of the file system.
+.IP \(bu
+The second field describes the mode of the file,
+which is six characters long.
+The first character gives the file type, that is, whether the file is
+ordinary (\*(Ql\-\*(Qr),
+directory (\*(Qld\*(Qr), block special (\*(Qlb\*(Qr), 
+or character special (\*(Qlc\*(Qr).
+The second character is \*(Qlu\*(Qr for set user id on execution, 
+and \*(Ql\-\*(Qr otherwise.
+The third character is \*(Qlg\*(Qr for set group id on execution, 
+and \*(Ql\-\*(Qr otherwise.
+Characters 4 through 6 specify permissions in octal; for example, \fB644\fR
+specifies read and write permission for the owner, read permission for other
+users from the same group, and read permission for users from other groups.
+.sp \*(pDu
+If the above file type were a directory, subsequent files are recursively
+defined under that directory, until the current level of directory is
+terminated by a line containing a \*(Ql$\*(Qr character.
+.IP \(bu
+The next two fields specify the owner's numerical user id and group id.
+.IP \(bu
+The last field describes file contents.
+For a directory, it is not needed.
+For an ordinary file, it is the name of a \*(CO
+file that will be copied into the newly created file.
+For block or character-special files, there are two fields that specify
+the numbers of the major and minor devices.
+.PP
+Finally, each directory's description and
+the entire \fIproto\fR file must terminate with dollar signs \*(Ql$\*(Qr.
+.PP
+The
+.I proto
+file need not contain all of the above fields.
+However, it must contain the name of the boot block (line 1),
+the number of blocks and the number of i-nodes (line 2),
+the list of bad blocks, the name of at least one directory,
+and the dollar sign that ends the file.
+.SH "Command-line Options"
+.B mkfs
+recognizes the following command-line options:
+.IP "\fB\-b \fIboot\fR" 0.3i
+Specifies the file to use as the ``bootstrap'' for the file system.
+.IP \fB\-d\fR
+Preserve file dates and times on the new file system.
+.IP "\fB\-f \fIname\fR"
+Label the file system with the given \fIname\fP.
+\fIname\fR must be less than seven characters in length.
+.IP "\fB\-i \fIinodes\fR"
+Use \fIinodes\fP as the number of inodes for the file system.
+.IP "\fB\-m \fIarg\fR"
+Set the number of blocks to skip when incrementing virtual block number.
+This is the same as the \fIm\fR option as set on line 2 of the
+prototype file.
+You can use this option if you choose not to use a prototype file.
+.IP "\fB\-n \fIarg\fR"
+Set the size of a ``virtual cylinder''.
+This is the same as the \fIn\fR option as set on line 2 of the
+prototype file.
+You can use this option if you choose not to use a prototype file.
+.IP "\fB\-p \fIpack\fR"
+Set the file system ``pack name'' to \fIpack\fP.
+\fIpack\fR must be less than seven characters in length.
+.SH Example
+The following example specifies a proto file for a high-density,
+5.25-inch floppy disk; note that this floppy disk is faulty and
+contains a number of bad blocks:
+.DM
+.ta 0.5i 1.3i 2.0i 2.5i
+/conf/boot.fha
+2400 100
+%b 55
+%b 185 86
+d\-\-755 3 1
+	coherent \-\-\-644 3 1 /coherent
+	tmp	d\-\-777 3 1
+	$
+	bin	d\-\-755 3 1
+		mail	\-u\-755 0 1 /bin/mail
+	$
+	dev	d\-\-755 3 1
+		tty30	c\-\-644 0 1 3 0
+		tty35	c\-\-644 0 1 3 5
+		mt0	b\-\-600 0 1 12 0
+	$
+$
+.DE
+.PP
+You can use the command
+.B badscan
+to draw up the list of bad blocks
+on your disk and create a skeleton \fIproto\fR file.
+.SH "See Also"
+.Xr "badscan," badscan
+.Xr "chmod," chmod.c
+.Xr "commands," commands
+.Xr "fsck," fsck
+.Xr "mount," mount.c
+.Xr "restor" restor
+.SH Notes
+When the command
+.B fsck
+checks a file system, it stores files that it cannot decypher into directory
+.BR lost+found .
+However,
+.B fsck
+cannot modify a file system during its work.
+This rule was adopted to prevent
+.B fsck
+from attempting to modify a corrupt file system, and so making matters worse.
+However, this means that (among other things)
+.B fsck
+cannot change the size of directory
+.BR lost+found .
+Thus, if more files are detached from the file system than
+.B lost+found
+can hold,
+.B fsck
+must delete them outright.
+If your newly created file system will hold a large number of transient
+files (e.g., a news system), you should increase the size of
+.B lost+found
+so that it has a fighting chance of holding all detached files that
+.B fsck
+finds.
+For example, the following script expands
+.B /lost+found
+so it can hold up to 500 files:
+.DM
+	su root
+	for i in \(gafrom 1 to 500\(ga
+	do
+		touch /lost+found/$i
+	done
+	rm /lost+found/*
+.DE
+.PP
+Run this script for each file system whose
+.B lost+found
+directory you wish to expand.
+For example, if you have a file system mount on directory
+.BR /u ,
+run this script for directory
+.B /u/lost+found
+instead of for
+.BR /lost+found .

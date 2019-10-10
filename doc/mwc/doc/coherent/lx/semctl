@@ -1,0 +1,223 @@
+.TH semctl() "" "" "General Function (libc)"
+.PC "Control semaphore operations"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/sem.h>"
+\fBint semctl(\fIid\^\fB, \fInumber\^\fB, \fIcommand\^\fB, \fIarg\^\fB)\fR
+\fBint \fIid\^\fB, \fIcommand\^\fB, \fInumber\^\fB;\fR
+\fBunion semun {\fR
+	\fBint \fIvalue\^\fB;\fR
+	\fBstruct semid_ds *\fIbuffer\^\fB;\fR
+	\fBunsigned short \fIarray\^\fB[];\fR
+\fB} \fIarg\^\fB;\fR
+.PP
+.II "interprocess communication^semaphores"
+.II "semaphores^semctl()"
+The function
+.B semctl()
+controls the COHERENT system's semaphore facility.
+.PP
+A set of semaphores consists of a copy of structure
+.BR semid_ds ,
+which is defined in header file
+.BR <sys/sem.h> .
+This structure points to the set of semaphores, notes how many semaphores
+are in the set, and gives information on who can manipulate it, and how.
+The semaphores themselves consist of an array of structures of type
+.BR sem ,
+which is also defined in
+.BR sem.h .
+When the function
+.B semget()
+creates a set of semaphores, it assigns to that set an identification
+number and returns that number to the calling process.
+For details on this process, see the Lexicon entry for
+.BR semget()
+.PP
+.I id
+identifies the set of semaphores to be manipulated.
+This value must have been returned by a call to
+.BR semget() .
+.I number
+gives the offset within the set identified by
+.I id
+of the semaphore that interests you.
+.I arg
+gives information to be passed to, or received from, the semaphore in question.
+.I command
+names the operation that you want
+.B semctl()
+to perform.
+.PP
+The following
+.IR command s
+manipulate semaphore
+.I number
+within the set identified by
+.IR id :
+.IP \fBGETVAL\fR 1.0i
+Return the value of \fBsemval\fR,
+which is the field in structure
+.B sem
+that gives the address of the semaphore's text map.
+.IP \fBSETVAL\fR
+Set \fBsemval\fR to \fIarg.value\fR.
+If an ``adjust value'' had been created for this semaphore (by changing
+or setting a semaphore through
+.B semop()
+with the flag
+.B SEM_UNDO
+set), it is erased.
+.IP \fBGETPID\fR
+Return the value of \fBsempid\fR,
+which is the field in
+.B sem
+that identifies the last process to have manipulated this semaphore.
+.IP \fBGETNCNT\fR
+Return the value of \fBsemncnt\fR, which gives the number of processes
+that await an increase in field
+.BR sem.semval .
+.IP \fBGETZCNT\fR
+Return the value of \fBsemzcnt\fR, which gives the number of processes that
+are waiting for the value of
+.BR sem.semval
+to become zero.
+.PP
+The following
+.IR command s
+return or set field
+.B semval
+within every semaphore in the set identified by
+.IR id :
+.IP \fBGETALL\fR 1.0i
+Write every
+.B semval
+into \fIarg.array\fR.
+.IP \fBSETALL\fR
+Initialize every
+.B semval
+to the corresponding value within \fIarg.array\fR.
+All ``adjust values'' for this semaphores
+are erased.
+.PP
+.B semctl()
+also recognizes the following
+.IR command s:
+.IP \fBIPC_STAT\fR 1.0i
+Copy the value of each semaphore in the set identified by
+.I id
+into the structure pointed to by \fIarg.buffer\fR.
+.IP \fBIPC_SET\fR
+Copy fields
+.BR sem_perm.uid ,
+.BR sem_perm.gid ,
+and
+.B sem_perm.mode
+(low nine bits only)
+from the
+.B ipc_perm
+associated with
+.I id
+into that pointed to
+.IR arg.buffer .
+Only the superuser
+.B root
+or the user whose effective user ID matches the value of field
+.B uid
+in the data structure identified by
+.I id
+can invoke this command.
+.IP \fBIPC_RMID\fR
+Destroy the
+.B semid_ds
+structure identified by
+.IR id ,
+plus its array of semaphores.
+Only the superuser
+.B root
+or the user whose effective user ID matches the value of field
+.B uid
+can invoke this command.
+.PP
+.B semctl()
+fails if one or more of the following is true:
+.IP \(bu 0.3i
+.I id
+is not a valid semaphore identifier.
+.B semctl()
+sets the global variable
+.BR errno
+to
+.BR EINVAL .
+.IP \(bu
+.I number
+is less than zero or greater than field
+.B sem_nsems
+in structure
+.BR semid_ds ,
+which gives the number of semaphores in the set identified by
+.I id
+(\fBEINVAL\fR).
+.IP \(bu
+.I command
+is not a valid command (\fBEINVAL\fR).
+.IP \(bu
+The calling process is denied operation permission (\fBEACCES\fR).
+.IP \(bu
+.I command
+is
+.B SETVAL
+or
+.BR SETALL ,
+but the value of
+.B semval
+exceeds the system-imposed maximum (\fBERANGE\fR).
+.IP \(bu
+.I command
+is
+.B IPC_RMID
+or
+.BR IPC_SET ,
+but the calling process is owned neither by
+.B root
+nor by the user who created the set of semaphores being manipulated
+(\fBEPERM\fR).
+.IP \(bu
+.I arg.buffer
+points to an illegal address (\fBEFAULT\fR).
+.PP
+.B semctl()
+returns the following values upon successful completion of
+their following commands:
+.DS
+.ta 0.5i 1.5i
+	\fICommand	Return Value\fR
+	\fBGETVAL\fR	Value of \fBsemval\fR
+	\fBGETPID\fR	Value of \fBsempid\fR
+	\fBGETNCNT\fR	Value of \fBsemncnt\fR
+	\fBGETZCNT\fR	Value of \fBsemzcnt\fR
+.DE
+.PP
+For all other commands,
+.B semctl()
+returns zero to indicate successful completion.
+.PP
+If it could not execute a command successfully,
+.B semctl()
+returns \-1 and sets \fBerrno\fR to an appropriate value.
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/sem.h
+.R
+.SH "See Also"
+.Xr "libc," libc
+.Xr "semget()," semget
+.Xr "semop()" semop
+.SH Notes
+For information on other methods of interprocess communication, see the
+Lexicon entries for
+.B msgctl()
+and
+.BR shmctl() .

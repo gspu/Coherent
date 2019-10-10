@@ -1,0 +1,794 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     93.07.12.17.08.56;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     93.04.19.09.03.13;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@Steve: update for 4.2Alpha
+@
+text
+@/*
+ * db/i386/i386db2.c
+ * A debugger.
+ * i386 disassembler.
+ * Table-driven, using tables in i386db4.c.
+ * A hearty thank-you to the architectural geniuses at Intel Corporation
+ * who produced this simple and elegant design -- NOT.
+ */
+
+#include "i386db.h"
+
+#define	MAX_INST_LEN	50	/* Max expanded opcode string length	*/
+#define	MAX_DISP_SIZE	6	/* Max displacement size in bytes	*/
+
+/* Instruction prefix codes. */
+#define	ESC2	0x0F		/* Escape to 2-byte opcode	*/
+#define REP	0xF3
+#define REPNE	0xF2
+#define LOCK	0xF0
+#define AD_PRE	0x67		/* Address size prefix		*/
+#define OP_PRE	0x66		/* Operand size prefix		*/
+#define CS_PRE	0x2E		/* CS: segment override prefix	*/
+#define DS_PRE	0x3E
+#define ES_PRE	0x26
+#define FS_PRE	0x64
+#define GS_PRE	0x65
+#define SS_PRE	0x36
+
+#define EBP_SIB	5
+
+/* Is_signed arg for get_value() et al.: unsigned or signed displacement. */
+#define UNSIGNED	0
+#define SIGNED		1
+
+/* Flag arg for get_value(): absolute or PC-relative address. */
+#define ABSOLUTE	0
+#define PCREL		1
+
+#define ADDRINDEX(x)	(x==32 ? 1 : 0)	/* first index for modRMtab[]	*/
+#define TOLSYM		0x100		/* print symbol if greater	*/
+#define TOLHEX		0x10		/* print hexidecimal if greater	*/
+					/* print decimal if less	*/
+
+/* Disassembler static data. */
+static	int		ad_pre_flag;	/* address size prefix flag	*/
+static	long		delta;		/* displacement			*/
+static	unsigned char	ibp[MAX_DISP_SIZE];	/* input buffer		*/
+static	unsigned char	m;		/* "Mod" field of ModR/M byte	*/
+static	unsigned char	mRM;		/* "R/M" field of ModR/M byte	*/
+static	unsigned char	mReg;		/* "REG" field of ModR/M byte	*/
+static	int		modRM_flag;	/* ModR/M byte has been loaded	*/
+static	char		*obp;		/* output buffer pointer	*/
+static	int		op_pre_flag;	/* operand size prefix flag	*/
+static	char		outbuf[MAX_INST_LEN];	/* output buffer	*/
+static	int		segn;		/* segment number		*/
+static	unsigned char	seg_prefix;	/* segment prefix, e.g. "cs:"	*/
+static	int		sib_flag;	/* SIB byte has been loaded	*/
+static	unsigned char	sb;		/* "base" field of SIB byte	*/
+static	unsigned char	sss;		/* "ss" field of SIB byte	*/
+static	unsigned char	sx;		/* "index" field of SIB byte	*/
+
+/*
+ * Return the current address size.
+ * With no address prefix flag, the address size is aop_size (16 or 32);
+ * with address prefix flag, it is the other (32 or 16).
+ */
+int
+ad_size()
+{
+	return (ad_pre_flag) ? 48 - aop_size : aop_size;
+}
+
+/*
+ * Adjust argument according to specified operand size (possibly escaped).
+ */
+int
+adj_op_size(c2) int c2;
+{
+	if (op_size()==16) {
+		switch(c2) {			/* set to addr16 lengths */
+		case 'a':	c2 = 'w';	break;
+		case 'p':	c2 = 'f';	break;
+		case 'v':	c2 = 'w';	break;
+		}
+	} else {
+		switch(c2) {			/* set to addr32 lengths */
+		case 'a':	c2 = 'd';	break;
+		case 'p':	c2 = 'l';	break;
+		case 'v':	c2 = 'd';	break;
+		}
+	}
+	return c2;
+}
+
+/*
+ * Disassemble from segment 's' to string 'dest'.
+ * Return a pointer to its terminator.
+ */
+char *
+disassemble(dest, s) char *dest; int s;
+{
+	char	 is[MAX_INST_LEN];	/* formatted instruction buffer */
+	char	*isp, *cp;
+	int	loop, useMap2;
+
+	/*
+	 * Initialize.
+	 */
+	segn = s;
+	modRM_flag = sib_flag = ad_pre_flag = op_pre_flag = seg_prefix = 0;
+	isp = is;
+
+	/*
+	 * Check whether any prefixes are present.
+	 * Treat each prefix like a separate instruction.
+	 */
+	for (loop = 1, useMap2 = 0; loop; ) {
+		if (get_code(1) == 0)
+			return NULL;
+		switch (ibp[0]) {
+		case REP:
+		case REPNE:
+		case LOCK:
+			loop = 0;
+			break;
+		case AD_PRE:
+			++ad_pre_flag;
+			continue;
+		case OP_PRE:
+			++op_pre_flag;
+			continue;
+		case CS_PRE:
+		case DS_PRE:
+		case ES_PRE:
+		case FS_PRE:
+		case GS_PRE:
+		case SS_PRE:
+			seg_prefix = ibp[0];
+			break;
+		case ESC2:	/* opcode info is in the next byte */
+			useMap2 = 1;
+			if (get_code(1) == 0)
+				return NULL;
+			loop = 0;
+			break;
+		default:
+			loop = 0;
+		}
+	}
+
+	/* Get formatted opcode string from op_map[12] and store in is[]. */
+	if ((cp = (useMap2) ? op_map_2[ibp[0]] : op_map_1[ibp[0]]) == NULL) {
+		sprintf(dest, "Invalid instruction byte = %02x (op_map_%d)\n",
+			ibp[0], useMap2 ? 2 : 1);
+		return strchr(dest, '\0') ;
+	}
+	strcpy(isp, cp);
+
+	/*
+	 * Expand the formatted opcode string pointed at by isp to produce an 
+	 * assembler mnemonic string.
+	 * Make sure dest is pointing to the current
+	 * end-of-string after each loop.
+	 */
+	for ( ; isp[0]; isp++) {
+		switch (isp[0]) {
+		case '%':
+			if ((isp = format(isp, dest)) == NULL) {
+				printr("Invalid opcode string");
+				return NULL;
+			}
+			dest = strchr(dest, '\0');	/* point to end of string */
+			break;
+		case ' ':
+			*dest++ = '\t';
+			*dest = '\0';
+			break;
+		case ',':
+			*dest++ = isp[0];
+			*dest++ = ' ';
+			*dest = '\0';
+			break;
+		default:
+			*dest++ = isp[0];
+			*dest = '\0';
+			break;
+		}
+	}
+	return dest;
+}
+
+/*
+ * Evalute "%c1c2" and store the expanded results in outbuf[].
+ * Then copy outbuf[] into dest[] and return isp pointing
+ * to the next character of the formatted instruction string. 
+ * When doing string manipulations, make sure that obp
+ * is pointing at '\0' before breaking from switch statement!
+ */
+char *
+format(isp, dest) char *isp, *dest;
+{
+	unsigned char	c1, c2;			/* 1st & 2nd char after '%' */
+	ADDR_T		val;
+	char		**cpp;
+	char		*s1;			/* temporary string pointer */
+
+	c1 = *++isp;
+	c2 = *++isp;
+	obp = outbuf;
+	*obp = '\0';
+	
+	switch (c1) {
+
+	case 'A':
+		c2 = adj_op_size(c2);
+		val = get_value(c2, UNSIGNED, ABSOLUTE);
+		out_disp('a', UNSIGNED, val);
+		break;
+
+	case 'C':
+		cpp = ctrlReg;
+outreg:
+		get_modRM();
+		output(cpp[mReg]);
+		break;
+
+	case 'D':
+		cpp = dbgReg;
+		goto outreg;
+		break;
+
+	case 'E':
+	case 'M':
+	case 'R':
+		if (ad_size() == 16)
+			out_modRM16(c2);
+		else
+			out_modRM32(c2);
+		break;
+
+	case 'G':
+		cpp = &genReg[genRegIndex(c2)][0];
+		goto outreg;
+		break;
+
+	case 'H':
+	case 'I':
+		*obp++ = '$';
+		c2 = adj_op_size(c2);
+		val = get_value(c2, SIGNED, ABSOLUTE);
+		if (c1 == 'I') {
+			switch (get_nbytes(c2)) {
+			case 1:	val &= 0xFF;		break;
+			case 2:	val &= 0xFFFF;		break;
+			}
+		}
+		out_disp('x', SIGNED, val);
+		break;
+
+	case 'J':
+	case 'K':
+		out_segpre();
+		c2 = adj_op_size(c2);
+		val = get_value(c2, SIGNED, PCREL);
+		seg_prefix = CS_PRE;			/* CS-relative disp */
+		out_disp((c1=='J') ? 'a': 's', SIGNED, val);
+		break;
+
+    /*	case 'M':	see case 'E' */
+
+	case 'O':
+		out_segpre();
+		c2 = ad_size() == 16 ? 'w' : 'd';
+		val = get_value(c2, SIGNED, ABSOLUTE);
+		out_disp('s', SIGNED, val);
+		break;
+    /*	case 'R':	 see case 'E' */ 
+
+	case 'S':
+		cpp = segReg;
+		goto outreg;
+
+	case 'T':
+		cpp = tstReg;
+		goto outreg;
+		break;
+
+	case 'X':
+#if	0
+		sprintf(obp, (ad_size()==16) ? "ds:(%%si)" : "ds:(%%esi)");
+		obp = strchr(obp, '\0');
+#endif
+		break;
+
+	case 'Y':
+#if	0
+		sprintf(obp, (ad_size()==16) ? "es:(%%di)" : "es:(%%edi)");
+		obp = strchr(obp, '\0');
+#endif
+		break;
+
+	case 'Z':
+		c2 = adj_op_size(c2);
+		switch(c2) {
+		case 'b':	*obp++ = 'b';				break;
+		case 'd':	*obp++ = 'l';				break;
+		case 'w':	*obp++ = 'w';				break;
+		case 'z':	*obp++ = (op_size()==16 ? 'w': 'l');	break;
+		}
+		*obp = '\0';
+		break;
+
+	case 'e':
+		*obp++ = '%';
+		if (op_size()!=16)
+			*obp++ = 'e';
+		*obp++ = c2;
+		*obp = '\0';
+		break;
+
+	case 'f':
+		/* Handle NDP opcodes. */
+		get_modRM();
+		*obp++ = 'f';		/* leading 'f' implicit in opcode tables */
+		if (m==3) {
+			register NDPMTAB *mtp;
+			register int	val;
+
+			/* NDP_op_3 gives opcodes with NDP register args. */
+			if ((s1 = NDP_op_3[c2-'0'][mReg]) != NULL) {
+				/* Leading 1, 2 or 3 indicates operand type. */
+				if ((c1 = *s1)=='1' || c1=='2' || c1=='3')
+					s1++;
+				else
+					c1 = 0;
+				output(s1);
+				if (!c1)
+					break;
+				*obp++ = '\t';
+				/* Output the NDP operand[s]. */
+				switch(c1) {
+				case '1':
+					output(NDPReg[mRM]);
+					break;
+				case '2':
+					output(NDPReg[0]);
+					*obp++ = ',';
+					*obp++ = ' ';
+					output(NDPReg[mRM]);
+					break;
+				case '3':
+					output(NDPReg[mRM]);
+					*obp++ = ',';
+					*obp++ = ' ';
+					output(NDPReg[0]);
+					break;
+				}
+				break;
+			}
+			/* Look for opcode in NDP_misc_op[]. */
+			val = (c2-'0'+0xD8)*0x100 + ibp[0];
+			for (mtp = NDP_misc_op; mtp->ndpm_val != 0; ++mtp) {
+				if (mtp->ndpm_val >= val)
+					break;
+			}
+			if (mtp->ndpm_val == val) {
+				output(mtp->ndpm_op);
+				break;
+			}
+		} else if ((s1 = NDP_op[c2-'0'][mReg]) != NULL) {
+			/* NDP opcode with memory operand from mod r/m byte. */
+			output(s1);
+			*obp++ = '\t';
+			if (ad_size() == 16)
+				out_modRM16(c2);
+			else
+				out_modRM32(c2);
+			break;
+		}
+		printr("Invalid NDP instruction %02x %02x",
+			c2-'0'+0xD8, ibp[0]);
+		break;
+
+	case 'g':	/* just inserting the group string into isp */
+		get_modRM();
+		if (grp_map[c2-'0'][mReg] == NULL) {
+			sprintf(obp, "\nInvalid instruction byte = %02x (grp_map[%d][%d])\n",
+				ibp[0], c2-'0', mReg);
+			return strchr(obp, '\0');
+		}
+		{
+			char buf[MAX_INST_LEN];
+
+			s1 = isp+1;			/* save current pointer */
+			strcpy(buf, s1);		/* save rest of fmt */
+			strcpy(s1, grp_map[c2-'0'][mReg]);
+			s1 = strchr(s1, '\0');		/* copy group string */
+			strcpy(s1, buf);		/* add remainder */
+			*obp = '\0';
+		}
+		break;
+
+	case 'r':
+		if (get_code(1) == 0)
+			return NULL;
+		break;
+
+	default:
+		*obp++ = c1;
+		*obp++ = c2;
+		*obp = '\0';
+	}
+	strcpy(dest, outbuf);
+	return isp;
+}
+
+/*
+ * Return the appropriate first index into genreg[][]:
+ *	0	byte
+ *	1	word
+ *	2	dword
+ */
+int
+genRegIndex(c2) int c2;
+{
+	switch(c2) {
+	case 'a':	return (op_size() == 16) ? 1 : 2;
+	case 'b':	return 0;
+	case 'd':	return 2;
+	case 'v':	return (op_size() == 16) ? 1 : 2;
+	case 'w':	return 1;
+	}
+	return printr("Invalid c2 = %c; a 1 byte reg is shown by default", c2);
+}
+
+#if	0			/* covered by macro in i386db.h */
+/*
+ * Read nbytes of code to ibp.
+ */
+int
+get_code(nbytes) int nbytes;
+{
+	return getb(segn, ibp, nbytes);
+}
+#endif
+
+/*
+ * Read and decode a mod r/m byte.
+ */
+#define mod(x)		(((x)>>6)&3)
+#define modR(x)		(((x)>>3)&7)
+#define modRM(x)	((x)&7)
+int
+get_modRM()
+{
+	if (!modRM_flag) {
+		if (get_code(1) == 0)
+			return 0;
+		m = mod(ibp[0]);
+		mRM = modRM(ibp[0]);
+		mReg = modR(ibp[0]);
+		modRM_flag = 1;
+	}
+	return 1;
+}
+
+/*
+ * Convert a size character to an actual size in bytes.
+ */
+int
+get_nbytes(mysize) int mysize;
+{
+	switch(mysize) {
+	case 'b':	return 1;
+	case 'd':	return 4;
+	case 'f':	return 4;
+	case 'l':	return 6;
+	case 'w':	return 2;
+	case '\0':	return 0;
+	}
+	printr("Invalid nbytes=%c; 1 byte size is chosen by default", mysize);
+	return 1;
+}
+
+/*
+ * Read and decode a SIB byte.
+ */
+#define sibss(x)	(((x)>>6)&3)
+#define sibx(x)		(((x)>>3)&7)
+#define sibb(x)		((x)&7)
+int
+get_sib()
+{
+	if (!sib_flag) {
+		if ((get_code(1)) == 0)
+			return 0;
+		sss = sibss(ibp[0]);
+		sx = sibx(ibp[0]);
+		sb = sibb(ibp[0]);
+		sib_flag = 1;
+	}
+	return 1;
+}
+
+/*
+ * Get displacement or immediate data and sign- or zero-extend it.
+ * Return the number of bytes read, or 0 on failure.
+ */
+int
+getValData(is_signed, mysize) int is_signed, mysize;
+{
+	register int nbytes, i;
+
+	if ((nbytes = get_nbytes(mysize)) == 0)
+		return 0;
+	else if ((get_code(nbytes)) == 0)
+		return printr("Cannot read displacement or immediate data");
+
+	for (i = nbytes; i < MAX_DISP_SIZE; i++)
+		ibp[i] = (is_signed && (ibp[i-1] & 0x80)) ? 0xFF : 0;
+	return nbytes;
+}
+
+/*
+ * Get immediate or displacement value.
+ */
+ADDR_T
+get_value(mysize, is_signed, flag) int mysize, is_signed, flag;
+{
+	register ADDR_T base;
+	int nbytes;
+
+	if ((nbytes = getValData(is_signed, mysize)) == 0)
+		return (ADDR_T)0;
+	base = (flag) ? add : (ADDR_T)0;
+	if (mysize == 'f' || mysize == 'l') {
+		/* Output 32-bit or 48-bit pointer segment. */
+		sprintf(obp, "0x%02x%02x:", ibp[nbytes-1], ibp[nbytes-2]);
+		obp = strchr(obp, '\0');
+		nbytes -= 2;
+	}
+	switch (nbytes) {
+	case 1:
+		delta = (is_signed) ? *(char *)ibp : *(unsigned char *)ibp;
+		break;
+	case 2:
+		delta = (is_signed) ? *(short *)ibp : *(unsigned short *)ibp;
+		break;		
+	case 4:
+		delta = *(long *)ibp;
+		break;
+	}
+	return base + (ADDR_T)delta;
+}
+
+/*
+ * Return the current operand size.
+ * With no operand prefix flag, the address size is aop_size (16 or 32);
+ * with address prefix flag, it is the other (32 or 16).
+ */
+int
+op_size()
+{
+	return (op_pre_flag) ? 48 - aop_size : aop_size;
+}
+
+/*
+ * Output an address.
+ */
+void
+out_addr(v) ADDR_T v;
+{
+	sprintf(obp, "0x%lX", v);
+	obp = strchr(obp, '\0');
+}
+
+/*
+ * Output a displacement.
+ */
+void
+out_disp(fmt, is_signed, val) int fmt; int is_signed; ADDR_T val;
+{
+	dbprintf(("out_disp(%c, %d, %lX):\n", fmt, is_signed, val));
+	if (is_signed && delta < 0)
+		delta = -delta;
+	switch(fmt) {
+
+	case 'd':					/* print decimal */
+		if (val == (ADDR_T)0)
+			break;				/* huh? */
+		sprintf(obp, "%ld", val);
+		break;
+
+	case 'x':					/* print hex */
+		sprintf(obp, (delta > TOLHEX) ? "0x%lX" : "%ld", val);
+		break;
+
+	case 'a':					/* print address */
+		if (delta <= TOLSYM) {
+			out_addr(val);			/* print address in hex */
+			break;
+		}
+		/* else fall through to print symbolic address... */
+
+	case 's':	/* print symbol if possible; otherwise print address */
+		cvt_addr(obp, (seg_prefix == CS_PRE) ? ISEG : DSEG, val);
+		break;
+
+	default:
+		printr("Invalid fmt=%c in out_disp", fmt);
+	}
+	obp = strchr(obp, '\0');
+}
+
+/*
+ * Output mod r/m info.
+ */
+void
+out_modRM(dispsize, fmt, addrsize, is_signed) int dispsize, fmt, addrsize, is_signed;
+{
+	unsigned long	val;
+
+	out_segpre();
+	val = get_value(dispsize, is_signed, ABSOLUTE);
+	out_disp(fmt, is_signed, val);
+	output(modRMtab[ADDRINDEX(addrsize)][mRM]);
+}
+
+/*
+ * Output 1b-bit mod r/m info.
+ */
+void
+out_modRM16(c2) int c2;
+{
+	unsigned long	val;
+
+	get_modRM();
+	c2 = adj_op_size(c2);
+
+	switch(m) {
+	case 0:
+		out_segpre();
+		if (mRM==6) {
+			val = get_value('w', SIGNED, ABSOLUTE);
+			out_disp('s', SIGNED, val);
+			break;
+		}
+		output(modRMtab[ADDRINDEX(16)][mRM]);
+		break;
+	case 1:
+	case 2:
+		out_modRM((m==1) ? 'b' : 'w', 'd', 16, SIGNED);
+		break;
+	case 3:
+		output(genReg[genRegIndex(c2)][mRM]);
+		break;
+	}
+}
+
+/*
+ * Output 32-bit mod r/m info.
+ */
+void
+out_modRM32(c2) int c2;
+{
+	unsigned long	val;
+	char c;
+
+	get_modRM();
+	c2 = adj_op_size(c2);
+
+	switch(m) {
+	case 0:
+		if (mRM==4) {
+			out_sib('\0', m);
+			break;
+		}
+		out_segpre();
+		if (mRM==5) {
+			val = get_value('d', SIGNED, ABSOLUTE);
+			out_disp('s', SIGNED, val);
+			break;
+		}
+		output(modRMtab[ADDRINDEX(32)][mRM]);
+		break;
+	case 1:
+	case 2:
+		c = (m==1) ? 'b' : 'd';
+		if (mRM==4)
+			out_sib(c, m);
+		else
+			out_modRM(c, 'd', 32, 1);
+		break;
+	case 3:
+		output(genReg[genRegIndex(c2)][mRM]);
+		break;
+	}
+}
+
+/*
+ * Copy src to output buffer outbuf,
+ * updating the output buffer pointer accordingly.
+ */
+void
+output(src) char *src;
+{
+	strcpy(obp, src);
+	obp = strchr(obp, '\0');
+}
+
+/*
+ * Write a segment escape prefix.
+ */
+void
+out_segpre()
+{
+	if (seg_prefix != 0)
+		output(op_map_1[seg_prefix]);
+}
+
+/*
+ * Output a SIB indirect address.
+ */
+void
+out_sib(dispsize, m) int dispsize, m;
+{
+	unsigned long	val;
+
+	get_sib();
+	switch(m) {
+	case 0:
+		out_segpre();
+		if (sb == EBP_SIB) {
+			val = get_value('d', SIGNED, ABSOLUTE);
+			out_disp('d', SIGNED, val);
+		} else
+			output(modRMtab[ADDRINDEX(32)][sb]);
+		break;
+	case 1:
+	case 2:
+		out_segpre();
+		val = get_value(dispsize, SIGNED, ABSOLUTE);
+		out_disp('d', SIGNED, val);
+		output(modRMtab[ADDRINDEX(32)][sb]);
+		break;
+	}
+	if (sibtab[sss][sx] != NULL)
+		output(sibtab[sss][sx]);
+}
+
+/* end of db/i386/i386db2.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d246 1
+d251 5
+a255 3
+		switch (get_nbytes(c2)) {
+		case 1:	val &= 0xFF;		break;
+		case 2:	val &= 0xFFFF;		break;
+@

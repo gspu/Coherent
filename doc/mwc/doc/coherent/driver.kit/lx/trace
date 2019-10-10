@@ -1,0 +1,73 @@
+.TH trace "" "" "Technical Information"
+.PC "COHERENT kernel traceback procedure"
+.PP
+The following describes how to interpret the \*(CO kernel's page-fault
+message:
+.IP \(bu 0.3i
+First, look at the value of register
+.BR cr2 .
+This is the address that was illegal.
+Find which register (\fBeax\fR, \fBesi\fR, \fBedi\fR, etc.)
+matches the address in
+.B cr2
+so you can look at the assembly later and figure out the instruction.
+.IP \(bu
+Check the value of register
+.BR eip .
+This is the instruction that caused the page fault.
+.IP \(bu
+Check the kernel backtrace.
+The first number (\fIaaa\fB->\fIbbb\fR, where
+.I aaa
+is the first number) is probably the kernel page-fault routine itself.
+However, check it anyhow.
+The rest is the backtrace, which is useful in determining
+why it panicked (now that you should know where from
+.BR eip ).
+.IP \(bu
+Find the
+.B *.sym
+file for the kernel you were running.
+Sort it with the following command:
+.DM
+	sort \fIkernel\fP.sym > \fIkernel\fP.ssym
+.DE
+.IP
+This puts the addresses into numeric order.
+.IP \(bu
+Pull the file
+.IR kernel .ssym
+into an editor and look for the address.
+You may well not find the exact address.
+For example, if the value of register
+.B eip
+is FFF00030, you may find
+.DM
+	FFF00010  func1
+	FFF00020  func2
+	FFF10020  func3
+.DE
+.IP
+So, you know it bailed within
+.BR func2 ,
+because address 030 is between addresses 020 and 10020.
+Some functions, however, are declared
+.BR static ,
+so they do not show up in the symbol table.
+If you are unlucky enough to have failed near a static function,
+you will just have to go into
+.B db
+and find where the functions end and where you really are at.
+.IP \(bu
+Now you can use
+.B db
+and go to that function and look at it.
+Because you know which register held the illegal value (from looking at the
+value of register
+.BR cr2 ),
+you can match the assembly language to the C original
+and find out exactly where in the code the program failed.
+.SH "See Also"
+.B
+technical information
+.R

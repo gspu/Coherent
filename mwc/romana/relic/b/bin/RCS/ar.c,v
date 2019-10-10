@@ -1,0 +1,1451 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.01.29.11.55.59;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.06.15.11.43.24;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.21.09.33.52;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@cef: changed locations of some include files after first sdtio ansification
+flushed out some bugs
+@
+text
+@/*
+ * Archive manager.
+ * Also manages libraries for the
+ * link editor,
+ * including ranlib header updates.
+ */
+#define PORTAR	1	/* COFF frmat */
+
+#ifdef COHERENT
+#define SLASH '/'
+#else
+#define SLASH '\\'
+#endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <arcoff.h>
+#include <ar.h>
+#if !PORTAR
+#include <canon.h>
+#else
+#include <coff.h>
+#endif
+#include <sys/types.h>
+#include <sys/stat.h>
+
+#define	RO	0
+#define	RW	1
+
+#define	NONE	0
+#define	BEFORE	1
+#define	AFTER	2
+
+#define	ALLOK	0
+#define	NOTALL	1
+#define	ERROR	2
+
+#define	aechk()	{ if(ferror(afp)) ioerr(anp); }
+#define	techk()	{ if(ferror(tfp)) ioerr(tnp); }
+
+char	nwork[] = "No work";
+char	found[]	= "found";
+char	copen[]	= "%s: cannot open";
+char	ccrea[] = "%s: cannot create";
+char	creop[] = "%s: cannot reopen";
+
+FILE	*afp;
+FILE	*tfp;
+FILE	*rfp;
+#define DIRSIZ 14
+#if PORTAR
+struct old_ar_hdr ahb;
+char	rnp[] = "";
+char	rnpx[] = "SYMDEF.__";
+#else
+#define SARMAG sizeof(short)
+char	rnp[] = HDRNAME;
+char	*rnpx = rnp;
+struct	ar_hdr ahb;
+#endif
+
+int	usage();
+long	fsize();
+
+long	ranCt;	/* count of ranlib entrys for coff */
+
+int	nname;
+char	**namep;
+int	cflag;
+int	kflag;
+int	lflag;
+int	sflag;
+int	uflag;
+int	vflag;
+int	xflag;
+char	*pnp;
+char	*anp;
+char	*tnp;
+int	xstat	 = ALLOK;
+int	pos	 = NONE;
+int	(*ffp)() = usage;
+FILE *makeh();
+
+char	state[] = "'%s' file not found";
+
+/*
+ * ar called as ranlib.
+ */
+ranlib(argv)
+char *argv[];
+{
+	int rfunc();
+
+	ffp = rfunc;
+	++sflag;
+	anp = argv[1];
+	(*ffp)();
+	delexit(xstat);
+}
+
+main(argc, argv)
+char *argv[];
+{
+	register i;
+	char *p;
+	int usage(), rfunc();
+
+	if (NULL == (p = strrchr(argv[0], SLASH)))
+		p = argv[0];
+	else
+		p++;
+
+	if (!strcmp(p, "ranlib"))
+		ranlib(argv);
+
+	if (strcmp(p, "ar"))
+		diag(1, "called as %s, expecting ar, or ranlib", p);
+
+	_addargs("AR", &argc, &argv);
+	if (argc < 2)
+		usage();
+	key(argv[1]);
+	nname = argc - 2;
+	namep = &argv[2];
+	for (i = 2; i < argc; ++i) {
+		if (pos != NONE && pnp == NULL) {
+			pnp = argv[i];
+			++namep;
+			--nname;
+		} else {
+			anp = argv[i];
+			++namep;
+			--nname;
+			break;
+		}
+	}
+	if (anp == NULL)
+		usage();
+	if (pos != NONE) {
+		if (pnp == NULL)
+			usage();
+		if (ffp == usage)
+			ffp = rfunc;
+	}
+	(*ffp)();
+	delexit(xstat);
+}
+
+/*
+ * Decode key.
+ * Save function name in 'ffp'.
+ * Set 'c', 'l', 'k' and 'v' flags.
+ */
+key(p)
+register char *p;
+{
+	register c;
+	int dfunc(), rfunc(), qfunc(), tfunc();
+	int mfunc(), xfunc(), pfunc();
+
+	while (c = *p++) {
+		switch (c) {
+
+		case 'd':	/* Delete */
+			ffp = dfunc;
+			break;
+
+		case 'r':	/* Replace */
+			ffp = rfunc;
+			break;
+
+		case 'q':	/* Quick append */
+			ffp = qfunc;
+			break;
+
+		case 't':	/* Tabulate */
+			ffp = tfunc;
+			break;
+
+		case 'p':	/* Print */
+			ffp = pfunc;
+			break;
+
+		case 'm':	/* Move */
+			ffp = mfunc;
+			break;
+
+		case 'x':	/* Extract */
+			ffp = xfunc;
+			++xflag;
+			break;
+
+		case 'c':	/* no create message */
+			++cflag;
+			break;
+
+		case 'k':	/* keep dates */
+			++kflag;
+			break;
+
+		case 'l':	/* local temp file */
+			++lflag;
+			break;
+
+		case 's':	/* ranlib symbol table */
+			++sflag;
+			break;
+
+		case 'u':	/* update replace */
+			++uflag;
+			break;
+
+		case 'v':	/* verbose */
+			++vflag;
+			break;
+
+		case 'a':	/* after position or append */
+			pos = AFTER;
+			break;
+
+		case 'b':	/* before position */
+		case 'i':	/* insert */
+			pos = BEFORE;
+			break;
+
+		default:
+			usage();
+		}
+	}
+}
+
+/*
+ * Seek forward for ahb.ar_size rounded up.
+ */
+static
+seekPast()
+{
+	long len;
+
+	len = (ahb.ar_size + 1) & ~1;
+	fseek(afp, len, 1);
+}
+
+/*
+ * Replace.
+ * Eliminate dead stuff if 'u'.
+ * Copy up to insert point.
+ * Copy in new files.
+ * Copy the rest of the file.
+ * Copy back.
+ */
+rfunc()
+{
+	register char *qfn;
+	register i, nef;
+	FILE *qfp;
+
+	if (nname == 0 && sflag == 0)
+		diag(1, nwork);
+	aopen(RW);	/* open archive */
+	ropen();	/* maybe open ranlib */
+	if (uflag) {
+		update();
+		fseek(afp, (long)SARMAG, 0);	/* bypass magic */
+		if (rfp != NULL) {
+			geth();
+			if (eqh(rnp))	/* if SYMBOL header bypass */
+				seekPast();
+			else
+				fseek(afp, (long)SARMAG, 0);
+		}
+	}
+	topen();	/* open tmpfile */
+	while (nef = geth()) {
+		if (pos==BEFORE && eqh(pnp)) {
+			fseek(afp, (long)-sizeof(struct ar_hdr), 1);
+			break;
+		}
+		if (pos == NONE) {
+			for (i=0; i<nname; ++i) {
+				if ((qfn=namep[i])!=NULL && eqh(qfn))
+					break;
+			}
+			if (i != nname) {
+				seekPast();
+				namep[i] = NULL;
+				remove(i, qfn);
+				qfp = makeh(qfn);
+				if (vflag)
+					printf("%s: in place replace.\n", qfn);
+				puth(tfp, tnp);
+				ffcopy(tfp, tnp, qfp, qfn, (long)ahb.ar_size);
+				fclose(qfp);
+				continue;
+			}
+		}
+		mmove(0);
+		if (pos==AFTER &&  eqh(pnp))
+			break;
+	}
+	if (nef==0 && pos!=NONE)
+		diag(1, "%s: not in archive", pnp);
+	for (i=0; i<nname; ++i) {
+		if ((qfn=namep[i]) == NULL)
+			continue;
+		remove(i, qfn);
+		qfp = makeh(qfn);
+		if (vflag)
+			printf("%s: replaced.\n", qfn);
+		puth(tfp, tnp);
+		ffcopy(tfp, tnp, qfp, qfn, (long)ahb.ar_size);
+		fclose(qfp);
+	}
+	while (geth())
+		mmove(0);
+	tacopy();
+}
+
+/*
+ * Handle the 'u' option.
+ * Read through the archive, comparing
+ * the dates in the headers to the last
+ * modification dates of the files in
+ * the command line. Make some files
+ * go away.
+ */
+update()
+{
+	register char *p;
+	register i;
+	struct stat sb;
+
+	while (geth()) {
+		for (i=0; i<nname; ++i) {
+			p = namep[i];
+			if (p!=NULL && eqh(p)) {
+				if (stat(p, &sb) < 0)
+					diag(1, state, p);
+				if (ahb.ar_date >= sb.st_mtime) {
+					if (vflag)
+						printf("%s: no update.\n", p);
+					namep[i] = NULL;
+					remove(i, p);
+				}
+			}
+		}
+		seekPast();
+	}
+	for (i=0; i<nname && namep[i]==NULL; ++i)
+		;
+	if (i >= nname) {
+		if (vflag)
+			fprintf(stderr, "%s.\n", nwork);
+		delexit(ALLOK);
+	}
+}
+
+/*
+ * Move.
+ * Copy stuff before insert.
+ * Copy moved stuff.
+ * Copy remainder.
+ * Copy back to archive.
+ */
+mfunc()
+{
+	register nef;
+	long s;
+
+	aopen(RW);
+	ropen();
+	topen();
+	while (nef = geth()) {
+		if (pos==BEFORE && eqh(pnp))
+			break;
+		mmove(0);
+		if (pos==AFTER &&  eqh(pnp))
+			break;
+	}
+	if (nef==0 && pos!=NONE)
+		diag(1, "%s: not in archive", pnp);
+	s = ftell(afp);
+	if (pos == BEFORE)
+		s -= sizeof(struct ar_hdr);
+	fseek(afp, (long)SARMAG, 0);
+	while (geth())
+		mmove(1);
+	if (nef) {
+		fseek(afp, s, 0);
+		while (geth())
+			mmove(0);
+	}
+	tacopy();
+}
+
+/*
+ * Conditional move to the
+ * temp file from the archive
+ * file. Used by move and replace
+ */
+mmove(f1)
+register f1;
+{
+	register f2, i;
+	register long size;
+
+	f2 = 0;
+	for (i=0; i<nname; ++i) {
+		if (eqh(namep[i])) {
+			++f2;
+			break;
+		}
+	}
+	if (f1 == f2) {
+		if (vflag)
+			amsg("copied");
+		size = ahb.ar_size;
+		puth(tfp, tnp);
+		ffcopy(tfp, tnp, afp, anp, size);
+	} else {
+		if (vflag)
+			amsg("skipped");
+		seekPast();
+	}
+}
+
+/*
+ * Print.
+ */
+pfunc()
+{
+	aopen(RO);
+	while (geth()) {
+		if (nname==0 || match())
+			pfile();
+		else
+			seekPast();
+	}
+	if (nname != 0)
+		notdone(found);
+}
+
+pfile()
+{
+	if (vflag)
+		amsg(NULL);
+	ffcopy(stdout, "Stdout", afp, anp, ahb.ar_size);
+}
+
+/*
+ * Delete.
+ * Copy archive to temp, deleting
+ * members along the way. If all of
+ * the files have been deleted then
+ * copy back.
+ */
+dfunc()
+{
+	register long size;
+
+	if (nname == 0)
+		diag(1, nwork);
+	aopen(RW);
+	ropen();
+	topen();
+	while (geth()) {
+		if (match()) {
+			if (vflag)
+				amsg("deleted");
+			seekPast();
+			continue;
+		}
+		if (vflag)
+			amsg("copied");
+		size = ahb.ar_size;
+		puth(tfp, tnp);
+		ffcopy(tfp, tnp, afp, anp, size);
+	}
+	if (notdone("deleted"))
+		delexit(ERROR);
+	tacopy();
+}
+
+/*
+ * Quick insert.
+ * Copy archive to temp file.
+ * Tack new files onto the end.
+ * If no errors, copy back.
+ */
+qfunc()
+{
+	register char *qfn;
+	register FILE *qfp;
+	register i;
+
+	if (nname == 0)
+		diag(1, nwork);
+	aopen(RW);
+	if (geth() != 0 && eqh(rnp)) {
+		fseek(afp, (long)-sizeof(ahb), 1);
+		ahb.ar_date = 0;
+		puth(afp, anp);
+	}
+	fseek(afp, (long)0, 2);
+	for (i=0; i<nname; ++i) {
+		if ((qfn=namep[i]) == NULL)
+			continue;
+		remove(i, qfn);
+		qfp = makeh(qfn);
+		if (vflag)
+			printf("%s: quick insert.\n", qfn);
+		puth(afp, anp);
+		ffcopy(afp, anp, qfp, qfn, (long)ahb.ar_size);
+		fclose(qfp);
+	}
+}
+
+/*
+ * Table.
+ * Read through archive.
+ * If good member print its name.
+ * If verbose, print extra stuff.
+ */
+tfunc()
+{
+	register char *p;
+	register c, n;
+
+	aopen(RO);
+	while (geth()) {
+		if (nname==0 || match()) {
+			if (!*(p = ahb.ar_name)) {
+				seekPast();
+				continue;
+			}
+			n = 0;
+			while (n<DIRSIZ && (c=*p++)) {
+				putchar(c);
+				++n;
+			}
+			if (vflag) {
+				while (n++ < DIRSIZ+1)
+					putchar(' ');
+#if COHERENT
+				printf("%5d %5d ", ahb.ar_gid, ahb.ar_uid);
+				printf("%03o ",  ahb.ar_mode & 0777);
+#endif
+				printf("%10ld ", ahb.ar_size);
+				printf("%s", ctime(&ahb.ar_date));
+			} else
+				putchar('\n');
+		}
+		seekPast();
+	}
+	if (nname != 0)
+		notdone(found);
+}
+
+/*
+ * Extract.
+ * Read through archive.
+ * Extract any files you find.
+ * At end, mutter about files
+ * that were not there.
+ */
+xfunc()
+{
+	register char *p1, *p2;
+	register c;
+	char fnb[DIRSIZ+1];
+	FILE *xfp;
+
+	aopen(RO);
+	while (geth()) {
+		if (nname==0 || match()) {
+			if (!*(p1 = ahb.ar_name)) {
+				seekPast();
+				continue;
+			}
+			p2 = fnb;
+			while (p1<&ahb.ar_name[DIRSIZ] && (c=*p1++))
+				*p2++ = c;
+			*p2 = 0;
+			if ((xfp=fopen(fnb, "wb")) == NULL) {
+				diag(0, ccrea, fnb);
+				seekPast();
+				continue;
+			}
+			if (vflag)
+				amsg("extracting");
+			ffcopy(xfp, fnb, afp, anp, ahb.ar_size);
+			chmod(fnb, ahb.ar_mode);
+
+			fclose(xfp);
+			if (kflag) {
+				time_t	times[2];
+				time_t	time();
+
+				time(times+0);
+				times[1] = ahb.ar_date;
+				if (utime(fnb, times) < 0)
+					diag(0, "Unable to set time for %s",
+					 fnb);
+			}
+		} else
+			seekPast();
+	}
+	if (nname != 0)
+		notdone(found);
+}
+
+/*
+ * Make an archive header.
+ * Put it in the external archive
+ * header buffer 'ahb'. The arg.
+ * 'fn' is the file name. The file
+ * is open on 'fp'.
+ */
+FILE *
+makeh(fn)
+char *fn;
+{
+	FILE *fp;
+	char *p1;
+
+	struct stat sb;
+
+#if GEMDOS
+	if (stat(fn, &sb) < 0)
+		diag(1, state, fn);
+
+	if (NULL == (fp = fopen(fn, "rb")))
+		diag(1, copen, fn);
+#else
+	if (NULL == (fp = fopen(fn, "rb")))
+		diag(1, copen, fn);
+
+	if (fstat(fileno(fp), &sb) < 0)
+		diag(1, state, fn);
+#endif	
+	if (fn == rnpx)
+		fn = "";
+
+	if (NULL == (p1 = strrchr(fn, SLASH)))
+		p1 = fn - 1;
+
+	strncpy(ahb.ar_name, p1 + 1, DIRSIZ);
+
+	if (kflag)
+		ahb.ar_date = sb.st_mtime;
+	else
+		time(&ahb.ar_date);
+	ahb.ar_uid  = sb.st_uid;
+	ahb.ar_gid  = sb.st_gid;
+	ahb.ar_mode = sb.st_mode & 07777;
+	ahb.ar_size = sb.st_size;
+
+	return (fp);
+}
+
+/*
+ * Test if the member whose
+ * header is held in the archive
+ * header buffer is mentioned in
+ * the user's list of members.
+ * Return the number of matches.
+ * All matches are NULLed.
+ */
+match()
+{
+	register char *p;
+	register i, n;
+
+	n = 0;
+	for (i=0; i<nname; ++i) {
+		if ((p=namep[i]) == NULL)
+			continue;
+		if (eqh(p)) {
+			++n;
+			namep[i] = NULL;
+		}
+	}
+	return (n);
+}
+
+/*
+ * Remove all instances of name
+ * 'fn' from the list of names that
+ * is described by 'namep' and
+ * 'nname'.
+ * Start at index 'i+1'.
+ */
+remove(i, fn)
+register i;
+register char *fn;
+{
+	register char *p;
+
+	for (++i; i<nname; ++i) {
+		if ((p=namep[i]) == NULL)
+			continue;
+		if (strcmp(fn, p) == 0)
+			namep[i] = NULL;
+	}
+}
+
+/*
+ * This routine digs through the
+ * list of names described by 'namep'
+ * and 'nname' looking for names that
+ * have not been NULLed out. If any
+ * are found it prints a title and 
+ * the names. The number of names that
+ * were found is returned.
+ */
+notdone(s)
+char *s;
+{
+	register char *p;
+	register i, n;
+
+	n = 0;
+	for (i=0; i<nname; ++i) {
+		p = namep[i];
+		if (p != NULL) {
+			if (n++ == 0)
+				fprintf(stderr, "Not %s:\n", s);
+			fprintf(stderr, "%s\n", p);
+		}
+	}
+	return (n);
+}
+
+/*
+ * File to file copy.
+ * With ranlib construction.
+ */
+ffcopy(tfp, tfn, ffp, ffn, s)
+FILE *tfp, *ffp;
+char *tfn, *ffn;
+long s;
+{
+	register n;
+	int pad;
+	static char fb[BUFSIZ];
+
+	if (rfp != NULL)
+		raddmod(tfp, ffp, s);
+
+	pad = s & 1;
+	for (n = ftell(ffp) % BUFSIZ; s; (s -= n), (n = 0)) {
+		if ((n = BUFSIZ - n) > s)
+			n = s;
+		if (fread (fb, sizeof(char), n, ffp) != n)
+			ioerr(ffn);
+		if (fwrite(fb, sizeof(char), n, tfp) != n)
+			ioerr(tfn);
+	}
+	if (pad) {
+		fgetc(ffp);
+		if (!xflag)
+			fputc(0, tfp);
+	}
+}
+
+/*
+ * Get the next archive header
+ * into 'ahb'. Check for any I/O
+ * errors. Return true if a header
+ * was read and false on EOF.
+ */
+geth()
+{
+#if PORTAR
+	struct ar_hdr hdr;
+	int uid, gid, mode;
+	register char *p;
+
+	if (fread(&hdr, sizeof(hdr), 1, afp) != 1) {
+		aechk();
+		return (0);
+	}
+
+	memset(&ahb, '\0', sizeof(ahb));
+	memcpy(ahb.ar_name, hdr.ar_name, DIRSIZ);
+	if (NULL != (p = strchr(ahb.ar_name, '/')))
+		*p = '\0';
+
+	sscanf(hdr.ar_date, "%d %d %d %o %d",
+		&ahb.ar_date, &uid, &gid, &mode, &ahb.ar_size);
+	ahb.ar_uid  = uid;	/* use intermediate fields for shorts */
+	ahb.ar_gid  = gid;
+	ahb.ar_mode = mode & 07777;
+
+#else
+	if (fread(&ahb, sizeof(ahb), 1, afp) != 1) {
+		aechk();
+		return (0);
+	}
+	cantime(ahb.ar_date);
+	canshort(ahb.ar_gid);
+	canshort(ahb.ar_uid);
+	canshort(ahb.ar_mode);
+	cansize(ahb.ar_size);
+#endif
+	return (1);
+}
+
+/*
+ * Write the header in 'ahb' to
+ * the temp file.
+ */
+puth(fp, np)
+FILE *fp;
+char *np;
+{
+#if PORTAR
+	struct ar_hdr hdr;
+	register i;
+
+	sprintf(hdr.ar_date, "%-12ld%-6d%-6d%-8o%-10ld",
+		ahb.ar_date, ahb.ar_uid,
+		ahb.ar_gid, ahb.ar_mode & 07777, ahb.ar_size);
+	
+	memcpy(hdr.ar_fmag, ARFMAG, sizeof(hdr.ar_fmag));
+
+	for (i = 0; (i < DIRSIZ) && ahb.ar_name[i]; i++)
+		hdr.ar_name[i] = ahb.ar_name[i];
+	hdr.ar_name[i++] = '/';
+	for (; i < sizeof(hdr.ar_name); i++)
+		hdr.ar_name[i] = ' ';
+
+	fwrite(&hdr, sizeof(hdr), 1, fp);
+#else
+	cantime(ahb.ar_date);
+	canshort(ahb.ar_gid);
+	canshort(ahb.ar_uid);
+	canshort(ahb.ar_mode);
+	cansize(ahb.ar_size);
+	fwrite(&ahb, sizeof(ahb), 1, fp);
+#endif
+	if(ferror(fp))
+		ioerr(np);
+}
+
+/*
+ * Compare a string to the name
+ * of the member in the archive header
+ * buffer. True return if same.
+ */
+eqh(p)
+char *p;
+{
+	register char *p1;
+
+	if (NULL == (p1 = strrchr(p, SLASH)))
+		p1 = p;
+	else
+		p1++;
+
+	return (!strncmp(p1, ahb.ar_name, DIRSIZ));
+}
+
+/*
+ * Open archive.
+ * The argument 'aam' is the
+ * access mode (RO or RW).
+ */
+aopen(aam)
+{
+#ifdef PORTAR
+	char	buf[SARMAG];
+#else
+	int i;
+#endif
+
+	if ((afp=fopen(anp, "rb")) == NULL) {
+		if (aam == RO)
+			diag(1, copen, anp);
+		if ((afp=fopen(anp, "wb"))==NULL
+		 || (afp=freopen(anp, "wrb", afp))==NULL)
+			diag(1, ccrea, anp);
+		if (cflag == 0)
+			printf("%s: new archive.\n", anp);
+#if PORTAR
+		fputs(ARMAG, afp);
+#else
+		i = ARMAG;
+		canint(i);
+		fwrite(&i, sizeof(i), 1, afp);
+#endif
+		aechk();
+		return;
+	}
+	if (aam != RO) {
+		fclose(afp);
+		if ((afp=fopen(anp, "rwb"))==NULL)
+			diag(1, copen, anp);
+	}
+#if PORTAR
+	fread(buf, SARMAG, 1, afp);
+	aechk();
+	if(memcmp(buf, ARMAG, SARMAG))
+#else
+	fread(&i, sizeof(i), 1, afp);
+	aechk();
+	canint(i);
+	if (i != ARMAG)
+#endif
+		diag(1, "%s: not an archive", anp);
+}
+
+/*
+ * Open tempfile.
+ * Stash the name in 'tnp' for
+ * the benefit of 'delexit'.
+ * Honour the 'l' option w.r.t.
+ * file placement.
+ */
+topen()
+{
+	int i;
+
+	extern char *tempnam();
+	tnp = tempnam((lflag ? "." : NULL), "v");
+
+	if ((tfp=fopen(tnp, "wb")) == NULL) 
+		diag(1, ccrea, tnp);
+#if PORTAR
+	fputs(ARMAG, tfp);
+#else
+	i = ARMAG;
+	canint(i);
+	fwrite(&i, sizeof(i), 1, tfp);
+#endif
+	techk();
+}
+
+/*
+ * Copy tempfile back to the
+ * archive.
+ */
+tacopy()
+{
+	register FILE *xtp;
+#if PORTAR
+	char buf[SARMAG];
+#else
+	int i;
+#endif
+
+	fclose(tfp);
+	tfp = NULL;  /* Scare off delexit */
+	fclose(afp);
+	if ((xtp=fopen(tnp, "rb")) == NULL)
+		diag(1, creop, tnp);
+	if ((afp=fopen(anp, "wb")) == NULL)
+		diag(1, creop, anp);
+	if (vflag)
+		printf("%s: copy back.\n", anp);
+#if PORTAR
+	if (fread(buf, SARMAG, 1, xtp) != 1)
+		ioerr(tnp);
+	if (fwrite(buf, SARMAG, 1, afp) != 1)
+		ioerr(anp);
+	if (rfp != NULL)
+		 rcopy();
+	ffcopy(afp, anp, xtp, tnp, fsize(xtp, tnp) - SARMAG);
+#else
+	if (fread(&i, sizeof(i), 1, xtp) != 1)
+		ioerr(tnp);
+	if (fwrite(&i, sizeof(i), 1, afp) != 1)
+		ioerr(anp);
+	if (rfp != NULL)
+		 rcopy();
+	ffcopy(afp, anp, xtp, tnp, fsize(xtp, tnp) - sizeof(int));
+#endif
+	tfp = xtp;   /* Delete */
+}
+
+/*
+ * Write diagnostic.
+ * The flag 'f' marks fatal errors.
+ */
+diag(f, a)
+{
+	fprintf(stderr, "%r.\n", &a);
+	if (f)
+		delexit(ERROR);
+	xstat = NOTALL;
+}
+
+/*
+ * Print a message for a
+ * given archive member. The header
+ * is in the header buffer. 
+ */
+amsg(s)
+char *s;
+{
+	register char *p;
+	register c;
+
+	p = ahb.ar_name;
+	while (p<&ahb.ar_name[DIRSIZ] && (c=*p++)!=0)
+		putchar(c);
+	putchar(':');
+	if (s != NULL)
+		printf(" %s.", s);
+	putchar('\n');
+}
+
+/*
+ * Exit.
+ * Delete the tempfile if
+ * present.
+ */
+delexit(s)
+{
+	if (tfp != NULL)
+		unlink(tnp);
+#ifdef DEBUG
+	if (s)
+		abort();
+#endif
+	unlink(rnpx);
+	exit(s);
+}
+
+/*
+ * Mutter about an I/O error
+ * on file 's'.
+ */
+ioerr(s)
+char *s;
+{
+	diag(1, "%s: I/O error", s);
+}
+
+/*
+ * Print usage message.
+ */
+usage()
+{
+	fprintf(stderr, "Usage: ar options [posname] afile [name ...].\n");
+	delexit(ERROR);
+}
+
+/*
+ * Compute the size of a file.
+ * In bytes.
+ * The file must not be seeked.
+ */
+long
+fsize(fp, fn)
+FILE *fp;
+char *fn;
+{
+	struct stat sb;
+
+#if GEMDOS
+	if (stat(fn, &sb) < 0)
+		diag(1, state, fn);
+#else
+	fstat(fileno(fp), &sb);
+#endif
+	return (sb.st_size);
+}
+
+/*
+ * Ranlib stuff.
+ * If the current archive has HDRNAME as first module,
+ * then skip it and open rfp for creation of new ranlib header,
+ * otherwise backup and make a vanilla archive.
+ * Unless sflag was set as an option,
+ * in which case make rfp anyway.
+ * Unless HDRNAME matches the name list and ffp == dfunc,
+ * in which case make rfp only if sflag was set.
+ */
+ropen()
+{
+	extern int dfunc();
+	long loc;
+
+	ranCt = 0;
+	loc = ftell(afp);
+	if (geth() != 0) {	/* Must not be end of file */
+		if (eqh(rnp)) {	/* Symbol header */
+			seekPast();
+			if (ffp == dfunc && match()) {
+				if (vflag)
+					amsg("deleted");
+			} else
+				++sflag;
+		} else {
+			fseek(afp, loc, 0);
+			if (sflag && ffp == dfunc) {
+				strcpy(ahb.ar_name, rnp);
+				match();
+			}
+		}
+	}
+	if (sflag && (rfp = fopen(rnpx, "wb")) == NULL)
+		diag(1, ccrea, rnpx);
+}
+
+/*
+ * Add the symbols in mfp to the ranlib header,
+ * and seek mfp back to where it began.
+ * The postion of this module in the archive
+ * is -sizeof(arhdr) from current position of afp.
+ */
+#if PORTAR
+raddmod(afp, mfp, s)
+FILE *afp, *mfp;
+long s;
+{
+	FILEHDR  fdh;
+	SYMENT	sym;
+	long	off;
+	long	str_length, aroff, i;
+	int	len, j, c, aux;
+	char 	*str_tab;
+
+	aroff = ftell(afp) - sizeof(struct ar_hdr);
+	off   = ftell(mfp);
+	str_length = fdh.f_magic = 0;
+	if (1 != fread(&fdh, sizeof(fdh), 1, mfp) ||
+	    (C_386_MAGIC != fdh.f_magic) ||
+	    !fdh.f_nsyms)
+		goto done;
+
+	i = fdh.f_symptr + (SYMESZ * fdh.f_nsyms);
+	str_length = 0;
+	if (!fdh.f_symptr)
+		goto done;
+	if (i < s) {	/* make our own eof inside archive */
+		fseek(mfp, i + off, 0);
+		if (1 != fread(&str_length, sizeof(str_length), 1, mfp))
+			str_length = 0;
+	}
+	if (str_length) {
+		len = str_length -= 4;
+		if (len != str_length)
+			diag(1, "Cannot process %.*s small model",
+				DIRSIZ, ahb.ar_name);
+		if(NULL == (str_tab = malloc(len)))
+			diag(1, "out of space %.*s", DIRSIZ, ahb.ar_name);
+		if (1 != fread(str_tab, len, 1, mfp))
+			diag(1, "truncated module %.*s", DIRSIZ, ahb.ar_name);
+	}
+
+	fseek(mfp, fdh.f_symptr + off, 0);
+
+	for (aux = i = 0; i < fdh.f_nsyms; i++) {
+		if (1 != fread(&sym, sizeof(sym), 1, mfp))
+			diag(1, "truncated module %.*s", DIRSIZ, ahb.ar_name);
+
+		/* bypass aux symbols */
+		if (aux) {
+			aux--;
+			continue;
+		}
+		aux = sym.n_numaux;
+
+		if (C_EXT != sym.n_sclass ||
+		    (!sym.n_scnum && !sym.n_value))
+			continue;
+
+		fwrite(&aroff, sizeof(aroff), 1, rfp);
+		ranCt++;
+
+		if (!sym._n._n_n._n_zeroes) {
+			fputs(str_tab + sym._n._n_n._n_offset - 4, rfp);
+			fputc(0, rfp);
+			continue;
+		}
+		for (j = 0; (j < SYMNMLEN) && (c = sym._n._n_name[j]); j++)
+			fputc(c, rfp);
+		fputc(0, rfp);
+	}
+	if (str_length)
+		free(str_tab);
+done:
+	fseek(mfp, off, 0);
+}
+
+/*
+ * Reverse byte order on 386s
+ */
+flipwrite(x)
+unsigned long x;
+{
+#ifdef GEMDOS
+	if (1 != fwrite(&x, sizeof(x), 1, afp))
+		ioerr(anp);
+#else
+	union full {
+		unsigned char uc[4];
+		unsigned long ul;
+	} l;
+	unsigned char c;
+
+	l.ul = x;	
+	c = l.uc[0]; l.uc[0] = l.uc[3]; l.uc[3] = c;
+	c = l.uc[1]; l.uc[1] = l.uc[2]; l.uc[2] = c;
+
+	if (1 != fwrite(&l, sizeof(x), 1, afp))
+		ioerr(anp);
+#endif
+}
+
+/*
+ * Copy the ranlib header to the output archive.
+ * Close and null the ranlib file pointer
+ */
+rcopy()
+{
+	register FILE *fp;
+	int c, pad;
+	long i, x, ranLen;
+
+	ranLen = ftell(rfp); /* we are at the end */
+	fclose(rfp);
+	rfp = NULL;
+
+	fp = makeh(rnpx);
+	pad = ranLen & 1;
+	ahb.ar_size = ranLen += pad + sizeof(ranCt);
+
+	time(&ahb.ar_date);
+	ahb.ar_date += (long)(10*365+3)*24*60*60;
+
+	puth(afp, anp);
+	tfp = NULL;
+	flipwrite(ranCt);
+	ranLen += sizeof(struct ar_hdr);
+
+	for (i = 0; i < ranCt; i++) {
+		if (1 != fread(&x, sizeof(x), 1, fp))
+			ioerr(rnpx);
+		flipwrite(x + ranLen);
+		while(fgetc(fp))
+			;
+	}
+
+	fseek (fp, 0L, 0);
+	for (i = 0; i < ranCt; i++) {
+		if (1 != fread(&x, sizeof(x), 1, fp))
+			ioerr(rnpx);
+		while (c = fgetc(fp))
+			fputc(c, afp);
+		fputc(0, afp);
+	}
+	if (pad)
+		fputc(0, afp);
+	
+	fclose(fp);
+	unlink(rnpx);
+}
+#else
+struct ldheader ldh;
+struct ldsym lds;
+struct ar_sym ars;
+
+xwrite()
+{
+	if (fwrite(lds.ls_id, sizeof(lds.ls_id), 1, rfp) != 1
+	 || fwrite(&ars.ar_off, sizeof(ars.ar_off), 1, rfp) != 1)
+		ioerr(rnpx);
+}
+
+xread(fp) register FILE *fp;
+{
+	register int r;
+	union { long l; unsigned u[2]; } u;
+
+	if ((ldh.l_flag & LF_32) == 0) {
+		r = fread(&lds, sizeof(lds)-sizeof(short), 1, fp);
+		u.l = lds.ls_addr;
+		canshort(u.u[0]);
+		lds.ls_addr = u.u[0];
+	} else {
+		r = fread(&lds, sizeof(lds), 1, fp);
+		canlong(lds.ls_addr);
+	}
+	canshort(lds.ls_type);
+	return (r);
+}
+
+raddmod(afp, mfp) FILE *afp, *mfp;
+{
+	fsize_t	off, offset;
+	int	seg, nsym;
+
+	ars.ar_off = ftell(afp) - sizeof(ahb) - SARMAG;
+	cansize(ars.ar_off);
+	off = ftell(mfp);
+	ldh.l_magic = 0;	/* in case fread fails */
+	if (fread(&ldh, sizeof ldh, 1, mfp) != 1)
+		goto done;
+	canshort(ldh.l_magic);
+	if (ldh.l_magic != L_MAGIC)
+		goto done;
+	canshort(ldh.l_flag);
+	if ((ldh.l_flag & LF_32) == 0)
+		ldh.l_tbase = sizeof(ldh) - 2*sizeof(short);
+	else
+		canshort(ldh.l_tbase);
+	offset = ldh.l_tbase - (fsize_t)sizeof(ldh);
+	for (seg=0; seg<L_SYM; seg++) {
+		if (seg==L_BSSI || seg==L_BSSD)
+			continue;
+		cansize(ldh.l_ssize[seg]);
+		offset += ldh.l_ssize[seg];
+	}
+	fseek(mfp, offset, 1);
+	cansize(ldh.l_ssize[L_SYM]);
+	if ((ldh.l_flag & LF_32) == 0)
+		nsym = ldh.l_ssize[L_SYM]
+		    / (sizeof(struct ldsym) - sizeof(short));
+	else
+		nsym = ldh.l_ssize[L_SYM]/sizeof(struct ldsym);
+	while (nsym--) {
+		if (xread(mfp) == 0)
+			diag(1, "truncated module %.*s", DIRSIZ, ahb.ar_name);
+		if ((lds.ls_type&L_GLOBAL) == 0)
+			continue;
+		if ((lds.ls_type&LR_SEG) != L_REF)
+			xwrite();
+	}
+done:
+	fseek(mfp, off, 0);	/* back to beginning of module */
+}
+
+/*
+ * Copy the ranlib header to the output archive
+ * close and null the ranlib file pointer.
+ */
+rcopy()
+{
+	register FILE *fp;
+	fclose(rfp);
+	rfp = NULL;
+	fp = makeh(rnpx);
+	time(&ahb.ar_date);
+	ahb.ar_date += (long)(10*365+3)*24*60*60;
+	puth(afp, anp);
+	tfp = NULL;
+	ffcopy(afp, anp, fp, rnpx, fsize(fp, rnpx));
+	fclose(fp);
+	unlink(rnpx);
+}
+#endif
+@
+
+
+1.2
+log
+@update by cef
+@
+text
+@d15 1
+d17 1
+d25 2
+a26 2
+#include <types.h>
+#include <stat.h>
+d63 1
+a64 6
+long	ftell();
+long	atol();
+char	*ctime();
+char	*strchr();
+char	*strrchr();
+int	usage();
+d547 1
+a547 1
+				printf("%03o ",  ahb.ar_mode);
+d656 1
+a656 1
+	ahb.ar_mode = sb.st_mode&0777;
+d794 1
+a794 1
+	ahb.ar_mode = mode;
+d824 1
+a824 1
+		ahb.ar_gid, ahb.ar_mode, ahb.ar_size);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d88 1
+a88 1
+char	state[] = "%s: stat error";
+d90 15
+d109 1
+d112 12
+d262 1
+a262 1
+	if (nname == 0)
+d780 1
+d793 5
+a797 3
+	sscanf(hdr.ar_date, "%ld %d %d %o %ld",
+		&ahb.ar_date, &ahb.ar_uid,
+		&ahb.ar_gid, &ahb.ar_mode, &ahb.ar_size);
+d991 1
+a991 2
+	fprintf(stderr, "%r", &a);
+	fprintf(stderr, ".\n");
+@

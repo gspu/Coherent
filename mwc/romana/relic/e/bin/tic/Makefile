@@ -1,0 +1,40 @@
+# RCSid: $Header: /src386/usr/bin/tic/RCS/Makefile,v 1.1 92/03/13 10:45:36 bin Exp $
+DESTDIR=/bin386/usr/bin/
+SRCDIR= /usr/lib/terminfo
+CFLAGS= -A -O -DSRCDIR='"$(SRCDIR)"'
+LIB=/usr/lib
+INCL=/usr/include
+
+SRCS=	comp_main.c comp_hash.c comp_captab.c comp_scan.c comp_error.c \
+	comp_parse.c read_entry.c \
+
+COMPOBJS= comp_main.o comp_hash.o comp_captab.o comp_scan.o comp_error.o \
+	comp_parse.o read_entry.o
+
+all:	tic 
+	@echo "all done"
+
+tic: $(COMPOBJS)
+	cc -o $(DESTDIR)tic $(COMPOBJS)
+
+comp_captab.c: Caps MKcaptab.awk
+	awk -f `srcpath MKcaptab.awk` Caps > comp_captab.c
+
+comp_captab.o: comp_captab.c
+
+clean:
+	-rm -f *.[od] term.h comp_captab.c tags dump_names.c compile dump libcurses.a
+
+comp_main.o: compiler.h
+comp_hash.o: compiler.h
+comp_hash.o: term.h
+comp_captab.o: compiler.h
+comp_captab.o: term.h
+comp_scan.o: compiler.h
+comp_error.o: compiler.h
+comp_parse.o: compiler.h
+comp_parse.o: term.h
+comp_parse.o: object.h
+read_entry.o: term.h
+read_entry.o: object.h
+

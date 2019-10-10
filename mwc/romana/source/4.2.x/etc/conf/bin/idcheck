@@ -1,0 +1,241 @@
+# Generated from idcheck.sh on Tue May 10 12:47:45 1994 CDT
+# (-lgl
+#	Coherent 386 release 4.2-Beta
+#	Copyright (c) 1982, 1993 by Mark Williams Company.
+#	All rights reserved. May not be copied without permission.
+#	For copying permission and licensing info, write licensing@mwc.com
+# -lgl)
+
+# Shell version of something similar to the System V 'idcheck' command
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Output an error message to standard error, prefixed by the command name.
+
+report_error () {
+	basename $COMMAND_NAME "" "echo " ": $*" 1>&2
+}
+
+
+# Report a usage message to standard error.
+
+usage () {
+	report_error Check conditions related to installable devices
+	cat <<\END 1>&2
+usage :	-p device_name [-i dir] [-r]
+	-v vector [-i dir] [-r]
+	-d dma_channel [-i dir] [-r]
+	-a -l lower_address -u upper_address [-i dir] [-r]
+	-c -l lower_address -u upper_address [-i dir] [-r]
+END
+}
+
+
+# Check to see that both lower and upper range elements have been specified
+# Also, use them in arithmetic to ensure that they are numeric.
+
+require_upper_lower () {
+	is_numeric "$LOWER" || {
+		report_error You did not specify a valid lower range bound.
+		exit 100
+	}
+	is_numeric "$UPPER" || {
+		report_error You did not specify an upper range bound.
+		exit 100
+	}
+}
+
+
+# Check whether the indicated package is installed already
+
+check_name () {
+	grep "^$1" $MDEV_FILE 2>/dev/null 1>&2
+	set $?
+	val $(($1 > 1)) && {
+		report_error Unable to check $MDEV_FILE 1>&2
+	}
+	return $1
+}
+
+
+# Check to see whether the indicated interrupt vector is in use. We do this
+# by telling 'devadm' about a bogus new device that requires that vector for
+# exclusive use, and asking it to list conflicting devices to stdout.
+
+check_vector () {
+	set -- $($DEVADM -M"foo - H foo 0 0 0 0 -1 -1" \
+			 -S"foo Y 0 7 1 $1 0x0 0x0 0x0 0x0" \
+			 -r -I $CONF_DIR)
+	is_equal $# 0 || {
+		is_empty "$REPORT_CONFLICTS" || echo $*
+		return 1
+	}
+	return 0
+}
+
+
+# Check to see whether the indicated IOA range is in use. We use this by
+# telling 'devadm' about a bogus new device that requires that IOA range for
+# its own use, and asking it to list conflicting devices to stdout.
+
+check_ioa () {
+	require_upper_lower
+	set -- $($DEVADM -M"foo - H foo 0 0 0 0 -1 -1" \
+			 -S"foo Y 0 0 0 0 $LOWER $UPPER 0x0 0x0" \
+			 -r -I $CONF_DIR)
+	is_equal $# 0 || {
+		is_empty "$REPORT_CONFLICTS" || echo $*
+		return 1
+	}
+	return 0
+}
+
+
+# Check to see whether the indicated CMA range is in use. We use this by
+# telling 'devadm' about a bogus new device that requires that CMA range for
+# its own use, and asking it to list conflicting devices to stdout.
+
+check_cma () {
+	require_upper_lower
+	set -- $($DEVADM -M"foo - H foo 0 0 0 0 -1 -1" \
+			 -S"foo Y 0 0 0 0 0x0 0x0 $LOWER $UPPER" \
+			 -r -I $CONF_DIR)
+	is_equal $# 0 || {
+		is_empty "$REPORT_CONFLICTS" || echo $*
+		return 1
+	}
+	return 0
+}
+
+
+# Check to see whether the indicated DMA channel is in use.
+
+check_dma () {
+	report_error DMA channel configuration is not yet supported
+	return 1
+}
+
+
+# internal function used by check_block (), and check_char () to invoke
+# 'devadm' with a similar bogus device but different flags
+
+check_dev () {
+	require_upper_lower
+	set -- $($DEVADM -M"foo - $1 foo $LOWER $UPPER 0 0 -1 -1" \
+			 -S"foo Y 0 0 0 0 0x0 0x0 0x0 0x0" \
+			 -r -I $CONF_DIR)
+	is_equal $# 0 || {
+		is_empty "$REPORT_CONFLICTS" || echo $*
+		return 1
+	}
+	return 0
+}
+
+
+# Check to see whether the indicated block major range is in use. We use this
+# by telling 'devadm' about a bogus new device that requires that range for
+# its own use, and asking it to list conflicting devices to stdout.
+
+check_block () {
+	require_upper_lower
+	if val $(($LOWER < 32)); then
+		check_dev CGo
+	else
+		check_dev bD
+	fi
+}
+
+
+# Check to see whether the indicated character major range is in use. We use
+# this by telling 'devadm' about a bogus new device that requires that range
+# for its own use, and asking it to list conflicting devices to stdout.
+
+check_char () {
+	require_upper_lower
+	if val $(($LOWER < 32)); then
+		check_dev CGo
+	else
+		check_dev cD
+	fi
+}
+
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+CONF_PATH="$(pwd):$CONF_DIR:$CONF_DIR/install_conf:$CONF_PATH"
+
+find_file mdevice $CONF_PATH "MDEV_FILE=" \
+	"report_error File \'mdevice\' is not found in $CONF_PATH; exit 126"
+find_file sdevice $CONF_PATH "SDEV_FILE=" \
+	"report_error File \'sdevice\' is not found in $CONF_PATH; exit 126"
+
+DEVADM="$HOME_DIR/devadm -X $MDEV_FILE -Y $SDEV_FILE"
+
+while getopts p:i:v:l:u:d:acBCr SWITCH; do
+	case $SWITCH in
+	p)	NEW_COMMAND="check_name $OPTARG"
+		;;
+
+	i)	CONF_DIR=$OPTARG
+		;;
+
+	v)	NEW_COMMAND="check_vector $OPTARG"
+		;;
+
+	l)	LOWER="$OPTARG"
+		;;
+
+	u)	UPPER="$OPTARG"
+		;;
+
+	d)	NEW_COMMAND="check_dma $OPTARG"
+		;;
+
+	a)	NEW_COMMAND="check_ioa"
+		;;
+
+	c)	NEW_COMMAND="check_cma"
+		;;
+
+	B)	NEW_COMMAND="check_block"
+		;;
+
+	C)	NEW_COMMAND="check_char"
+		;;
+
+	r)	REPORT_CONFLICTS=1
+		;;
+
+	*)	usage
+		exit 100
+		;;
+	esac
+
+	is_empty "$NEW_COMMAND" || {
+		is_empty "$COMMAND" || {
+			report_error Bad argument: $SWITCH
+			usage
+			exit 100
+		}
+		COMMAND="$NEW_COMMAND"
+		NEW_COMMAND=
+	}
+done
+
+shift $(($OPTIND - 1))
+
+is_equal $# 0 || {
+	report_error Bad trailing arguments: $*
+	usage
+	exit 100
+}
+
+is_empty "$COMMAND" && {
+	report_error You did not specify an action to perform
+	usage
+	exit 100
+}
+
+$COMMAND

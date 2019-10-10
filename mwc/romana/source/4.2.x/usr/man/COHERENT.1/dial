@@ -1,0 +1,164 @@
+ddiiaall -- System Administration
+
+File that describes how to dial a modem
+/uussrr/lliibb/uuuuccpp/ddiiaall
+
+The file /uussrr/lliibb/uuuuccpp/ddiiaall holds information about dialers.  A _d_i_a_l_e_r is a
+device,  usually a  modem,  through which  uuuucciiccoo or  ccuu ``dials''  another
+computer system.  The daemon uuuucciiccoo  and the command ccuu use the information
+in this file to talk to dialers.
+
+ddiiaall  consists of  a series  of descriptions, each  of which  describes one
+dialer.   A description  consists  of one  or more  commands; each  command
+defines an  aspect of how  to manipulate the dialer.   Descriptions must be
+separated by one blank line.
+
+The following describes the commands you can use in a description:
+
+ddiiaalleerr _n_a_m_e
+     Name the  dialer being described.  Each description  must begin with a
+     ddiiaalleerr command.  For example, the command
+
+         dialer trailblazer
+
+     introduces the  description for the device  named ttrraaiillbbllaazzeerr. (A name
+     need not be technical: you can also use names like jjooee or jjuunnkk_mmooddeemm.)
+
+cchhaatt _f_r_o_m__m_o_d_e_m _t_o__m_o_d_e_m ... _f_r_o_m__m_o_d_e_m
+     This command gives the chat script with which uuuucciiccoo and ccuu initialize
+     the dialer and have it dial a remote system.  cchhaatt can have any number
+     of arguments:  the odd-numbered strings  are received from  the modem,
+     and the even-numbered ones sent to it.  Strings are separated by space
+     character; therefore, no string can contain a literal space character.
+     To represent  a space character  in a string, use  the escape sequence
+     \ss.
+
+If, at  a given  point in  the conversation, nothing  is expected  from the
+modem or is to be sent  to it, then use an empty pair of quotation marks as
+a placeholder.
+
+Please note that  unlike the chat script used in  file ssyyss, the chat script
+in ddiiaall  contains only the information  by which the modem  is accessed: it
+does  not contain  information about  how to log  into the  remote computer
+system.
+
+A chat script can contain the following escape sequences:
+
+    \DD  Telephone number of the remote system
+    \MM  Do not require carrier
+    \mm  Require carrier, fail if not present
+
+uuuucciiccoo and ccuu use the command pphhoonnee in file /uussrr/lliibb/uuuuccpp/ssyyss to expand the
+escape sequence \DD.
+
+The following gives an example chat script:
+
+    chat  "" ATQ0V1E1L2M1DT\D CONNECT\s2400
+
+The pair of quotation marks tells uuuucciiccoo (or ccuu) to expect nothing from the
+modem, and  to send immediately  the string AATTQQ00VV11EE11LL22MM11DDTT  followed by the
+telephone number of the remote system.  This is a typical send string for a
+Hayes-compatible, 2400-baud modem.   The string also sets certain registers
+within the modem:  QQ00VV11 turns on verbal result codes,  EE11 turns on echoing,
+and LL22MM11 sets the duration and volume of the modem's speaker.
+
+The last  string in the  chat script gives  the _e_x_p_e_c_t _s_t_r_i_n_g.  This is the
+string that  the modem sends when  it has succeeded in  connecting with the
+remote computer system.  In this example, if the modem does not send
+
+    CONNECT 2400
+
+then the attempt to call the remote system has failed.  This example shows,
+as noted  above, that no string  to the command cchhaatt  (or any other command
+used  in  ddiiaall)  can contain  a  space  character.   To  represent a  space
+character within a string, use the escape sequence \ss.
+
+cchhaatt-ttiimmeeoouutt _s_e_c_o_n_d_s
+     This command  gives the number  of seconds to await  the expect string
+     from the modem.  For example, the command
+
+         chat-timeout 10
+
+     tells uuuucciiccoo to wait ten seconds for the expected string.
+
+cchhaatt-ffaaiill _f_a_i_l_u_r_e__s_t_r_i_n_g
+     This command  defines the string  that, when received  from the modem,
+     indicates that  a connection attempt has failed.   uuuucciiccoo and ccuu abort
+     when  they receive  _f_a_i_l_u_r_e__s_t_r_i_n_g.  A dialer's  description can  have
+     multiple  cchhaatt-ffaaiill commands  (after  all, a  call can  fail for  many
+     different reasons).  For example, the commands
+
+         chat-fail   BUSY
+         chat-fail   NO\sCARRIER
+
+     tell uuuucciiccoo and ccuu to abort  when they receive either the strings BBUUSSYY
+     or NNOO CCAARRRRIIEERR.
+
+ccoommpplleettee-cchhaatt _s_t_r_i_n_g ... _s_t_r_i_n_g
+aabboorrtt-cchhaatt _s_t_r_i_n_g ... _s_t_r_i_n_g
+     These commands  give the chat scripts  to be executed when  a call has
+     completed.  ccoommpplleettee-cchhaatt  gives the script  to run when  the call has
+     completed successfully;  whereas aabboorrtt-cchhaatt  gives the chat  script to
+     run when a call has aborted.  These chat scripts reset modem registers
+     and help  ensure that the  modem has hung  up.  Please note  that if a
+     modem is ideally configured, these commands need never be present in a
+     dialer entry.
+
+ccoommpplleettee _s_t_r_i_n_g
+aabboorrtt _s_t_r_i_n_g
+     The  former sends  _s_t_r_i_n_g to  the  dialer after  a call  has completed
+     successfully; the latter sends its _s_t_r_i_n_g after a call has aborted.
+
+_E_x_a_m_p_l_e
+The following gives the entry for a 9600-baud Trailblazer modem:
+
+    dialer tbfast
+    chat "" AT\sE0\sQ4\sV1\sS7=60\sS50=255\sS51=255\sS66=0 \
+        \sS111=30\sDP\D CONNECT\sFAST
+    chat-timeout 60
+    chat-fail BUSY
+    chat-fail NO\sCARRIER
+    chat-fail NO\sANSWER
+    complete-chat "" \d+++\dATH0\sV0\sE0\sQ1\sS0=1
+    abort-chat "" \d+++\dATH0\sV0\sE0\sQ1\sS0=1
+
+Most of  the commands in this  example are optional.  A  dialer entry could
+work  with  only the  first  two commands.   The  following describes  each
+command in detail:
+
+ddiiaalleerr    Give the dialer the name ttbbffaasstt.
+
+cchhaatt      Give the chat script  with which uuuucciiccoo converses with the modem.
+          It sets  a number of  `S' registers, turns echoing  off, puts the
+          modem into  verbose mode, dials the  remote system, and indicates
+          that the signal for success is the string CCOONNNNEECCTT FFAASSTT. Note that
+          normally  the  chat  script must  be  one  unbroken string;  this
+          example is  broken into two lines  so it will fit  onto the page.
+          For information on the  commands from which you would construct a
+          chat script, see the documentation that comes with your modem.
+
+cchhaatt-ttiimmeeoouutt
+          Tells uuuucciiccoo how long to wait before it times out.  In this case,
+          wait 60 seconds.
+
+cchhaatt-ffaaiill Define a string with  which the modem indicates failure.  In this
+          case,  there are  three such  commands,  each naming  a different
+          message.
+
+ccoommpplleettee-cchhaatt
+aabboorrtt-cchhaatt
+          These  give the  strings to  send to  the modem  in the  case of,
+          respectively,  the successful  completion of  call or  an aborted
+          call.  For this entry, the same string is send in either case: it
+          turns off echoing and verbose mode, and turns on auto-answering.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, ppoorrtt, ssyyss, UUUUCCPP
+
+_N_o_t_e_s
+Only the superuser rroooott can edit /uussrr/lliibb/uuuuccpp/ddiiaall.
+
+The  file ddiiaall  supports many  commands in addition  to the  ones described
+here.  This  article describes  only those commands  that might be  used in
+typical UUCP  connections.  For more  information, see the  original Taylor
+UUCP documentation, which is in the archive /uussrr/ssrrcc/aalliieenn/uuuuddoocc110044.ttaarr.ZZ.

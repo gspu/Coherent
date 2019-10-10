@@ -1,0 +1,101 @@
+.TH uuencode "" "" Command
+.PC "Encode a binary file for transmission"
+\fBuuencode [ \fIsource\fB ] \fIfile_label\fB [ < \fIsource\fB ] > \fIoutput\fR
+.PP
+.B uuencode
+prepares a file for transmission to a remote destination via
+.B uucp.
+It takes binary input and produces an encoded version, consisting of printable
+ASCII characters, on standard output, which may be redirected or piped to
+.BR uucp .
+.PP
+If
+.I source
+is not specified,
+.B uuencode
+reads the standard input and writes to the standard output.
+If, however,
+.I source
+is specified,
+.B uuencode
+its permissions into the \fBuuencode\fR'd file.
+.I file_label
+is the name that
+.B uudecode
+gives to the file when it is decoded.
+.PP
+.B uuencode
+is chiefly used for mail.
+You cannot mail a binary file, but you can mail a \fBuuencode\fR'd binary.
+The standard way to mail a binary is to compress it,
+.B uunecode
+it, split it into pieces less than 50 kilobytes each, then mail each piece.
+.PP
+The format of the encoded file is as follows:
+.IP \fB1.\fR 0.3i
+A
+.I header
+line starting with the characters
+.B begin
+followed by a space.
+This is followed by the mode of the file in octal
+and the name of the output file specified on the command line.
+(For details, see the Lexicon entry for
+.BR chmod ).
+These last two fields are also separated by a space.
+The mode and the system name can be changed by directing the output into
+a file and editing it.
+.IP \fB2.\fR
+The
+.I body
+of the file, consisting of a number of lines, each no more than 62 characters
+long, including a newline character.
+Each line starts with a character count written as a single ASCII character,
+representing an integer value from 0 (octal 40) to 63 (octal 135) giving the
+number of characters in the rest of the line.
+This is followed by the encoded characters and a newline.
+The last line of the body is a line consisting of an ASCII space (octal 40).
+.IP \fB3.\fR
+A
+.IR trailer ,
+which consists of the string
+.B end
+on a line by itself.
+.PP
+The encoding is done by taking three bytes and storing them in four characters,
+six bits per character.
+Each six bits is converted to a printable character by adding 0x20 to it.
+.SH Example
+Consider the file
+.BR tmp ,
+which consists of the line:
+.DM
+	The quick brown fox jumps over the lazy dog.
+.DE
+.PP
+To record it in file
+.BR tmp.send ,
+type:
+.DM
+	uuencode tmp < tmp > tmp.send
+.DE
+.PP
+The output is:
+.DM
+	begin 644 tmp
+	M5&AE('%U:6-K(&)R;W=N(&9O>"!J=6UP<R!O=F5R('1H92!L87IY(&1O9RX*
+.sp \n(pDu
+	end
+.DE
+.PP
+Note that the third line consists of a space followed by a newline.
+.SH "See Also"
+.Xr "commands," commands
+.Xr "UUCP," uucp
+.Xr "uucp," uucp.c
+.Xr "uudecode" uudecode
+.SH Notes
+.B uuencode
+expands a file by more than one third,
+which thus increases transmission time.
+This can be a factor when sending large files.

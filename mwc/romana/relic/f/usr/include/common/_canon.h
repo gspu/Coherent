@@ -1,0 +1,227 @@
+#ifndef	__COMMON__CANON_H__
+#define	__COMMON__CANON_H__
+
+/*
+ * This file contains definitions related to canonicalization of numeric
+ * formats. Routines are provided for conversions between the native format
+ * and numerous other canonical forms, with varying argument patterns so that
+ * conversion can be done in a space- and/or time-efficient manner. In
+ * particular, separate versions for each routine exists that operate on an
+ * lvalue to return a converted value, on an rvalue to return a converted
+ * value, and to perform in-place conversion on an lvalue, so that the most
+ * efficient machine idioms can be used for particular target machines.
+ * The routines in this file are oriented towards systems with 32-bit long-
+ * integer arithmetic, but extensions should be trivial.
+ *
+ *	canonicalize	-> to make canonical
+ *	canonical	-> according to the canons
+ *	canons		-> the law
+ *	canonize	-> to bestow sainthood
+ */
+
+#include <common/feature.h>
+#include <common/_limits.h>
+
+#if	__CHAR_BIT != 8
+# error	The canonicalization system only applies to octet-oriented machines
+#endif
+
+/*
+ * We begin by defining a basic type for the lvalue-oriented manipulations and
+ * some fundamental concepts and facilities that build on that to create a
+ * bottom layer to the system. We explain the operation of the system entirely
+ * in terms of manipulations of octets.
+ *
+ * We begin by defining the basic notation for describing formats; the basic
+ * parameter for a data format is how the octets in the numbers in that format
+ * are laid out, which we specify relative to the lowest machine address
+ * occupied by the datum (many canonical data formats are based on the notion
+ * of transmission order, and we typically expect that "is transmitted before"
+ * maps directly onto "has a lower address than" for a structure laid out in
+ * machine memory).
+ *
+ * So, for an M68K, the index of the most-significant byte of a native-format
+ * number is always zero, whereas for an Intel-format number the bytes (and
+ * thus their indexes) are reversed. If we encode the index of the byte in the
+ * canonical order as a (machine-independent) number with each index taking
+ * up a byte, then we get a value which when stored in that format will have
+ * the values 0, 1, 2, ... stored in consecutive octets of machine memory.
+ *
+ * The nice thing about this encoding is that is thus reflective; if we have
+ * a way of transforming abstract numbers according to this "map", we can
+ * apply the transformation to the maps themselves to generate new maps which
+ * can be used to encode other numbers or maps. This enables us to better deal
+ * with the potential n^2 nature of the conversions by dynamically composing
+ * the maps.
+ */
+
+typedef unsigned char *	__canon_t;
+
+#define	__IDENTITY_16_MAP	0x0100U
+#define __REVERSE_16_MAP	0x0001U
+#define	__I386_16_MAP		__IDENTITY_16_MAP
+#define	__M68K_16_MAP		__REVERSE_16_MAP
+#define	__OCOH_16_MAP		__IDENTITY_16_MAP
+
+#define	__IDENTITY_32_MAP	0x03020100UL
+#define	__REVERSE_32_MAP	0x00010203UL
+#define	__SWAP16_32_MAP		0x01000302UL
+#define	__I386_32_MAP		__IDENTITY_32_MAP
+#define	__M68K_32_MAP		__REVERSE_32_MAP
+#define	__OCOH_32_MAP		__SWAP16_32_MAP
+
+
+/*
+ * The following primitive mapping functions use a map, and come in two
+ * flavours; r-value oriented, and l-value oriented. The r-value-oriented
+ * transformations have the special property of using only operations which
+ * are permitted in the restricted form of integral constant expression that
+ * can be used in #if-expressions. Applying the r-value transformations to
+ * constants yields other constants.
+ *
+ * Note that the fundamental transformations have two (nearly) equivalent
+ * forms, of which I find the recursive more aesthetically pleasing, so that
+ * is the default form. We leave both in here for your amusement.
+ */
+
+#define	__OCTET_N_OF_R(r,n)	(((r) >> ((n) * 8)) & 0xFFU)
+#define	__OCTET_N_OF_L(l,n)	(((__canon_t) & (l)) [n])
+#define	__MAKE_OCTET_N(o,n)	((o) << ((n) * 8))
+
+#define	__CONVERT_OCTET_N_OF_R_VIA_MAP0(r,m,n) \
+		__MAKE_OCTET_N (__OCTET_N_OF_R (r, n), __OCTET_N_OF_R (m, n))
+
+#define	__CONVERT_OCTET_N_OF_R_VIA_MAP1(r,m,n) \
+		__MAKE_OCTET_N (__OCTET_N_OF_R (r, __OCTET_N_OF_R (m, n)), n)
+
+#define	__CONVERT_OCTET_N_OF_L_VIA_MAP0(l,m,n) \
+		__MAKE_OCTET_N (__OCTET_N_OF_L (l, n), __OCTET_N_OF_R (m, n))
+
+#define	__CONVERT_OCTET_N_OF_L_VIA_MAP1(l,m,n) \
+		__MAKE_OCTET_N (__OCTET_N_OF_L (l, __OCTET_N_OF_R (m, n)), n)
+
+#define	__CONVERT_R_16(r,m) \
+		(__CONVERT_OCTET_N_OF_R_VIA_MAP1 (r, m, 0) | \
+		 __CONVERT_OCTET_N_OF_R_VIA_MAP1 (r, m, 1))
+
+#define	__CONVERT_L_16(l,m) \
+		(__CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 0) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 1))
+
+#define	__CONVERT_R_32(r,m) \
+		(__CONVERT_OCTET_N_OF_R_VIA_MAP1 (r, m, 0) | \
+		 __CONVERT_OCTET_N_OF_R_VIA_MAP1 (r, m, 1) | \
+		 __CONVERT_OCTET_N_OF_R_VIA_MAP1 (r, m, 2) | \
+		 __CONVERT_OCTET_N_OF_R_VIA_MAP1 (r, m, 3))
+
+#define	__CONVERT_L_32(l,m) \
+		(__CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 0) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 1) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 2) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 3))
+
+/*
+ * Here, we use rather more specific feature-tests to see about escaping to
+ * special hand-coded routines or inlines, which is highly translator-specific
+ * in addition to being machine-specific.
+ */
+
+#if	__GNUC__ && _I386
+
+#if	__SHRT_BIT != 16 || __LONG_BIT != 32
+# error	For GCC on i386, short should be 16 bits and a long should be 32.
+#endif
+
+#include <common/ccompat.h>
+#include <common/xdebug.h>
+
+/*
+ * We supply two versions of some of the following depending on whether or not
+ * you care about not being able to use the %ebp, %esi, and %edi registers as
+ * operands or not.
+ */
+
+__LOCAL__ __INLINE__ unsigned short __swap_bytes (unsigned short _number) {
+	unsigned short	_result;
+#if	1
+	__NON_ISO (asm) ("rolw $8, %0" : "=r" (_result) : "0" (_number));
+#else
+	__NON_ISO (asm) ("xchg %h0, %b0" : "=q" (_result) : "0" (_number));
+#endif
+	return _result;
+}
+
+__LOCAL__ __INLINE__ unsigned long __swap_words (unsigned long _number) {
+	unsigned long	_result;
+	__NON_ISO (asm) ("roll $16, %0" : "=r" (_result) : "0" (_number));
+	return _result;
+}
+
+/*
+ * On the i486 processor we have the BSWAP instruction, but the following
+ * works on the i386 as well.
+ */
+
+__LOCAL__ __INLINE__ unsigned long __reverse_long (unsigned long _number) {
+	unsigned long	_result;
+#if	1
+	__NON_ISO (asm) ("rolw $8, %0\n"
+			 "roll $16, %0\n",
+			 "rolw $8, %0\n" : "=r" (_result) : "0" (_number));
+#else
+	__NON_ISO (asm) ("xchg %h0, %b0\n"
+			 "rorl $16, %0\n"
+			 "xchg %h0, %b0\n" : "=q" (_result) : "0" (_number));
+#endif
+	return _result;
+}
+
+#undef	__CONVERT_L_16
+#define	__CONVERT_L_16(l,m) \
+		((m) == __REVERSE_16_MAP ? __swap_bytes (l) : \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 0) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 1))
+
+#undef	__CONVERT_L_32
+#define	__CONVERT_L_32(l,m) \
+		((m) == __SWAP16_32_MAP ? __swap_words (l) : \
+		 (m) == __REVERSE_32_MAP ? __reverse_long (l) : \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 0) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 1) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 2) | \
+		 __CONVERT_OCTET_N_OF_L_VIA_MAP1 (l, m, 3))
+
+#endif	/* __GNUC__ && _I386 */
+
+
+/*
+ * Now, use a variety of feature-tests to figure out the native format for the
+ * host we are compiling for.
+ */
+
+#if	__MSDOS__ || _I386
+
+# define	__NATIVE_16_MAP		__I386_16_MAP
+# define	__NATIVE_32_MAP		__I386_32_MAP
+
+#else
+
+# error	What is the native endianness of your system?
+
+#endif
+
+#define	__CANON_FOO(value,l_or_r,type, map,ident) \
+		((map) == (ident) ? value : \
+			__CONCAT4 (__CONVERT_, l_or_r, _, type) \
+				(value, map))
+
+#define	__CANONICALIZE(value,l_or_r,machine,type) \
+		__CANON_FOO (value, l_or_r, type, \
+			     __CONCAT (__CONVERT_R_, type) \
+				(__CONCAT3 (__NATIVE_, type, _MAP), \
+				 __CONCAT4 (machine, _, type, _MAP)), \
+			     __CONCAT3 (__IDENTITY_, type, _MAP))
+
+
+#endif	/* ! defined (__COMMON__CANON_H__) */
+

@@ -1,0 +1,228 @@
+.TH sessreg "" "" "X Utility"
+.PC "Manage utmp/wtmp entries for non-init clients"
+\fBsessreg [\-ad] [\-w \fIwtmp-file\^\fB] [\-u \fIutmp-file\^\fB] [\-l \fIline\^\fB] [\-h \fIhost\^\fB]
+	[\-s \fIslot\^\fB] [\-x \fIXservers\^\fB] [\-t \fIttys\^\fB] \fIuser\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB\-a\fR"
+Add this session to \fB/etc/utmp\fR and \fB/usr/adm/wtmp\fR
+.IC "\fB-d\fR"
+Delete this session from \fB/etc/utmp\fR and \fB/usr/adm/wtmp\fR
+.IC "\fB-h \fIhost\fR"
+Indicate that the session was initiated from a remote host
+.IC "\fB\-l \fIline\fR"
+Describe the \fIline\fR name of the entry.
+.IC "\fB-s \fIslot\fR"
+Override the default position determined by the function \fBttyslot()\fR
+.IC "\fB\-t \fIttys\fR"
+Tell the option \fB\-x\fR to read \fIttys-file\fR instead of \fB/etc/ttys\fR
+.IC "\fB\-u \fIutmp\fR"
+Use \fIutmp-file\fR instead of the usual file \fB/etc/utmp\fR
+.IC "\fB\-w \fIwtmp\fR"
+Use \fIwtmp-file\fR instead of \fB/usr/adm/wtmp\fR
+.IC "\fB\-x \fIXservers\fR"
+This option is used to manage BSD-style accounting of logins:
+count the number of lines in file
+.B /etc/ttys
+and add to that sum the number of the line in file
+.I Xservers
+that identifies your display
+.HE
+.II utmp
+.II wtmp
+.B sessreg
+helps the display manager
+.B xdm
+to manage entries in the accounting files
+.B /etc/utmp
+and
+.BR /usr/adm/wtmp .
+.PP
+.II "System V"
+.II BSD
+System V works with
+.B /etc/utmp
+by dynamically allocating entries in it;
+.BR BSD ,
+on the other hand, writes entries at fixed positions in the file
+.BR /etc/ttys .
+.B sessreg
+offers command-line options to deal with each strategy.
+.PP
+To manage BSD-style files,
+.B sessreg
+has two strategies.
+With
+.BR xdm ,
+the option
+.B \-x
+counts the lines in
+.B /etc/ttys
+and adds to that sum the number of the line in file
+.I Xservers
+that specifies the display.
+The display's name must be specified as the
+.I line-name
+using the option
+.BR \-l .
+.B sessreg
+uses
+this sum as the
+.I slot
+in
+.B /etc/utmp
+at which it writes this entry.
+In the more general case, the option
+.B \-s
+specifies the slot-number directly.
+If your system uses a file other than
+.B /etc/ttys
+to manage
+.BR init ,
+the option
+.B \-t
+can direct
+.B sessreg
+to look elsewhere for a count of terminal sessions.
+.PP
+BSD also has a host-name field in
+.B /etc/utmp
+that does not exist in System V.
+You can set it with the option
+.BR \-h .
+If you use option
+.B \-h
+under System V,
+.B sessreg
+ignores it.
+.PP
+System-V managers never need options
+.BR \-x ,
+.BR \-s ,
+and
+.BR \-t .
+If you use these options under a system that manages
+.B utmp
+in the System-V manner,
+.B sessreg
+ignores them.
+.SH Usage
+In
+.BR Xstartup ,
+place a call of the form:
+.DM
+       sessreg -a -l $DISPLAY -x /usr/X11/lib/Xservers $USER
+.DE
+.PP
+In
+.BR Xreset ,
+insert a call of the form:
+.DM
+       sessreg -d -l $DISPLAY -x /usr/X11/lib/Xservers $USER
+.DE
+.SH Options
+.B sessreg
+recognizes the following command-line options:
+.IP "\fB\-a\fR" 0.75i
+Add this session to
+.B /etc/utmp
+and
+.BR /usr/adm/wtmp .
+The command line must specify one of the options
+.B \-a
+or
+.BR \-d .
+.IP "\fB-d\fR"
+Delete this session from
+.B /etc/utmp
+and
+.BR /usr/adm/wtmp .
+The command line must specify one of the options
+.B \-a
+or
+.BR \-d .
+.IP "\fB-h \fIhost\fR"
+Indicate that the session was initiated from a remote host.
+Usually,
+.B xdm
+does require this option.
+It is also ignored under System-V systems.
+.IP "\fB\-l \fIline\fR"
+Describe the
+.I line
+of the entry.
+For terminal sessions,
+this is the final path-name segment of the terminal device's file name
+(e.g.,
+.BR ttyd0 ).
+For X sessions, it should probably be the local display name
+given to the users session (e.g., :0).
+If none is specified, the
+.B sessreg
+determines the terminal name with the function
+.BR ttyname() .
+.IP "\fB-s \fIslot\fR"
+Each potential session has a unique slot number in BSD systems, most are
+identified by the position of the
+.I line
+in the file
+.BR /etc/ttys .
+This option overrides the default position determined with the function
+.BR ttyslot() .
+This option is inappropriate for use with
+.BR xdm ,
+the option
+.B \-x
+is more useful.
+.IP "\fB\-t \fIttys\fR"
+Tell the option
+.B \-x
+to read
+.I ttys
+instead of
+.B /etc/ttys
+to count the number of terminal sessions on a host.
+.IP "\fB\-u \fIutmp\fR"
+Use
+.I utmp
+instead of the usual file
+.BR /etc/utmp .
+The special name
+.B none
+disables writing records to
+.BR /etc/utmp .
+.IP "\fB\-w \fIwtmp\fR"
+Use
+.I wtmp
+instead of
+.BR /usr/adm/wtmp .
+.B none
+disables writing records to
+.BR /usr/adm/wtmp .
+.IP "\fB\-x \fIXservers\fR"
+This option is used to manage BSD-style accounting of logins.
+It counts the number of lines in file
+.B /etc/ttys
+and adds to that sum the number of the line in file
+.I Xservers
+that identifies your display. 
+.SH "See Also"
+.B
+xdm,
+X utilities
+.R
+.br
+COHERENT Lexicon:
+.B
+init,
+ttyname(),
+ttyslot(),
+utmp.h
+.R
+.SH Notes
+Copyright \(co 1988, Massachusetts Institute of Technology.
+.PP
+.II "Packard, Keith"
+.B sessreg
+was written by Keith Packard of the MIT X Consortium.

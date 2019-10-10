@@ -1,0 +1,182 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.02.10.16.57.15;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.02.14.21.00.20;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.14.20.23.24;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 2/14/92
+Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*
+ * libc/stdio/_fgetc.c
+ * ANSI-compliant C standard i/o library internals.
+ * _fgetc(), _fgetca()
+ * Read character, unbuffered.
+ */
+
+#include <stdio.h>
+#if	COHERENT || GEMDOS
+#include <errno.h>
+#endif
+
+int
+_fgetc(fp) register FILE *fp;
+{
+	unsigned char c;
+	register int n;
+
+	/* Special kludge: fflush stdout if line buffered. */
+	if ((stdout->_ff1 & _IOLBF) != 0)
+		fflush(stdout);
+
+	if ((n = read(fileno(fp), &c, 1)) == 1)
+		return c;
+	else if (n == 0)
+		fp->_ff1 |= _FEOF;
+	else {
+#if	COHERENT || GEMDOS
+		if (errno == EINTR)
+			errno = 0;
+		else
+#endif
+		fp->_ff1 |= _FERR;
+	}
+	return EOF;
+}
+
+#if	_ASCII
+
+/* ASCII: ignore '\r', map _EOFCHAR to EOF. */
+int
+_fgetca(fp) register FILE *fp;
+{
+ 	register int c;
+
+	while ((c = _fgetc(fp)) == '\r')
+		;
+	if (c == _EOFCHAR) {
+		fp->_ff |= _FEOF;
+		return EOF;
+	}
+	return c;
+}
+
+#endif
+
+/* end of libc/stdio/_fgetc.c */
+@
+
+
+1.2
+log
+@steve 2/14/92
+Preserve errno if read succeeds.
+@
+text
+@d3 3
+a5 2
+ * C Standard I/O Library internals.
+ * Unbuffered input.
+d9 1
+d11 1
+a12 2
+extern	int	_fputt();
+
+d16 2
+a17 2
+	register unsigned char s[1];
+	register int n, oerrno;
+d19 2
+a20 1
+	if (stdout->_pt==&_fputt)	/* special kludge */
+d22 27
+a48 10
+	fp->_cc = 0;
+	oerrno = errno;			/* save old errno */
+	errno = 0;
+	n = EOF;			/* return value in case error */
+	switch (read(fileno(fp), s, 1)) {
+	case -1:			/* error */
+		if (errno != EINTR)
+			fp->_ff |= _FERR;
+		break;
+	case 0:				/* EOF */
+d50 1
+a50 4
+		break;
+	default:			/* success */
+		n = s[0];
+		break;
+d52 1
+a52 3
+	if (errno == 0)
+		errno = oerrno;		/* preserve errno if no error */
+	return n;
+d55 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 3
+a4 2
+ * Standard I/O Library Internals
+ * Unbuffered input
+d10 2
+d13 1
+a13 2
+_fgetc(fp)
+register FILE	*fp;
+d15 2
+a16 2
+	register unsigned char	s[1];
+	extern	int	_fputt();
+d18 1
+a18 1
+	if (stdout->_pt==&_fputt)		/* special kludge */
+d21 1
+d23 1
+d25 1
+a25 1
+	case -1:
+d29 1
+a29 1
+	case 0:
+d32 3
+a34 2
+	default:
+		return (s[0]);
+d36 3
+a38 1
+	return (EOF);
+d40 2
+@

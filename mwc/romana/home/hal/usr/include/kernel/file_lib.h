@@ -1,0 +1,97 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__KERNEL_FILE_LIB_H__
+#define	__KERNEL_FILE_LIB_H__
+
+#include <common/ccompat.h>
+#include <common/__stat.h>
+#include <common/__cred.h>
+#include <common/_uid.h>
+
+typedef	struct __file	__file_t;
+
+typedef	int  (*	__file_eq_t)	__PROTO ((__file_t * _file,
+					  __file_t * other));
+typedef	int  (*	__file_open_t)	__PROTO ((__file_t * _file, int _oflag,
+					  int _otyp, __cred_t * _credp));
+typedef	int  (* __file_close_t)	__PROTO ((__file_t * _file, int _oflag,
+					  int _otyp, __cred_t * _credp));
+typedef	int  (*	__file_read_t)	__PROTO ((__file_t * _file, uio_t * _uiop,
+					  __cred_t * _credp));
+typedef int  (*	__file_write_t)	__PROTO ((__file_t * _file, uio_t * _uiop,
+					  __cred_t * _credp));
+typedef	int  (*	__file_ioctl_t)	__PROTO ((__file_t * _file, int _cmd,
+					  _VOID * _arg, int _mode,
+					  __cred_t * _credp, int * _rvalp));
+typedef	int  (*	__file_chpoll_t)
+				__PROTO ((__file_t * _file, short _events,
+					  int _anyyet, short * _reventsp,
+					  struct pollhead ** _phpp));
+typedef	int  (*	__file_mmap_t)	__PROTO ((__file_t * _file, off_t _off,
+					  int _prot));
+typedef	int  (*	__file_getpmsg_t)
+				__PROTO ((__file_t * _file,
+					  struct strbuf * _ctlptr,
+					  struct strbuf * _dataptr,
+					  int * _bandp, int * _flagsp));
+typedef	int  (*	__file_putpmsg_t)
+				__PROTO ((__file_t * _file,
+					  struct strbuf * _ctlptr,
+					  struct strbuf * _dataptr,
+					  int _band, int _flags));
+typedef	int  (*	__file_seek_t)	__PROTO ((__file_t * _file, off_t * _off,
+					  int _whence));
+typedef	int  (*	__file_chsize_t)
+				__PROTO ((__file_t * _file, off_t _off));
+typedef	int  (*	__file_stat_t)	__PROTO ((__file_t * _file,
+					  __stat_t * _statp));
+typedef	int  (*	__file_getdents_t)
+				__PROTO ((__file_t * _file, IO * _iop,
+					  __cred_t * _credp));
+typedef	int  (*	__file_pathconf_t)
+				__PROTO ((__file_t * _file, int _name));
+typedef	int  (*	__file_sync_t)	__PROTO ((__file_t * _file));
+
+
+typedef	struct __filsys		__filsys_t;
+
+typedef	struct __filstat	__filstat_t;
+
+
+struct __filsys {
+	char		fs_name [_ST_FSTYPSZ];
+	__filstat_t   *	fs_statp;
+
+	__file_eq_t	fs_equal;
+	__file_open_t	fs_open;
+	__file_close_t	fs_close;
+	__file_read_t	fs_read;
+	__file_write_t	fs_write;
+	__file_ioctl_t	fs_ioctl;
+	__file_chpoll_t	fs_chpoll;
+	__file_mmap_t	fs_mmap;
+	__file_getpmsg_t
+			fs_getpmsg;
+	__file_putpmsg_t
+			fs_putpmsg;
+	__file_seek_t	fs_seek;
+	__file_chsize_t	fs_chsize;
+	__file_stat_t	fs_stat;
+	__file_getdents_t
+			fs_getdents;
+	__file_pathconf_t
+			fs_pathconf;
+	__file_sync_t	fs_sync;
+};
+
+struct __file {
+	__filsys_t    *	f_sys;
+};
+
+#endif	/* ! defined (__KERNEL_FILE_LIB_H__) */
+

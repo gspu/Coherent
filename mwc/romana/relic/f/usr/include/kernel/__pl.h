@@ -1,0 +1,39 @@
+#ifndef	__KERNEL___PL_H__
+#define	__KERNEL___PL_H__
+
+/*
+ * This internal header file is intended as the sole point of definition for
+ * the internal data type "__pl_t" and associated enumeration constants, from
+ * which the System V DDI/DKI data type "pl_t" is derived.
+ *
+ * If the definitions of the constants below are changed or augmented, please
+ * ensure that the same changes are made elsewhere for the benefit of the
+ * assembly-language code which uses similar constants.
+ */
+
+
+/*
+ * Processor priorities under the System V DDI/DKI are specified abstractly
+ * via the following types and names. The abstract priorities defined below
+ * must conform to the following partial order:
+ *	plbase < pltimeout <= pldisk, plstr <= plhi
+ *
+ * The actual numeric values are system-dependent. The primitive numeric
+ * processor priorities from 0 (base) to 8 (totally disabled) to keep software
+ * independent of the machine-specific priority-manipulation data.
+ */
+
+typedef enum {
+	invpl = -1,			/* invalid processor priority */
+	plbase = 0,			/* block no interrupts */
+	pltimeout = 1,			/*
+					 * block functions scheduled by
+					 * itimeout and dtimeout
+					 */
+	pldisk = 5,			/* block disk device interrupts */
+	plstr = 5,			/* block STREAMS interrupts */
+	plhi = 8			/* block all interrupts */
+} __pl_t;
+
+
+#endif	/* ! defined (__KERNEL___PL_H__) */

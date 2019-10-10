@@ -1,0 +1,97 @@
+.TH freopen() "" "" "STDIO Function (libc)"
+.PC "Open file stream for standard I/O"
+\fB#include <stdio.h>\fR
+\fBFILE *freopen (\fIname\^\fB, \fItype\^\fB, \fIfp\^\fB)
+char *\fIname\^\fB, \fI*type\^\fB; FILE *\fIfp\^\fB;\fR
+.PP
+\fBfreopen()\fR
+reinitializes the file stream
+.IR fp .
+It closes the file currently associated with it,
+opens or creates the file
+.IR name ,
+and returns a pointer to the structure for use by other STDIO routines.
+.I name
+names a file.
+.PP
+\fItype\fR
+is a string that consists of one or more
+of the characters
+\*(QL\fBrwa\fR\*(QR (for, respectively, read, write, and append)
+to indicate the mode of the stream.
+For further discussion of the
+.I type
+variable, see the entry for
+.BR fopen() .
+.B freopen()
+differs from
+.B fopen()
+only in that
+.I fp
+specifies the stream to be used.
+Any stream previously associated with
+.I fp
+is closed by
+\fBfclose()\fR.
+\fBfreopen()\fR is usually used to change the meaning of
+\fBstdin\fR, \fBstdout\fR, or \fBstderr\fR.
+.SH Example
+This example, called \fBmatch.c\fR, looks in \fBargv[2]\fR
+for the pattern given by \fBargv[1]\fR.
+If the pattern is found, the line that contains the pattern is written into
+the file \fBargv[3]\fR or to \fBstdout\fR.
+.DM
+#include <stdio.h>
+#define MAXLINE 128
+char buffer[MAXLINE];
+.DE
+.DM
+void fatal(message)
+char *message;
+{
+	fprintf(stderr, "match: %s\en", message);
+	exit(1);
+}
+.DE
+.DM
+main(argc,argv)
+int argc; char *argv[];
+{
+	FILE *fpin, *fpout;
+.DE
+.DM
+	if (argc != 3 && argc != 4)
+		fatal("Usage: match pattern infile [outfile]");
+	if ((fpin = fopen(argv[2], "r")) == NULL)
+		fatal("Cannot open input file");
+.DE
+.DM
+	fpout = stdout;
+	if (argc == 4) 
+		if ((fpout = freopen(argv[3], "w", stdout)) == NULL)	
+			fatal("Cannot open output file");
+.DE
+.DM
+	while (fgets(buffer, MAXLINE, fpin) != NULL) {
+		if (pnmatch(buffer, argv[1], 1))
+			fputs(buffer, stdout);           
+	}
+	exit(0);
+}
+.DE
+.SH "See Also"
+.Xr "fopen()," fopen
+.Xr "libc" libc
+.br
+\*(AS, \(sc7.9.5.4
+.br
+\*(PX Standard, \(sc8.1
+.SH Diagnostics
+.B freopen()
+returns NULL if the
+.I type
+string is nonsense or if the
+file cannot be opened.
+Currently, only 20 \fBFILE\fR
+structures can be allocated per program, including \fBstdin\fR,
+\fBstdout\fR, and \fBstderr\fR.

@@ -1,0 +1,69 @@
+/*
+ * Rec'd from Lauren, 7-16-84.
+ * Who is on the system
+ * and who am i.
+ */
+
+#include <stdio.h>
+#include <utmp.h>
+
+char	*whofile = "/etc/utmp";
+int	ordflag = 1;		/* Ordinary who */
+
+char	obuf[BUFSIZ];
+
+main(argc, argv)
+char *argv[];
+{
+	register char *mytty = NULL;
+	struct utmp utmp;
+	register FILE *ufp;
+	extern char *ttyname();
+	extern char *ctime();
+
+	setbuf(stdout, obuf);
+	switch(argc) {
+	case 1:					/* who */
+		break;
+	case 2:					/* who whofile */
+		whofile = argv[1];
+		ordflag = 0;
+		break;
+	case 3:					/* who am i */
+		if ((mytty = ttyname(fileno(stderr))) != NULL)
+			mytty += 5;		/* space over "/dev" */
+		break;
+	case 4:					/* who whofile am i */
+		whofile = argv[1];
+		ordflag = 0;
+		if ((mytty = ttyname(fileno(stderr))) != NULL)
+			mytty += 5;		/* space over "/dev" */
+		break;
+	default:
+		usage();
+	}
+	if ((ufp = fopen(whofile, "r")) == NULL)
+		werr("Cannot open %s\n", whofile);
+	while (fread(&utmp, sizeof (utmp), 1, ufp) == 1) {
+		if (ordflag && utmp.ut_name[0]=='\0')
+			continue;
+		if (mytty!=NULL && strncmp(utmp.ut_line, mytty, 8))
+			continue;
+		printf( "%-8.8s %-7.7s %.12s\n", utmp.ut_name, utmp.ut_line,
+			ctime( &utmp.ut_time)+4);
+	}
+}
+
+/* VARARGS */
+werr(x)
+{
+	if (!isatty(fileno(stdout)))
+		fprintf(stderr, "who: ");
+	fprintf(stderr, "%r", &x);
+	exit (1);
+}
+
+usage()
+{
+	werr("Usage: who [who-file] [am I]\n");
+}

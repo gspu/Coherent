@@ -1,0 +1,1900 @@
+head     1.15;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.15
+date     92.01.13.08.58.40;  author bin;  state Exp;
+branches ;
+next     1.14;
+
+1.14
+date     92.01.09.13.24.05;  author bin;  state Exp;
+branches ;
+next     1.13;
+
+1.13
+date     91.12.10.17.01.56;  author hal;  state Exp;
+branches ;
+next     1.12;
+
+1.12
+date     91.11.14.14.28.51;  author hal;  state Exp;
+branches ;
+next     1.11;
+
+1.11
+date     91.09.16.18.11.08;  author hal;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     91.09.16.15.58.26;  author hal;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     91.09.16.10.27.47;  author hal;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     91.09.13.18.01.39;  author piggy;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     91.09.13.17.58.00;  author hal;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     91.07.31.16.04.53;  author hal;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.06.06.18.28.53;  author norm;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.06.04.14.24.20;  author hal;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.04.05.15.43.29;  author root;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.04.05.15.24.35;  author root;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.05.15.23.07;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Line discipline module for character devices.
+@
+
+
+1.15
+log
+@update by hal for 321 kernel (looks like just additions of debug stuff)
+@
+text
+@/*
+ * File:	$USRSRC/ttydrv/tty.c
+ *
+ * Purpose:	COHERENT line discipline module.
+ *	This is the common part of typewriter service. It handles all device-
+ *	independent aspects of a typewriter, including tandem flow control,
+ *	erase and kill, stop and start, and common ioctl functions.
+ *
+ * $Log:	tty.c,v $
+ * Revision 1.15  92/01/13  08:36:53  hal
+ * Add a few DEBUG lines.
+ * 
+ * Revision 1.14  92/01/09  09:42:31  hal
+ * Add debug conditionals for sleeps.
+ * Fix process group logic, including TIOCSETG hack.
+ * 
+ * Revision 1.13  91/12/10  17:01:56  hal
+ * Don't wait for drain on TIOCFLUSH.
+ * 
+ * Revision 1.12  91/11/14  14:28:51  hal
+ * Move flow control out of tty.c.
+ * Make ttin() run at hi priority.
+ *
+ * Revision 1.11  91/09/16  18:11:08  hal
+ * Update t_flags in ttstart() at high priority.
+ * Document that ttstash() is local.
+ *
+ * Revision 1.10  91/09/16  15:58:26  hal
+ * Mask interrrupts when modifying tp->t_flags as some IRQ handlers change this.
+ *
+ * Revision 1.9  91/09/16  10:27:47  hal
+ * Explain T_ISTOP/T_TSTOP/T_STOP.
+ * Add check for TANDEM before sending t_startc.
+ *
+ * Revision 1.8  91/09/13  18:01:39  piggy
+ * Only do XON/XOFF flow control if TANDEM is set.
+ *
+ * Revision 1.7  91/09/13  17:58:00  hal
+ * Drop 3rd arg (was writing PSW directly from it!) for ttread/ttwrite.
+ * General face lift.
+ *
+ * Bug: no support for 8-bit characters.
+ * Fix: don't strip keyboard input. 01/22/91.  (norm)
+ *
+ * Bug:	Switching modes between cooked and CBREAK/RAW left buffered input
+ *	in the input buffer until returning to cooked mode. 05/13/91 norm
+ *
+ * Bug: setting speed to default in ttopen() was conditioned to
+ *      use hard constants.  90/08/28.  hws
+ *
+ * Revision 1.5  91/06/06  18:28:53  norm
+ * Restore 8-bit fix.
+ *
+ * Revision 1.2	89/07/17  11:51:20 	src
+ * Bug:	Terminal could lock up when setting it to RAWIN mode, if
+ * 	output was suspended due to X-OFF, and output data was present.
+ * Fix:	Setting terminal to RAWIN mode now clears X-OFF, starts output
+ * 	BEFORE waiting for output to drain.  Received signals now cause
+ * 	operation to complete without waiting for drain. (ABC)
+ *
+ * Revision 1.1	88/03/24  16:18:12	src
+ * Initial revision
+ *
+ * 86/12/12	Allan Cornish		/usr/src/sys/drv/tty.c
+ * Added 3rd argument to ttpoll() to support non-blocking polls.
+ *
+ * 86/11/19	Allan Cornish		/usr/src/sys/drv/tty.c
+ * Made ttread() and ttwrite() recognize the IONDLY flag in iop->io_flag.
+ * wakeup() and pollwake() now have delayed invocation by defer().
+ * Added poll [System V.3] capability.
+ *
+ * 85/06/28	Allan Cornish
+ * made ttioctl() clear T_STOP flag if ISRIN.
+ *
+ * 85/03/04	Allan Cornish
+ * made ttread()  interruptible.
+ *
+ * 85/03/01	Allan Cornish
+ * made ttclose() interruptible.
+ */
+
+/*
+ * About STOP flag bits:
+ *	T_ISTOP is set when the tty module's input queue is in danger of
+ *		overflow.  It is up to the device driver to check this flag
+ *		and do something about it.  If ttin() is called with a
+ *		character from the device while T_ISTOP is set, the  character
+ *		is discarded.  T_ISTOP is cleared when the input queue is
+ *		sufficiently empty.  The device driver can monitor this bit for
+ *		hardware flow control.
+ *	T_TSTOP is the "Tandem" flow control flag for input.  If TANDEM is set
+ *		and the input queue is in danger of overflow, t_stopc is sent
+ *		and T_TSTOP is set.  When the input queue is empty enough,
+ *		t_startc is sent and T_TSTOP is cleared.
+ *	T_STOP is the flow control bit for output.  No output will be
+ *		written to the output queue while this bit is true.
+ *		Except for initialization of flags in the TTY struct, by
+ *		ttopen(), this bit is not written by tty.c.
+ *	91/09/15 - hal
+ */
+
+/*
+ * Includes.
+ */
+#include <sys/clist.h>
+#include <sys/coherent.h>
+#include <sys/con.h>
+#include <sys/deftty.h>
+#include <sys/io.h>
+#include <sys/proc.h>
+#include <sys/sched.h>
+#include <sys/stat.h>
+#include <sys/tty.h>
+#include <sys/uproc.h>
+#include <errno.h>
+
+/*
+ * Definitions.
+ *	Constants.
+ *	Macros with argument lists.
+ *	Typedefs.
+ *	Enums.
+ */
+
+/* NEAR_OR_FAR_CALL is for invoking t_param and t_start */
+#define	 NEAR_OR_FAR_CALL(tp_fn)  {\
+	if (tp->t_cs_sel) \
+		ld_call(tp->t_cs_sel, tp->tp_fn, tp); \
+	else \
+		(*tp->tp_fn)(tp); }
+
+/*
+ * Functions.
+ *	Import Functions.
+ *	Export Functions.
+ *	Local Functions.
+ */
+void ttclose();
+void ttflush();
+void tthup();
+void ttin();
+void ttioctl();
+void ttopen();
+int  ttout();
+int  ttpoll();
+void ttread();
+void ttsetgrp();
+void ttsignal();
+void ttstart();
+void ttwrite();
+
+static void ttstash();
+
+/*
+ * Global Data.
+ *	Import Variables.
+ *	Export Variables.
+ *	Local Variables.
+ */
+extern	int	wakeup();
+extern	void	pollwake();
+
+/*
+ * ttopen()
+ *
+ *	Called by driver on first open.
+ *	Set up defaults.
+ */
+void ttopen(tp)
+register TTY *tp;
+{
+	tp->t_escape = 0;
+	tp->t_sgttyb.sg_ispeed = tp->t_dispeed;
+	tp->t_sgttyb.sg_ospeed = tp->t_dospeed;
+	tp->t_sgttyb.sg_erase  = DEF_SG_ERASE;
+	tp->t_sgttyb.sg_kill   = DEF_SG_KILL;
+	tp->t_sgttyb.sg_flags  = DEF_SG_FLAGS;
+	tp->t_tchars.t_intrc   = DEF_T_INTRC;
+	tp->t_tchars.t_quitc   = DEF_T_QUITC;
+	tp->t_tchars.t_startc  = DEF_T_STARTC;
+	tp->t_tchars.t_stopc   = DEF_T_STOPC;
+	tp->t_tchars.t_eofc    = DEF_T_EOFC;
+	tp->t_tchars.t_brkc    = DEF_T_BRKC;
+	if (tp->t_param != NULL) {
+		NEAR_OR_FAR_CALL(t_param)
+	}
+}
+
+/*
+ * ttsetgrp()
+ *
+ *	If process is a group leader without a control terminal,
+ *	make its control terminal this device.
+ *
+ *	If process is a group leader and this device does not have
+ *	a process group, give it the group of the current process.
+ */
+void ttsetgrp(tp, ctdev)
+register TTY *tp;
+dev_t ctdev;
+{
+	register PROC *pp;
+
+	pp = SELF;
+#if DEBUG
+printf("ttsetgrp dev=%x pid=%d pg=%d ", ctdev, pp->p_pid, pp->p_group);
+printf("old_ct=%x old_tg=%d ", pp->p_ttdev, tp->t_group);
+#endif
+	if (pp->p_group == pp->p_pid) {
+		if (pp->p_ttdev == NODEV)
+			pp->p_ttdev = ctdev;
+		if (tp->t_group == 0)
+			tp->t_group = pp->p_pid;
+	}
+#if DEBUG
+printf("new_ct=%x new_tg=%d\n", pp->p_ttdev, tp->t_group);
+#endif
+}
+
+/*
+ * ttyclose()
+ *
+ *	Called by driver on the last close.
+ *	Wait for all pending output to go out.
+ *	Kill input.
+ */
+void ttclose(tp)
+register TTY *tp;
+{
+	register int s;
+
+	while (tp->t_oq.cq_cc != 0) {
+		s = sphi();
+		if (tp->t_oq.cq_cc != 0) {
+			tp->t_flags |= T_DRAIN;
+#if DEBUG
+printf("T1 ");
+#endif
+			sleep((char *)&tp->t_oq, CVTTOUT, IVTTOUT, SVTTOUT);
+#if DEBUG
+printf("z ");
+#endif
+		}
+		spl(s);
+		if (SELF->p_ssig && nondsig())
+			break;
+	}
+	ttflush(tp);
+	tp->t_flags = tp->t_group = 0;
+}
+
+/*
+ * ttread()
+ *
+ *	The read routine for a tty device driver will call this function.
+ *
+ *	Move data from tp->t_iq to io segment iop.
+ *	Number of characters to copy is in iop->ioc.
+ *
+ *	In cooked mode, copy up to the first newline or break character, or
+ *	until the count runs out.
+ *	In CBREAK or RAW modes, return when count runs out or when input clist
+ *	is empty and we're returning at least one byte.
+ */
+void ttread(tp, iop)
+register TTY *tp;
+register IO *iop;
+{
+	register c;
+	int o;
+	int sioc = iop->io_ioc;  /* number of bytes to read */
+
+	while (iop->io_ioc) {
+		o = sphi();
+		while ((c = getq(&tp->t_iq)) < 0) {
+			if ((tp->t_flags & T_CARR) == 0) {
+			   u.u_error = EIO;  /* error since no carrier */
+			   spl(o);
+			   return;
+			}
+
+			/* If we're in CBREAK or RAW mode, and we don't */
+			/* have the special "blocking read" bit set for */
+			/* these modes, and we read at least one byte   */
+		        /* of input, return immediately, since we have  */
+			/* run out of characters from the clist.	*/
+
+			if (ISBBYB && ((tp->t_flags & T_BRD) == 0)
+			   && iop->io_ioc < sioc) {
+			   spl(o);
+			   return;
+			}
+
+			/*
+			 * Non-blocking reads.
+			 * Tell user process to try again later.
+			 */
+			if (iop->io_flag & IONDLY) {
+				u.u_error = EAGAIN;
+				spl(o);
+				return;
+			}
+
+			tp->t_flags |= T_INPUT;  /* wait for more data */
+#if DEBUG
+printf("T2 ");
+#endif
+			sleep((char *)&tp->t_iq, CVTTIN, IVTTIN, SVTTIN);
+#if DEBUG
+printf("z ");
+#endif
+
+			if (SELF->p_ssig && nondsig()) {
+				if (iop->io_ioc == sioc)
+					u.u_error = EINTR;
+				spl(o);
+				return;
+			}
+		}
+		/*
+		 * Flow control - can we turn on input from the driver yet?
+		 */
+		if (tp->t_iq.cq_cc <= ILOLIM) {
+			if ((tp->t_flags&T_ISTOP) != 0)
+				tp->t_flags &= ~T_ISTOP;
+			if (ISTAND && (tp->t_flags&T_TSTOP) != 0) {
+				tp->t_flags &= ~T_TSTOP;
+				while (putq(&tp->t_oq, startc) < 0) {
+					ttstart(tp);
+					waitq();
+				}
+				ttstart(tp);
+			}
+		}
+		spl(o);
+		if (!ISBBYB && ISEOF)
+			return;
+		if (ioputc(c, iop) < 0)
+			return;
+		if (!ISBBYB && (c=='\n' || ISBRK))
+			return;
+	}
+}
+
+/*
+ * ttwrite()
+ *
+ *	Write routine.
+ *	Transfer stuff to the character list.
+ */
+void ttwrite(tp, iop)
+register TTY *tp;
+register IO *iop;
+{
+	register c;
+	int o;
+
+	/*
+	 * Non-blocking writes which can fit.
+	 * NOTE: exhaustion of clists can still cause blocking writes.
+	 */
+	if ((iop->io_flag & IONDLY) && (OHILIM >= iop->io_ioc)) {
+
+		/*
+		 * No room.
+		 */
+		if (tp->t_oq.cq_cc >= OHILIM-iop->io_ioc) {
+			u.u_error = EAGAIN;
+			return;
+		}
+	}
+
+	while ((c = iogetc(iop)) >= 0) {
+		if ((tp->t_flags & T_CARR) == 0) {
+			u.u_error = EIO;  /* error since no carrier */
+			return;
+		}
+		o = sphi();
+		while (tp->t_oq.cq_cc >= OHILIM) {
+			ttstart(tp);
+			if (tp->t_oq.cq_cc < OHILIM)
+				break;
+			tp->t_flags |= T_HILIM;
+#if DEBUG
+printf("T3 ");
+#endif
+			sleep((char *)&tp->t_oq, CVTTOUT, IVTTOUT, SVTTOUT);
+#if DEBUG
+printf("z ");
+#endif
+			if (SELF->p_ssig && nondsig()) {
+				u.u_error = EINTR;
+				spl(o);
+				return;
+			}
+		}
+		while (putq(&tp->t_oq, c) < 0) {
+			ttstart(tp);
+			waitq();
+		}
+		spl(o);
+	}
+	o = sphi();
+	ttstart(tp);
+	spl(o);
+}
+
+/*
+ * ttioctl()
+ *
+ *	This routine handles common typewriter ioctl functions.
+ *	Note that flushing the stream now means drain the output
+ *	and clear the input.
+ */
+void ttioctl(tp, com, vec)
+register TTY *tp;
+register struct sgttyb *vec;
+{
+	register int	flush = 0;
+	register int	drain = 0;
+	register char	*p1, *p2;
+	int s;
+	int rload = 0;
+	int was_bbyb = 0;
+
+	switch (com) {
+	case TIOCQUERY:
+		kucopy(&tp->t_iq.cq_cc, vec, sizeof(int));
+		break;
+	case TIOCGETP:
+		kucopy(&tp->t_sgttyb, vec, sizeof (struct sgttyb));
+		break;
+	case TIOCSETP:
+	        ++flush;          /* flush input */
+		++drain;	  /* delay for output */
+		++rload;
+		ukcopy(vec, &tp->t_sgttyb, sizeof (struct sgttyb));
+		break;
+	case TIOCSETN:
+		was_bbyb = ISBBYB;	/* previous mode */
+		++rload;
+		ukcopy(vec, &tp->t_sgttyb, sizeof (struct sgttyb));
+		if (!was_bbyb && ISBBYB && tp->t_ibx != 0) {
+			p1 = &tp->t_ib[0];
+			p2 = &tp->t_ib[tp->t_ibx];
+			while (p1 < p2)
+#if NOT_8_BIT
+				putq(&tp->t_iq, (*p1++) & 0177);
+#else
+				putq(&tp->t_iq, (*p1++));
+#endif
+			tp->t_ibx = 0;
+		}
+		break;
+	case TIOCGETC:
+		kucopy(&tp->t_tchars, vec, sizeof (struct tchars));
+		break;
+	case TIOCSETC:
+		++rload;
+		++drain;
+		ukcopy(vec, &tp->t_tchars, sizeof (struct tchars));
+		break;
+	case TIOCEXCL:
+		s = sphi();
+		tp->t_flags |= T_EXCL;
+		spl(s);
+		break;
+	case TIOCNXCL:
+		s = sphi();
+		tp->t_flags &= ~T_EXCL;
+		spl(s);
+		break;
+	case TIOCHPCL:		/* set hangup on last close */
+		s = sphi();
+		tp->t_flags |= T_HPCL;
+		spl(s);
+		break;
+	case TIOCCHPCL:		/* don't hangup on last close */
+		if (!super())   /* only superuser may do this */
+			u.u_error = EPERM;        /* not su */
+		else {
+			s = sphi();
+			tp->t_flags &= ~T_HPCL;   /* turn off hangup bit */
+			spl(s);
+		}
+		break;
+	case TIOCGETTF:		/* get tty flag word */
+		kucopy(&tp->t_flags, (unsigned *) vec, sizeof(unsigned));
+		break;
+	case TIOCFLUSH:
+		++flush;        /* flush both input and output */
+/*		++drain;	Why? - hws - 91/11/22	*/
+		break;
+	case TIOCBREAD:		/* blocking read for CBREAK/RAW mode */
+		s = sphi();
+		tp->t_flags |= T_BRD;
+		spl(s);
+		break;
+	case TIOCCBREAD:	/* turn off CBREAK/RAW blocking read mode */
+		s = sphi();
+		tp->t_flags &= ~T_BRD;
+		spl(s);
+		break;
+	/*
+	 * The following is a hack so that the process group for /dev/console
+	 * contains the current login shell running on it.
+	 * Only expect /etc/init to use this ugliness.
+	 */
+	case TIOCSETG:
+		if (super())
+			tp->t_group = SELF->p_group;
+		break;
+	default:
+		u.u_error = EINVAL;
+	}
+
+	/*
+	 * Wait for output to drain, or signal to arrive.
+	 */
+	if (drain != 0) {
+
+		/*
+		 * Ensure output is enabled BEFORE waiting for output to drain.
+		 */
+		if (ISRIN && (tp->t_flags & T_STOP)) {
+			s = sphi();
+			tp->t_flags &= ~T_STOP;
+			ttstart(tp);
+			spl(s);
+		}
+
+		while (tp->t_oq.cq_cc != 0) {
+			s = sphi();
+			tp->t_flags |= T_DRAIN;
+			spl(s);
+#if DEBUG
+printf("T4 ");
+#endif
+			sleep((char *)&tp->t_oq, CVTTOUT, IVTTOUT, SVTTOUT);
+#if DEBUG
+printf("z ");
+#endif
+			if (SELF->p_ssig && nondsig())
+				break;
+		}
+	}
+
+	/*
+	 * Flush input.
+	 */
+	if (flush != 0)
+		ttflush(tp);
+
+	/*
+	 * Re-initialize hardware.
+	 */
+	if ((rload != 0) && (tp->t_param != NULL))
+		NEAR_OR_FAR_CALL(t_param)
+}
+
+/*
+ * ttpoll()
+ *
+ *	Polling routine.
+ *	[System V.3 Compatible]
+ */
+int ttpoll(tp, ev, msec)
+register TTY * tp;
+int ev;
+int msec;
+{
+	/*
+	 * Priority polls not supported.
+	 */
+	ev &= ~POLLPRI;
+
+	/*
+	 * Input poll with no data present.
+	 */
+	if ((ev & POLLIN) && (tp->t_iq.cq_cc == 0)) {
+
+		/*
+		 * Blocking input poll.
+		 */
+		if (msec != 0)
+			pollopen(&tp->t_ipolls);
+
+		/*
+		 * Second look to avoid interrupt race.
+		 */
+		if (tp->t_iq.cq_cc == 0)
+			ev &= ~POLLIN;
+	}
+
+	/*
+	 * Output poll with no space.
+	 */
+	if ((ev & POLLOUT) && (tp->t_oq.cq_cc >= OLOLIM)) {
+
+		/*
+		 * Blocking output poll.
+		 */
+		if (msec != 0)
+			pollopen(&tp->t_opolls);
+
+		/*
+		 * Second look to avoid interrupt race.
+		 */
+		if (tp->t_oq.cq_cc >= OLOLIM)
+			ev &= ~POLLIN;
+	}
+
+	if (((ev & POLLIN) == 0) && ((tp->t_flags & T_CARR) == 0))
+		ev |= POLLHUP;
+
+	return ev;
+}
+
+/*
+ * ttout()
+ *
+ *	Pull a character from the output queues of the typewriter.
+ *	Doing fills, newline insert, tab expansion, etc.
+ *
+ *	If the stream is empty return a -1.
+ *	Called at high priority.
+ */
+int ttout(tp)
+register TTY *tp;
+{
+	register c;
+
+	if (tp->t_nfill) {
+		--tp->t_nfill;
+		c = tp->t_fillb;
+	} else if ((tp->t_flags&T_INL) != 0) {
+		tp->t_flags &= ~T_INL;
+		c = '\n';
+	} else {
+		if ((c=getq(&tp->t_oq)) < 0)
+			return -1;
+		if (!ISROUT) {
+			if (c=='\n' && ISCRMOD) {
+				tp->t_flags |= T_INL;
+				c = '\r';
+			} else if (c=='\t' && ISXTABS) {
+				tp->t_nfill = ~(tp->t_hpos|~07);
+				tp->t_fillb = ' ';
+				c = ' ';
+			}
+		}
+	}
+	if (!ISROUT) {
+		if (c == '\b') {
+			if (tp->t_hpos)
+				--tp->t_hpos;
+		} else if (c == '\r')
+			tp->t_hpos = 0;
+		else if (c == '\t')
+			tp->t_hpos = (tp->t_hpos|07) + 1;
+#if NOT_8_BIT
+		else if (c >= ' ' && c <= '~')
+#else
+		else if ((c >= ' ' && c <= '~') || (c >= 0200 && c <= 0376))
+#endif
+			++tp->t_hpos;
+	}
+	return c;
+}
+
+/*
+ * ttin()
+ *
+ *	Pass a character to the device independent typewriter routines.
+ *	Handle erase and kill, tandem flow control, and other magic.
+ *	Often called at high priority from the driver's interrupt routine.
+ */
+void ttin(tp, c)
+register TTY *tp;
+register c;
+{
+	int dc, i, n;
+	int s;
+
+	if (!ISRIN) {
+#if NOT_8_BIT
+		c &= 0177;
+#endif
+		if (ISINTR) {
+			ttsignal(tp, SIGINT);
+			goto ttin_ret;
+		}
+		if (ISQUIT) {
+			ttsignal(tp, SIGQUIT);
+			goto ttin_ret;
+		}
+	}
+	if ((tp->t_flags&T_ISTOP) != 0)
+		goto ttin_ret;
+	if (!ISRIN) {
+		if (c=='\r' && ISCRMOD)
+			c = '\n';
+		if (tp->t_escape != 0) {
+			if (c == ESC)
+				++tp->t_escape;
+			else {
+				if (ISERASE || ISKILL) {
+					c |= 0200;
+					--tp->t_escape;
+				}
+				while (tp->t_escape!=0 && tp->t_ibx<NCIB-1) {
+					tp->t_ib[tp->t_ibx++] = ESC;
+					--tp->t_escape;
+				}
+				ttstash(tp, c);
+			}
+			if (ISECHO) {
+#if NOT_8_BIT
+				putq(&tp->t_oq, c&0177);
+#else
+				putq(&tp->t_oq, c); /* no strip for 8-bit */
+#endif
+				ttstart(tp);
+			}
+			goto ttin_ret;
+		}
+		if (ISERASE && !ISCBRK) {
+			while (tp->t_escape!=0 && tp->t_ibx<NCIB-1) {
+				tp->t_ib[tp->t_ibx++] = ESC;
+				--tp->t_escape;
+			}
+			if (tp->t_ibx == 0)
+				goto ttin_ret;
+			dc = tp->t_ib[--tp->t_ibx];
+			if (ISECHO) {
+				if (!ISCRT)
+					putq(&tp->t_oq, c);
+				/* don't erase for bell, null, or rubout */
+#if NOT_8_BIT
+				else if (((c = dc&0177) == '\007')
+					|| c == 0 || c == 0177)
+#else
+				else if (((c = dc) == '\007')
+					|| c == 0 || c == 0177 || c == 0377)
+#endif
+				        goto ttin_ret;
+				else if (c != '\b' && c != '\t') {
+					putq(&tp->t_oq, '\b');
+					putq(&tp->t_oq,  ' ');
+					putq(&tp->t_oq, '\b');
+				} else if (c == '\t') {
+					n = tp->t_opos + tp->t_escape;
+					for (i=0; i<tp->t_ibx; ++i) {
+						c = tp->t_ib[i];
+#if NOT_8_BIT
+						if ((c&0200) != 0) {
+							++n;
+							c &= 0177;
+						}
+#endif
+						if (c == '\b')
+							--n;
+						else {
+							if (c == '\t')
+								n |= 07;
+							++n;
+						}
+					}
+					while (n++ < tp->t_hpos)
+						putq(&tp->t_oq, '\b');
+				}
+#if NOT_8_BIT
+				if ((dc&0200) != 0) {
+					if ((dc&0177) != '\b')
+						putq(&tp->t_oq, '\b');
+					putq(&tp->t_oq,  ' ');
+					putq(&tp->t_oq, '\b');
+				}
+#endif
+				ttstart(tp);
+			}
+			goto ttin_ret;
+		}
+		if (ISKILL && !ISCBRK) {
+			tp->t_ibx = 0;
+			tp->t_escape = 0;
+			if (ISECHO) {
+				if (c < 0x20) {
+					putq(&tp->t_oq, '^');
+					c += 0x40;
+				}
+				putq(&tp->t_oq, c);
+				putq(&tp->t_oq, '\n');
+				ttstart(tp);
+			}
+			goto ttin_ret;
+		}
+	}
+	if (ISBBYB) {
+		putq(&tp->t_iq, c);
+		if ((tp->t_flags&T_INPUT) != 0) {
+			s = sphi();
+			tp->t_flags &= ~T_INPUT;
+			spl(s);
+			defer(wakeup, (char *) &tp->t_iq);
+		}
+		if (tp->t_ipolls.e_procp) {
+			tp->t_ipolls.e_procp = 0;
+			defer(pollwake, (char *) &tp->t_ipolls);
+		}
+	} else {
+		if (tp->t_ibx == 0)
+			tp->t_opos = tp->t_hpos;
+		if (c == ESC)
+			++tp->t_escape;
+		else
+			ttstash(tp, c);
+	}
+	if (ISECHO) {
+		if (ISRIN || !ISEOF) {
+			putq(&tp->t_oq, c);
+			ttstart(tp);
+		}
+	}
+	if ((n=tp->t_iq.cq_cc)>=IHILIM) {
+		s = sphi();
+		tp->t_flags |= T_ISTOP;
+		spl(s);
+	} else if (ISTAND && (tp->t_flags&T_TSTOP)==0 && n>=ITSLIM) {
+		s = sphi();
+		tp->t_flags |= T_TSTOP;
+		spl(s);
+		putq(&tp->t_oq, stopc);
+		ttstart(tp);
+	}
+
+ttin_ret:
+	return;
+}
+
+/*
+ * ttstash()
+ *
+ *	Cooked mode.
+ *	Put character in the buffer and check for end of line.
+ *	Only a legal end of line can take the last character position.
+ *
+ *	Only called from ttin(), and ttin() is called at high priority.
+ */
+static void ttstash(tp, c)
+register TTY *tp;
+{
+	register char *p1, *p2;
+
+	if (c=='\n' || ISEOF || ISBRK) {
+		p1 = &tp->t_ib[0];
+		p2 = &tp->t_ib[tp->t_ibx];
+		*p2++ = c;			/* Always room */
+		while (p1 < p2)
+#if NOT_8_BIT
+			putq(&tp->t_iq, (*p1++)&0177);
+#else
+			putq(&tp->t_iq, (*p1++));
+#endif
+		tp->t_ibx = 0;
+		tp->t_escape = 0;
+
+		if (tp->t_flags & T_INPUT) {
+			tp->t_flags &= ~T_INPUT;
+			defer(wakeup, (char *) &tp->t_iq);
+		}
+
+		if (tp->t_ipolls.e_procp) {
+			tp->t_ipolls.e_procp = 0;
+			defer(pollwake, (char *) &tp->t_ipolls);
+		}
+
+	} else if (tp->t_ibx < NCIB-1)
+		tp->t_ib[tp->t_ibx++] = c;
+}
+
+/*
+ * ttstart()
+ *
+ *	Start output on a tty.
+ *	Duck out if stopped.  Do wakeups.
+ */
+void ttstart(tp)
+register TTY *tp;
+{
+	register int n;
+	int s;
+
+	n = tp->t_flags;
+	if (n & T_STOP)
+		goto stdone;
+
+	if ((n&T_DRAIN)!=0 && tp->t_oq.cq_cc==0
+	   && (n&T_INL)==0 && tp->t_nfill==0) {
+		s = sphi();
+		tp->t_flags &= ~T_DRAIN;
+		spl(s);
+		defer(wakeup, (char *) &tp->t_oq);
+		goto stdone;
+	}
+
+	NEAR_OR_FAR_CALL(t_start)
+
+	if (tp->t_oq.cq_cc > OLOLIM)
+		goto stdone;
+
+	if (n & T_HILIM) {
+		s = sphi();
+	   	tp->t_flags &= ~T_HILIM;
+		spl(s);
+		defer(wakeup, (char *) &tp->t_oq);
+	}
+
+	if (tp->t_opolls.e_procp) {
+		tp->t_opolls.e_procp = 0;
+		defer(pollwake, (char *) &tp->t_opolls);
+	}
+stdone:
+	return;
+}
+
+/*
+ * ttflush()
+ *
+ *	Flush a tty.
+ *	Called to clear out queues.
+ */
+void ttflush(tp)
+register TTY *tp;
+{
+	int s;
+
+	clrq(&tp->t_iq);
+	clrq(&tp->t_oq);
+
+	if (tp->t_flags & T_INPUT)
+		defer(wakeup, (char *) &tp->t_iq);
+
+	if (tp->t_flags & (T_DRAIN|T_HILIM))
+		defer(wakeup, (char *) &tp->t_oq);
+
+	if (tp->t_ipolls.e_procp != 0) {
+		tp->t_ipolls.e_procp = 0;
+		defer(pollwake, (char *) &tp->t_ipolls);
+	}
+
+	if (tp->t_opolls.e_procp != 0) {
+		tp->t_opolls.e_procp = 0;
+		defer(pollwake, (char *) &tp->t_opolls);
+	}
+
+	tp->t_ibx = 0;
+	tp->t_escape = 0;
+	s = sphi();
+	tp->t_flags &= T_SAVE;  /* reset most flag bits */
+	spl(s);
+}
+
+/*
+ * ttsignal()
+ *
+ *	Send a signal to every process in the given process group.
+ */
+void ttsignal(tp, sig)
+TTY *tp;
+int sig;
+{
+	register int g;
+	register PROC *pp;
+
+	g = tp->t_group;
+#if DEBUG
+printf("ttsignal sig=%d gp=%d\n", sig, g);	
+#endif
+	if (g == 0)
+		goto sigdone;
+	ttflush(tp);
+	pp = &procq;
+	while ((pp=pp->p_nforw) != &procq)
+		if (pp->p_group == g) {
+			sendsig(sig, pp);
+		}
+sigdone:
+	return;
+}
+
+/*
+ * tthup()
+ *
+ *	Flag hangup internally to force errors on tty read/write, flush tty,
+ *	then send hangup signal.
+ */
+void tthup(tp)
+register TTY *tp;
+{
+	ttflush(tp);
+	ttsignal(tp, SIGHUP);
+}
+@
+
+
+1.14
+log
+@changes by hal for process group support.
+@
+text
+@d10 7
+d205 4
+d215 3
+d977 3
+@
+
+
+1.13
+log
+@Don't wait for drain on TIOCFLUSH.
+@
+text
+@d10 3
+d185 5
+a189 2
+ *	Set process group when process does not have one.
+ *	Also set up process's controlling terminal.
+d198 4
+a201 2
+	if (pp->p_group == 0) {
+		if (tp->t_group == 0) {
+a202 2
+		}	
+		pp->p_group = tp->t_group;
+d204 1
+a205 4
+	if (pp->p_ttdev == NODEV)
+		pp->p_ttdev = ctdev;
+}
+
+d222 3
+d226 3
+d291 3
+d295 3
+d370 3
+d374 3
+d490 9
+d522 3
+d526 3
+@
+
+
+1.12
+log
+@Move flow control out of tty.c.
+Make ttin() run at hi priority.
+@
+text
+@d10 4
+d17 1
+a17 1
+ * 
+d193 1
+a193 1
+		if (tp->t_group == 0)
+d195 1
+d198 1
+d457 1
+a457 1
+		++drain;
+d626 1
+a626 2
+ *	Was often called at high priority from the driver's interrupt processor,
+ *	but now also runs explicitly at hi priority. - hws 91/11/12
+a634 1
+	s = sphi();
+d752 1
+d754 1
+d775 2
+a776 1
+	if ((n=tp->t_iq.cq_cc)>=IHILIM)
+d778 3
+a780 1
+	else if (ISTAND && (tp->t_flags&T_TSTOP)==0 && n>=ITSLIM) {
+d782 1
+d788 1
+a788 1
+	spl(s);
+d846 1
+a846 1
+		return;
+d854 1
+a854 1
+		return;
+d860 1
+a860 1
+		return;
+d873 2
+d886 2
+d909 1
+d911 1
+d928 1
+a928 1
+		return;
+d932 1
+a932 1
+		if (pp->p_group == g)
+d934 3
+a947 5
+	int s;
+
+	s = sphi();
+	tp->t_flags &= ~T_CARR;  /* indicate no carrier */
+	spl(s);
+@
+
+
+1.11
+log
+@Update t_flags in ttstart() at high priority.
+Document that ttstash() is local.
+@
+text
+@d10 4
+a27 1
+ *
+d82 3
+a84 5
+ *		sent to the device from tty.c while this bit is true.  If
+ *		TANDEM is set for the device, tty.c will set T_STOP whenever it
+ *		receives t_stopc and clear T_STOP when it receives t_startc.
+ *		If TANDEM is not set, the device driver can write this bit when
+ *		doing hardware flow control.
+d620 2
+a621 1
+ *	Called at high priority from the driver's interrupt processor.
+d628 1
+d630 1
+d637 1
+a637 1
+			return;
+d641 1
+a641 1
+			return;
+a642 16
+
+		/*
+		 * Only do flow control if TANDEM is set.
+		 */
+		if (ISTAND) {
+			if (ISSTOP) {
+				if ((tp->t_flags&T_STOP) == 0)
+					tp->t_flags |= T_STOP;
+				return;
+			}
+			if (ISSTART) {
+				tp->t_flags &= ~T_STOP;
+				ttstart(tp);
+				return;
+			}
+		}
+d645 1
+a645 1
+		return;
+d671 1
+a671 1
+			return;
+d679 1
+a679 1
+				return;
+d692 1
+a692 1
+				        return;
+d728 1
+a728 1
+			return;
+d742 1
+a742 1
+			return;
+d776 3
+@
+
+
+1.10
+log
+@Mask interrrupts when modifying tp->t_flags as some IRQ handlers change this.
+@
+text
+@d10 3
+d16 1
+a16 1
+ * 
+a134 1
+void ttstash();
+d137 2
+d799 1
+a799 1
+void ttstash(tp, c)
+a835 1
+ *	Only called at high priority.
+d841 1
+d849 1
+d851 1
+d862 1
+d864 1
+@
+
+
+1.9
+log
+@Explain T_ISTOP/T_TSTOP/T_STOP.
+Add check for TANDEM before sending t_startc.
+@
+text
+@d10 4
+d376 3
+a378 2
+		 int    rload = 0;
+		 int	was_bbyb = 0;
+d418 1
+d420 1
+d423 1
+d425 1
+d428 1
+d430 1
+d434 6
+a439 3
+		   u.u_error = EPERM;        /* not su */
+		else
+ 	   	   tp->t_flags &= ~T_HPCL;   /* turn off hangup bit */
+d449 1
+d451 1
+d454 1
+d456 1
+d471 1
+d474 1
+d478 1
+d480 1
+d615 1
+a615 1
+ *	Called at high priority from  the driver's interrupt processor.
+d792 2
+d832 1
+d844 2
+a845 2
+	   && (n&T_INL)==0 && tp->t_nfill==0)
+	{	tp->t_flags &= ~T_DRAIN;
+d930 3
+d934 1
+@
+
+
+1.8
+log
+@Only do XON/XOFF flow control if TANDEM is set.
+@
+text
+@d10 3
+d59 22
+d260 1
+a260 1
+			if ( iop->io_flag & IONDLY ) {
+d282 1
+a282 1
+			if ((tp->t_flags&T_TSTOP) != 0) {
+d318 1
+a318 1
+	if ( (iop->io_flag & IONDLY) && (OHILIM >= iop->io_ioc) ) {
+d323 1
+a323 1
+		if ( tp->t_oq.cq_cc >= OHILIM-iop->io_ioc ) {
+d445 1
+a445 1
+	 * Ensure output is enabled BEFORE waiting for output to drain.
+a446 8
+	if ( (ISRIN) && (tp->t_flags & T_STOP) ) {
+		tp->t_flags &= ~T_STOP;
+		ttstart( tp );
+	}
+
+	/*
+	 * Wait for output to drain, or signal to arrive.
+	 */
+d448 9
+d474 1
+a474 1
+	if ( (rload != 0) && (tp->t_param != NULL) )
+d484 1
+a484 1
+int ttpoll( tp, ev, msec )
+d497 1
+a497 1
+	if ( (ev & POLLIN) && (tp->t_iq.cq_cc == 0) ) {
+d502 2
+a503 2
+		if ( msec != 0 )
+			pollopen( &tp->t_ipolls );
+d508 1
+a508 1
+		if ( tp->t_iq.cq_cc == 0 )
+d515 1
+a515 1
+	if ( (ev & POLLOUT) && (tp->t_oq.cq_cc >= OLOLIM) ) {
+d520 2
+a521 2
+		if ( msec != 0 )
+			pollopen( &tp->t_opolls );
+d526 1
+a526 1
+		if ( tp->t_oq.cq_cc >= OLOLIM )
+d530 1
+a530 1
+	if ( ((ev & POLLIN) == 0) && ((tp->t_flags & T_CARR) == 0) )
+d735 1
+a735 1
+			defer( wakeup, (char *) &tp->t_iq );
+d737 1
+a737 1
+		if ( tp->t_ipolls.e_procp ) {
+d739 1
+a739 1
+			defer( pollwake, (char *) &tp->t_ipolls );
+d789 1
+a789 1
+		if ( tp->t_flags & T_INPUT ) {
+d791 1
+a791 1
+			defer( wakeup, (char *) &tp->t_iq );
+d794 1
+a794 1
+		if ( tp->t_ipolls.e_procp ) {
+d796 1
+a796 1
+			defer( pollwake, (char *) &tp->t_ipolls );
+d815 1
+a815 1
+	if ( n & T_STOP )
+d821 1
+a821 1
+		defer( wakeup, (char *) &tp->t_oq );
+d827 1
+a827 1
+	if ( tp->t_oq.cq_cc > OLOLIM )
+d830 1
+a830 1
+	if ( n & T_HILIM ) {
+d832 1
+a832 1
+		defer( wakeup, (char *) &tp->t_oq );
+d835 1
+a835 1
+	if ( tp->t_opolls.e_procp ) {
+d837 1
+a837 1
+		defer( pollwake, (char *) &tp->t_opolls );
+d853 2
+a854 2
+	if ( tp->t_flags & T_INPUT )
+		defer( wakeup, (char *) &tp->t_iq );
+d856 2
+a857 2
+	if ( tp->t_flags & (T_DRAIN|T_HILIM) )
+		defer( wakeup, (char *) &tp->t_oq );
+d859 1
+a859 1
+	if ( tp->t_ipolls.e_procp != 0 ) {
+d861 1
+a861 1
+		defer( pollwake, (char *) &tp->t_ipolls );
+d864 1
+a864 1
+	if ( tp->t_opolls.e_procp != 0 ) {
+d866 1
+a866 1
+		defer( pollwake, (char *) &tp->t_opolls );
+@
+
+
+1.7
+log
+@Drop 3rd arg (was writing PSW directly from it!) for ttread/ttwrite.
+General face lift.
+@
+text
+@d9 4
+a12 1
+ * $Log$
+d14 1
+d26 1
+a26 1
+ * 
+d33 1
+a33 1
+ * 
+d36 1
+a36 1
+ * 
+d77 1
+a77 1
+ 
+d215 1
+a215 1
+			   spl(o);  
+d223 1
+a223 1
+			/* run out of characters from the clist.	*/ 
+d225 1
+a225 1
+			if (ISBBYB && ((tp->t_flags & T_BRD) == 0) 
+d227 1
+a227 1
+			   spl(o);  
+d344 1
+a344 1
+	register int	flush = 0;  
+d395 1
+a395 1
+		break;	
+d398 1
+a398 1
+		   u.u_error = EPERM;        /* not su */ 
+d404 2
+a405 2
+		break;	
+	case TIOCFLUSH: 
+d407 1
+a407 1
+		++drain;	
+d410 1
+a410 1
+		tp->t_flags |= T_BRD;		
+d413 1
+a413 1
+		tp->t_flags &= ~T_BRD;		
+d587 15
+a601 9
+		if (ISSTOP) {
+			if ((tp->t_flags&T_STOP) == 0)
+				tp->t_flags |= T_STOP;
+			return;
+		} 
+		if (ISSTART) {
+			tp->t_flags &= ~T_STOP;
+			ttstart(tp);
+			return;
+@
+
+
+1.6
+log
+@Change include usage.
+@
+text
+@d1 2
+a2 7
+/*	     
+ * This is the common part of
+ * typewriter service. It handles all
+ * device independent aspects of
+ * a typewriter, including tandem flow
+ * control, erase and kill, stop and
+ * start and common ioctl functions.
+d4 7
+a19 1
+ * $Log:	tty.c,v $
+d50 5
+d56 3
+a58 1
+#include <sys/clist.h>
+d60 3
+a64 6
+#include <sys/sched.h>
+#include <sys/io.h>
+#include <sys/tty.h>
+#include <sys/deftty.h>
+#include <sys/stat.h>
+#include <sys/con.h>
+d67 5
+a71 1
+ * NEAR_OR_FAR_CALL is for invoking t_param and t_start
+d73 2
+d81 27
+d112 4
+a115 3
+ * Tty open.
+ * Called by driver on first open.
+ * Set up defaults.
+d117 1
+a117 1
+ttopen(tp)
+d138 4
+a141 3
+ * ttsetgrp - set process group when process
+ * does not have one.
+ * Also set up process's controlling terminal.
+d143 1
+a143 1
+ttsetgrp(tp, ctdev)
+d160 5
+a164 4
+ * Tty close.
+ * Called by driver on the last
+ * close. Wait for all pending output
+ * to go out. Kill input.
+d166 1
+a166 1
+ttclose(tp)
+d186 11
+a196 6
+ * Read routine.
+ * In cooked mode, copy up to the first newline or
+ * break character, or until the count runs out.
+ * In CBREAK or RAW modes, return when count runs out
+ * or when input clist is empty and we're returning
+ * at least one byte.
+d198 1
+a198 1
+ttread(tp, iop, s)
+d207 1
+a207 1
+		o = spl(s);
+d222 2
+a223 2
+			   && iop->io_ioc < sioc)
+			{  spl(o);  
+d229 1
+d247 3
+d273 4
+a276 3
+ * Write routine.
+ * Transfer stuff to the character
+ * list.
+d278 1
+a278 1
+ttwrite(tp, iop, s)
+d305 1
+a305 1
+		o = spl(s);
+d324 1
+a324 1
+	o = spl(s);
+d330 5
+a334 4
+ * This routine handles common
+ * typewriter ioctl functions. Note that
+ * flushing the stream now means drain the
+ * output and clear the input.
+d336 1
+a336 1
+ttioctl(tp, com, vec)
+d449 4
+a452 2
+ * Polling routine.
+ * [System V.3 Compatible]
+d454 1
+a454 1
+ttpoll( tp, ev, msec )
+d507 7
+a513 7
+ * Pull a character from the
+ * output queues of the typewriter.
+ * Doing fills, newline insert,
+ * tab expansion and all other good
+ * things. If the stream is empty
+ * return a -1.
+ * Called at high priority.
+d515 1
+a515 1
+ttout(tp)
+d528 1
+a528 1
+			return (-1);
+d555 1
+a555 1
+	return (c);
+d559 5
+a563 7
+ * Pass a character to the
+ * device independent typewriter
+ * routines. Handle erase and
+ * kill, tandem flow control things
+ * and other magic.
+ * Called at high priority from 
+ * the driver's interrupt processor.
+d565 1
+a565 1
+ttin(tp, c)
+d729 5
+a733 5
+ * Cooked mode.
+ * Put character in the buffer and
+ * check for end of line. Only a legal
+ * end of line can take the last character
+ * position.
+d735 1
+a735 1
+ttstash(tp, c)
+d768 4
+a771 3
+ * Start output on a tty.
+ * Duck out if stopped.
+ * Do wakeups.
+d773 1
+a773 1
+ttstart(tp)
+d806 4
+a809 2
+ * Flush a tty.
+ * Called to clear out queues.
+d811 1
+a811 1
+ttflush(tp)
+d839 3
+a841 1
+ * Send a signal to every process in the given process group.
+d843 1
+a843 1
+ttsignal(tp, sig)
+d861 4
+a864 2
+ * Flag hangup internally to force errors
+ * on tty read/write, flush tty, then send hangup signal.
+d866 1
+a866 1
+tthup(tp)
+@
+
+
+1.5
+log
+@Restore 8-bit fix.
+@
+text
+@d18 4
+a21 1
+ * $Log:	/usr/src/sys/ttydrv/RCS/tty.c,v $
+d49 4
+a52 4
+#include <coherent.h>
+#include <clist.h>
+#include <proc.h>
+#include <uproc.h>
+d54 6
+a59 6
+#include <sched.h>
+#include <io.h>
+#include <tty.h>
+#include <deftty.h>
+#include <stat.h>
+#include <con.h>
+@
+
+
+1.4
+log
+@Fix loss of chars when switching between raw & cooked.
+@
+text
+@d9 3
+d312 1
+d314 3
+d491 5
+a495 1
+		else if (c>=' ' && c<='~')
+d517 1
+d519 1
+d559 1
+d561 3
+d580 1
+d583 4
+d596 1
+d601 1
+d613 1
+d620 1
+d690 1
+d692 3
+@
+
+
+1.3
+log
+@COH 3.1.0 version with Norm's 8bit mods added.
+@
+text
+@d9 2
+a10 2
+ * Bug: no support for 8-bit characters.
+ * Fix: don't strip keyboard input. 01/22/91.  norm
+d284 1
+d286 1
+d298 3
+d302 1
+d305 7
+d484 1
+a484 1
+		else if ((c >= ' ' && c <= '~') || c >= 0200)
+d506 1
+a534 1
+#if 0
+a538 1
+#endif
+d546 1
+a546 1
+				putq(&tp->t_oq, c);	/* not stripped */
+d563 2
+a564 2
+				else if (((c = dc) == '\007')
+					|| c == 0 || c == 0177 || c == 0377)
+a573 1
+#if 0
+a577 1
+#endif
+a588 1
+#if 0
+a594 1
+#endif
+d664 1
+a664 1
+			putq(&tp->t_iq, (*p1++));
+@
+
+
+1.2
+log
+@Changes for 3.1.0, but before moving commons to support.c
+@
+text
+@a0 14
+/* $Header: /usr/src/sys/ttydrv/RCS/tty.c,v 1.2 89/07/17 11:51:20 src Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+d9 3
+a43 1
+#include <al.h>
+d55 3
+a57 8
+/* the following are shared by loadable serial drivers */
+/*   (see al.h and poll_clk.h) */
+int	com_usage[NUM_COM_PORTS];	/* COM_UNUSED/COM_IRQ/COM_POLLED */
+int	poll_rate;
+int	poll_owner;
+TTY	*(tp_table[NUM_COM_PORTS]);	/* table of pointers for polling */
+
+/* NEAR_OR_FAR_CALL is for invoking t_param and t_start */
+d471 1
+a471 1
+		else if (c>=' ' && c<='~')
+a492 1
+		c &= 0177;
+d521 1
+d526 1
+d534 1
+a534 1
+				putq(&tp->t_oq, c&0177);
+d551 2
+a552 2
+				else if (((c = dc&0177) == '\007')
+					|| c == 0 || c == 0177)
+d562 1
+d567 1
+d579 1
+d586 1
+d656 1
+a656 1
+			putq(&tp->t_iq, (*p1++)&0177);
+@
+
+
+1.1
+log
+@Used in COHERENT 3.0.0
+@
+text
+@d23 3
+d55 1
+d67 14
+a92 1
+#ifdef	OLD	/* How old? */
+a94 4
+#else
+	tp->t_sgttyb.sg_ispeed = DEF_SG_ISPEED;	 /* default speed settings */
+	tp->t_sgttyb.sg_ospeed = DEF_SG_OSPEED;
+#endif
+d104 3
+a106 2
+	if (tp->t_param != NULL)
+		(*tp->t_param)(tp);
+d387 1
+a387 1
+		(*tp->t_param)(tp);
+d707 1
+a707 1
+	(*tp->t_start)(tp);
+@

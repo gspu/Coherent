@@ -1,0 +1,43 @@
+:
+#!/bin/sh
+
+OPTIONS=
+FILES=
+for ARG
+do
+	case "$ARG" in
+	-*)	OPTIONS="$OPTIONS $ARG";;
+	*)	FILES="$FILES $ARG";;
+	esac
+done
+if test -z "$FILES"; then
+	echo "Usage: zdiff [diff_options] file [file]"
+	exit 1
+fi
+set $FILES
+if test $# -eq 1; then
+	FILE=`expr $1 : '\(.*\)\.z' '|' $1`
+	gzip -cd $FILE | ${DIFF-diff} $OPTIONS - $FILE
+	STAT="$?"
+elif test $# -eq 2; then
+	case "$1" in
+	*.z | *.Z)	case "$2" in
+		*.z | *.Z)	F=`basename $2 .z`
+			gzip -cd $2 > /tmp/$F.$$
+			gzip -cd $1 | ${DIFF-diff} $OPTIONS - /tmp/$F.$$
+			STAT="$?";;
+		*)	gzip -cd $1 | ${DIFF-diff} $OPTIONS - $2
+			STAT="$?";;
+		esac;;
+	*)	case "$2" in
+		*.z | *.Z) gzip -cd $2 | ${DIFF-diff} $OPTIONS $1 -
+			STAT="$?";;
+		*)	${DIFF-diff} $OPTIONS $1 $2
+			STAT="$?";;
+		esac;;
+	esac
+	exit "$STAT"
+else
+	echo "Usage: zdiff [diff_options] file [file]"
+	exit 1
+fi

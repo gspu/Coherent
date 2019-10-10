@@ -1,0 +1,420 @@
+.TH gs "" "" "X Application"
+.PC "Interpreter/previewer for Ghostscript version 2.6"
+\fBgs [\fIoptions\^\fB] [\fIfile\^\fB.ps ... ]\fR
+.PP
+Ghostscript is a programming language similar to Adobe Systems' PostScript\(tm
+language, which in turn resembles the language
+.BR forth .
+The command
+.B gs
+is an interpreter/previewer for Ghostscript.
+It reads each \fIfiles\fB.ps\fR and executes it as a Ghostscript program;
+then it reads input from the standard-input stream (normally the keyboard)
+and interpets each line separately.
+To exit from
+.BR gs ,
+type
+.BR quit .
+.B gs
+also exits gracefully if it encounters EOF.
+Typing the interrupt character
+.B <ctrl-C>
+is also safe.
+.SH "Output Devices"
+You can build
+.B gs
+with drivers for any number of output devices.
+By default, it directs output to the first driver in its suite;
+under \*(CO, this is for an X window.
+To use device
+.B xyz
+as the initial output device, include the switch
+.DM
+	\-sDEVICE=xyz
+.DE
+.PP
+in the command line.
+Note that this switch must precede the first
+.B .ps
+file, and only its first invocation has any effect.
+For example, to print file
+.B myfile.ps
+on an Epson printer, use the command:
+.DM
+	gs \-sDEVICE=epson myfile.ps
+.DE
+.PP
+You can also switch devices at any time by using the
+.B selectdevice
+instruction.
+For example, to print
+.B myfile.ps
+on an Epson printer, type the following instructions into
+.BR gs :
+.DM
+	(epson) selectdevice
+	(myfile.ps) run
+.DE
+.PP
+All output then goes to the printer instead of the display until further notice.
+.PP
+The third (and last) way to redirect output is to define the variable name
+.B GS_DEVICE
+to name the desired device.
+The order of precedence for these alternatives, highest to lowest, is as
+follows:
+.DS
+	\fBselectdevice\fR instruction
+	command line
+	\fBGS_DEVICE\fR
+	first device in build list
+.DE
+.PP
+To select the density (or ``resolution'') on a printer, use the
+command-line option
+.BR \-r ,
+as follows:
+.DM
+	gs \-sDEVICE=\fIdevice\fP \-r\fIxres\fPx\fIyres\fP
+.DE
+.PP
+For example, on a nine-pin Epson-compatible printer, you can get the
+lowest-density (fastest) mode with the following command:
+.DM
+	gs \-sDEVICE=epson \-r60x72
+.DE
+.PP
+and the highest-density mode with:
+.DM
+	gs \-sDEVICE=epson \-r240x72
+.DE
+.PP
+If you select a printer as the output device,
+.B gs
+also lets you control where the device sends its output.
+Normally, output goes directly to a scratch file on \*(UN systems or \*(CO.
+To send the output to a series of files
+.BR foo1.xyz ,
+.BR foo2.xyz ,
+etc., use the switch:
+.DM
+	\-sOutputFile=foo%d.xyz
+.DE
+.PP
+The string
+.B %d
+is a
+.B printf()
+format specifier; you can use other
+.B printf()
+formats like
+.BR %02d .
+Each file will receive one page of output.
+Alternatively, to send the output to a single file
+.BR foo.xyz ,
+with all the pages concatenated, use the switch:
+.DM
+	\-sOutputFile=foo.xyz
+.DE
+.PP
+On \*(UN systems and \*(CO, you can send the output directly to a pipe.
+For example, to pipe the output to the spooler
+.BR lp ,
+use the switch:
+.DM
+	\-sOutputFile=\e|lpr
+.DE
+.PP
+To send output to the standard output stream, use the command:
+.DM
+	\-sOutputFile=\-
+.DE
+.PP
+In this case you must also use the switch
+.BR \-q ,
+to stop
+.B gs
+from writing its messages to stdout.
+.PP
+To find out what devices are available, use the instruction:
+.DM
+	devicenames ==
+.DE
+.PP
+You can use the command-line options
+.B \-h
+or
+.BR \-? .
+The help message lists the available devices.
+.SH "Initialization Files"
+When it seeks its initialization files (\fBgs_*.ps\^\fR),
+the files related to fonts, or the file for the
+.B run
+operator,
+.B gs
+first tries opening the file with the name as given
+(i.e., using the current working directory if none is specified).
+If this fails and the file name does not specify an explicit directory
+or drive (i.e., does not begin with `/'),
+.B gs
+tries directories in the following order:
+.IP \fB1.\fR 0.3i
+The directory or directories specified by the
+.B \-I
+switch (or switches) in the command line, if any.
+.IP \fB2.\fR
+The directory or directories specified by the
+.B GS_LIB
+environment variable, if any.
+.IP \fB3.\fR
+The directory or directories specified by the
+.B GS_LIB_DEFAULT
+macro in the
+.B gs
+.BR makefile .
+Under \*(CO, this is set to:
+.DM
+	/u1/gnu/lib/ghostscript:/u1/gnu/lib/ghostscript/fonts
+.DE
+.IP
+Each of these (that is,
+.BR GS_LIB_DEFAULT ,
+.BR GS_LIB ,
+and the parameter
+.BR \-I )
+may be either a single directory, or a list of directories that are
+separated by a `:'.
+.SH "X Resources"
+.B gs
+looks for the following resources under the program name
+.BR Ghostscript :
+.IP \fBborderWidth\fR
+The border width in pixels (default, one).
+.IP \fBborderColor\fR
+The name of the border color (default, \fBblack\fR).
+.IP \fBgeometry\fR
+The window size and placement, W\(muH+X+Y (default, NULL).
+.IP \fBxResolution\fR
+The number of vertical pixels per inch.
+The default is computed from the resources
+.B WidthOfScreen
+and
+.BR WidthMMOfScreen .
+.IP \fByResolution\fR
+The number of horizontal pixels per inch.
+The default is computed from the resources
+.B HeightOfScreen
+and
+.BR HeightMMOfScreen .
+.IP \fBuseBackingPixmap\fR
+Determine whether to use backing store for saving the display window
+(default, \fBtrue\fR).
+.PP
+See the file
+.B use.doc
+for a more complete list of resources.
+.PP
+To set these resources, put them in a file (such as \fB~/.Xresources\fR)
+in the following form:
+.DM
+	Ghostscript*geometry:	612x792\-0+0
+	Ghostscript*xResolution: 72
+	Ghostscript*yResolution: 72
+.DE
+.PP
+Then use the command
+.B xrdb
+to load the defaults into the X server, as follows:
+.DM
+	xrdb \-merge ~/.Xresources
+.DE
+.SH "Command-line Options"
+.B gs
+recognizes the following command-line options:
+.IP "\fB\-\- \fIfilename arg1 ...\fR"
+Take the next argument as a file name, as usual, but takes all
+remaining arguments (even if they have the syntactic form of switches)
+and defines the name
+.B ARGUMENTS
+in
+.I userdict
+(not
+.IR systemdict )
+as an array of those strings,
+.I before
+running the file.
+When Ghostscript finishes executing the file, it exits back to the shell.
+.IP "\fB\-D \fIname \fB= \fItoken\fR"
+.IS "\fB\-d \fIname \fB= \fItoken\fR"
+Define
+.I name
+in
+.B systemdict
+(the Ghostscript system-wide dictionary).
+.I token
+must be exactly one token (as defined by the
+.B token
+operator) and must not contain any white space.
+.IP "\fB\-D \fIname\fR"
+.IP "\fB\-d \fIname\fR"
+Define
+.I name
+within
+.B systemdict
+as null.
+.IP "\fB\-S \fIname \fB= \fIstring\fR"
+.IP "\fB\-s \fIname \fB= \fIstring\fR"
+Define
+.I name
+in
+.B systemdict
+to be
+.IR string .
+This differs from command-line option
+.BR \-d .
+For example,
+.DM
+	\-dname=35
+.DE
+.IP
+is equivalent to the program fragment:
+.DM
+	/name 35 def
+.DE
+.IP
+whereas
+.DM
+	\-s name=35
+.DE
+.IP
+is equivalent to:
+.DM
+	/name (35) def
+.DE
+.IP \fB\-q\fR
+Start up quietly \(em suppress normal startup messages.
+This is the equivalent of command-line option
+.BR \-dQUIET .
+.IP "\fB\-g \fInumber1 \fBx \fInumber2\fR"
+This is equivalent to
+\fB\-dDEVICEWIDTH= \fInumber1\fR and \fB\-dDEVICEHEIGHT= \fInumber2\fR.
+This is for the benefit of devices (such as X11 windows)
+that require (or allow) width and height to be specified.
+.IP "\fB\-r \fInumber\fR"
+.IS "\fB\-r \fInumber1 \fBx \fInumber2\fR"
+This is equivalent to \fB\-dDEVICEXRESOLUTION= \fInumber1\fR
+and \fB\-dDEVICEYRESOLUTION= \fInumber2\fR.
+This is for the benefit of devices (such as printers)
+that support multiple X and Y resolutions.
+(If only one number is given, it is used for both X and Y resolutions.)
+.IP "\fB\-I \fIdirectories\fR"
+Add
+.I directories
+to the head of the search path for library files.
+.IP \fB\-\fR
+This is not a switch.
+It tells
+.B gs
+to read the standard input.
+and execute what it reads just like the contents of a file.
+.B gs
+continues to read from stdin until it reads EOF,
+and continues to process the command line.
+At the end of the command line,
+.B gs
+exits rather than going into its interactive mode.
+.PP
+Note that
+.B gs_init.ps
+makes the system dictionary
+.B systemdict
+read-only; therefore you cannot change so the values of the names
+defined with options
+.BR \-D ,
+.BR \-d ,
+.BR \-S ,
+or
+.B \-s
+(although, of course, they can be superseded by definitions in
+.B userdict
+or other dictionaries).
+.SH "Special Names"
+The
+.B gs
+command-line options can be used with the following special names:
+.IP \fB\-dDISKFONTS\fR
+This special name tells
+.B gs
+load individual character outlines from disk
+the first time they are encountered.
+(Normally,
+.B gs
+loads all the character outlines when it loads a font.)
+This may allow loading more fonts into RAM,
+at the expense of slower rendering.
+.IP \fB\-dNOCACHE\fR
+Disable character caching.
+This is useful only for debugging.
+.IP \fB\-dNOBIND\fR
+Disable the operator
+.BR bind .
+This is useful only for debugging.
+.IP \fB\-dNODISPLAY\fR
+Suppress the normal initialization of the output device.
+This may be useful when debugging.
+.IP \fB\-dNOPAUSE\fR
+Disables the prompt and pause at the end of each page.
+This may be desirable for applications where another program is
+``driving'' Ghostscript.
+.IP \fB\-dNOPLATFONTS\fR
+Disable the use of fonts supplied by the underlying platform
+(e.g., the X Window System).
+This may be needed if the platform's fonts clash with the
+Ghostscript the scalable fonts.
+.IP \fB\-dSAFER\fR
+Disable the operators
+.B deletefile
+and
+.BR renamefile ,
+and the ability to open files in any mode other than read-only.
+This may be desirable for spoolers or other sensitive environments.
+.IP \fB\-dWRITESYSTEMDICT\fR
+Leave
+.B systemdict
+writable.
+This is necessary when running special utility programs such as
+.B font2c
+and
+.BR pcharstr ,
+which must bypass normal PostScript access protection.
+.IP "\fB\-sDEVICE= \fIdevice\fR"
+Select an alternate default output device, as described above.
+.IP "\fB\-sOutputFile= \fIfilename\fR"
+Select an alternate output file (or pipe) for the initial output
+device, as described above.
+.SH Files
+.IP \fB/u1/gnu/lib/ghostscript/*\fR
+Startup-files, utilities, and basic font definitions.
+.IP \fB/u1/gnu/lib/ghostscript/fonts/*\fR
+Additional font definitions.
+.IP \fB/u1/gnu/lib/ghostscript/examples/*\fR
+Demonstrate Ghostscript files.
+.IP \fB/usr/local/lib/doc/ghostscript/doc/*\fR
+Assorted documentation files.
+.SH "See Also"
+.B
+X applications
+.R
+.SH Notes
+Ghostscript was originally created, and is primarily developed and
+maintained, by L. Peter Deutsch, president of Aladdin Enterprises
+(ghost@aladdin.com).
+Copyright \(co 1989, 1992, 1993 Aladdin Enterprises.
+All rights reserved.
+.PP
+Ghostscript, its drivers, fonts, documentation, and other parts,
+are protected by the GNU ``copyleft''.
+For details of the rights you enjoy with this program, and the restrictions
+placed upon it, see the file
+.B COPYING
+included in the archive of source files included with this package.

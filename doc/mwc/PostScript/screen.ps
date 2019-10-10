@@ -1,0 +1,76 @@
+%% I spoke with rs today about PS and halftone screens.  It's easy to change
+%% the frequency and angle of a halftone screen, somewhat more cumbersome to
+%% change the associated transfer function.  The following program prints a
+%% sample output grid with different gray levels and frequencies.  I didn't
+%% bother with labels in the output, you can add them yourself: hold the
+%% page with white squares going off the page at the top, then the horizontal
+%% rows are gray levels 0, .1, .2, ..., 1.0 and the vertical columns are
+%% screen frequencies 30, 40, 50, ..., 100.  [Frequency is screens/inch, so
+%% on a 300 DPI output device freq==30 means the screen is 10x10 pixels,
+%% freq=100 means screen 3x3 pixels; I think the normal value is freq==60 for
+%% a screen of 5x5 pixels.]  It would be interesting to see how the printer
+%% reproduces this test sheet; we might want to adjust the manual screen
+%% frequency (and possibly the gray levels) accordingly.  Let me know what
+%% else you need...
+%% ------------------------------------------------------------------------
+% lib/box.ps 10/25/93
+
+% Draw rectangular box.
+% linewidth linegray fillgray dx dy x y box -
+% Ignore setgray and linegray if fillgray is -1;
+% this is useful for filling a box with a different fill pattern.
+/box
+{
+	gsave
+		newpath			% linewidth linegray fillgray dx dy x y
+		moveto			% linewidth linegray fillgray dx dy
+		1 index 0 rlineto	% linewidth linegray fillgray dx dy
+		0 exch rlineto		% linewidth linegray fillgray dx
+		neg 0 rlineto		% linewidth linegray fillgray
+		closepath
+		dup -1 ne
+		{			% linewidth linegray fillgray
+			% use fillgray and linegray if fillgray is not -1
+			gsave
+				setgray	% linewidth linegray
+				fill
+			grestore
+			setgray		% linewidth
+		}
+		{			% linewidth linegray fillgray
+			% ignore fillgray and linegray if fillgray is -1
+			pop pop		% linewidth
+			fill
+		} ifelse
+		setlinewidth stroke	% -
+	grestore
+} bind def
+% end of lib/box.ps
+
+/inch { 72 mul } bind def
+.25 inch .25 inch translate
+
+% Reset the screen frequency to the given value.
+% nfreq newfreq -
+/newfreq
+{
+	/nfreq exch def		% new frequency
+	currentscreen		% freq angle proc
+	3 -1 roll		% angle proc freq
+	pop nfreq		% angle proc nfreq
+	3 1 roll		% nfreq angle proc
+	setscreen
+} bind def
+
+30 10 100 {
+	newfreq
+	0 1 10 {
+		/n exch def
+		% linewidth linegray fillgray    dx      dy   x   y    box -
+		     1         0     n 10 div .9 inch .9 inch 0 n inch box
+	} for
+	1 inch 0 translate
+} for
+showpage
+
+% end of test.ps

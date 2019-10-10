@@ -1,0 +1,201 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.06.20.13.45;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@src pulled from 310 ship disk
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * The routines in this file provide support for the ATARI ST video and
+ * keyboard subsystem, though much of the ST specific keyboard support is
+ * in "termio.c".  It compiles into nothing if the GEM and NATIVE variants
+ * are not selected.  The ST video subsystem is very much like the VT52.
+ */
+#include	<stdio.h>
+#include	"ed.h"
+
+#if	GEM && NATIVE
+#include	<osbind.h>
+#include	<linea.h>
+
+#define	NROW	25			/* Normal screen size.		*/
+#define	MROW	40			/* Long screen size.		*/
+#define	LROW	50			/* Very long screen size.	*/
+
+#define	NCOL	80			/* Number of columns		*/
+
+#define	BIAS	0x20			/* Origin 0 coordinate bias.	*/
+#define	ESC	0x1B			/* ESC character.		*/
+#define	BEL	0x07			/* ascii bell character		*/
+
+extern	int	ttopen();		/* Forward references.		*/
+extern	int	ttgetc();
+extern	int	ttputc();
+extern	int	ttflush();
+extern	int	ttclose();
+extern	int	astmove();
+extern	int	asteeol();
+extern	int	asteeop();
+extern	int	astbeep();
+extern	int	astopen();
+extern	int	astclose();
+extern	int	astandout();
+
+/*
+ * Dispatch table. All the
+ * hard fields just point into the
+ * terminal I/O code.
+ */
+TERM	term	= {
+	NROW-1,
+	NCOL,
+	astopen,
+	astclose,
+	ttgetc,
+	ttputc,
+	ttflush,
+	astmove,
+	asteeol,
+	asteeop,
+	astbeep,
+	astandout
+};
+
+astmove(row, col)		/* set cursor position	*/
+{
+	tputc(ESC);
+	tputc('Y');
+	tputc(row+BIAS);
+	tputc(col+BIAS);
+}
+
+asteeol()			/* Erase to end of line	*/
+{
+	tputc(ESC);
+	tputc('K');
+}
+
+asteeop()			/* Erase to end of page */
+{
+	tputc(ESC);
+	tputc('J');
+}
+
+astseeop()			/* Special end-of-page for 40 line mode. */
+{
+	register int i;
+
+	i = V_CEL_MY;		/* Line-A is already initialized by open */
+	V_CEL_MY = LROW-1;	/* Save # lines, claim full length...    */
+	asteeop();		/* Clear to end of line                  */
+	V_CEL_MY = i;		/* Restore actual # of lines...		 */
+}
+
+astbeep()			/* Sound the terminal bell	*/
+{
+	tputc(BEL);
+	tflush();
+}
+
+astandout(f)			/* Set/clear standout mode...	*/
+{
+	tputc(ESC);
+	tputc((f == 0) ? 'q' : 'p');	/* Set or clear reverse video	*/
+}
+
+astcursor(f)			/* Show/hide text cursor	*/
+{
+	tputc(ESC);
+	tputc((f == 0) ? 'f' : 'e');	/* Set or clear reverse video	*/
+}
+
+astopen()			/* Open the "terminal"		*/
+{
+	tputc(ESC);
+	tputc('f');
+	if (runswitch & CF_VLONG) {
+		if (setlines(1) == 0) {
+			term.t_nrow = LROW-1;
+		} else
+			runswitch &= ~(CF_VLONG|CF_LONGSCR);
+	} else if (runswitch & CF_LONGSCR) {
+		if (setlines(-1) == 0) {
+			term.t_eeop = astseeop;
+			term.t_nrow = MROW-1;
+		} else
+			runswitch &= ~(CF_VLONG|CF_LONGSCR);
+	}
+	tputc(ESC);
+	tputc('e');
+	ttopen();
+}
+
+astclose()			/* Close the terminal	*/
+{
+	if (runswitch & (CF_VLONG|CF_LONGSCR)) {
+		astcursor(0);
+		setlines(0);
+		astmove(NROW-2, 0);
+		astcursor(1);
+		tputc('\n');
+	}
+	ttclose();
+}
+
+/*
+ * Set the screen to 25, 40 or 50 lines, base on FLAG.  Return 0 if
+ * successful (Monochrome), or 1 if not (Color).
+ *
+ * Flag value	# lines
+ *	-1	  40
+ *	 0	  25
+ *	 1	  50
+ */
+
+setlines(flag)
+{
+	register struct la_font *fnthdr;
+
+	if (Getrez() != 2)	/* If not monochrome...		*/
+		return 1;	/* Return non-zero		*/
+	linea0();		/* Initialize Line-A		*/
+	if (flag) {		/* If long screen request...	*/
+		fnthdr = (la_init.li_a1)[1];	/* Get the font header	*/
+						/*   for 8x8 font	*/
+		if (flag > 0) {			/* If 50 line request	*/
+			V_CEL_MY = 49;	/* 50 lines			*/
+			V_CEL_WR = 640;	/* offset (in bytes) to next row */
+		} else {			/* Otherwise 40 lines	*/
+			V_CEL_MY = 39;	/* 40 lines			*/
+			V_CEL_WR = 800;	/* offset (in bytes) to next row */
+		}
+	} else {		/* Otherwise, short screen request */
+		fnthdr = (la_init.li_a1)[2];	/* Get the font header	*/
+						/* for the 8*16 font	*/
+		V_CEL_MY = 24;		/* 25 lines			*/
+		V_CEL_WR = 1280;	/* offset (in bytes) to next row */
+	}
+	V_CEL_HT = fnthdr->font_height;			/* Set system font */
+	V_OFF_AD = (long)(fnthdr->font_char_off);
+	V_FNT_AD = (long)(fnthdr->font_data);
+	return 0;			/* return success.	*/
+}
+#endif
+@

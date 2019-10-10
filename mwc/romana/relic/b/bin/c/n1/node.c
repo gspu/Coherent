@@ -1,0 +1,185 @@
+/*
+ * n1/node.c
+ * Utility routines for the manipulation of expression tree nodes.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+/*
+ * Fabricate a node for an integer constant.
+ */
+TREE *
+ivalnode(n) ival_t n;
+{
+	register TREE *tp;
+
+	tp = alocnode();
+	tp->t_op = ICON;
+	tp->t_type = IVAL_T;
+	tp->t_ival = n;
+	return tp;
+}
+
+/*
+ * Fabricate a node for a long constant.
+ */
+TREE *
+lvalnode(n) lval_t n;
+{
+	register TREE *tp;
+
+	tp = alocnode();
+	tp->t_op = LCON;
+	tp->t_type = LVAL_T;
+	tp->t_lval = n;
+	return tp;
+}
+
+/*
+ * Fabricate a node, either a long or an integer,
+ * given the type and the long value.
+ */
+TREE *
+gvalnode(t, n) lval_t n;
+{
+	if (islong(t))
+		return lvalnode(n);
+	else
+		return ivalnode((ival_t)n);
+}
+
+/*
+ * Copy a node.
+ */
+TREE *
+copynode(tp1) TREE *tp1;
+{
+	register TREE *tp2;
+
+	tp2 = alocnode();
+	*tp2 = *tp1;		/* Union assign */
+	return tp2;
+}
+
+/*
+ * Make up a node.
+ * Fill in the op and the type.
+ */
+TREE *
+makenode(op, t, s)
+{
+	register TREE *tp;
+
+	tp = alocnode();
+	tp->t_op = op;
+	tp->t_type = t;
+	if (issized(t))
+		tp->t_size = s;
+	return tp;
+}
+
+/*
+ * Make up a node.
+ * Fill in the op, the type and the left subtree.
+ */
+TREE *
+leftnode(op, lp, t, s)
+TREE *lp;
+{
+	register TREE *tp;
+
+	tp = makenode(op, t, s);
+	tp->t_lp = lp;
+	return tp;
+}
+
+/*
+ * Strip off conversions.
+ */
+TREE *
+basenode(tp)
+register TREE *tp;
+{
+	register op;
+
+	while ((op=tp->t_op)==CONVERT || op==CAST)
+		tp = tp->t_lp;
+	return tp;
+}
+
+/*
+ * Get a new tree node.
+ * Just abort if there is no space left; this should not happen.
+ */
+TREE *
+alocnode()
+{
+	register TREE *tp;
+
+	tp = talloc();
+	tp->t_treg = NONE;
+	tp->t_rreg = NONE;
+	return tp;
+}
+
+/*
+ * Check if a tree node is a fixed point constant of some type.
+ */
+isfxcon(tp) TREE *tp;
+{
+	register op;
+
+	if ((op=tp->t_op)==ICON || op==LCON)
+		return 1;
+	return 0;
+}
+
+/*
+ * Grab numeric value.
+ */
+lval_t
+grabnval(tp) register TREE *tp;
+{
+	register op;
+
+	op = tp->t_op;
+	if (op == ICON) {
+		if (isuns(tp->t_type))
+			return ((unsigned) tp->t_ival);
+		return tp->t_ival;
+	}
+	if (op == LCON)
+		return tp->t_lval;
+	cbotch("grabnval");
+}
+
+/*
+ * Is this tree node a constant 'n'?
+ * Note that 'n' is an integer (not a long).
+ */
+isnval(tp, n) register TREE *tp;
+{
+	long v;
+
+	if (isfxcon(tp)) {
+		v = grabnval(tp);
+		if (v == n)
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Make a LEAF node.
+ */
+TREE *
+leafnode(tp) register TREE *tp;
+{
+	return leftnode(LEAF, tp, tp->t_type, tp->t_size);
+}
+
+/* end of n1/node.c */

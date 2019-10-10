@@ -1,0 +1,327 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.02.10.17.03.25;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.24.00.11.22;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.23.23.50.19;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*
+ * libc/stdio/ungetc.c
+ * ANSI-compliant C standard i/o library.
+ * ungetc()
+ * ANSI 4.9.7.11.
+ * Unget a character.
+ */
+
+#include <stdio.h>
+#include <string.h>
+
+extern	int	_fungotc();
+extern	int	_funungetc();
+
+int
+ungetc(c, stream) int c; register FILE *stream;
+{
+	register _FILE2 *f2p;
+
+	f2p = stream->_f2p;
+	if (c == EOF || (stream->_ff1 & _FWONLY))
+		return EOF;		/* Leave input stream unchanged */
+	f2p->_gt = &_fungotc;		/* Replace get function */
+	if (!(stream->_ff1 & _FRONLY))
+		f2p->_pt = &_funungetc;	/* Replace put function */
+	stream->_cc = 0;
+	stream->_ff2 |= _FUNGOT;	/* Set ungot flag */
+	stream->_ff1 &= ~_FEOF;		/* ANSI 4.9.7.11 (24) */
+	f2p->_uc = c;			/* Store ungot character */
+	return c;
+}
+
+/*
+ * Get ungetc character.
+ * Restore the appropriate get and put functions.
+ */
+static
+int
+_fungotc(fp) register FILE *fp;
+{
+	register _FILE2 *f2p;
+
+	f2p = fp->_f2p;
+
+#if	_ASCII
+	register int isascii;
+
+	isascii = fp->_ff2 & _FASCII;
+#endif
+
+	switch (fp->_mode) {
+	case _MODE_UNINIT:		/* Uninitialized */
+		f2p->_gt = &_fginit;
+		f2p->_pt = &_fpinit;
+		break;
+
+	case _MODE_FBUF:
+	case _MODE_LBUF:
+		/* Fully buffered or line buffered */
+		if (fp->_mode == _MODE_FBUF) {
+			/* Fully buffered output */
+#if	_ASCII
+			f2p->_pt = isascii ? &_fputba : &_fputb;
+#else
+			f2p->_pt = &_fputb;
+#endif
+		} else {
+			/* Line buffered output */
+#if	_ASCII
+			f2p->_pt = isascii ? &_fputta : &_fputt;
+#else
+			f2p->_pt = &_fputt;
+#endif
+		}
+#if	_ASCII
+		f2p->_gt = isascii ? &_fgetba : &_fgetb;
+#else
+		f2p->_gt = &_fgetb;
+#endif
+		if ((fp->_cc = -(fp->_cp - f2p->_dp)) < 0)
+			fp->_cc = f2p->_ep - fp->_cp;
+		break;
+
+	case _MODE_NBUF:
+		/* Unbuffered */
+#if	_ASCII
+		f2p->_gt = isascii ? &_fgetca : &_fgetc;
+		f2p->_pt = isascii ? &_fputca : &_fputc;
+#else
+		f2p->_gt = &_fgetc;
+		f2p->_pt = &_fputc;
+#endif
+		break;
+
+	case _MODE_STR:
+		/* String */
+		f2p->_gt = &_fgetstr;
+		fp->_cc = strlen(fp->_cp);
+		break;
+	}
+
+	if (fp->_ff1 & _FRONLY)
+		f2p->_pt = &_fpute;
+	fp->_ff2 &= ~_FUNGOT;		/* Clear the ungot flag */
+	return f2p->_uc;		/* Return the ungot character */
+}
+
+/*
+ * Undo unget.
+ * This occurs after an ungetc()
+ * when put function is done before get function.
+ */
+static
+int
+_funungetc(c, fp) register int c; register FILE *fp;
+{
+	register _FILE2 *f2p;
+
+	f2p = fp->_f2p;
+	(*f2p->_gt)(fp);		/* Undo the unget */
+	return putc(c, fp);		/* and do the put */
+}
+
+/* end of libc/stdio/ungetc.c */
+@
+
+
+1.2
+log
+@steve 4/23/90
+Integrated MSDOS changes to implement minor ANSI quibbles.
+Did not integrate change of _fgeteof to _fgetstr,
+right at the moment I cannot get it straight in my head.
+Should look at _stropen.c and unget.c for this change later.
+@
+text
+@d2 5
+a6 2
+ * Standard I/O Library
+ * Unget char for next getc
+d10 1
+d12 3
+d16 1
+a16 3
+ungetc(c, fp)
+int	c;
+register FILE	*fp;
+d18 1
+a18 9
+	extern	int	_fginit();
+	extern	int	_fgetb();
+	extern	int	_fgetc();
+	extern	int	_fgeteof();
+	int	_fungoti();
+	int	_fungotb();
+	int	_fungotc();
+	int	_fungote();
+	int	_funungc();
+d20 11
+a30 18
+	if (c == EOF)			/* ANSI 4.9.7.11 (22) */
+		return(EOF);		/* Leave input stream unchanged */
+	if (fp->_gt==&_fginit)
+		fp->_gt = &_fungoti;
+	else if (fp->_gt==&_fgetb)
+		fp->_gt = &_fungotb;
+	else if (fp->_gt==&_fgetc)
+		fp->_gt = &_fungotc;
+	else if (fp->_gt==&_fgeteof)
+		fp->_gt = &_fungote;
+	else
+		return (EOF);
+	fp->_pt = &_funungc;
+	fp->_cc = 0;
+	fp->_ff |= _FUNGOT;
+	fp->_ff &= ~_FEOF;		/* ANSI 4.9.7.11 (24) */
+	fp->_uc = c;
+	return (c);
+a32 1
+
+d34 2
+a35 1
+ * uninitialized fp unget
+a36 1
+
+d39 1
+a39 2
+_fungoti(fp)
+register FILE	*fp;
+d41 1
+a41 2
+	extern	int	_fginit();
+	extern	int	_fpinit();
+d43 1
+a43 6
+	fp->_gt = &_fginit;
+	fp->_pt = &_fpinit;
+	fp->_cc = 0;
+	fp->_ff &= ~_FUNGOT;
+	return (fp->_uc);
+}
+d45 2
+d48 2
+a49 3
+/*
+ * buffered unget
+ */
+d51 5
+a55 7
+static
+int
+_fungotb(fp)
+register FILE	*fp;
+{
+	extern	int	_fgetb();
+	extern	int	_fputb();
+d57 26
+a82 7
+	fp->_gt = &_fgetb;
+	fp->_pt = &_fputb;
+	if ((fp->_cc = fp->_cp - fp->_dp) > 0)
+		fp->_cc = _ep(fp) - fp->_cp;
+	fp->_ff &= ~_FUNGOT;
+	return (fp->_uc);
+}
+d84 10
+d95 6
+a100 3
+/*
+ * unbuffered unget
+ */
+d102 5
+a106 7
+static
+int
+_fungotc(fp)
+register FILE	*fp;
+{
+	extern	int	_fgetc();
+	extern	int	_fputc();
+a107 8
+	fp->_gt = &_fgetc;
+	fp->_pt = &_fputc;
+	fp->_cc = 0;
+	fp->_ff &= ~_FUNGOT;
+	return (fp->_uc);
+}
+
+
+d109 3
+a111 1
+ * string unget (for sscanf)
+a112 1
+
+d115 1
+a115 2
+_fungote(fp)
+register FILE	*fp;
+d117 1
+a117 1
+	extern int	_fgeteof();
+d119 3
+a121 3
+	fp->_gt = &_fgeteof;
+	fp->_cc = -strlen(fp->_cp);
+	return (fp->_uc);
+d124 1
+a124 14
+
+/*
+ * un unget; occurs if put done before get after unget
+ */
+
+static
+int
+_funungc(c, fp)
+register char	c;
+register FILE	*fp;
+{
+	(*fp->_gt)(fp);
+	return (putc(c, fp));
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d23 2
+d38 1
+@

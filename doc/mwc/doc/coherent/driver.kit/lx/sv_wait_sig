@@ -1,0 +1,97 @@
+.TH SV_WAIT_SIG() "" "" "DDI/DKI Kernel Routine"
+.PC "Sleep on a synchronization variable"
+.B "#include <sys/types.h>"
+.B "#include <sys/ksynch.h>"
+\fBbool_t SV_WAIT_SIG(\fIsynch\^\fB, \fIpriority\^\fB, \fIlock\^\fB)\fR
+\fBsv_t *\fIsynch\^\fB; int \fIpriority\^\fB; lock_t *\fIlock\^\fB;\fR
+.PP
+.B SV_WAIT_SIG()
+puts the calling process to sleep on the synchronization variable
+.IR synch .
+The calling process sleeps until it is awaked by a call to
+.B SV_SIGNAL()
+or
+.BR SV_BROADCAST() .
+When the calling process awakens,
+.B SV_WAIT_SIG()
+returns a non-zero value to indicate success.
+Unlike
+.BR SV_WAIT() ,
+a process that sleeps under
+.B SV_WAIT_SIG()
+can be awakened by a signal, as described below.
+.PP
+.I lock
+points to a basic lock that a function must hold when it calls
+.BR SV_WAIT_SIG() .
+It releases the lock and sets the level of interrupt priority to
+.B plbase
+after it queues the process on
+.IR synch ,
+but before it switches context to another process.
+.PP
+.I priority
+gives the relative priority that the caller wants after it wakes up.
+This can be one of the following values:
+.IP \fBpridisk\fR 1.0i
+Priority appropriate for disk driver.
+.IS \fBprinet\fR
+Priority appropriate for network driver.
+.IS \fBpritty\fR
+Priority appropriate for terminal driver.
+.IS \fBpritape\fR
+Priority appropriate for tape driver.
+.IS \fBprihi\fR
+High priority.
+.IS \fBprimed\fR
+Medium priority.
+.IS \fBprilo\fR
+Low priority.
+.PP
+You can also specify positive or negative offsets from these values.
+Positive offsets request favorable priority.
+The maximum allowable offset is three.
+Offsets can help you to define the relative importance of the locks and
+resources that a driver holds.
+In general, the more highly contended a lock or resource is,
+or the more locks or kernel resources a driver holds, the higher
+.I priority
+should be.
+.PP
+A process that sleeps under
+.B SV_WAIT_SIG()
+can be interrupted by a signal.
+If the calling function receives a job-control signal that stops it,
+as soon as the calling process returns from the signal
+.B SV_WAIT_SIG()
+returns a non-zero value, just as if calling processing had been awakened
+by a call to
+.B SV_SIGNAL()
+or
+.BR SV_BROADCAST() .
+If the caller is interrupted by a signal other than a job-control
+signal or by a job-control signal that does not stop the calling process,
+.B SV_WAIT_SIG()
+immediately returns zero.
+.PP
+If
+.B SV_WAIT_SIG()
+itself is interrupted by a signal,
+it immediately returns a non-zero value, just as if the calling process
+had been awakened by a call to
+.B SV_SIGNAL()
+or
+.BR SV_BROADCAST() .
+.SH "See Also"
+.B
+DDI/DKI kernel routines
+.R
+.SH Notes
+.B SV_WAIT_SIG()
+has base level only.
+It may sleep.
+.PP
+A driver can hold a
+driver-defined basic lock or read/write lock cannot be held across
+a call to this function.
+However, it can hold driver-defined sleep lock.

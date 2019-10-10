@@ -1,0 +1,530 @@
+.TH "device driver" "" "" Introduction
+.PC
+.PP
+A
+.I "device driver"
+is a program that controls the action of one of the physical
+devices attached to your computer system.
+The following table lists the device drivers included with the \*(CO system.
+The first field gives the device's major device number; the second gives
+its name; and the third describes it.
+When a major device number has no driver associated with it, that device
+is available for a driver yet to be written.
+Note that the 
+
+.nf
+.sp \n(pDu
+.ta 0.5i 1.5i
+ 0:	\fBnull\fR	The ``bit bucket''
+ 0:	\fBmem\fR	Interface to memory and null device
+ 0:	\fBkmem\fR	Device to manage kernel memory
+ 0:	\fBkmemhi\fR
+ 0:	\fBclock\fR	System clock
+ 0:	\fBcmos\fR	System CMOS
+ 0:	\fBps\fR	Processes currently being executed
+ 0:	\fBidle\fR	System idle time
+ 1:	\fBct\fR	Controlling terminal device (\fB/dev/tty\fR)
+ 2:	\fBconsole\fR	Video module for console (\fB/dev/console\fR)
+ 2:	\fBnkb\fR	The ``new'' keyboard driver \(em loadable keyboard tables (\fB/dev/console\fR)
+ 2.	\fBkb\fR	The ``old'' keyboard driver (\fB/dev/console\fR)
+ 2.	\fBmm\fR	The video driver 
+ 3:	\fBlp\fR	Parallel line printer
+ 4:	\fBfd\fR	Floppy-disk drive
+ 4:	\fBfdc\fR	765 diskette and floppy-tape controller
+ 4:	\fBft\fR	Floppy-tape drive
+ 5:	\fBasy\fR	Serial driver
+ 6:
+ 7:
+ 8:	\fBrm\fR	Dual RAM disk
+ 9:	\fBpty\fR	Pseudoterminals
+10:
+11:	\fBat\fR	AT hard disk
+12:
+13:	\fBhai\fR	Host adapter-independent SCSI driver
+13:	\fBaha\fR	Older driver for Adaptec SCSI hard disks
+13:	\fBss\fR	Older driver for Seagate SCSI hard disks
+14:
+15:
+16:
+17:
+18:
+19:
+20:
+21:
+22:
+23:
+24:
+25:
+26:
+27:
+28:
+29:
+30:
+31:
+.fi
+.PP
+Please note that the devices with major number 0 are not portable, and
+non-DDI/DKI.
+Also note that in future releases of \*(CO, the
+.B hai
+driver will be divided into several optional SCSI host-bus
+adapters (HBAs) and target devices.
+.PP
+It is not unusual for one major number to admit several driver service
+modules.
+Instances of this include the following major numbers:
+.IP \fB0\fR 0.3i
+This number is for a number of system-dependent drivers.
+.IP \fB2\fR
+This number supports the console, both its keyboard modules and its
+video modules.
+.IP \fB4\fR
+This describes varieties of floppy-disk and floppy-tape controllers
+and drives.
+.IP \fB13\fR
+This describes a number of SCSI host modules, HBA modules, and target
+modules.
+.SH "Major and Minor Numbers"
+.II "major device number"
+.II "minor device number"
+\*(CO uses a system of \fImajor\fR and \fIminor\fR
+device numbers to manage devices and drivers.
+In theory, \*(CO assigns a unique major number to each type of device,
+and a unique minor number to each instance of that type.
+In practice, however, a major number describes a device driver (rather
+than a device \fIper se\^\fR).
+The individual devices serviced by that driver are identified by a minor number.
+Sometimes, certain parts of the minor number specify configuration.
+For example, bits 0 through 6 of the minor number
+for \*(CO RAM disks indicate the size of the allocated device.
+.PP
+In future releases of \*(CO, major numbers will not be static, as
+they are in the above table.
+Rather, they will be assigned by the
+.B config
+script when you install \*(CO onto your system.
+This scheme will allow more flexible arrangements of drivers, and will also
+allow \*(CO to support more than 32 drivers at once.
+If you write code to work with device drivers, you should
+.I not
+make any assumptions about a given driver's major number.
+.SH "Optional Kernel Components"
+The kernel also contains the following optional components:
+.DS
+.ta 1.0i
+\fBem87\fR	Emulate hardware floating-point routines
+\fBmsg\fR	Perform System V-style message operations
+\fBsem\fR	Perform System V-style semaphore operations
+\fBshm\fR	Perform System V-style shared-memory operations
+\fBstreams\fR	Perform \*(ST operations
+.DE
+.PP
+These components resemble device drivers, in that that they perform discrete
+work and can be linked into or excluded from the kernel, as shown below.
+However, they do not perform I/O with a device, and so are not true drivers.
+For details on these modules, see their entries in the Lexicon.
+.SH "Serial Ports"
+\*(CO manages serial ports with one driver,
+.BR asy .
+It has major number 5, but it supports all four COM ports,
+and a variety of generic multi-port cards.
+The configuration of ports that
+.B asy
+supports is set when you install \*(CO; however, you can reconfigure
+.B asy
+should you wish to add more hardware to your system.
+See its Lexicon article for details.
+.SH "Configuring Drivers and the Kernel"
+Beginning with release 4.2, \*(CO lets you tune kernel and driver
+variables, enable or disable drivers, and easily build a new bootable
+kernel that incorporates your changes.
+.PP
+The command
+.B idenable
+lets you enable or disable a driver within the kernel.
+The command
+.B idtune
+lets you set a user-modifiable variable within the kernel.
+Finally, the command
+.B idmkcoh
+generates a new kernel that incorporates all changes you have made with
+the other three commands.
+Changes are entered with
+.B idenable
+and
+.B idtune
+do not take effect until you invoke
+.B idmkcoh
+to generate a new kernel, and boot the new kernel.
+Scripts
+.B /etc/conf/*/mkdev
+simpify the choices of
+.B idenable
+and
+.B idtune
+during installation and reconfiguration:
+they invoke
+.B idtune
+and
+.B idenable
+in response to your choice of configuration options.
+.SH "Adding a New Device Driver"
+.II "device driver^add a new one"
+The commands described above make it easy for you to add a new device driver
+to your \*(CO kernel.
+.PP
+.II widget
+The following walks you through the processing of adding a new driver.
+We will add the driver \fBfoo\fR, which enables the popular ``widget'' device.
+.IP \fB1.\fR 0.3i
+To begin, log in as the superuser
+.BR root .
+.IP \fB2.\fR
+The next step is to create a directory to hold the driver's sources and
+object.
+Every driver must have its own directory under directory
+.BR /etc/conf ;
+and the sources must be held in directory
+.B src
+in that driver's directory.
+In this case, create directory
+.BR /etc/conf/foo ;
+then create directory
+.BR /et/conf/foo/src .
+.IP \fB3.\fR
+Copy the sources for the driver into its source directory; in this case,
+copy them into
+.BR /etc/conf/foo/src .
+.IP \fB4.\fR
+Create a
+.B Makefile
+in your driver's source directory, e.g.,
+.BR /etc/conf/foo/src/makefile .
+The easiest way to see what is required is to review several of the driver
+.BR Makefile s
+shipped in the \*(CO driver kit.
+You can perform a test compilation of your driver by running
+.B make
+with the driver's
+.B src
+directory as the current directory.
+This should create one object file that has the suffix \fB.o\fR.
+Copy this file in the driver's home directory, and name it
+.BR Driver.o .
+In this case, the object for the
+driver should be in file
+.BR /etc/conf/foo/Driver.o .
+In some rare cases, a driver compile into more than one object.
+You should store all of these objects into one archive; name the archive
+.B Driver.a ,
+and store it in the driver's home directory.
+The \*(CO commands that build the new kernel know how to handle archives
+correctly.
+The main idea is that files
+.B Space.c
+(if one exists) and
+.B Driver.o
+or
+.B Driver.a
+be placed in the driver directory, i.e., the parent of the
+.B src
+directory.
+.IP \fB5.\fR
+Add an entry to file
+.B /etc/conf/sdevice
+for this driver.
+.BR sdevice ,
+as described above, names the drivers to be included in the kernel.
+The entries for practically every entry are identical; you need to note only
+that the second column marks whether to include the driver in the kernel.
+In this case, the entry for the driver
+.B foo
+should read as follows:
+.DM
+	foo	Y	0	0	0	0	0x0	0x0	0x0	0x0
+.DE
+.IP
+For details on what each column means, read the comments in file
+.BR /etc/conf/sdevice .
+.IP \fB6.\fR
+Add an entry to file
+.B /etc/conf/mdevice
+for the new driver.
+This file is a little more complex than
+.BR sdevice ;
+in particular, it distinguishes between \*(ST-style drivers and
+``old-style'' \*(CO drivers.
+In most cases, you can simply copy an entry for an existing driver of the
+same type, and modify it slightly.
+In this case, the entry for
+.B foo
+should read as follows:
+.DM
+	# full	func	misc	code	block	char	minor	minor	dma	cpu
+	# name	flags	flags	prefix	major	major	min	max	chan	id
+	foo	-	CGo	foo	15	15	0	255	-1	-1
+.DE
+.IP
+In almost every case, the full name and the code prefix are identical.
+The code prefix also names the directory that holds the driver's object.
+Function flags are always always a hyphen, and miscellaneous flags almost always
+CGo.
+The block-major and character-major numbers again are almost always identical.
+The major number is usually assigned by the creator of the device driver.
+In future releases of the kernel, these will be assigned dynamically by the
+kernel itself; poorly written drivers that depend upon the driver having
+a magic major-device number will no longer work.
+Finally, the last four columns for non\-\*(ST drivers are almost always
+0, 255, \-1, and \-1, respectively.
+See the comments in file
+.BR /etc/conf/mdevice .
+.IP \fB7.\fR
+If the driver has tunable variables, these should be set in the file
+.BR Space.c ,
+which should be stored in the driver's home directory.
+As it happens,
+.B foo
+does not need a
+.B Space.c
+file.
+For examples of such files, look in the various sub-directories of
+.BR /etc/conf .
+.IP \fB8.\fR
+Type the command
+.B /etc/conf/bin/idmkcoh
+to build a new kernel.
+If necessary, move the new kernel into the root directory; you cannot boot it
+until it is in the root directory.
+.IP \fB9.\fR
+Save the old kernel and link the newly build kernel to
+.BR /autoboot .
+You want save the old kernel, just in case the new one doesn't work.
+For directions on how to boot a kernel other than
+.BR /autoboot ,
+see the Lexicon entry for
+.BR booting .
+.IP \fB10.\fR
+Back up your files!
+With a new driver in your kernel, it's best to play it safe.
+.IP \fB11.\fR
+Reboot your system to invoke the new kernel.
+If all goes well, you will now be enjoying the services of the new device
+driver.
+.PP
+If you wish to boot your test kernel from a floppy disk instead of from your
+development file system,
+execute script
+.B /etc/conf/bin/Floppy
+after step 8, above.
+.PP
+For scripts on how to add or remove individual drivers from your kernel,
+see the article of the driver in question.
+.SH "Types of Device-Driver Interface"
+Beginning with release 4.2,
+\*(CO uses two types of device-driver interface:
+.IP "\fBInternal Kernel Interface\fR"
+This type of driver uses the routines internal to the \*(CO kernel.
+.II hai
+.II at
+Examples of this interface include the
+.B at
+driver for the AT hard disk, and the
+.B hai
+driver for SCSI devices.
+See their sources in, respectively, directories
+.B /etc/conf/at/src
+and
+.BR /etc/conf/hai/src .
+.IP "DDI/DKI Interface"
+.II "DDI/DKI^definition"
+The device-driver interface/driver-kernel interface (DDI/DKI) is a
+programmers' interface for \*(UN System V release 4.
+.PP
+When you begin to write a driver for \*(CO, you should pick carefully
+between these two strategies:
+.IP \(bu 0.3i
+The internal-kernel interface is proven and works; however, note that
+this is a world apart from \*(UN, and a driver written in this interface
+is not readily portable to any other operating system.
+.IP \(bu
+The DDI/DKI interface does ensure portability with \*(UN System V release 4;
+however, the \*(CO implementation lacks some features present in true \*(UN.
+These features mainly center around features that are lacking from the \*(CO
+kernel itself, which means that the \*(CO must await a rewritten memory
+manager and file system before it will have a fully compliant DDI/DKI.
+.PP
+Sets of routines from the DDI/DKI can be combined with those from the
+internal-kernel interface.
+In some cases, the DDI/DKI offers the better method of performing a given
+task; in others, the internal-kernel interface offers the better (or, more
+likely, the only) method to perform a task.
+If you are importing a driver from \*(UN System V release 4, then you should
+use the DDI/DKI routines primarily.
+Likewise, you should use them primarily if you are writing a driver that you
+wish to export to \*(UN.
+Note, too, that as \*(CO evolves toward the standard of System V release 4,
+the DDI/DKI interface will grow in importance.
+.PP
+The sources included with release 4.2.05 of the device-driver kit are in
+the internal-kernel format rather than DDI/DKI.
+It was simply not practical to recast these drivers in the DDI/DKI mold
+at the present time;
+however, we are supplying information regarding DDI/DKI interfaces
+to inform developers of the future direction of \*(CO.
+In the development of new drivers, DDI/DKI facilities should be used
+wherever possible for greatest compatibility, e.g., with future releases
+of \*(CO.
+.PP
+To summarize,
+all else being equal, the DDI/DKI is preferred over the internal-kernel
+interface.
+The Lexicon entries themselves will alert you of the alternate ways of
+performing a given task, to help you decide which to use.
+.PP
+The best way to judge which interface you should use is to read the sources
+included with the \*(CO Device Driver Kit:
+.IP "\fBecho\fR (\fB/etc/conf/echo/src\fR)"
+This driver gives a small example of a \*(ST driver.
+.IP "\fBat\fR (\fB/etc/conf/at/src\fR)"
+This driver manipulates the AT hard disk.
+It gives the best demonstration of writing a block driver, with
+regard to compatibility with \*(UN System V release 4.
+.IP "\fBhai\fR devices (\fB/etc/conf/hai/src\fR)"
+This driver manipulates SCSI devices.
+It demonstrates how to use first-party DMA.
+.IP "\fBss\fR (\fB/etc/conf/ss/src\fR)"
+This driver manipulates the Seagate SCSI disk.
+It demonstrates how to use memory-mapped I/O.
+.IP "\fBfd\fR (\fB/etc/conf/fd/src\fR)"
+.IS \fBfdc\fR
+These drivers manipulate the floppy disks.
+It demonstrates how to perform DMA via the Intel controllers.
+.IP "\fBasy\fR (\fB/etc/conf/asy/src\fR)"
+This driver manipulates serial ports COM1 through COM4 and multiport
+asynchronous serial boards using 8250- through 16550-type UARTs.
+It demonstrates how to write a non-\*(ST driver for a character device.
+.PP
+Beyond this, you must use your best judgement as you gain experience in
+working with \*(CO.
+.SH "Coding Requirements"
+The following summarizes the coding requirements for device drivers that
+use the internal-kernel or DDI/DKI interfaces.
+.PP
+To begin, the coding requirements for the internal-kernel interface:
+.IP \fB1.\fR 0.3i
+Put `C' in the miscellaneous flags in the file
+.BR /etc/conf/mdevice .
+.IP \fB2.\fR
+Do not define symbol
+.B _DDI_DKI
+in the driver's source file.
+.IP \fB3.\fR
+Place driver's entry points in a
+.B CON
+structure.
+For information on this structure, see the entries for
+.B "entry points"
+and
+.B CON
+in this Lexicon.
+.IP \fB4.\fR
+There is distinction between internal and external major-
+and minor-device numbers.
+A device number (\fBdev_t\fR) is a 16-bit object.
+Use internal-kernel routine
+.BR minor() ,
+\fIq.v.\^\fR, to obtain the minor-device number.
+.IP \fB5.\fR
+Either include
+.BR <sys/coherent.h> ,
+or explicitly define symbol
+.B _KERNEL
+to be one, before any other #include directives in the driver source.
+.PP
+The coding requirements for the DDI/DKI interface are as follows:
+.IP \fB1.\fR
+Do not put a `C' into the miscellaneous-flags field in file
+.BR /etc/conf/mdevice
+(\fIq.v.\^\fR).
+.IP \fB2.\fR
+Define symbol
+.B _DDI_DKI
+in the driver's source file, before any
+.B #include
+directives.
+.IP \fB3.\fR
+Put an entry into the function-flags field in
+.B /etc/conf/mdevice
+for each of the driver's entry points;
+do not put them into a
+.B CON
+structure.
+.IP \fB4.\fR
+A device number (\fBdev_t\fR) is a 32-bit object.
+There is some
+discussion in the literature of internal \fIvs.\fR external numbering for
+device numbers and for the major and minor parts of the device number as well.
+As of \*(CO 4.2.05, only external numbers are of interest
+to the writer of device drivers.
+Thus, when a
+.B dev_t
+is passed to a driver's entry point, it is an external device number.
+When major numbers are entered into file
+.BR /etc/conf/mdevice ,
+they are external major numbers.
+Unit numbers and device features are decoded from the
+external minor number, which is obtained from the external device
+number by calling the DDI/DKI routine
+.BR geteminor() .
+.IP \fB5.\fR
+Define symbol
+.B _KERNEL
+to be one in the driver source, before any
+.B #include
+directives.
+.SH "Using This Lexicon"
+This manual is organized into the Mark Williams Lexicon format.
+The following overview articles introduces the categories of articles
+within this manual:
+.IP "\fBDDI/DKI data structures\fR"
+This article introduces the articles that describe the types of structures
+from which a stream is constructed.
+.IP "\fBDDI/DKI kernel routines\fR"
+This article introduces the articles that discuss the DDI/DKI routines that
+are built into the kernel.
+.IP "\fBentry-point routines\fR"
+This article introduces the articles that discuss the entry points into a
+driver.
+.IP "\fBinternal data structures\fR"
+This article introduces the data structures internal to the \*(CO kernel.
+.IP "\fBinternal kernel routines\fR"
+This article introduces the routines built into the \*(CO kernel that
+can be used in a device driver.
+.IP "\fBSTREAMS\fR"
+This article introduces \*(ST.
+.IP "\fBtechnical information\fR"
+This article introduces articles that give technical information, such
+as types of messages or of signals.
+.SH "See Also"
+\*(CO Lexicon:
+.B
+asy,
+at,
+boot,
+console,
+ct,
+floppy disk,
+ft,
+hard disk,
+kernel,
+Lexicon,
+lp,
+mboot,
+mem,
+null,
+psy,
+sgtty,
+STREAMS,
+tape,
+termio
+.R

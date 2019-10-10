@@ -1,0 +1,202 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     93.02.10.17.07.03;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.14.21.06.50;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 2/14/92
+Initial MWC RCS revision.
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@#include <stdio.h>
+#include <sys/types.h>
+#include <errno.h>
+
+extern	char *_brk();
+
+#if Z8001
+paddr_t
+vtop(cp)
+register unsigned long cp;
+{
+	register unsigned int offs = cp;
+
+	cp >>= 8;
+	cp &= 0x7F0000L;
+	return(cp | offs);
+}
+
+char *
+ptov(p)
+register unsigned long p;
+{
+	register unsigned int offs = p;
+
+	p <<=8;
+	p &= 0x7F000000L;
+	return(p | offs);
+}
+#else
+#define vtop(A) ((paddr_t)(A))
+#define ptov(A) ((char *)(A))
+#endif
+
+#if IAPX86
+static	char	*minbrk = NULL;		/* must init at run time */
+static	char	*actbrk = NULL;
+static	char	*reqbrk = NULL;
+#else
+extern	char	end[];			/* end of loaded private data */
+static	char	*minbrk = end;		/* can't brk before end */
+static	char	*actbrk = end;		/* actual end of private data */
+static	char	*reqbrk = end;		/* requested (virtual) end of p.d. */
+#endif
+
+int
+brk(newbrk)
+register char *newbrk;
+{
+	register char *abrk;
+
+	errno = 0;
+	newbrk += (int)newbrk & 1;
+#if IAPX86
+	if (minbrk == NULL)
+		minbrk = actbrk = reqbrk = _brk(NULL);
+#endif
+	if (newbrk < minbrk) {
+		errno = EINVAL;
+		return(-1);
+	}
+	abrk = _brk(newbrk);
+	if (errno)
+		return(-1);
+	if (abrk < newbrk) {
+		errno = ENOMEM;
+		return(-1);
+	}
+	reqbrk = newbrk;
+	actbrk = abrk;
+	return(0);
+}
+
+char *
+sbrk(incr)
+register unsigned int incr;
+{
+	register paddr_t rbrk;
+
+#if IAPX86
+	if (minbrk == NULL)
+		minbrk = actbrk = reqbrk = _brk(NULL);
+#endif
+	incr += incr & 1;
+	rbrk = vtop(reqbrk);
+	if (rbrk + incr <= vtop(actbrk)) {
+		reqbrk = ptov(rbrk + incr);
+		return(ptov(rbrk));
+	}
+#if Z8001
+	if ((rbrk+incr ^ rbrk) > 65536L  &&  (int)rbrk+incr) {
+		rbrk += 65536L;
+		rbrk &= 0xFFFF0000L;
+		reqbrk = ptov(rbrk);
+	}
+#endif
+	if (brk(ptov(rbrk + incr)))
+		return((char *)-1);
+	return(ptov(rbrk));
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d9 1
+a9 1
+vtop( cp)
+d16 1
+a16 1
+	return( cp | offs);
+d20 1
+a20 1
+ptov( p)
+d27 1
+a27 1
+	return( p | offs);
+d30 2
+a31 2
+#define vtop( A) ( (paddr_t)(A))
+#define ptov( A) ( (char *)(A))
+d46 1
+a46 1
+brk( newbrk)
+d54 2
+a55 2
+	if( minbrk == NULL)
+		minbrk = actbrk = reqbrk = _brk( NULL);
+d57 1
+a57 1
+	if( newbrk < minbrk) {
+d59 1
+a59 1
+		return( -1);
+d61 4
+a64 4
+	abrk = _brk( newbrk);
+	if( errno)
+		return( -1);
+	if( abrk < newbrk) {
+d66 1
+a66 1
+		return( -1);
+d70 1
+a70 1
+	return( 0);
+d74 1
+a74 1
+sbrk( incr)
+d80 1
+a80 1
+	if( minbrk == NULL)
+d84 4
+a87 4
+	rbrk = vtop( reqbrk);
+	if( rbrk + incr <= vtop( actbrk)) {
+		reqbrk = ptov( rbrk + incr);
+		return( ptov(rbrk));
+d90 1
+a90 1
+	if( (rbrk+incr ^ rbrk) > 65536L  &&  (int)rbrk+incr) {
+d93 1
+a93 1
+		reqbrk = ptov( rbrk);
+d96 3
+a98 3
+	if( brk( ptov( rbrk + incr)))
+		return( (char *)-1);
+	return( ptov( rbrk));
+@

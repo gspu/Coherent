@@ -1,0 +1,78 @@
+# /etc/build.uc
+# Tue Nov  9 13:45:41 1993 CST
+
+# Do conf-related cleanup during update.
+
+# /etc/build does "/etc/build.uc /mnt etc/old_conf"
+
+. /usr/lib/shell_lib.sh
+
+# Validation for new directory name entry.
+require_new_mnt () {
+	if [ -d $MNT/$1 -o -f $MNT/$1 ]; then
+		echo "$1 already exists.  Please use a different name."
+		return 1
+	else
+		return 0
+	fi
+}
+
+if [ $# != 2 ]; then
+	echo "Usage: $0 coherent_dir save_dir"
+	exit 1
+fi
+
+MNT=$1
+
+if [ ! -d "$MNT" ]; then
+	echo "$0: Can't access system directory \"$MNT\""
+	exit 1
+fi
+
+# Remove old /conf/id-* files - they will just add to the confusion.
+/bin/rm -f $MNT/conf/id-cmd $MNT/conf/id-var
+
+# Default: rename etc/conf on MNT to OLD_CONF.
+
+SAV_CONF=$2
+
+ETC_CONF=etc/conf
+MNT_ETC_CONF=$MNT/$ETC_CONF
+
+# If etc/conf exists
+#   If want to delete it
+#     Delete old etc/conf
+#   If want to rename it
+#     Do forever
+#       Get new name for etc/conf (default etc/conf.pre420)
+#       If  able to rename etc/conf, exit loop
+#       Else report error
+#     Done
+if [ -d $MNT_ETC_CONF ]; then
+
+	echo "
+WARNING: Directory etc/conf already exists, probably has config
+files from a previous installation.\n"
+	
+	read_input "Delete config directory $ETC_CONF" \
+	yesno "n" require_yes_or_no
+
+	if is_yes $yesno; then
+		/bin/echo "Deleting old config directory."
+		/bin/rm -rf $MNT_ETC_CONF
+	else
+		while :; do
+			/bin/echo "Will rename $ETC_CONF"
+
+			read_input "New name" SAV_CONF $SAV_CONF \
+			require_new_mnt
+
+			MNT_SAV_CONF=$MNT/$SAV_CONF
+			if /etc/mvdir $MNT_ETC_CONF $MNT_SAV_CONF; then
+				break
+			fi
+		done
+	fi
+fi
+sync
+exit 0

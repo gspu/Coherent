@@ -1,0 +1,550 @@
+.TH directors "" "" "System Administration"
+.PC "Describe how to resolve local mail addresses"
+.B /usr/lib/mail/directors
+.PP
+.II /usr/lib/mail/directors
+.II directors
+The program
+.B smail
+reads file
+.B /usr/lib/mail/directors
+for the rules on how to resolve addresses on your local host.
+Please note that under \*(CO, the default configuration of
+.B smail
+does not use this file; however, if you wish, you can create it to change
+.BR smail 's
+default rules for resolving local addresses.
+.SH "Structure of Configuration Files"
+.B smail
+can use five varieties of configuration files:
+.IP \(bu 0.3i
+One or two
+.IR configuration
+files,
+which perform global configuration of
+.BR smail \(em
+including naming the other configuration files.
+.IP \(bu
+One
+.I directors
+file, which describes how to deliver mail on your local system.
+.IP \(bu
+One
+.I routers
+file, which describes resolve the addresses of remote systems.
+.IP \(bu
+One
+.I transports
+file, which describes how to move mail from your system to selected
+remote systems.
+.IP \(bu
+One
+.IR methods
+file, which matches hosts with methods of transporting mail.
+.PP
+.B smail
+permits you to name these files as you choose; under \*(CO, they are named
+as follows:
+.DS
+.B
+	/usr/lib/mail/config
+	/usr/lib/mail/directors
+	/usr/lib/mail/methods
+	/usr/lib/mail/routers
+	/usr/lib/mail/transports
+.DE
+.PP
+Each is described in its own Lexicon entry.
+However, the
+.BR directors ,
+.BR routers ,
+and
+.BR transports
+file all have the same format; the following describes it.
+.PP
+Each file consists of a set of entries; each entry, in turn,
+describes the attributes of one director, router, or transport.
+The order of entries in
+.B director
+and
+.B router
+is important, in that the directors and routers are invoked
+in the order stated in the file.
+The order of entries in the transport file is not important.
+.PP
+An entry in one of these files defines the following:
+.IP \(bu 0.3i
+A name by which that entry is known.
+.IP \(bu
+A driver that implements the function for that entry.
+.IP \(bu
+A set of generic attributes from a set that can be
+applied to any entry in the file.
+.IP \(bu
+A set of driver-specific attributes, from a set
+that can be applied only to entries that use the specified driver.
+.PP
+For example,
+.B directorsu
+specifies the attributes for a director that reads aliases from a file
+.BR /private/usr/lib/aliases :
+.DM
+	# read aliases from a file private to one machine on the network
+	private_aliases:
+		driver=aliasfile, owner=owner-$user ;
+		file=/private/usr/lib/aliases
+.DE
+.PP
+This entry is named
+.BR private_aliases ,
+and depends upon the low-level director driver routine named
+.BR aliasfile .
+Errors found while processing addresses found by this director are
+sent to an address formed by prefixing the string
+.B owner-
+to the name of the alias;
+these aliases are stored in file
+.BR /private/usr/lib/aliases .
+The director-driver
+.B aliasfile
+implements a general mechanism for looking up aliases stored in a data base.
+By default, aliases are kept in a DBM-style data base that is built from
+the text file
+.BR /usr/lib/mail/aliases .
+For details on this file and its format, see the Lexicon entry for
+.BR aliases .
+For details on how DBM-style data bases, see the Lexicon entry for
+.BR libgdbm .
+.PP
+The separation between generic attributes and driver-specific attributes
+mirrors the internal design of
+.BR smail .
+Above the driver level, routines exist that implement
+aspects of drivers, routers, and transports but do not depend upon
+the specific means for performing the operation.
+These higher-level functions can be manipulated through the
+generic attributes.
+On the other hand, the drivers that
+actually perform these operations accept a different set of
+attributes to control their behavior.
+In the case of a
+driver thats read or writes to a file, a file attribute usually exists.
+In the case of a driver that executes a program, a
+.B cmd
+attribute usually exists to specify how that program is to be invoked.
+.\".PP
+.\"The complete description of the director, router, and
+.\"transport files is contained in the Lexicon entry for
+.\".BR smail .
+.\"This entry describes all the drivers included in the
+.\".B smail
+.\"source distribution.
+.\"The following sections describe the preloaded configuration.
+.\"To serve as examples, these sections include configuration files that
+.\"are the equivalent of the preloaded configuration.
+.SH "Attributes of a Director"
+The following the generic attributes can be used in an entry in
+.BR directors .
+Each attribute is followed by its type (Boolean or string).
+To set a string attribute, its name should be followed by an `=', then the
+value to which you are setting it.
+To set a Boolean attribute, prefix it with a `+'; to unset a Boolean attribute,
+prefix it with a `-'.
+.IP "\fBcaution \fR(Boolean)"
+If set, then be cautious of the addresses this director produces.
+If the attribute
+.B nobody
+is not set, then reject file, shell-command, or
+:include:filename-style mailing-list addresses.
+.IP "\fBdefault_group \fR(string)"
+If the driver does not associate a group to an address returned by it,
+then associate the group identifier for this group name.
+This will override the group identifier set by the attribute
+.BR default_user .
+.IP "\fBdefault_home \fR(string)"
+If the driver does not associate a home directory
+with an address returned by it,
+then use this directory as the default home directory.
+.B smail
+expands the value of this attribute to form the directory path name.
+At present, variable
+.B $user
+is not available for this expansion.
+If the string expansion fails,
+.B smail
+ignores it.
+.IP "\fBdefault_user \fR(string)"
+If the driver does not associate a user or group to an address returned by it,
+then associate the user identifier and group identifier of this user.
+.IP "\fBdriver \fR(string)"
+This attribute names the set of low-level functions
+that do the work of directing local mail.
+This attribute is required.
+.IP "\fBnobody \fR(Boolean)"
+If set, then
+.B smail
+accesses files or runs shell commands as the user specified by its attribute
+.BR nobody ,
+for addresses flagged with caution by either the caution generic
+attribute or by the driver.
+Association of
+.B nobody
+with an address overrides the attributes
+.BR default_user ,
+.BR default_group ,
+.BR set_user ,
+and
+.BR set_group .
+This attribute is set by default.
+.IP "\fBowner \fR(string)"
+This names the address to be sent mail if an error occurs while
+.B smail
+is processing the addresses produced by this director.
+This string is expanded with the variable
+.B $user
+set to the local-form address passed to the director.
+By deafault, the value
+.BR owner-$user .
+If this string expansion fails,
+.B smail
+ignores it.
+.IP "\fBsender_okay \fR(Boolean)"
+If set, then it is always okay for this attribute
+to produce an address equal to the sender.
+This effectively turns on the ``me too'' flag for this director.
+This should generally be set for forwarding directors
+and should not be set for aliasing and mailing-list directors.
+.IP "\fBset_group \fR(string)"
+Associate this group's identifier with the addresses that the driver returns.
+This overrides any group identifier set by the attribute
+.BR set_user .
+.IP "\fBset_home \fR(string)"
+Associate this home directory with all addresses returned by the driver.
+This will be expanded in the same manner as
+.BR default_home .
+.IP "\fBset_user \fR(string)"
+Associate the user and group identifiers for this user with
+addresses that the driver returns.
+This overrides any values set by the driver.
+.PP
+.II postmaster
+.II Postmaster
+.II mailer-daemon
+.II Mailer-Daemon
+.B smail
+requires that two addresses exist:
+.B Postmaster
+and
+.BR Mailer-Daemon .
+To avoid the necessity of an alias for these two users,
+.B smail
+contains two implicit directors embedded into the directing code;
+it uses them as a last resort.
+The first such director maps the address
+.B Mailer-Daemon
+onto the address
+.BR Postmaster ;
+and the second maps
+.B Postmaster
+onto the address
+.BR root .
+.SH "The Preloaded Directors"
+If
+.B smail
+does not find a copy of file
+.B directors
+in directory
+.B /usr/lib/mail
+(which is the case by default under \*(CO),
+it uses its the default configuration.
+The default director configuration supports the following directors:
+.IP "\fBInclude Files\fR"
+.B smail
+expands local addresses of the form \fB:\fIinclude\^\fB:\fIfilename\fR
+into a list of addresses contained in the ASCII file
+.IR filename .
+The files to which these addresses refer are called
+.IR "mailing list files" .
+This form of local address can appear in any alias file, forward file,
+or mailing-list file.
+A user cannot supply such an address himself.
+.IP "\fBAlias Files\fR"
+This director scans for entries in an DBM-style data base that is built
+from text file
+.BR /usr/lib/mail/aliases .
+If this data base does not exist,
+.B smail
+ignores it \(em its absence does not trigger an error condition.
+If
+.B smail
+encounters an error while it is resolving an address produced by an alias,
+it mails an error message to an address that has the string
+``owner-'' prefixed to the name of the alias, if such a local address
+is defined.
+.IP \fB"Forward Files\fR"
+A user may have a file named
+.B .forward
+in his home directory.
+If such a file exists,
+.B smail
+scans it for addresses.
+If a user has such a file in his home directory,
+.B smail
+directs all mail sent to that user to the address or addresses it contains.
+The file can contain addresses that specify other files or shell commands
+as recipients.
+.IP
+If the
+.B .forward
+file is owned by
+.B root
+or by the user himself, then deliveries to any shell commands
+or files are performed under the user's user and group identifiers.
+If
+.B smail
+enters an error while it is resolving this list of addresses, it mails an
+error message to your system's postmaster.
+.IP
+In the
+.B .forward
+file for the user
+.BR root ,
+deliveries to shell commands and file addresses are performed under an
+unprivileged user and group identifier (by default, user
+.BR nobody ).
+The same is true for forward files that were not owned by
+.B root
+or by the given user.
+Finally, shell command and file addresses are
+not allowed at all in
+.B .forward
+files that are directories that can accessed by remote systems.
+.IP "\fBMailbox Forwarding\fR"
+As an alternate way to forward mail,
+the mailbox file for a user may contain a line of the form:
+.DM
+	Forward to \fIaddress\^\fP, \fIaddress\fP ...
+.DE
+.IP
+Onlyone line is read from this file, so addresses cannot be
+placed across multiple lines.
+The comments that apply to a
+.B .forward
+file also apply to this use of a mailbox file,
+except that
+.B smail
+assumes that a mailbox is not accessible by users on other systems.
+.IP
+A user is matched by name, either in upper or lower case,
+with delivery to that user
+being performed using a transport by the name of
+.BR local .
+A user can also be matched by name if the user name is prefixed by
+.BR real- .
+Delivery is performed by a transport named
+.BR local .
+.IP "\fBMailing Lists\fR"
+Mailing list files can be created under a mailing-list directory \(em
+by default, directory
+.BR /usr/lib/mail/lists .
+To create a new mailing list, create a file in this directory that
+contains a list of addresses.
+The basename of this file determines the local address that
+.B smail
+expands into this list of addresses.
+For example, a file named
+.B info-smail
+could be created, that contains a list of recipient addresses for a mailing
+list named ``info-smail''.
+.B smail
+then forwards any mail message mailed to address
+.B info-smail
+to every address in file
+.BR /usr/lib/mail/lists/info-smail .
+.IP
+If
+.B smail
+encounters an error as it is attempting to deliver a mail message to an
+address within a list file,
+it mails an error message to a local address comprised of the base name of
+the list file prefixed with the string ``owner-'', if such an address is
+defined.
+.IP "\fBThe Smart User\fR"
+If
+.B smail
+cannot match a local address by any other means,
+it can forward that mail to another system \(em one that presumably
+has a more complete data base \(em via the director
+.BR smartuser .
+.IP
+To declare another system to be a ``smart user,'' set the attribute
+.B smart_user
+within file
+.BR /usr/lib/mail/config .
+For example,
+attribute forwards mail to the host
+.BR mwc.com :
+.DM
+	smart_user = $user@mwc.com
+.DE
+.IP
+If you do not set this attribute, then
+.B smail
+ignores the smart-user director.
+.SH "Example Entries"
+The order of entries within
+.B directors
+determines
+the order in which operations are attempted.
+If a director matches an address,
+then
+.B smail
+calls no other director to expand or resolve that address.
+The following gives a version of
+.B directors
+that is equivalent to the default configuration:
+.DM
+	# aliasinclude - expand ":include:filename" addresses
+	#    produced by alias files
+	aliasinclude:
+		driver = aliasinclude,  # use this special-case driver
+		nobody;                 # associate nobody user with addresses
+	#  when mild permission violations
+	#  are encountered
+.DE
+.DM
+		copysecure,    # get permissions from alias director
+		copyowners     # get owners from alias director
+.DE
+.DM
+	# forwardinclude - expand ":include:filename" addresses
+	#    produced by forward files
+	forwardinclude:
+		driver = forwardinclude, # use this special-case driver
+		nobody;
+.DE
+.DM
+		copysecure,    # get perms from forwarding director
+		copyowners     # get owners from forwarding director
+.DE
+.DM
+	# aliases - search for alias expansions stored in a database
+	aliases:
+		driver = aliasfile,      # general-purpose aliasing director
+		-nobody,                 # all addresses are associated
+		                         # with nobody by default, so setting
+		                         # this is not useful.
+		owner = owner-$user;     # problems go to an owner address
+.DE
+.DM
+		file = /usr/lib/aliases,
+		modemask = 002,
+		optional,                # ignore if file does not exist
+		proto = lsearch
+.DE
+.DM
+	# dotforward - expand .forward files in user home directories
+	dotforward:
+		driver = forwardfile,    # general-purpose forwarding director
+		owner = Postmaster,      # problems go to the user's mailbox
+		nobody,
+		sender_okay;             # sender never removed from expansion
+.DE
+.DM
+		file = ~/.forward,       # .forward file in home directories
+		checkowner,              # the user can own this file
+		owners = root,           # or root can own the file
+		modemask = 002,          # it should not be globally writable
+		caution = daemon:root,   # don't run things as root or daemon
+		                         # be extra careful of remotely
+                                         # accessible home directories
+		unsecure = "~ftp:~uucp:~nuucp:/tmp:/usr/tmp"
+.DE
+.DM
+	# forwardto - expand a "Forward to " in user mailbox files
+	#
+	# This emulates the V6/V7/System-V forwarding mechanism which uses a
+	# line of forward addresses stored at the beginning of user mailbox
+	# files prefixed with the string "Forward to "
+	forwardto:
+		driver = forwardfile,
+		owner = Postmaster, nobody, sender_okay;
+.DE
+.DM
+		file = /usr/mail/${lc:user}, # the mailbox file for System V
+		forwardto,                   # enable "Forward to " function
+		checkowner,                  # the user can own this file
+		owners = root,               # or root can own the file
+		modemask = 0002,             # under System V, group mail can write
+		caution = daemon:root        # don't run things as root or daemon
+.DE
+.DM
+		# user - match users on the local host with delivery to their mailboxes
+		user:     driver = user;# driver to match usernames
+.sp \n(pDu
+		transport = local        # local transport goes to mailboxes
+.DE
+.DM
+	# real_user - match usernames when prefixed with the string "real-"
+	#
+	# This is useful for allowing an address which explicitly delivers to
+	# a user's mailbox file.  For example, errors in a .forward file
+	# expansion can be delivered here, or forwarding loops between
+	# multiple machines can be resolved by using a real-username address.
+	real_user:
+		driver = user;
+.sp \n(pDu
+		transport = local,
+		prefix = "real-"         # for example, match real-root
+.DE
+.DM
+	# lists - expand mailing lists stored in a list directory
+	#
+	# mailing lists can be created simply by creating a file in the
+	# /usr/lib/smail/lists directory.
+	lists:    driver = forwardfile,
+		caution,                 # flag all addresses with caution
+		nobody,                  # and then associate the nobody user
+		owner = owner-$user;     # system V sites may wish to use
+	# o-$user, as owner-$user may be
+	# too long for a 14-char filename.
+.DE
+.DM
+		# map the name of the mailing list to lower case
+		file = lists/${lc:user}
+.DE
+.DM
+	# smart_user - a partially specified smartuser director
+	#
+	# If the config file attribute smart_user is defined as a string such
+	# as "$user@domain-gateway" then users not matched otherwise will be
+	# sent off to the host "domain-gateway".
+	#
+	# If the smart_user attribute is not defined, this director is ignored.
+	smart_user:
+		driver = smartuser;      # special-case driver
+.DE
+.DM
+	# do not match addresses which cannot be made into valid
+	# RFC822 local addresses without the use of double quotes.
+		well_formed_only
+.DE
+.SH "See Also"
+.Xr "Administering COHERENT," administering coherent
+.Xr "config [smail]," config.s
+.Xr ".forward," forward
+.Xr "mail [overview]," mail.o
+.Xr "routers," routers
+.Xr "smail," smail
+.Xr "transports" transport
+.SH Notes
+Copyright \(co 1987, 1988 Ronald S. Karr and Landon Curt Noll.
+Copyright \(co 1992 Ronald S. Karr.
+.PP
+For details on the distribution rights and restrictions
+associated with this software, see file
+.BR COPYING ,
+which is included with the source code to the
+.B smail
+system; or type the command:
+.BR "smail \-bc" .

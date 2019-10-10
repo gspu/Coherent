@@ -1,0 +1,116 @@
+.TH fseek() "" "" "STDIO Function (libc)"
+.PC "Seek on file stream"
+.B "#include <stdio.h>"
+\fBint fseek(\fIfp, where, how\^\fB)\fR
+\fBFILE *\fIfp\^\fB; long \fIwhere\^\fB; int \fIhow\^\fB;\fR
+.PP
+.B fseek()
+changes where the next read or write
+operation will occur within the file stream
+.IR fp .
+It handles any effects the seek routine might have had on the internal
+buffering strategies of the system.
+The arguments
+.I where
+and
+.I how
+specify the desired seek position.
+.I where
+indicates the new seek position in the file.
+It is measured from the start of the file if
+.I how
+equals \fBSEEK_SET\fR (zero), from the current seek position if
+.I how
+equals \fBSEEK_CUR\fR (one), and from the end of the file if
+.I how
+equals two \fBSEEK_END\fR (two).
+.PP
+.B fseek()
+differs from its cousin
+.B lseek()
+in that
+.B lseek()
+is a \*(CO system call and takes a file number, whereas
+.B fseek()
+is a STDIO function and takes a
+.B FILE
+pointer.
+.SH Example
+This example opens file
+.B argv[1]
+and prints
+its last
+.B argv[2]
+characters (default, 100).
+It demonstrates the functions
+.BR fseek() ,
+.BR ftell() ,
+and
+.BR fclose() .
+.DM
+#include <stdio.h>
+extern long atol();
+.DE
+.DM
+void fatal(message)
+char *message;
+{
+	fprintf(stderr, "tail: %s\en", message);
+	exit(1);
+}
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	register FILE *ifp;
+	register int c;
+	long nchars, size;
+.DE
+.DM
+	if (argc < 2 || argc > 3)
+		fatal("Usage: tail file [ nchars ]");
+	nchars = (argc == 3) ? atol(argv[2]) : 100L;
+.DE
+.DM
+	if ((ifp = fopen(argv[1], "r")) == NULL)
+		fatal("cannot open input file");
+	/* Seek to end */
+	if (fseek(ifp, 0L, 2) == -1)
+		fatal("seek error");
+.DE
+.DM
+	/* Find current size */
+	size = ftell(ifp);
+	size = (size < nchars) ? 0L : size - nchars;
+.DE
+.DM
+	/* Seek to point */
+	if (fseek(ifp, size, 0) == -1)
+		fatal("seek error");
+	while ((c = getc(ifp)) != EOF)
+		/* Copy rest to stdout */
+		putchar(c);
+	if (fclose(ifp) == EOF)
+		fatal("cannot close");
+	exit(0);
+}
+.DE
+.SH "See Also"
+.Xr "fsetpos()," fsetpos
+.Xr "ftell()," ftell
+.Xr "libc," libc
+.Xr "lseek()" lseek
+.br
+\*(AS, \(sc7.9.9.2
+.br
+\*(PX Standard, \(sc8.1
+.SH Diagnostics
+For any diagnostic error,
+.B fseek()
+returns \-1;
+otherwise, it returns zero.
+If
+.B fseek()
+goes beyond the end of the file, it will not return an error message
+until the corresponding read or write is performed.

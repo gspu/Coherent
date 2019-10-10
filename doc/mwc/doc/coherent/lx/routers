@@ -1,0 +1,305 @@
+.TH routers "" "" "System Administration"
+.PC "Rules for resolving mail addresses to remote systems"
+.B /usr/lib/mail/routers
+.PP
+.II /usr/lib/mail/routers
+.II routers
+File
+.B /usr/lib/mail/routers
+defines one or more
+.IR routers .
+Each router defines a method by which
+.B smail
+routes mail to a remote system.
+.PP
+Each entry within
+.B routers
+names a router and sets its attributes.
+The order of entries is important, because
+.B smail
+invokes routers in the order in which they appear in this file.
+Each entry consists of the following information:
+.IP \(bu 0.3i
+The name of the router.
+This attribute begins the definition of a router.
+The name must be unique, it must appear flush with the left margin,
+and must be followed by a single colon `:'.
+.IP \(bu
+The name of the
+.IR driver ,
+or program that implements the router.
+This can be a command that is part of
+.BR smail 's
+suite of utilities (which are contained in directory
+.BR /usr/lib/mail ),
+or can be an ordinary \*(CO command.
+If the latter, then the full name of the command that implements the
+driver is given with a
+.B cmd
+attribute; this is shown below.
+.IP \(bu
+A set of generic attributes for the router.
+These attributes are ``generic'' because they can come from a set that
+can be applied to any router.
+.IP \(bu
+A set of driver-specific attributes.
+These can be applied only to routers that use this driver.
+.PP
+To extend an entry across multiple lines,
+begin successive lines with white space.
+.PP
+For example, the following entry gives the attributes
+for a director that reads aliases from a file named
+.BR /private/usr/lib/aliases :
+.DM
+	# read aliases from a file private to one machine on the network
+	private_aliases:
+		driver=aliasfile, owner=owner-$user ;
+		file=/private/usr/lib/aliases
+.DE
+.PP
+This entry is named
+.BR private_aliases .
+It depends upon the low-level director-driver routine named
+.BR aliasfile ,
+which is built into
+.BR smail ,
+and which implements a general mechanism for looking up aliases
+within a data base.
+By default, the driver
+.B aliasfile
+reads file
+.B /usr/lib/mail/aliases
+(which is simply a file that contains ASCII records in no particular order);
+this routers tells it instead to read file
+.BR /private/usr/lib/mail/aliases .
+(For details on the format of an aliases file, see the Lexicon entry
+.BR aliases ).
+Finally, this router tells
+.B smail
+that if this director discovers an error while it is processing its input,
+then it (\fBsmail\fR) should sends a mail message to an address formed by
+prefixing the string ``owner-'' onto the name of the alias.
+.SH "Attributes of a Router"
+The following gives the generic attributes can be used in router entry.
+Each attribute is followed by its type (Boolean or string).
+To set a string attribute, its name should be followed by an `=', then the
+value to which you are setting it.
+To set a Boolean attribute, prefix it with a `+'; to unset a Boolean attribute,
+prefix it with a `-'.
+.IP "\fBalways \fR(Boolean)"
+A router will not always find a complete match for a particular host name.
+For example, if a routing data base has a route to the domain
+.B amdahl.com
+but not to the host name
+.BR futatsu.uts.amdahl.com ,
+then the routing driver might return the route to
+.BR amdahl.com .
+.IP
+In general,
+.B smail
+uses the route that matches the largest ``chunk'' of the target host.
+However, if you set the attribute
+.BR always ,
+then
+.B smail
+uses any match found by this router in preference to any route
+returned by any router that appears below it within
+.BR routers.
+.IP
+This attribute is useful for hard-wiring a certain number of
+routes within a small data base.
+For example, this is useful for an Internet site that is the gateway
+for a small number of \*(UU sites within the \*(UU zone.
+.IP "\fBdriver \fR(string)"
+This attribute gives the set of low-level functions
+that do the work of routing remote mail.
+This attribute is required.
+.IP "\fBmethod \fR(string)"
+.IS "\fBtransport \fR(string)"
+A router driver can internally set the transport it uses to deliver mail
+to a remote site.
+If it does not do so, then you must set either a
+.B method
+or a
+.B transport
+attribute, to specify how the mail is to be delivered.
+The attribute
+.B method
+names the file whose contents relate host names to transports.
+The attribute
+.B transport
+specifies a particular transport that is defined in file
+.BR /usr/lib/mail/transports .
+If the file named in a
+.B method
+attribute
+does not contain a match for all hosts, then
+.B smail
+uses the
+transport named with the
+.B transport
+attribute.
+The format of a method file is given in the next section.
+.SH "Method Files"
+Method files relates a set of host names with the set of transports
+to be used to deliver mail to those hosts.
+Each entry should have the form:
+.DS
+	\fIhostname transport-name\fR
+.DE
+.PP
+which states that
+.B smail
+should use
+.I transport-name
+to deliver mail to
+.IR hostname .
+As a special case, if
+.I hostname
+is the special string `*', the entry matches any host.
+You should use this catch-all feature only in the last entry in a method file.
+.PP
+You can associate an entry in a method file with a particular grade of message.
+This lets you assign each grade of mail its own transport;
+for example, you may wish to use non-demand \*(UU for messages with a
+``bulk'' or ``junk'' precedence.
+To specify a range of grades, append the range of grade-letters
+to the host name, separated by `/'.
+Entries with grades can be in any of the forms:
+.DS
+.I
+	hostname/X transport-name
+	hostname/X-* transport-name
+	hostname/*-Y transport-name
+	hostname/X-Y transport-name
+.DE
+.PP
+For a discussion of grade letters and their correlation
+with message-precedence strings, see the description of attribute
+.B grades
+in the Lexicon entry for
+.BR "config (smail)".
+In the first form, the transport is used for an exact match of
+the grade letter.
+In the second form, a match requires a grade a character
+value of at least
+.IR X .
+In the third, form a match requires a grade character value of at most
+.IR Y .
+The final form specifies a range of grades from character value
+.I X
+to character value
+.IR Y .
+.\"For example, with the default value for the
+.\".B grades
+.\"attribute,
+.\"the following file will use SMTP for hosts local1
+.\"and local2, if the precedence is air-mail or better; oth-
+.\"erwise, for any host with a precedence of first-class or
+.\"better, demand-polled uucp is used; otherwise, queued uucp
+.\"is used:
+.\"
+.\" local1/*-A smtp
+.\" local2/*-A smtp
+.\" */*-C demand_uucp
+.\" * uucp
+.SH "The Default Configuration"
+The following gives the routers defined in the default version of file
+.B /usr/lib/mail/routers
+that is included with \*(CO.
+.PP
+.II /usr/lib/mail/paths
+.II paths
+The first router is named
+.BR paths .
+It processes the contents of file
+.BR /usr/lib/mail/paths :
+.DM
+	# paths - route using a paths file, like that produced by the pathalias program
+	paths:	driver=pathalias,    # general-use paths router
+		transport=uux;       # for matches, deliver over UUCP
+.DE
+.DM
+		file=paths,          # sorted file containing path info
+		proto=dbm,           # use a DBM-style data base
+		optional,            # ignore if the file does not exist
+		-required,           # no required domains
+		domain=uucp,         # strip ending ".uucp" before searching
+.DE
+.PP
+The command
+.BR pathalias ,
+which this router uses to read file
+.BR paths ,
+is described in its own Lexicon entry; as is command
+.BR uux ,
+which this router invokes to transport the files to the remote site.
+.PP
+The next router, named
+.BR uucp_neighbors ,
+matches nearby systems that are accessible via \*(UU:
+.DM
+	# uucp_neighbors - match neighbors accessible over UUCP
+	uucp_neighbors:
+		driver=uuname,          # use a program which returns neighbors
+		transport=uux;
+.DE
+.DM	
+		cmd=/usr/bin/uuname,    # specifically, use the uuname program
+		domain=uucp,            # strip ending ".uucp" before searching
+.DE
+.PP
+Command
+.B uuname
+is part of the Taylor \*(UU package that is included with \*(CO.
+It is described in its own Lexicon entry.
+Under \*(CO, this command always returns the name of your local host.
+.PP
+The final router describes how to route mail to the ``smart host.''
+This is a system that knows how to access more remote systems than
+your system does, and that you trust to handle mail correctly.
+.B smail
+forwards to the smart host all mail that it does not know how to route,
+in the hope that the smart host will know what to do with it.
+.DM
+	# smart_host - a partically specified smarthost director
+	#
+	# If the config file attribute smart_path is defined as a path from the
+	# local host to a remote host, then host names not matched otherwise will
+	# be sent off to the stated remote host.  The config file attribute
+	# smart_transport can be used to specify a different transport.
+	#
+	# If the smart_path attribute is not defined, this router is ignored.
+	smart_host:
+		driver=smarthost,	# special-case driver
+		transport=uux;		# by default deliver over UUCP
+.sp \n(pDu
+		-path,			# use smart_path config file variable?
+.DE
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "config [smail]," config.s
+.Xr "directors," directors
+.Xr "mail [overview]," mail.o
+.Xr "smail," smail
+.Xr "transports" transport
+.SH Notes
+For information on how the configuration files
+.BR directors ,
+.BR routers ,
+and
+.B transports
+relate to each other, see the Lexicon entry for
+.BR directors .
+.PP
+Copyright \(co 1987, 1988 Ronald S. Karr and Landon Curt Noll.
+Copyright \(co 1992 Ronald S. Karr.
+.PP
+For details on the distribution rights and restrictions
+associated with this software, see file
+.BR COPYING ,
+which is included with the source code to the
+.B smail
+system; or type the command:
+.BR "smail \-bc" .

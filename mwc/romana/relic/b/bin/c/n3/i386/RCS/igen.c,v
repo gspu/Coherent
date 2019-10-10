@@ -1,0 +1,297 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     93.08.01.16.37.19;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.11.57.40;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@new source kit for 4.2 alpha
+@
+text
+@/*
+ * n3/i386/igen.c
+ * C compiler intermediate file printer.
+ * Machine and assembly format dependent output routines.
+ * i386.
+ */
+
+#ifdef vax
+#include "INC$LIB:cc3.h"
+#else
+#include "cc3.h"
+#endif
+
+extern	char	*tempnam();
+
+/* Output strings which depend on assembler format. */
+#if	AS_FORMAT
+#define	SHRI	".text"
+#define	PRVI	".text"
+#define	SHRD	".text"			/* unused, we think */
+#define	STRN	".text"
+#define	PRVD	".data"
+#define	BSSD	".data"
+#define	COMMFMT	"\t.comm"
+#define	ALFMT	".align"
+#define	GLOBL	".globl"
+#define	BLKBFMT	"\t.blkb\t0x%lx\n"
+#define	MODNAM	"/\tmodule name"
+#else
+#define	SHRI	"code"
+#define	PRVI	"linkage"
+#define	SHRD	"pure"
+#define	STRN	"strings"
+#define	PRVD	"impure"
+#define	BSSD	"bss"
+#define	COMMFMT	";\tcommon"
+#define	ALFMT	"align"
+#define	GLOBL	"public"
+#define	BLKBFMT	"\tdb\t0%lxh dup(0)\n"
+#define	MODNAM	"\tname"
+#endif
+
+#define	NSEGS	6			/* number of output segments	*/
+char	sfname[NSEGS][L_tmpnam];	/* per-segment tempfile names	*/
+FILE	*sfp[NSEGS];			/* per-segment output FILEs	*/
+
+/*
+ * How to enter or leave a segment.
+ */
+char	*seg_enter[] = {
+	SHRI,	PRVI,	SHRD,	STRN,	PRVD,	BSSD
+};
+
+#if	0
+char	*seg_leave[] = {
+	NULL,	NULL,	NULL,	NULL,	NULL,	NULL
+};
+#endif
+
+/*
+ * Initialize the disassembler phase.
+ */
+cc3init()
+{
+	if (notvariant(VPSTR))
+		seg_enter[SSTRN] = PRVD;
+	sfp[SCODE] = ofp;		/* write CODE directly to ofp */
+}
+
+/*
+ * Terminate the disassembler.
+ * Output for each segment goes to a separate file;
+ * this copies the segments to the actual output file
+ * and cleans up.
+ */
+cc3close()
+{
+	register int i, c;
+	register FILE *fp;
+	int prev;
+
+	ofp = sfp[SCODE];
+	prev = SCODE;				/* previous segment written */
+	for (i = 1; i < NSEGS; i++) {
+		if ((fp = sfp[i]) == NULL)
+			continue;		/* unused */
+		fprintf(ofp, "\t.align\t4\n");
+		if (strcmp(seg_enter[prev], seg_enter[i]) != 0)
+			fprintf(ofp, "\n\t%s\n", seg_enter[i]);
+		prev = i;
+		rewind(fp);
+		while ((c = getc(fp)) != EOF)
+			putc(c, ofp);		/* copy to ofp */
+		fclose(fp);
+		unlink(sfname[i]);
+	}
+}
+
+/*
+ * Process AUTOS items.
+ * The opcode byte has been read.
+ * Read in operands used by the target machine
+ * and print them out in a nice way.
+ */
+genautos()
+{
+	register ival_t	numauto;
+	register int	regmask;
+	register int	reg;
+	register int	sepchar;
+
+	numauto = iget();
+	regmask = iget();
+	fprintf(ofp, "\tautos\t%ld", (long)numauto);
+	sepchar = '\t';
+	for (reg = FRREG; reg <= NFBREG; ++reg) {
+		if ((regmask&01) != 0) {
+			fprintf(ofp, "%c%s", sepchar, regnames[reg]);
+			sepchar = ' ';
+		}
+		regmask >>= 1;
+	}
+	fprintf(ofp, "\n");
+}
+
+/*
+ * Output a double value.
+ */
+gendval(dp)
+register dval_t	dp;
+{
+	register int i;
+
+	for (i = 0; i < sizeof(dval_t); i += 1)
+		fprintf(ofp, "%02x", dp[i] & 0377);
+}
+
+/*
+ * Generate a machine dependent leaf node.
+ */
+genmdl(op)
+{
+	cbotch("bad mdl: %d", op);
+}
+
+/*
+ * Generate a machine dependent operator node.
+ */
+genmdo(op)
+{
+	cbotch("bad mdo: %d", op);
+}
+
+/*
+ * Generat a .comm record.
+ * The operands must be read.
+ */
+gencomm()
+{
+	sget(id, NCSYMB);
+	if (isvariant(VASM))
+		fprintf(ofp, COMMFMT);
+	else
+		fprintf(ofp, "common");
+	fprintf(ofp, "\t%s,\t%ld\n", id, (long)zget());
+}
+
+/*
+ * Generate an assembly operator involving a name.
+ */
+genname(op, id)
+char *id;
+{
+	switch (op) {
+	case FNAME:
+		fprintf(ofp, "%s\tfile name %s\n", CMTSTR, id);
+		break;
+	case MNAME:
+		fprintf(ofp, "%s %s\n", MODNAM, id);
+#if	AS_FORMAT
+		fprintf(ofp, "\t.alignoff\n");
+		fprintf(ofp, "\t.intelorder\n");
+#endif
+		break;
+	case GLABEL:
+		fprintf(ofp, "\t%s %s\n%s:\n", GLOBL, id, id);
+		break;
+	case SLABEL:
+		fprintf(ofp, "%s:\n", id);
+		break;
+#ifdef UREFER
+	case UREFER:
+		fprintf(ofp, "%s\tundefined reference %s\n", CMTSTR, id);
+		break;
+#endif
+	default:
+		cbotch("genname: bad op: %d", op);
+	}
+}
+
+/*
+ * Generate an assembly operator involving an integer value.
+ */
+genival(op, i) int op; register long i;
+{
+	register char *s;
+
+	switch (op) {
+	case LINE:
+		fprintf(ofp, "%s\tline number %ld\n", CMTSTR, i);
+		break;
+	case BLOCK:
+		fprintf(ofp, BLKBFMT, i);
+		break;
+	case ALIGN:
+		fprintf(ofp, "\t%s\t%d\n", ALFMT, i);
+		break;
+	case ENTER:
+#if	1
+		/*
+		 * Write each segment to a different FILE.
+		 * This allows the assember to assemble the .s to the
+		 * same bits as those produced by the compiler.
+		 */
+		if (dotseg == -1)		/* first ENTER */
+			fprintf(ofp, "\n\t%s\n", seg_enter[SCODE]);
+		if (i != dotseg) {		/* new segment */
+			dotseg = i;
+			if (sfp[i] == NULL) {	/* previously unused segment */
+				s = tempnam(NULL, "cc3");
+				strcpy(sfname[i], s);
+				if ((sfp[i] = fopen(s, "w+")) == NULL)
+					cfatal("cannot open temp file %s", s);
+				free(s);
+			}
+			ofp = sfp[i];
+		}
+		break;
+#else
+		/* Old code, just print appropriate entering text. */
+#if	0
+		/* Nothing special required when leaving segments. */
+		if (dotseg >= 0 && (s=seg_leave[dotseg]) != NULL)
+			fprintf(ofp, "\n\t%s\n\n", s);
+#endif
+		dotseg = i;
+		if (dotseg >= 0 && (s=seg_enter[dotseg]) != NULL)
+			fprintf(ofp, "\n\t%s\n\n", s);
+		break;
+#endif
+	case LLABEL:
+		fprintf(ofp, ".L%ld:\n", i);
+		break;
+	default:
+		cbotch("genival: bad op: %d", op);
+	}
+}
+
+/* end of n3/i386/igen.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d182 1
+@

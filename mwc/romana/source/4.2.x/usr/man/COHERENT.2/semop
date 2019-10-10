@@ -1,0 +1,135 @@
+sseemmoopp() -- General Function (libc)
+
+Perform semaphore operations
+#iinncclluuddee <ssyyss/ttyyppeess.hh>
+#iinncclluuddee <ssyyss/iippcc.hh>
+#iinncclluuddee <ssyyss/sseemm.hh>
+iinntt sseemmoopp(_i_d, _o_p_e_r_a_t_i_o_n, _n_o_p_s)
+iinntt _i_d, _n_o_p_s; ssttrruucctt sseemmbbuuff _o_p_e_r_a_t_i_o_n[];
+
+sseemmoopp() performs semaphore operations.
+
+_i_d identifies the  set of semaphores to be manipulated.   It must have been
+returned by a call to sseemmggeett().
+
+_n_o_p_s gives the number of structures in the array pointed to by _o_p_e_r_a_t_i_o_n.
+
+_o_p_e_r_a_t_i_o_n points to an array of structures of type sseemmbbuuff, which the header
+file sseemm.hh defines as follows:
+
+struct sembuf {
+     unsigned short sem_num;       /* semaphore # */
+     short sem_op;                 /* semaphore operation */
+     short sem_flg;                /* operation flags */
+};
+
+Each sseemmbbuuff  describes a semaphore operation.   Field sseemm_oopp identifies the
+operation to perform on the semaphore  in the set identified by _i_d and with
+offset  _s_e_m__n_u_m. sseemm_oopp  specifies one  of  three semaphore  operations, as
+follows:
+
+11. If sseemm_oopp is negative, one of the following occurs:
+
+   AA. If sseemmvvaall in the semaphore structure identified by _i_d is greater than
+      or  equal to  the  absolute value  of sseemm_oopp,  sseemmoopp() subtracts  the
+      absolute value of sseemm_oopp from sseemmvvaall.
+
+   BB. If sseemmvvaall  is less than the  absolute value of sseemm_oopp  and (sseemm_ffllgg &
+      IIPPCC_NNOOWWAAIITT)  is true,  sseemmoopp() sets  eerrrrnnoo  to EEGGAAIINN  and immediately
+      returns -1.
+
+   CC. If sseemmvvaall  is less than the  absolute value of sseemm_oopp  and (sseemm_ffllgg &
+      IIPPCC_NNOOWWAAIITT) is false,  then sseemmoopp() increments the sseemmnnccnntt associated
+      with the  specified semaphore and  suspends execution of  the calling
+      process until one of the following occurs:
+
+      aa. sseemmvvaall equals  or exceeds the absolute value  of sseemm_oopp. When this
+         occurs, sseemmoopp()  decrements the  value of sseemmnnccnntt  associated with
+         the  specified  semaphore, and  subtracts  the  absolute value  of
+         sseemm_oopp from sseemmvvaall.
+
+      bb. The _i_d for which the calling process is awaiting action is removed
+         from the system.
+
+      cc. The calling process  receives a signal.  When this occurs, sseemmoopp()
+         decrements  the  field  sseemmnnccnntt  in  the  sseemm  structure  that  _i_d
+         identifies,  and  the calling  process  resumes  execution in  the
+         manner defined by the signal.  (See the Lexicon entry for ssiiggnnaall()
+         for details of what behavior each signal initiates.)
+
+22. If sseemm_oopp is positive, sseemmoopp() adds sseemm_oopp to sseemmvvaall.
+
+33. If sseemm_oopp is zero, one of the following occurs:
+
+   AA. If sseemmvvaall is zero, sseemmoopp() returns immediately.
+
+   BB. If sseemmvvaall  does not  equal zero and  (sseemm_ffllgg & IIPPCC_NNOOWWAAIITT)  is true,
+      sseemmoopp() sets eerrrrnnoo to EEGGAAIINN, and immediately returns -1.
+
+   CC. If sseemmvvaall  does not equal  zero and (sseemm_ffllgg &  IIPPCC_NNOOWWAAIITT) is false,
+      sseemmoopp()  increments   the  sseemmzzccnntt  associated   with  the  specified
+      semaphore and suspends execution  of the calling process until one of
+      the following occurs:
+
+      aa. sseemmvvaall becomes  zero.  sseemmoopp() decrements  the value of  the field
+         sseemmzzccnntt associated with the specified semaphore.
+
+      bb. The set of semaphores identified by _i_d is removed from the system.
+
+      cc. The calling  process receives  a signal.  sseemmoopp()  then decrements
+         the value of  the sseemmzzccnntt associated with the specified semaphore,
+         and the calling process resumes execution in the manner prescribed
+         by the signal.
+
+If  field sseemm_ffllgg  in  a sseemmbbuuff  structure contains  value SSEEMM_UUNNDDOO  (i.e.,
+expression (sseemm_ffllgg  & SSEEMM_UUNNDDOO) is true) then the  system stores an _a_d_j_u_s_t
+_v_a_l_u_e for this  semaphore operation for this semaphore and  links it to the
+process that has invoked sseemmoopp(). The adjust value is the inversion of this
+semaphore  operation; when  the  process dies,  the  system executes  these
+adjust values, to undo each of  these semaphore operations.  If you use the
+function  sseemmccttll()  to  change  the  value  of a  semaphore  or  a  set  of
+semaphores, then the system erases all adjust values for those semaphores.
+
+sseemmoopp() returns -1 and sets eerrrrnnoo to the value in parentheses if any of the
+following error conditions occurs:
+
+-> _i_d is not a valid semaphore identifier (EEIINNVVAALL).
+
+-> sseemm_nnuumm is  less than  zero or  greater than or  equal to the  number of
+   semaphores in the set associated with _i_d (EEFFBBIIGG).
+
+-> _n_o_p_s exceeds the system-imposed maximum (EE22BBIIGG).
+
+-> Permission is denied to the calling process (EEAACCCCEESS).
+
+-> _o_p_e_r_a_t_i_o_n would  suspend the calling process  but (sseemm_ffllgg & IIPPCC_NNOOWWAAIITT)
+   is true (EEAAGGAAIINN).
+
+-> _o_p_e_r_a_t_i_o_n  would  cause  sseemmvvaall  to  overflow the  system-imposed  limit
+   (EERRAANNGGEE).
+
+-> _o_p_e_r_a_t_i_o_n points to an illegal address (EEFFAAUULLTT).
+
+-> The calling processing receives a signal (EEIINNTTRR).
+
+-> The set of semaphores identified by  _i_d has been removed from the system
+   (EEDDOOMM).
+
+If all  goes well, sseemmoopp() sets  the sseemmppiidd of each  semaphore specified in
+the array pointed to by _o_p_e_r_a_t_i_o_n  to the process identifier of the calling
+process.  It  then returns the value  that sseemmvvaall had had  at the time that
+the last operation in the array pointed to by _o_p_e_r_a_t_i_o_n was executed.
+
+_F_i_l_e_s
+/uussrr/iinncclluuddee/ssyyss/iippcc.hh
+/uussrr/iinncclluuddee/ssyyss/sseemm.hh
+
+_S_e_e _A_l_s_o
+lliibbcc, sseemmccttll(), sseemmggeett()
+
+_N_o_t_e_s
+The COHERENT implementation of semaphores does not permit a process to lock
+or unlock  a semaphore unless it  can gain access to  all of the semaphores
+that it requests.  This is to  prevent the situation in which two processes
+have each  locked semaphores that the other wants,  and each has IIPPCC_NNOOWWAAIITT
+set to false -- thus suspending each other forever.

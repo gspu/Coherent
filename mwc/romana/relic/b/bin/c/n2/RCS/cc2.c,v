@@ -1,0 +1,532 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     92.11.03.12.06.13;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.11.57.11;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@steve: fixed problem with local union or struct confusing debug item count,
+fix problem with static debug counter not getting reset to 0 when compiling
+more than a single file.
+@
+text
+@/*
+ * n2/cc2.c
+ * Main driving routine for the code assembly phase of the C compiler.
+ * It reads the intermediate file and calls
+ * off to the appropriate routines to get things done.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+/* Verbosity.  Parallel to ccscan.c. */
+#ifdef COHERENT
+#define	ERRMSG	"cc:"
+#else
+#if INTEL
+#define	ERRMSG	"***"
+#else
+#if OMF286
+#define	ERRMSG	"MWC286:"
+#else
+#define	ERRMSG	"MWC86:"
+#endif
+#endif
+#endif
+
+#if	!OVERLAID
+FILE	*ifp;			/* Input file */
+FILE	*ofp;			/* Output file */
+char	file[NFNAME];		/* File name */
+char	module[NMNAME];		/* Module name */
+int	line;			/* Line number */
+char	id[NCSYMB];		/* Name buffer */
+VARIANT	variant;		/* Variant template */
+int	dotseg;			/* Current segment # */
+#endif
+
+int	changes;		/* Change flag */
+ADDRESS	dot;			/* Current location */
+SYM	*hash2[NSHASH];		/* Symbol table */
+INS	ins;			/* Head of instruction list */
+int	nlabdel;		/* # of labels deleted */
+int	ndead;			/* # of dead instructions deleted */
+int	nbrbr;			/* # of branches to branches */
+int	nexbr;			/* # of extra branches */
+int	ncbrbr;			/* # of conditional branches to branches */
+int	nbrnext;		/* # of branches to next instruction */
+int	nxjump;			/* # of cross jumps */
+int	ncomseq;		/* # of common sequences */
+int	nsimplify;		/* # of instructions simplified */
+int	nuseless;		/* # of instructions deleted */
+
+#if !TINY
+int	vflag;			/* Verbosity */
+int	xflag;			/* More verbosity */
+#endif
+
+/*
+ * Segment table.
+ */
+SEG	 seg[NSEG];
+
+#if !OVERLAID
+/*
+ * Mainline.
+ * Interpret options and
+ * open files.
+ */
+main(argc, argv)
+char *argv[];
+{
+#ifdef vax
+	int	ofd;
+#endif
+
+	passname = "cc2";
+	if (argc < 4)
+		usage();
+	getvariant(argv[1]);
+#if GEMDOS
+	{
+		extern long gemdos();
+		extern char *lmalloc();
+		free(lmalloc((gemdos(0x48,-1L)-4096) & ~1023L));
+	}
+#endif
+	if ((ifp=fopen(argv[2], SRMODE)) == NULL) {
+		fprintf(stderr, "%s: cannot open.\n", argv[2]);
+		exit(BAD);
+	}
+	if (isvariant(VASM)) {
+		if ((ofp=fopen(argv[3], SWMODE)) == NULL)
+			nocreate(argv[3]);
+	} else {
+		if (argc < 5)
+			usage();
+		if ((ofp=fopen(argv[4], SWMODE)) == NULL)
+			nocreate(argv[4]);
+	}
+#if !TINY
+	if (argc > 5)
+		vflag = atoi(argv[5]);
+	if (argc > 6)
+		xflag = atoi(argv[6]);
+#endif
+	labgen = 20000;
+	dotseg = -1;
+	outinit();
+	work2();
+	outdone();
+	if (notvariant(VASM)) {
+		fclose(ifp);
+		fclose(ofp);
+		if ((ifp=fopen(argv[4], SRMODE)) == NULL)
+			cfatal("%s: cannot reopen", argv[4]);
+#ifdef vax
+#if VAXFMT
+		if ((ofd=creat(argv[3], 0666, "rfm=var")) < 0
+		||  (ofp=fdopen(ofd, SWMODE)) == NULL)
+#else
+		if ((ofp=fopen(argv[3], SWMODE)) == NULL)
+#endif
+#else
+		if ((ofp=fopen(argv[3], SWMODE)) == NULL)
+#endif
+			nocreate(argv[3]);
+		copycode();
+	}
+	if (isvariant(VSTAT))
+		showstats();
+	if (nerr != 0)
+		exit(BAD);
+	exit(OK);
+}
+
+/*
+ * Print usage message.
+ */
+usage()
+{
+	fprintf(stderr, "Usage: cc2 variant in out [temp]\n");
+	exit(BAD);
+}
+
+/*
+ * Complain that a file cannot be
+ * created.
+ */
+nocreate(fn)
+char *fn;
+{
+	fprintf(stderr, "%s: cannot create.\n", fn);
+	exit(BAD);
+}
+#else
+/*
+ * Driving routine for the
+ * overlaid version of the optimizer and
+ * code assembly phase. The files have all been
+ * opened by the command line scanner in the
+ * root segment. Set up a fatal error context and
+ * do the work. Return exit status.
+ */
+cc2a()
+{
+#if MONOLITHIC
+	register int	i;
+#endif
+	passname = "cc2a";
+	if (setjmp(death) != 0) {
+		freesym2();
+		return (ABORT);
+	}
+	labgen = 20000;
+	dotseg = -1;
+#if MONOLITHIC
+	dot = 0;
+	nlabdel = 0;
+	ndead = 0;
+	nbrbr = 0;
+	nexbr = 0;
+	ncbrbr = 0;
+	nbrnext = 0;
+	nxjump = 0;
+	ncomseq = 0;
+	nsimplify = 0;
+	nuseless = 0;
+	for (i=0; i<NSEG; ++i)
+		seg[i].s_dot = 0;
+	gendbgt(-1);
+#endif
+	outinit();
+	work2();
+	outdone();
+	if (isvariant(VSTAT))
+		showstats();
+	if (isvariant(VASM))
+		freesym2();
+	if (nerr != 0)
+		return (BAD);
+	return (OK);
+}
+
+/*								
+ * Second part. Copy the code back. This is 			
+ * only done if aflag==0. The root segment will have moved	
+ * all of the files around. The same fatal error game is	
+ * played.							
+ */								
+cc2b()
+{
+	passname = "cc2b";
+	if (setjmp(death) != 0) {
+		freesym2();
+		return (ABORT);
+	}
+	copycode();
+	freesym2();
+	if (nerr != 0)
+		return (BAD);
+	return (OK);
+}
+#endif
+
+/*
+ * Print statistics.
+ */
+showstats()
+{
+	printstat(nlabdel,  "label# deleted");
+	printstat(ndead, "dead instruction# deleted");
+	printstat(nbrbr, "jump# to a jump");
+	printstat(ncbrbr, "conditional jump# over a jump");
+	printstat(nbrnext, "jump# to next instruction");
+	printstat(nexbr, "extra jump#");
+	printstat(nxjump, "cross jump#");
+	printstat(ncomseq, "common sequence#");
+	printstat(nsimplify, "instruction# simplified");
+	printstat(nuseless, "instruction# deleted");
+}
+
+/*
+ * Print a statistic message.
+ */
+printstat(n, s)
+register int	n;
+register char	 *s;
+{
+	register int	c;
+
+	if (n != 0) {
+#if OVERLAID
+		printf ("%s ", ERRMSG);
+#endif
+		printf("%d ", n);
+		while ((c = *s++) != 0) {
+			if (c == '#') {
+				if (n != 1)
+					putchar('s');
+			} else
+				putchar(c);
+		}
+		putchar('\n');
+	}
+}
+
+/*
+ * Read through the temporary file,
+ * processing things until you run into a
+ * function prolog operation. Functions
+ * get read in, optimized and written back
+ * out.
+ */
+work2()
+{
+	register int	op;
+	sizeof_t	size;
+	register INS	*ip;
+	register SYM	*sp;
+
+	for (;;) {
+		switch (op = bget()) {
+
+		case LINE:
+			line = iget();
+			break;
+
+		case DLABEL:
+			gendbgt(0);
+			break;
+
+		case FNAME:
+			sget(file, NFNAME);
+			break;
+
+		case MNAME:
+			sget(module, NMNAME);
+			if (isvariant(VASM)) {
+				bput(op);
+				sput(module);
+			}
+			break;
+
+		case GLABEL:
+		case SLABEL:
+			sget(id, NCSYMB);
+			sp = glookup(id, 1);
+			sp->s_seg = dotseg;
+			sp->s_value  = dot;
+			if (op == GLABEL) {
+				sp->s_flag |= S_GBL;
+			}
+			if (isvariant(VASM)) {
+				bput(op);
+				sput(id);
+			}
+			break;
+
+		case COMM:
+			sget(id, NCSYMB);
+			size = zget();
+			sp = glookup(id, 0);
+			if ((sp->s_flag&S_DEF) == 0) {
+				sp->s_seg = SBSS;
+				sp->s_flag |= S_GBL;
+				if (size > sp->s_value)
+					sp->s_value = size;
+			}
+			if (isvariant(VASM)) {
+				bput(op);
+				sput(id);
+				zput(size);
+			}
+			break;
+
+#ifdef KLUDGE
+		case SGUESS:
+		{
+			int seg;
+			sget(id, NCSYMB);
+			seg = bget();
+			sp = glookup(id, 0);
+			if ((sp->s_flag&S_DEF) == 0)
+				sp->s_seg = seg;
+			break;
+		}
+
+#endif
+			
+		case LLABEL:
+			sp = llookup(iget(), 1);
+			sp->s_seg = dotseg;
+			sp->s_value  = dot;
+			sp->s_flag |= S_NFL;
+			if (isvariant(VASM)) {
+				bput(op);
+				iput((ival_t)sp->s_labno);
+			}
+			break;
+
+		case BLOCK:
+			genblock(zget());
+			break;
+
+		case ENTER:
+			genseg(bget());
+			break;
+
+		case PROLOG:
+#if !TINY
+#define vcheck(v,s)	if (vflag>v) check(s)
+#else
+#define vcheck(v,s)	/* if (vflag>v) check(s) */
+#endif
+			getfunc();
+			fixdbgt();
+			shuffle();
+			vcheck(0, "Befor optim");
+			do {
+				changes = 0;
+				labels();
+				vcheck(8, "After labels");
+				fixbr();
+				vcheck(8, "After fixbr()");
+				if (isvariant(VPEEP)) {
+					peephole();
+					vcheck(8, "After peephole");
+				}
+				if (notvariant(VNOOPT)) {
+					xjumps();
+					vcheck(8, "After xjumps");
+					comseq();
+					vcheck(8, "After comseq");
+				}
+				deadcode();
+				vcheck(2, "Before while (changes)");
+			} while (changes);
+			genprolog();
+			genfunc();
+			genepilog();
+			break;
+
+		case ALIGN:
+			genalign(bget());
+			break;
+
+		case CODE:
+			unbget(CODE);
+			ip = getins();
+			genins(ip);
+			free((char *) ip);
+			break;
+
+		case FINISH:
+			genseg(-1);
+			if (isvariant(VASM))
+				bput(op);
+			return;
+
+		case EOF:
+			cfatal("unexpected EOF");
+
+		default:
+			cbotch("bad temporary file opcode %d", op);
+		}
+	}
+}
+
+#if !TINY
+/*
+ * Compiler debugging printout.
+ */
+check(where)
+char *where;
+{
+	register INS *ip;
+
+	printf("Check %s:\n", where);
+	for (ip = ins.i_fp; ip != &ins; ip = ip->i_fp) {
+		iprint(ip);
+	}
+	printf("\n");
+}
+
+iprint(ip)
+register INS *ip;
+{
+	dprint(ip);
+#if RUNNING_LARGE
+	printf("\t%08lx: %08lx %08lx: ", ip, ip->i_bp, ip->i_fp);
+#else
+	printf("\t%04x: %04x %04x: ", ip, ip->i_bp, ip->i_fp);
+#endif
+	switch (ip->i_type) {
+	case ENTER:
+		printf("enter %d", ip->i_seg);
+		break;
+	case EPILOG:
+		printf("epilog");
+		break;
+	case PROLOG:
+		printf("prolog");
+		break;
+	case BLOCK:
+		printf("block %ld", (long)ip->i_len);
+		break;
+	case ALIGN:
+		printf("align %d", ip->i_align);
+		break;
+	case LLABEL:
+		printf("label L%d", ip->i_labno);
+		break;
+	case JUMP:
+		printf("jump %d L%d", ip->i_rel, ip->i_labno);
+		break;
+	case LLLINK:
+		printf("llink L%d", ip->i_labno);
+		break;
+	case CODE:
+		printf("code %d(%d)", ip->i_op, ip->i_naddr);
+		break;
+	default:
+		printf("?? %d", ip->i_type);
+		break;
+	}
+	printf("\n");
+}
+#endif
+
+/* end of n2/cc2.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d192 1
+@

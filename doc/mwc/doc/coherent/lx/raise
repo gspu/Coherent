@@ -1,0 +1,88 @@
+.TH raise() "" "" "General Function (libc)"
+.PC "Let a process send a signal to itself"
+.B "#include <signal.h>"
+\fBint raise(\fIsignal\^\fB)\fR
+\fBint \fIsignal\^\fB;\fR
+.PP
+.B raise()
+sends
+.I signal
+to the program that is currently being executed.
+If called from within a signal handler, the processing of this signal may be
+deferred until the signal handler exits.
+.SH Example
+This example sets a signal, raises it itself,
+then allows the signal to be raised interactivly.
+Finally, it clears the signal and exits.
+.DM
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+.DE
+.DM
+void gotcha(void);
+.DE
+.DM
+void
+setgotcha(void)
+{
+	if(signal(SIGINT, gotcha) == SIG_ERR) {
+		printf("Couldn't set signal\en");
+		abort();
+	}
+}
+.DE
+.DM
+void
+gotcha(void)
+{
+	char buf[10];
+.DE
+.DM
+	printf("Do you want to quit this program? <y/n> ");
+	fflush(stdout);
+	gets(buf);
+.DE
+.DM
+	if(tolower(buf[0]) == 'y')
+		abort();
+.DE
+.DM
+	setgotcha();
+}
+.DE
+.DM
+main(void)
+{
+	char buf[80];
+.DE
+.DM
+	setgotcha();
+	printf("Set signal; let's pretend we get one.\en");
+	raise(SIGINT);
+.DE
+.DM
+	printf("Returned from signal\en");
+	printf("Try typing <ctrl-c> to signal <enter> to exit");
+	fflush(stdout);
+	gets(buf);
+.DE
+.DM
+	if(signal(SIGINT, SIG_DFL) == SIG_ERR) {
+		printf("Couldn't lower signal\en");
+		abort();
+	}
+.DE
+.DM
+	printf("Signal lowered\en");
+	exit(EXIT_SUCCESS);
+}
+.DE
+.SH "See Also"
+.Xr "libc," libc
+.Xr "signal()," signal
+.Xr "signal.h" signal.h
+.R
+.br
+\*(AS, \(sc7.7.2.1

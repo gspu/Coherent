@@ -1,0 +1,156 @@
+# Generated from idenable.sh on Tue Nov 16 11:42:25 1993 CST
+# (-lgl
+#	Coherent 386 release 4.2-Beta
+#	Copyright (c) 1982, 1993 by Mark Williams Company.
+#	All rights reserved. May not be copied without permission.
+#	For copying permission and licensing info, write licensing@mwc.com
+# -lgl)
+# Shell version to provide a more friendly interface to the 'devadm' system
+# to enable a device.
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Output an error message to standard error, prefixed by the command name.
+
+report_error () {
+	basename $COMMAND_NAME "" "echo " ": $*" 1>&2
+}
+
+
+# Report a usage message to standard error.
+
+usage () {
+	report_error Enable device entries
+	cat << \END 1>&2
+usage:	[-f] [-p device] [device ...] [[-e device ...] [-d device ...]] ...
+	By default, enable the named devices, reporting conflicts
+	-d specifies that subsequent device names are to be disabled
+	-e specifies that subsequent device names are to be enabled
+	-f specifies that conflicting devices be automatically disabled
+	-p displays the current status of device
+END
+}
+
+
+# Read the 'sdevice' parameters for a device into shell globals
+
+read_sdevice () {
+	grep "^$1" $SDEV_FILE 2>/dev/null 1>&2
+
+	is_equal $? 0 || {
+		report_error There is no \'sdevice\' entry for $1 in $SDEV_FILE
+		return 1
+	}
+
+#	set `grep ^$1 $MDEV_FILE 2>/dev/null`
+#	shift
+#	MDEV_FUNCS=$1
+#	MDEV_FLAGS=$2
+#	MDEV_PREFIX=$3
+#	MDEV_BLOCK_MAJ=$4
+#	MDEV_CHAR_MAJ=$5
+#	MDEV_MIN_MIN=$6
+#	MDEV_MIN_MAX=$7
+#	MDEV_DMA_CHAN=$8
+#	MDEV_CPU_ID=$9
+	
+	set $(grep ^$1 $SDEV_FILE 2>/dev/null)
+	shift
+	SDEV_CONFIG=$1
+	SDEV_UNIT=$2
+	SDEV_INT_PRI=$3
+	SDEV_INT_TYPE=$4
+	SDEV_INT_VECT=$5
+	SDEV_IOA_LO=$6
+	SDEV_IOA_HI=$7
+	SDEV_CMA_LO=$8
+	SDEV_CMA_HI=$9
+
+	OLD_SDEV_CONFIG=$SDEV_CONFIG
+	shift
+	OLD_SDEV_INFO="$*"
+	return 0
+}
+
+
+# Update the value of an sdevice entry parameter
+
+set_enable_sdevice () {
+	if is_yes $OLD_SDEV_CONFIG; then
+		is_yes $2 && return 0	# No effect
+
+		# Disabling an entry is always legal...
+	elif is_yes $2; then
+		# Verify that there is nothing conflicting with us
+		BAD="$($DEVADM -I $CONF_DIR -S"$1 $2 $OLD_SDEV_INFO" -r)"
+		is_empty "$BAD" || {
+			is_empty "$FORCE_ENABLE" || {
+				$HOME_DIR/idenable -d $BAD
+				BAD="$($DEVADM -I $CONF_DIR \
+					-S"$1 $2 $OLD_SDEV_INFO" -r)"
+			}
+			is_empty "$BAD" || {
+				report_error Enabling $1 will conflict with $BAD
+				return 1
+			}
+		}
+	else
+		return 0		# No effect
+	fi
+
+	$DEVADM -I $CONF_DIR -S"$1 $2 $OLD_SDEV_INFO" -W
+}
+
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+CONF_PATH="$(pwd):$CONF_DIR:$CONF_DIR/install_conf:$CONF_PATH"
+
+find_file mdevice $CONF_PATH "MDEV_FILE=" \
+	"report_error File \'mdevice\' is not found in $CONF_PATH; exit 126"
+find_file sdevice $CONF_PATH "SDEV_FILE=" \
+	"report_error File \'sdevice\' is not found in $CONF_PATH; exit 126"
+
+DEVADM="$HOME_DIR/devadm -X $MDEV_FILE -Y $SDEV_FILE"
+
+is_equal $# 0 && {
+	usage
+	exit 100
+}
+
+ENABLE=y
+
+while val $(($# > 0)) ; do
+	OPTIND=1
+	while getopts defp: SWITCH ; do
+		case $SWITCH in
+		d)	ENABLE=n
+			;;
+
+		e)	ENABLE=y
+			;;
+
+		f)	FORCE_ENABLE=1
+			;;
+
+		p)	read_sdevice $OPTARG || exit 1
+			echo $OPTARG $SDEV_CONFIG
+			;;
+
+		*)	usage
+			exit 100
+			;;
+		esac
+	done
+
+	shift $(($OPTIND - 1))
+
+	is_equal $# 0 || {
+		read_sdevice $1 || exit 1
+		set_enable_sdevice $1 $ENABLE
+		shift
+	}
+done
+

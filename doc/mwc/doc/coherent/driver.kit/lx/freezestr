@@ -1,0 +1,75 @@
+.TH freezestr() "" "" "DDI/DKI Kernel Routine"
+.PC "Freeze a stream"
+.B "#include <sys/types.h>"
+.B "#include <sys/stream.h>"
+\fBpl_t freezestr(\fIqueue\^\fB)\fR
+\fBqueue_t *\fIqueue\^\fB;\fR
+.PP
+.B freezestr()
+freezes the stream to which
+.I queue
+belongs.
+.\"It sets the stream's interrupt priority to
+.\".B plstr
+.\"(if the current level is lower than
+.\".B plstr
+.\"and the implementation requires that interrupts be blocked
+.\"while the stream is frozen), and freezes the state of the stream.
+.\".PP
+.PP
+When a stream is frozen,
+no process can invoke that stream's
+.BR open ,
+.BR close ,
+.BR put ,
+or
+service
+routines.
+No messages can be added to or
+removed from any queue, except by the process that called
+.BR freezestr() .
+Freezing a stream does not stop the functions that are running within it:
+each continues until it attempts to do something
+that changes the state of the stream,
+at which point it must wait for the stream to be thawed.
+.PP
+A driver or module
+must freeze a stream while it manipulates its queues.
+This restriction applies to every function that searches a queue, as well as
+to the functions
+.BR insq() ,
+.BR rmvq() ,
+.BR strqset() ,
+and
+.BR strqget() .
+.PP
+.B freezestr()
+returns the interrupt priority that the stream had had when it was frozen.
+You can use this value in a subsequent call to
+.BR unfreezestr() ,
+which thaws a stream, to restore the stream's interrupt priority
+to its pre-frozen level.
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+unfreezestr()
+.R
+.SH Notes
+.B freezestr()
+has base or interrupt level.
+It does not sleep.
+.PP
+A driver can hold a
+driver-defined basic lock, read/write lock, or sleep lock
+across a call to this function.
+.PP
+Calling
+.B freezestr()
+to freeze a stream that you have already frozen causes a deadlock.
+.PP
+Use
+.B freezestr()
+sparingly.
+It is rarely necessary to freeze a stream:
+most modules do not need to manipulate a queue directly, and
+freezing a stream slows performance significantly.

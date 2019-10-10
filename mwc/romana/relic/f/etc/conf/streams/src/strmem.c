@@ -1,0 +1,195 @@
+#define	_DDI_DKI	1
+#define	_SYSV4		1
+
+/*
+ * STREAMS memory management code.
+ *
+ * This is layered on top of the fast first-fit heap allocator whose
+ * implementation is described in <sys/st_alloc.h>. The particulars of how
+ * STREAMS memory is allocated (including synchronisation and watermarks)
+ * is kept here so that the generic allocator is just that, generic.
+ */
+
+/*
+ *-IMPORTS:
+ *	<common/ccompat.h>
+ *		__USE_PROTO__
+ *		__ARGS ()
+ *	<common/ccompat.h>
+ *		__LOCAL__
+ *	<sys/debug.h>
+ *		ASSERT ()
+ *	<sys/types.h>
+ *		_VOID
+ *		size_t
+ *	<sys/ksynch.h>
+ *		lock_t
+ *		LOCK_ALLOC ()
+ *		LOCK ()
+ *		UNLOCK ()
+ *	<sys/cmn_err.h>
+ *		CE_WARN
+ *		cmn_err ()
+ */
+
+#include <common/ccompat.h>
+#include <kernel/ddi_lock.h>
+#include <sys/types.h>
+#include <sys/debug.h>
+#include <sys/ksynch.h>
+#include <sys/cmn_err.h>
+
+#include <sys/kmem.h>
+#include <kernel/strmlib.h>
+#include <string.h>
+
+
+/*
+ * This private function gathers some of the aspects of streams message memory
+ * allocation into a single place (message blocks are allocated in allocb (),
+ * dupb (), and esballoc ()). We leave the initialization of the newly
+ * allocated memory up to the caller.
+ */
+
+#if	__USE_PROTO__
+mblk_t * (STRMEM_ALLOC) (size_t size, int pri, int flag)
+#else
+mblk_t *
+STRMEM_ALLOC __ARGS ((size, pri, flag))
+size_t		size;
+int		pri;
+int		flag;
+#endif
+{
+	pl_t		prev_pl;
+	mblk_t	      *	mblkp;
+
+	ASSERT (size > 0);
+	ASSERT (flag == KM_SLEEP || flag == KM_NOSLEEP);
+
+	/*
+	 * Note that if the size is one such that it cannot possibly ever be
+	 * satisfied given the allocation watermarks we have set, then we just
+	 * return failure now.
+	 */
+
+	pri = MAP_PRI_LEVEL (pri);
+
+	if (size > str_mem->sm_max [pri])
+		return NULL;
+
+
+	for (;;) {
+		/*
+		 * Lock the basic lock protecting access to the memory pool
+		 * and attempt to acquire the memory we desire.
+		 */
+
+		prev_pl = LOCK (str_mem->sm_msg_lock, str_msg_pl);
+
+
+		/*
+		 * Before allocating any memory, we check to see that it makes
+		 * sense to give out that memory to the given priority level.
+		 */
+
+		if (str_mem->sm_used + size <= str_mem->sm_max [pri]) {
+			/*
+			 * Try to get the memory, and if we do update the
+			 * priority bookkeeping information to record the
+			 * amount of memory that we have allowed out.
+			 */
+
+			mblkp = (mblk_t *) st_alloc (str_mem->sm_msg_heap,
+						     size);
+
+			if (mblkp != NULL) {
+
+				str_mem->sm_used += size;
+				break;
+			}
+		}
+
+
+		/*
+		 * Depending on the caller, we may sleep waiting for memory
+		 * to become available.
+		 */
+
+		if (flag == KM_NOSLEEP) {
+
+			mblkp = NULL;
+			break;
+		}
+
+
+		/*
+		 * RESEARCH NOTE: This policy is a guess, no more. We need to
+		 * do some profiling to find out what effect other policies
+		 * might have. In particular, the wakeup heuristic could be
+		 * altered to broadcast when we can satisfy the largest
+		 * request.
+		 */
+
+		if (str_mem->sm_msg_needed == 0 ||
+		    str_mem->sm_msg_needed > size)
+			str_mem->sm_msg_needed = size;
+
+		SV_WAIT (str_mem->sm_msg_sv, prilo, str_mem->sm_msg_lock);
+	}
+
+	UNLOCK (str_mem->sm_msg_lock, prev_pl);
+
+	return mblkp;
+}
+
+
+/*
+ * This simple function factors out some common code from different calls to
+ * st_free () inside freeb (). This just reduces some of the cost of all the
+ * error checking that is my custom, and consolidates the interface to the
+ * bookkeeping for callback events and so forth.
+ *
+ * The streams heap must be locked on entry to this function.
+ */
+
+#if	__USE_PROTO__
+void (STRMEM_FREE) (mblk_t * bp, size_t size)
+#else
+void
+STRMEM_FREE __ARGS ((bp, size))
+mblk_t	      *	bp;
+size_t		size;
+#endif
+{
+	int		free_ok;
+
+	ASSERT (TRYLOCK (str_mem->sm_msg_lock, str_msg_pl) == invpl);
+
+	free_ok = st_free (str_mem->sm_msg_heap, bp, size);
+
+	if (free_ok != 0) {
+		/*
+		 * The heap manager has a problem with freeing the block that
+		 * was passed to it, display a console diagnostic. For
+		 * simplicity we display addresses as longs.
+		 */
+
+		cmn_err (CE_WARN,
+			 "MSGB_FREE : st_free () complained with %d freeing %d bytes at %lx",
+			 free_ok, size, (long) bp);
+	} else {
+		/*
+		 * Update the allocation bookkeeping, and request that the
+		 * routine that processes bufcall () events be run. This other
+		 * procedure also has responsibility for waking up message and
+		 * possibly "other" allocations if there is sufficient memory
+		 * available.
+		 */
+
+		str_mem->sm_used -= size;
+
+		SCHEDULE_BUFCALLS ();
+	}
+}
+

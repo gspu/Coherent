@@ -1,0 +1,195 @@
+/*
+ * Guess -- like 20 questions.
+ *
+ * (NOTE: /usr/games/guess should be setuid to `games'.
+ *        /usr/games/lib/guess.db should be owned by `games')
+ */
+
+#include <stdio.h>
+
+#define	NLINE	128			/* Length of various input buffers */
+
+struct node{
+	char *question;
+	struct node *yes, *no;	/* if yes==NULL, this is a leaf node */
+};
+struct node cow = { "a cow", NULL };
+struct node *game = { &cow };
+char *dbname = "/usr/games/lib/guess.db";
+char line[NLINE], question[NLINE];
+
+char *
+copy(s)
+register char *s;
+{
+	register char *t, *v;
+	int l;
+	for(l=0,t=s;*t++;l++);
+	v=t=malloc(l+1);
+	if(v==NULL){
+		printf("Out of space in copy\n");
+		leave();
+	}
+	do;while(*t++ = *s++);
+	return(v);
+}
+
+char *
+freads(f, s)
+FILE *f;
+register char *s;
+{
+	register char *v;
+	if(fgets(s, NLINE, f)==NULL)
+		return(NULL);
+	v=s;
+	while(*s!='\n' && *s!='\0')
+		s++;
+	*s='\0';
+	return(v);
+}
+readdb(){
+	register c;
+	register struct node *p;
+	FILE *f;
+	int message = 0;
+	if((f=fopen(dbname, "r"))==NULL)
+		return;
+	if(freads(f, line)==NULL){
+		fclose(f);
+		return;
+	}
+	game->question=copy(line);
+	for(;;){
+		p=game;
+		while((c=getc(f))=='y' || c=='n'){
+			if(p->yes==NULL){
+				p->yes=malloc(sizeof(struct node));
+				p->no=malloc(sizeof(struct node));
+				if(p->yes==NULL || p->no==NULL){
+					printf("Out of space in dbread\n");
+					exit(1);
+				}
+				p->yes->question="a corrupt database";
+				p->yes->yes=NULL;
+				p->no->question="a corrupt database";
+				p->no->yes=NULL;
+			}
+			if(c=='y')
+				p=p->yes;
+			else
+				p=p->no;
+		}
+		if(c==EOF)
+			break;
+		if(c!=':' && !message){
+			printf("Invalid database\n");
+			message++;
+		}
+		freads(f, line);
+		p->question=copy(line);
+	}
+	fclose(f);
+}
+writedb(p, f, level)
+struct node *p;
+FILE *f;
+{
+	fprintf(f, "%s\n", p->question);
+	if(p->yes){
+		line[level]='y';
+		line[level+1]='\0';
+		fprintf(f, "%s:", line);
+		writedb(p->yes, f, level+1);
+		line[level]='n';
+		line[level+1]='\0';
+		fprintf(f, "%s:", line);
+		writedb(p->no, f, level+1);
+	}
+}
+leave(){
+	FILE *f;
+	if((f=fopen(dbname, "w"))==NULL){
+		printf("Can't create the database\n");
+		exit(1);
+	}
+	writedb(game, f, 0);
+	exit(0);
+}
+main(argc, argv)
+char *argv[];
+{
+	register struct node *p;
+	register c;
+	if(argc>1)
+		dbname=argv[1];
+	readdb();
+	for(;;){
+		printf("Think of something.\n");
+		p=game;
+		while(p->yes){
+			for(;;){
+				printf("%s? ", p->question);
+				c=answer();
+				if(c=='y'){
+					p=p->yes;
+					break;
+				}
+				if(c=='n'){
+					p=p->no;
+					break;
+				}
+				printf("Answer yes or no.\n");
+			}
+		}
+		for(;;){
+			printf("Is %s what you're thinking of? ", p->question);
+			c=answer();
+			if(c=='y')
+				break;
+			if(c=='n'){
+				printf("I give up.  What are you thinking of? ");
+				if(gets(line)==NULL)
+					leave();
+				printf("What is a yes-or-no answer question to distinguish %s from %s? ", p->question, line);
+				if(gets(question)==NULL)
+					leave();
+				for(;;){
+					printf("What is the answer for %s? ", line);
+					c=answer();
+					if(c=='y' || c=='n')
+						break;
+					printf("Answer yes or no.\n");
+				}
+				p->yes=malloc(sizeof(struct node));
+				p->no=malloc(sizeof(struct node));
+				if(p->yes==NULL || p->no==NULL){
+					printf("Out of space\n");
+					leave();
+				}
+				if(c=='y'){
+					p->yes->question=copy(line);
+					p->no->question=p->question;
+				}
+				else{
+					p->yes->question=p->question;
+					p->no->question=copy(line);
+				}
+				p->question=copy(question);
+				p->yes->yes=NULL;
+				p->no->yes=NULL;
+				break;
+			}
+			printf("Answer yes or no.\n");
+		}
+	}
+}
+
+answer()
+{
+	char buf[NLINE];
+
+	if(gets(buf)==NULL)
+		leave();
+	return(buf[0]);
+}

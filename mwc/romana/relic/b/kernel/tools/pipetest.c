@@ -1,0 +1,272 @@
+/*
+ * test of named pipes
+ */
+#include <fcntl.h>
+#include <signal.h>
+
+int alarmed;
+int myalrm();
+
+char * pname = "PIPE";
+int fd;
+char buf[80];
+int nread;
+#define PLIMIT 64000
+
+main(argc, argv)
+int argc;
+char ** argv;
+{
+	/*
+	 * Get name of pipe to play with - default to "PIPE".
+	 */
+	if (argc > 1) {
+		pname = argv[1];
+	}
+	printf("Using pipe %s\n", pname);
+	if (signal(SIGALRM, myalrm) == SIG_ERR)
+		perror("pipetest: set alarm sig");
+
+	test1();
+	test2();
+	test3();
+	test4();
+	test5();
+	test6();
+	test7();
+	test8();
+
+	printf("Done.\n");
+}
+
+test1()
+{
+	/*
+	 * Open read-only test; no process has pipe open for write.
+	 */
+	printf("\nTEST #1\n");
+	printf("Open O_RDONLY, pipe not open elsewhere.\n");
+	alarmed = 0;
+	alarm(2);
+	if ((fd = open(pname, O_RDONLY, 0)) != -1) {
+		printf("TEST #1 failed. Unexpected successful open.\n");
+		close(fd);
+	} else {
+		perror("test#1: open");
+		if (alarmed)
+			printf("TEST #1 passed.  Open timed out.\n");
+		else
+			printf("TEST #1 failed.  Open did not time out.\n");
+	}
+	alarm(0);
+}
+
+test2()
+{
+	/*
+	 * Open read-only with no delay; no process has pipe open for write.
+	 */
+	printf("\nTEST #2\n");
+	printf("Open O_RDONLY|O_NDELAY, pipe not open elsewhere.\n");
+	alarmed = 0;
+	alarm(2);
+	if ((fd = open(pname, O_RDONLY | O_NDELAY, 0)) != -1) {
+		printf("TEST #2 passed.  Open succeeded.\n");
+		close(fd);
+	} else {
+		perror("test#2: open");
+		if (alarmed)
+			printf("TEST #2 failed.  Open timed out.\n");
+		else
+			printf("TEST #2 failed.  Open did not time out.\n");
+	}
+	alarm(0);
+}
+
+test3()
+{
+	/*
+	 * Open write-only test; no process has pipe open for read.
+	 */
+	printf("\nTEST #3\n");
+	printf("Open O_WRONLY, pipe not open elsewhere.\n");
+	alarmed = 0;
+	if (signal(SIGALRM, myalrm) == SIG_ERR)
+		perror("test#3: set alarm sig");
+	alarm(2);
+	if ((fd = open(pname, O_WRONLY, 0)) != -1) {
+		printf("TEST #3 failed. Unexpected successful open.\n");
+		close(fd);
+	} else {
+		perror("test#3: open");
+		if (alarmed)
+			printf("TEST #3 passed.  Open timed out.\n");
+		else
+			printf("TEST #3 failed.  Open did not time out.\n");
+	}
+	alarm(0);
+}
+
+test4()
+{
+	/*
+	 * Open write-only with no delay; no process has pipe open for read.
+	 */
+	printf("\nTEST #4\n");
+	printf("Open O_WRONLY|O_NDELAY, pipe not open elsewhere.\n");
+	alarmed = 0;
+	alarm(2);
+	if ((fd = open(pname, O_RDONLY | O_NDELAY, 0)) != -1) {
+		printf("TEST #4 passed.  Open succeeded.\n");
+		close(fd);
+	} else {
+		perror("test#4: open");
+		if (alarmed)
+			printf("TEST #4 failed.  Open timed out.\n");
+		else
+			printf("TEST #4 failed.  Open did not time out.\n");
+	}
+	alarm(0);
+}
+
+test5()
+{
+	/*
+	 * Read pipe, no data.
+	 */
+	printf("\nTEST #5\n");
+	printf("Read pipe, no data.\n");
+	if ((fd = open(pname, O_RDWR, 0)) == -1) {
+		perror("test#5: open O_RDWR");
+		printf("TEST #5 failed.  Open failed.\n");
+	} else {
+		alarmed = 0;
+		alarm(2);
+		nread = read(fd, buf, 80);
+		if (nread < 0) {
+			perror("test#5: read");
+			if (alarmed)
+				printf("TEST #5 passed.  Read timed out.\n");
+			else
+				printf(
+				  "TEST #5 failed.  Read did not time out.\n");
+		} else {
+			printf(
+			  "TEST #5 failed.  Read returned %d.\n", nread);
+		}
+		close(fd);
+	}
+	alarm(0);
+}
+
+test6()
+{
+	/*
+	 * Partial read.
+	 */
+	printf("\nTEST #6\n");
+	printf("Read pipe, partial data.\n");
+	if ((fd = open(pname, O_RDWR, 0)) == -1) {
+		perror("test#6: open O_RDWR");
+		printf("TEST #6 failed.  Open failed.\n");
+	} else {
+		alarmed = 0;
+		alarm(2);
+		write(fd, "Hello", 5);
+		nread = read(fd, buf, 80);
+		if (nread < 0) {
+			perror("test#6: read");
+			if (alarmed)
+				printf("TEST #6 failed.  Read timed out.\n");
+			else
+				printf(
+				  "TEST #6 failed.  Read did not time out.\n");
+		} else {
+			printf(
+			  "TEST #6 passed.  Read returned %d.\n", nread);
+		}
+		close(fd);
+	}
+	alarm(0);
+
+}
+
+test7()
+{
+	int wr_ct, nwrit;
+	/*
+	 * Write pipe until no room.
+	 */
+	printf("\nTEST #7\n");
+	printf("Write pipe until no room.\n");
+	if ((fd = open(pname, O_RDWR, 0)) == -1) {
+		perror("test#7: open O_RDWR");
+		printf("TEST #7 failed.  Open failed.\n");
+	} else {
+		alarmed = 0;
+		for (wr_ct = 0; wr_ct < PLIMIT; wr_ct += 80) {
+			alarm(2);
+			nwrit = write(fd, buf, 80);
+			if (nwrit > 0)
+				wr_ct += nwrit;
+			else if (nwrit == 0) {
+		printf("TEST #7 failed.  Write failed.\n");
+				break;
+			} else {
+				perror("test#7: write");
+				if (alarmed)
+printf("TEST #7 passed.  Write timed out.\n");
+				else
+printf("TEST #7 failed.  Write did not time out.\n");
+				break;
+			}
+		}
+		alarm(0);
+		printf("%d bytes written\n", wr_ct);
+		close(fd);
+	}
+}
+
+test8()
+{
+	int wr_ct, nwrit;
+	/*
+	 * Write pipe until no room.
+	 */
+	printf("\nTEST #8\n");
+	printf("Write pipe until no room, no delay.\n");
+	if ((fd = open(pname, O_RDWR|O_NDELAY, 0)) == -1) {
+		perror("test#8: open O_RDWR|O_NDELAY");
+		printf("TEST #8 failed.  Open failed.\n");
+	} else {
+		alarmed = 0;
+		for (wr_ct = 0; wr_ct < PLIMIT; wr_ct += 80) {
+			alarm(2);
+			nwrit = write(fd, buf, 80);
+			if (nwrit > 0)
+				wr_ct += nwrit;
+			else if (nwrit == 0) {
+		printf("TEST #8 Passed.  Write failed.\n");
+				break;
+			} else {
+				perror("test#8: write");
+				if (alarmed)
+printf("TEST #8 failed.  Write timed out.\n");
+				else
+printf("TEST #8 failed.  Write did not time out.\n");
+				break;
+			}
+		}
+		alarm(0);
+		printf("%d bytes written\n", wr_ct);
+		close(fd);
+	}
+}
+
+int
+myalrm()
+{
+	if (signal(SIGALRM, myalrm) == SIG_ERR)
+		perror("set alarm sig");
+	alarmed = 1;
+}

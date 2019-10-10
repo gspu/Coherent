@@ -1,0 +1,2156 @@
+.TH ksh "" "" Command
+.PC "The Korn shell"
+\fBksh \fItoken ...\fR
+.PP
+.II "Korn shell"
+.II "shell^Korn"
+.II "command, definition"
+.II "token, definition"
+.II "pipeline, definition"
+.II "background, execution in"
+.II "multiprocessing execution"
+.II "here document"
+The \*(CO system offers two command interpreters:
+.BR sh ,
+the Bourne shell; and
+.BR ksh ,
+the Korn shell.
+.B sh
+is the default \*(CO command interpreter.
+The shell tutorial included in this manual describes the Bourne shell in detail.
+.PP
+This article describes
+.BR ksh ,
+the Korn shell.
+.B ksh
+is a superset of the Bourne shell, and contains many
+features that you may well find useful.
+These include \*(ME-style editing of command lines;
+command hashing;
+a full-featured aliasing feature;
+and a job-control facility.
+.SH "Invoking ksh"
+To invoke \fBksh\fR from within the Bourne shell, simply type
+.B ksh
+at the command-line prompt.
+To use
+.B ksh
+as your default shell, instead of \fBsh\fR, append the command
+.B /usr/bin/ksh
+to the end of your entry in the file
+.BR /etc/passwd .
+(See the Lexicon entry for \fBpasswd\fR for more information on this file.)
+.PP
+You can invoke
+.B ksh
+with one or more built-in options; these are described below.
+.SH Commands
+A
+.I command
+consists of one or more
+.IR tokens .
+A
+.I token
+is a string of text characters (i.e., one or more
+alphabetic characters, punctuation marks, and numerals)
+delineated by spaces, tabs, or newlines.
+.PP
+A \fIsimple command\fR consists of the command's name, followed by zero or
+more tokens that represent arguments to the command,
+names of files,
+or shell operators.
+A \fIcomplex command\fR will use shell constructs to execute one or more
+commands conditionally.
+In effect, a complex command is a mini-program that is written in the
+shell's programming language and interpreted by
+.BR ksh .
+.SH "Shell Operators"
+The shell includes a number of operators that form pipes, redirect input
+and output to commands, and let you define conditions under which
+commands are executed.
+.II |
+.II pipe
+.IP "\fIcommand \fB| \fIcommand\fR"
+The \fIpipe\fR operator:
+let the output of one command serve as the input to a second.
+You can combine commands with `|' to form
+.IR pipelines .
+A pipeline passes the standard output of the first (leftmost) command
+to the standard input of the second command.
+For example, in the pipeline
+.DM
+	sort customers | uniq | more
+.DE
+.sp \n(pDu
+.B ksh
+invokes \fBsort\fR to sort the contents of file \fBcustomers\fR.
+It pipes the output of \fBsort\fR to the command \fBuniq\fR, which outputs
+one unique copy of the text that is input into it.
+.B ksh
+then pipes the output of \fBuniq\fR
+to the command \fBmore\fR, which displays it on your terminal one screenful
+at a time.
+Note that under \*(CO, unlike \*(MD, pipes are executed concurrently:
+that is, \fBsort\fR does not have to finish its work before \fBuniq\fR
+and \fBmore\fR can begin to receive input and get to work.
+.II ;
+.IP "\fIcommand \fB; \fIcommand\fR"
+Execute commands on a command line sequentially.
+The command to the left of the `;' executes to completion; then the
+command to the right of it executes.
+For example, in the command line
+.DM
+	a | b ; c | d
+.DE
+.sp \n(pDu
+first execute the pipeline
+.B "a | b"
+then, when
+.B a
+and
+.B b
+complete, execute the pipeline
+.BR "c | d" .
+.II &
+.II "background process"
+.IP "\fIcommand \fB&\fR"
+Execute a command in the background.
+This operator must follow the command, not precede it.
+It prints the process identifier of the command on the standard output, so
+you can use the \fBkill\fR command to kill that process should something
+go wrong.
+This operator lets you execute more than one command simultaneously.
+For example, the command
+.DM
+	/etc/fdformat -v /dev/fha0 &
+.DE
+.sp \n(pDu
+formats a high-density, 5.25-inch floppy disk in drive 0 (that is, drive A);
+but while the disk is being formatted,
+.B ksh
+returns the command line prompt so you can
+immediately enter another command and begin to work.
+If you did not use the `&' in this command, you would have to wait until
+formatting was finished before you could enter another command.
+.sp \n(pDu
+.B ksh
+also prints a message on your terminal when a command that you are
+running in the background finishes processing.
+It does not check these ``child'' processes very often, however, so
+a command may have finished some time before \fBksh\fR informs you
+of the fact.
+See the Lexicon article for the command \fBps\fR for information on
+all processes; also see the description of the built-in command \fBjobs\fR,
+below.
+.II &&
+.II "success, execute upon"
+.IP "\fIcommand \fB&& \fIcommand\fR"
+Execute a command upon success.
+.B ksh
+executes the command that follows the token `&&'
+only if the command that precedes it
+returns a zero exit status, which signifies success.
+For example, the command
+.DM
+	cd /etc
+	fdformat -v /dev/fha0 && badscan -o proto /dev/fha0 2400
+.DE
+.sp \n(pDu
+formats a floppy disk, as described above.
+If the format was successful,
+it then invokes the command \fBbadscan\fR to scan the disk for bad blocks;
+if it was not successful, however, it does nothing.
+.II ||
+.II "failure, execute upon"
+.IP "\fIcommand\fB || \fIcommand\fR
+Execute a command upon failure.
+This is identical to operator `&&', except that the second command is
+executed if the first returns a non-zero status, which signifies failure.
+For example, the command
+.DM
+	/etc/fdformat -v /dev/fha0 || echo "Format failed!"
+.DE
+.sp \n(pDu
+formats a floppy disk.
+If formatting failed, it echoes the message \fBFormat failed!\fR on your
+terminal; however, if formatting succeeds, it does nothing.
+.sp \n(pDu
+Note that the tokens
+newline, `;' and `&' bind less tightly than `&&' and `||'.
+.B ksh
+parses command lines from left to right if separators bind equally.
+.II >
+.II "redirect standard output"
+.IP \fB>\fIfile\fR
+Redirect standard output.
+The
+.IR "standard input" ,
+.IR "standard output" ,
+and
+.I "standard error"
+streams are normally connected to the terminal.
+A pipeline attaches the output of one command to the input of another command.
+In addition, \fBksh\fR includes a set of operators that redirect input and output
+into files rather than other commands.
+.sp \n(pDu
+The operator `>' redirects output into a file.
+For example, the command
+.DM
+	sort customers >customers.sort
+.DE
+.sp \n(pDu
+sorts file \fBcustomers\fR and writes the sorted output into file
+.BR customers.sort .
+It creates
+.B customers.sort
+if it does not exist, and destroys its previous contents if it does exist.
+.II >>
+.II "redirect standard output and append"
+.IP \fB>>\fIfile\fR
+Redirect output into a file, and append.
+If the file does not exist, this operator creates it; however,
+if the file already exists, this operator appends the output to that file's
+contents rather than destroying those contents.
+For example, the command
+.DM
+	sort customers.now | uniq >>customers.all
+.DE
+.sp \n(pDu
+sorts file
+.BR customers.now ,
+pipes its output to command \fBuniq\fR, which throws away duplicate lines of
+input, and appends the results to file \fBcustomers.all\fR.
+.II <
+.II "redirect standard input"
+.IP "\fB<\fIfile\fR"
+Redirect standard input.
+Here, \fBksh\fR reads the contents of a file and processes them as if you
+had typed them from your keyboard.
+For example, the command
+.DM
+	ed textfile <edit.script
+.DE
+.sp \n(pDu
+invokes the line-editor \fBed\fR to edit \fBtextfile\fR; however, instead
+of reading editing commands from your keyboard, the shell passes \fBed\fR
+the contents of \fBedit.script\fR.
+This command would let you prepare an editing script that you could execute
+repeatedly upon files rather than having to type the same commands over and
+over.
+.II <<
+.II "here document"
+.IP "\fB<< \fItoken\fR\fR"
+Prepare a ``here document''.
+This operator tells
+.B ksh
+to accept standard input from the shell input until it reads
+a line that contains only
+.I token.
+For example, the command
+.DM
+	cat >FOO <<\e!
+		Here is some text.
+	!
+.DE
+.sp \n(pDu
+redirects all text between `<<\e!' and `!' to the \fBcat\fR command.
+The `>' in turn redirects the output of \fBcat\fR into file \fBFOO\fR.
+.B ksh
+performs parameter substitution on the here document unless the leading
+.I token
+is quoted; parameter substitution and quoting are described below.
+.II 2>
+.II "redirect standard error"
+.IP "\fIcommand \fB2> \fIfile\fR"
+Redirect the standard error stream into a file.
+For example, the command
+.DM
+	nroff -ms textfile >textfile.p 2>textfile.err
+.DE
+.sp \n(pDu
+invokes the command \fBnroff\fR to format the contents of \fBtextfile\fR.
+It redirects the output of \fBnroff\fR (i.e., the standard output) into
+\fBtextfile.p\fR; it also redirects any error messages that \fBnroff\fR
+may generate into file \fBtextfile.err\fR.
+.sp \n(pDu
+Note in passing that a command may use up to 20 streams.
+By default, stream 0 is the standard input; stream 1 is the standard output;
+and stream 2 is the standard error.
+\fBksh\fR lets you redirect any of these
+streams individually into files, or combine streams into each other.
+.II <&
+.II "redirect file stream"
+.IP \fB<&\fIn\fR
+.B ksh
+can redirect the standard input and output to duplicate other file descriptors.
+(See the Lexicon article \fBfile descriptor\fR for details on what these are.)
+This operator duplicates the standard input from file descriptor
+.IR n .
+.IP \fB>&\fIn\fR
+.II >&
+.II "duplicate stream"
+Duplicate the standard output from file descriptor \fIn\fR.
+For example,
+.DM
+	2>&1
+.DE
+.sp \n(pDu
+redirects file descriptor 2 (the standard error)
+to file descriptor 1 (the standard output).
+.RE
+.PP
+Note that each command executed as a foreground process inherits the file
+descriptors and signal traps (described below) of the invoking shell,
+modified by any specified redirection.
+Background processes take input from the null device
+.B /dev/null
+(unless redirected), and ignore interrupt and quit signals.
+.SH "File-Name Patterns"
+The shell interprets an input token
+that contain any of the special characters `?', `*', or `[' as a file name
+.IR pattern .
+.IP \fB?\fR 0.3i
+Match any single character except newline.
+For example, the command
+.DM
+	ls name?
+.DE
+.sp \n(pDu
+will print the name of any file that consists of the string \fBname\fR
+plus any one character.
+If \fBname\fR is followed by no characters, or is followed by two or more
+characters, it will not be printed.
+.IP \fB*\fR
+Match a string of non-newline characters of any length (including zero).
+.DM
+	ls name*
+.DE
+.sp \n(pDu
+prints the name of any file that begins with the string \fBname\fR,
+regardless of whether it is followed by any other characters.
+Likewise, the command
+.DM
+	ls name?*
+.DE
+.sp \n(pDu
+prints the name of any file that consists of the string \fBname\fR
+followed by at least one character.
+Unlike \fBname*\fR, the token \fBname?*\fR must be followed by
+at least one character before it will be printed.
+.IP \fB~\fIname\fR
+Replace the name of user
+.I name
+with his
+.B $HOME
+directory.
+For example, the command
+.DM
+	ls -l ~norm/src
+.DE
+.sp \n(pDu
+lists the contents of the
+.I src
+subdirectory located under the
+.B $HOME
+directory for user
+.BR norm .
+This spares you from having to know
+where a given user's HOME directory is located.
+.IP
+The character `~' on its own is a synonym for the home directory
+of whoever is running the command.
+For example, the command
+.DM
+	/usr/lib/uucp FOO mwcbbs:~
+.DE
+.PP
+copies file
+.B FOO
+into directory
+.B /usr/spool/uucppublic
+on system
+.BR mwcbbs .
+In this instance, `~' expands into
+.B /usr/spool/uucppublic
+because the command
+.B uucico
+invokes
+.B setuid()
+to change the ownership of the process to user
+.BR uucp ,
+whose home directory is
+.BR /usr/spool/uucppublic .
+.IP \fB[!\fIxyz\fB]\fR
+Exclude characters \fIxyz\fR from the string search.
+For example, the command
+.DM
+	ls [!abc]*
+.DE
+.sp \n(pDu
+prints all files in the current directory except those that begin with
+.BR a ,
+.BR b ,
+or
+.BR c .
+.IP "\fB[\fIC\fB\-\fIc\fB]\fR"
+Enclose alternatives to match a single character.
+A hyphen `\-' indicates a range of characters.
+For example, the command
+.DM
+	ls name[ABC]
+.DE
+.sp \n(pDu
+will print the names of files \fBnameA\fR, \fBnameB\fR, and
+\fBnameC\fR (assuming, of course, that those files exist in the current
+directory).
+The command
+.DM
+	ls name[A-K]
+.DE
+.sp \n(pDu
+prints the names of files \fBnameA\fR through \fBnameK\fR (again,
+assuming that they exist in the current directory).
+.PP
+When \fBksh\fR reads a token that contains one of the above characters,
+it replaces the token in the command line with
+an alphabetized list of file names that match the pattern.
+If it finds no matches, it passes the token unchanged to the command.
+For example, when you enter the command
+.DM
+	ls name[ABC]
+.DE
+.PP
+.B ksh
+replaces the token \fBname[ABC]\fR with \fBnameA\fR, \fBnameB\fR, and
+\fBnameC\fR (again, if they exist in the current directory), so the
+command now reads:
+.DM
+	ls nameA nameB nameC
+.DE
+.PP
+It then passes this second, transformed version of the command line to the
+command \fBls\fR.
+.PP
+Note that the slash `/' and leading period `.' must be matched explicitly in
+a pattern.
+The slash, of course, separates the elements of a path name; while a period
+at the begin of a file name usually (but not always) indicates that that
+file has special significance.
+.SH "Pattern Matching in Prefixes and Suffices"
+Special constructs let you match patterns in the prefixes and suffices of
+a string:
+.IP \fB{#\fIparameter\^\fB}\fR
+This operator gives the number of characters in
+.IR parameter .
+For example:
+.DM
+	foo=BAZZ
+	echo ${#foo} -> 4
+.DE
+.IP \fB{\fIparameter\^\fB%\fIword\^\fB}\fR
+This returns the shortest string in which the suffix of
+.I parameter
+matches
+.IR word .
+For example, given that
+.BR xyzzy=usr/bin/cpio ,
+then the command
+.DM
+	echo ${xyzzy%/*}
+.DE
+.IP
+echoes the string
+.BR usr/bin .
+.IP \fB{\fIparameter\^\fB%%\fIword\^\fB}\fR
+This returns the longest string in which the suffix of
+.I parameter
+matches
+.IR word .
+For example, given that
+.BR xyzzy=usr/bin/cpio ,
+then the command
+.DM
+	echo ${xyzzy%/*}
+.DE
+.IP
+echoes the string
+.BR usr .
+.IP \fB{\fIparameter\^\fB#\fIword\^\fB}\fR
+This returns the shortest string in which the prefix of
+.I parameter
+matches
+.IR word .
+For example, given that
+.BR "plugh=usr/bin/cpio" ,
+the command
+.DM
+	echo ${plugh#*/}
+.DE
+.IP
+echoes
+.BR bin/cpio .
+.IP \fB{\fIparameter\^\fB##\fIword\^\fB}\fR
+This returns the longest string in which the prefix of
+.I parameter
+matches
+.IR word .
+For example, given that
+.BR "plugh=usr/bin/cpio" ,
+the command
+.DM
+	echo ${plugh##*/}
+.DE
+.IP
+echoes
+.BR cpio .
+.PP
+The following shows how to use these expressions to implement the command
+.BR basename :
+.DM
+	basename () {
+		set $(echo ${1##*/}) $2
+		echo ${1%$2}
+	}
+.DE
+.SH "Quoting Text"
+From time to time, you will want to ``turn off'' the special meaning of
+characters.
+For example, you may wish to pass a token that contains a literal asterisk
+to a command; to do so, you need a way to tell \fBksh\fR not to expand the
+token into a list of file names.
+Therefore, \fBksh\fR includes the \fBquotation operators\fR
+`\e', `"', and `''; these ``turn off'' (or \fIquote\fR)
+the special meaning of operators.
+.PP
+The backslash `\e' quotes the following character.
+For example, the command
+.DM
+	ls name\e*
+.DE
+.PP
+lists a file named \fBname*\fR, and no other.
+.PP
+The shell ignores a backslash immediately followed by a newline,
+called a
+.IR "concealed newline" .
+This lets you give more arguments to a command than will fit on one line.
+For example, the command
+.DM
+	cc -o output file1.c file2.c file3.c \e
+		file4.c file5.c file19.c
+.DE
+.PP
+invokes the C compiler \fBcc\fR to compile a set of C source files, the
+names of which extend over more than one line of input.
+You will find this to be extremely helpful, especially when you write
+scripts and \fBmakefile\fRs, to help you write neat, easily read commands.
+.PP
+A pair of apostrophes '\ '
+prevents interpretation of any enclosed special characters.
+For example, the command
+.DM
+	find . -name '*.c' -print
+.DE
+.PP
+finds and prints the name of any C-source file in the current directory
+and any subdirectory.
+The command \fBfind\fR interprets the `*' internally; therefore, you want
+to suppress the shell's expansion of that operator, which is accomplished
+by enclosing that token between apostrophes.
+.PP
+A pair of quotation marks "\ " has the same effect.
+Unlike apostrophes, however, \fBksh\fR will perform
+parameter substitution and command-output substitution
+(described below) within quotation marks.
+Note that everything between quotation marks will be a single
+argument, even if there are spaces between the tokens.
+For example, the command
+.DM
+	grep "x y" *.c
+.DE
+.PP
+calls the string-search command \fBgrep\fR to look for the string
+.BR "x<space>y" .
+.SH "Scripts"
+Shell commands can be stored in a file, or
+.I script.
+The command
+.DM
+	ksh \fIscript\fP [ \fIparameter ...\fP ]
+.DE
+.PP
+executes the commands in
+.I script
+with a new subshell
+.BR ksh .
+Each
+.I parameter
+is a value for a positional parameter, as described below.
+.PP
+If you have used the command
+.B chmod
+to make
+.I script
+executable, then it is executed under the Bourne shell \fBsh\fR, without
+requiring the \fBksh\fR command.
+Because all executable scripts are executed by the Bourne shell by default,
+not the Korn shell, you should avoid constructions that are unique to the
+Korn shell.
+.PP
+.II "#!"
+To ensure that a script is executed by
+.BR ksh ,
+begin the script with the line:
+.DM
+	#!/usr/bin/ksh
+.DE
+.PP
+Parameters of the form `$\fIn\fR'
+represent command-line arguments within a script.
+.I n
+can range from zero through nine; \fB$0\fR always gives the name of the script.
+These parameters are also called \fIpositional parameters\fR.
+.PP
+If no corresponding parameter is given on the command line,
+the shell substitutes the null string for that parameter.
+For example, if the script \fBformat\fR contains the following line:
+.DM
+	nroff -ms $1 >$1.out
+.DE
+.PP
+then invoking \fBformat\fR with the command line:
+.DM
+	format mytext
+.DE
+.PP
+invokes the command \fBnroff\fR to format the contents of \fBmytext\fR,
+and writes the output into file \fBmytext.out\fR.
+If, however, you invoke this command with the command line
+.DM
+	format mytext yourtext
+.DE
+.PP
+the script will format \fBmytext\fR but ignore \fByourtext\fR altogether.
+.PP
+Reference \fB$*\fR represents all command-line arguments.
+If, for example, we change the contents of script \fBformat\fR
+to read
+.DM
+	nroff -ms $* >$1.out
+.DE
+.PP
+then the command
+.DM
+	format mytext yourtext
+.DE
+.PP
+will invoke \fBnroff\fR to format the contents of \fBmytext\fR and
+\fByourtext\fR, and write the output into file \fBmytext.out\fR.
+.PP
+Commands in a script can also be executed with the \. (dot) command.
+It resembles the
+.B ksh
+command, but the current shell executes the script commands
+without creating a new subshell or a new environment;
+therefore, you cannot use command-line arguments.
+.SH "Variables"
+Shell variables are names that can be assigned
+string values on a command line, in the form
+.DM
+	\fIname\fP=\fIvalue\fP
+.DE
+.PP
+The name must begin with a letter, and can contain letters,
+digits, and underscores `_'.
+Note that no white space can appear around the `=', or the assignment
+will not work.
+.PP
+In shell input, `$\fIname\fR' or `${\fIname\fR}'
+represents the value of the variable.
+For example:
+.DM
+	TEXT=mytext
+.sp \n(pDu
+	nroff -ms $TEXT >$TEXT.out
+.DE
+.PP
+Here, \fBksh\fR expands \fB$TEXT\fR before it executes the \fBnroff\fR
+command.
+This technique is very useful in large, complex scripts:
+by using variables, you can change the behavior of the script by editing
+one line, rather than having to edit numerous variables throughout the script.
+.PP
+Note that if an assignment precedes a command on the same command line,
+the effect of the assignment is local to that command;
+otherwise, the effect is permanent.
+For example,
+.DM
+	kp=one testproc
+.DE
+.PP
+assigns variable
+.B kp
+the value
+.B one
+only for the execution of the script
+.BR testproc .
+.PP
+.B ksh
+sets the following variables by default:
+.IP \fB#\fR 0.3i
+The number of actual positional parameters given to the current command.
+.IP \fB@\fR
+The list of positional parameters ``$1 $2 ...''.
+.IP \fB*\fR
+The list of positional parameters ``$1'' ``$2'' ...
+(the same as `$@' unless some parameters are quoted).
+.IP \fB\-\fR
+Options set in the invocation of the shell or by the
+.B set
+command.
+.IP \fB?\fR
+The exit status returned by the last command.
+.IP \fB!\fR
+The process number of the last command invoked with `&'.
+.IP \fB$\fR
+The process number of the current shell.
+.SH "Environmental Variables"
+.B ksh
+references the following environmental variables:
+.\" .IP \fBCWD\fR 0.75i
+.\" Current working directory:
+.\" this is the name of the directory in which you are now working.
+.IP \fBENV\fR
+If this variable is set at start-up, after all \fB.profile\fR files have
+been executed, the expanded value is used as the shell's start-up file.
+It typically defines environmental variables and aliases.
+.IP \fBFCEDIT\fR
+This sets the editor used by the command
+.BR fc .
+.IP \fBHOME\fR
+Initial working directory; usually specified in the password file
+.BR /etc/passwd .
+.IP \fBIFS\fR
+Delimiters for tokens; by default space, tab, and newline.
+.IP \fBKSH_VERSION\fR
+The current version of the Korn shell that you are using.
+.IP \fBMAIL\fR
+.B ksh
+check the file this names,
+at intervals specified by environmental variable
+.BR MAILCHECK .
+If the file specified by this variable is new since last checked, the
+shell prints ``You have mail.'' on the your terminal.
+If the file has increased in size since the last check,
+.B ksh
+prints ``You have new mail.'' on your terminal.
+.IP
+Note that by default,
+.B ksh
+does not check
+.B MAIL
+when you log in.
+If you want it to do so, add the following lines to file
+.BR /etc/.kshrc :
+.DM
+	# The following lines emulate the mail notification of the Bourne Shell.
+	if [ -s $MAIL ] 
+	then 
+		echo "You have mail."
+	fi
+.DE
+.IP \fBMAILCHECK\fP
+Specifies the number of seconds between checking for new mail.
+If not specified,
+.B MAILCHECK
+defaults to 600 seconds (ten minutes).
+.\" .IP \fBOLDPWD\fR
+.\" The prior working directory, if any.
+.IP \fBPATH\fR
+Colon-separated list of directories searched for commands.
+.IP \fBPS1\fR
+First prompt string,
+usually `$'.
+Note that in this variable and \fBPS2\fR, \fBksh\fR expands the symbol
+.B !
+into the current number of the command line.
+For example, the prompt
+.B "ksh !>"
+prints the prompt
+\fBksh\ \fINN\fB>\fR
+with every command, where \fINN\fR
+is the number of the current command.
+This is useful when you have enabled the history feature, as described below.
+.sp \n(pDu
+To print a prompt that includes your local site name, include the variable
+.B $PWD
+(described below) in the definition of
+.BR PS1 .
+For example,
+.DM
+	PS1='$PWD>'
+.DE
+.sp \n(pDu
+prints the current directory as your prompt, just like \*(MD does.
+To include your system's name, read the contents of file
+.BR /etc/uucpname ,
+as follows:
+.DM
+	SITE=\(gacat /etc/uucpname\(ga
+	PS1='$SITE!!$PWD>'
+.DE
+.sp \n(pDu
+This form of the prompt is quite useful when you are working on
+networked machines and may not always be sure just what system you are
+working on.
+Note that two exclamation points are necessary; as noted above,
+.B ksh
+expands one `!' into the number of the current command.
+.sp \n(pDu
+Finally, to include the command number with site name and current directory,
+do the following:
+.DM
+	SITE=\(gacat /etc/uucpname\(ga
+	PS1='$SITE!!$PWD !>'
+.DE
+.sp \n(pDu
+This will give you a very long prompt, but one with much information in it.
+.IP \fBPS2\fR
+Second prompt string, usually `>'.
+.B ksh
+prints it when it expects more input, such as when
+an open quotation-mark has been typed but a close
+quotation-mark has not been typed, or within a shell construct.
+.IP \fBPWD\fR
+The present working directory, i.e., the directory within which you are
+now working.
+.IP \fBSECONDS\fR
+The number of seconds since the current shell was started.
+.IP \fBSHELL\fR
+The full path name of the shell that you are now executing.
+.IP \fBTERM\fR
+The name of the type of terminal you are now using, as used by
+various programs for reading the file \fB/etc/termcap\fR.
+.IP \fBTIMEZONE\fR
+The current timezone you are located in, as set in your \fB.profile\fR.
+This is an interesting and powerful variable; see its entry in the Lexicon
+for details.
+.IP \fBUSER\fR
+The login-identifier of the user, i.e., you.
+.PP
+The following special forms substitute parameters conditionally:
+.IP "\fB${\fIname\fB-\fItoken\^\fB}\fR"
+Substitite
+.I name
+if it is set; if it is not, substitute
+.IR token .
+.IP "\fB${\fIname\fB=\fItoken\^\fB}\fR"
+Substitute
+.I name
+if it is set; if it is not set,
+substitute
+.I token
+and set
+.I name
+to equal
+.IR token .
+.IP "\fB${\fIname\fB+\fItoken\^\fB}\fR"
+Substitute
+.I token
+if
+.I name
+is set.
+.IP "\fB${\fIname\fB?\fItoken\^\fB}\fR"
+Substitute
+.I name
+if it is set; if it is not, print
+.I token
+and exit from the shell.
+.PP
+.II unset
+To unset an environmental variable, use the command
+.BR unset .
+.SH "Command Output Substitution"
+.B ksh
+can use the output of a command as shell input
+(as command arguments, for example)
+by enclosing the command in grave characters \(ga\ \(ga.
+For example, to list the contents of the directories named in file
+.BR dirs ,
+use the command
+.DM
+	ls -l \(gacat dirs\(ga
+.DE
+.SH Constructs
+.B ksh
+lets you control the execution of programs through the following constructs.
+It recognizes a construct only if it occurs unquoted as
+the first token of a command.
+This implies that a separator
+must precede each reserved word in the following constructs;
+for example, newline or `;' must precede
+.B do
+in the
+.B for
+construct.
+.IP "\fBbreak \fI[n]\fR"
+Exit from
+.BR for ,
+.BR until ,
+or
+.BR while .
+If
+.I n
+is given, exit
+from
+.I n
+levels.
+.IP "\fBcase \fItoken \fBin [ \fIpattern [ | pattern ] ...\fB) \fIsequence\fB;; ] ... esac\fR"
+Check
+.I token
+against each
+.IR pattern ,
+and execute
+.I sequence
+associated with the first matching
+.IR pattern .
+.IP "\fBcontinue \fI[n]\fR"
+Branch to the end of the
+.IR n th
+enclosing
+.BR for ,
+.BR until ,
+or
+.B while
+construct.
+.IP "\fBfor \fIname [ \fBin \fItoken ... ] \fBdo \fIsequence \fBdone\fR"
+Execute
+.I sequence
+once for each
+.IR token .
+On each iteration,
+.I name
+takes the value of the next
+.IR token .
+If the
+.B in
+clause is omitted,
+.B $@
+is assumed.
+For example, to list all files ending with
+.B .c:
+.DM
+	for i in *.c
+	do
+		cat $i
+	done
+.DE
+.IP "\fBif \fIseq1 \fBthen \fIseq2 [ \fBelif \fIseq3 \fBthen \fIseq4 ] ... [ \fBelse \fIseq5 ] \fBfi\fR"
+Execute
+.IR seq1 .
+If the exit status is zero, execute
+.IR seq2 ;
+if not, execute the optional
+.I seq3
+if given.
+If the exit status of
+.I seq3
+is zero, then execute
+.IR seq4 ,
+and so on.
+If the exit status of all tested sequences is nonzero, execute
+.IR seq5 .
+.\" .IP "\fBuntil \fIsequence1 [ \fBdo \fIsequence2 ] \fBdone\fR"
+.\" Execute
+.\" .I sequence2
+.\" until the execution of
+.\" .I sequence1
+.\" results in an exit status of zero.
+.IP "\fBtime \fIsequence\fR
+Time how long it takes
+.I sequence
+to execute.
+When
+.I sequence
+has finished executing, the time is displayed on the standard output.
+.IP "\fBwhile \fIsequence1 [ \fBdo \fIsequence2 ] \fBdone\fR"
+Execute
+.I sequence2
+as long as the execution of
+.I sequence1
+results in an exit status of zero.
+.IP "\fB(\fIsequence\^\fB)\fR"
+Execute
+.I sequence
+within a subshell.
+This allows
+.I sequence
+to change the current directory, for example,
+and not affect the enclosing environment.
+.IP "\fB{\fIsequence\^\fB}\fR"
+Braces simply enclose a
+.IR sequence .
+.SH "Built-in Commands"
+.B ksh
+executes most commands via the \fBfork\fR system call,
+which creates a new process.
+See the Lexicon articles on
+.B fork()
+and
+.B exec
+for details on these calls.
+\fBksh\fR also has the following commands built into itself.
+.IP "\fB. \fIscript\fR"
+Read and execute commands from
+.IR script .
+Positional parameters are not allowed.
+.B ksh
+searches the directories named in the environmental variable
+.B PATH
+to find the given
+.IR script .
+.IP "\fB: \fI[token ...]\fR"
+A colon `:' indicates a \*(QLpartial comment\*(QR.
+.B ksh
+normally ignores all commands on a line that begins with a colon,
+except for redirection and such symbols as
+.BR $ ,
+.BR { ,
+.BR ? ,
+etc.
+.IP \fB#\fR
+A complete comment:
+if
+.B #
+is the first character on a line, \fBksh\fR ignores all text that follows
+on that line.
+.\".IP "\fBalias \fI[\fB\-d\fI] [name\fB=\fIvalue ...]\fR"
+.IP "\fBalias \fI[name\fB=\fIvalue ...]\fR"
+When called without arguments,
+.B alias
+prints all aliases and their values.
+When called with a \fIname\fR but no associated value, then it prints
+the value of \fIname\fR.
+When called with a \fIname\fR and \fIvalue\fR combination, it associated
+\fIvalue\fR with \fIname\fR.
+.sp \n(pDu
+For example, the command
+.DM
+	alias logout='exit'
+.DE
+.sp \n(pDu
+binds the token \fBlogout\fR to the command \fBexit\fR:
+hereafter, whenever you type \fBlogout\fR, it will be as if you typed
+the \fBexit\fR command.
+.sp \n(pDu
+Note that when you define an alias, you should be careful not to
+write one that is self-referring, or
+.B ksh
+will go into an infinite loop when it tries to expand the alias.
+For example, the definition:
+.DM
+	# DO NOT DO THIS!
+	alias ls='ls -CF'
+.DE
+.sp \n(pDu
+will send
+.B ksh
+into an infinite loop, as it tries infinitely to replace
+.B ls
+with
+.BR ls .
+Rather, use the definition:
+.DM
+	# THIS IS CORRECT
+	alias ls='/bin/ls -CF'
+.DE
+.sp \n(pDu
+or
+.DM
+	# THIS TOO IS CORRECT
+	alias ls='  ls -CF'
+.DE
+.sp \n(pDu
+In the latter example, note the spaces between the first grave character
+and the
+.BR ls .
+.sp \n(pDu
+.\"The \fB\-d\fR option creates an alias for a directory.
+.\".sp \n(pDu
+.B ksh
+has a number of aliases set by default.
+See the section \fBAliases\fR, below, for details.
+.IP "\fBbind \fI[\fB\-m\fI] [key_sequence\fB=\fIbinding_name ...]\fR"
+When called without arguments, list the current set of key bindings
+for \*(ME-style editing of command lines.
+When called with arguments, bind the
+.I key_sequence
+to
+.I binding_name.
+.sp \n(pDu
+For example, the command
+.DM
+	bind '^[^H'=delete-word-backward
+.DE
+.sp \n(pDu
+binds the editing command \fBdelete-word-backward\fR to the key sequence
+\fB<esc><backspace>\fR.
+Note that the carat characters in this command are literally that, not
+the shell's representation of a literal \fB<esc>\fR or \fB<backspace>\fR
+character.
+.sp \n(pDu
+When called with the \fB\-m\fR option, bind more than one \fIbinding_name\fR
+to a given \fIkey_sequence\fR.
+This lets you build keyboard macros, to perform complex editing tasks with
+one or two keystrokes.
+.sp \n(pDu
+For details, see the sections below on command-line editing.
+.IP "\fBbuiltin \fIcommand\fR"
+Execute
+.I command
+as a built-in command.
+.IP "\fBcd \fIdir\fR"
+Change the working directory to
+.I dir.
+If no argument is given, change to the home directory as set by the
+environmental variable
+.BR HOME .
+When invoked, it also changes the environmental variables
+.B PWD
+and
+.BR OLDPWD .
+.sp \n(pDu
+Using a hyphen `-' as the argument causes
+.B ksh
+to change to the previous directory, i.e., the one indicated by shell variable
+.BR OLDPWD .
+In effect, this swaps
+.B OLDPWD
+and
+.BR PWD ,
+thus allowing you to flop back and forth easily between two directories.
+.\" .IP "\fBdirs\fR"
+.\" .B ksh
+.\" lets you maintain a ``directory stack'', or stack of names of
+.\" directories.
+.\" You can push, pop, and otherwise manipulate the contents of this stack,
+.\" which you can use for any purpose for which you need to access a number
+.\" of directory names quickly.
+.\" The command
+.\" .B dirs
+.\" prints the contents of the directory stack.
+.\" The commands
+.\" .B pushd
+.\" and
+.\" .B popd
+.\" also manipulate the directory stack.
+.IP "\fBecho \fItoken ...\fR"
+Echo
+.I token
+onto the standard output.
+\fBksh\fR replaces the command
+.B echo
+with the alias
+.BR "echo='print'" .
+.IP "\fBeval \fI[token ...]\fR"
+Evaluate each
+.I token
+and treat the result as shell input.
+.IP "\fBexec \fI[command]\fR"
+Execute
+.I command
+directly rather than as a subprocess.
+This terminates the current shell.
+.IP "\fBexit \fI[status]\fR"
+Set the exit status to
+.IR status ,
+if given, then terminate; otherwise, the previous status is used.
+.IP "\fBexport \fI[name ...]\fR"
+.B ksh
+executes each command in an
+.IR environment ,
+which is essentially a set of shell variable names and
+corresponding string values.
+It inherits an
+environment when invoked, and normally it passes the same environment
+to each command it invokes.
+.B export
+specifies that the shell should pass the modified value of each given
+.I name
+to the environment of subsequent commands.
+When no
+.I name
+is given,
+.B ksh
+prints the name of each variable marked for export.
+.IP "\fBexport \fIVARIABLE\fB=\fIvalue\fR"
+This form of the
+.B export
+command sets
+.I VARIABLE
+to
+.IR value ,
+and exports it.
+Thus, the command
+.DM
+	export FOO=bar
+.DE
+.sp \n(pDu
+is equivalent to the commands:
+.DM
+	FOO=bar
+	export FOO
+.DE
+.IP "\fBfc \fI[\fB\-l\fI] [\fB\-n\fI] [first [last]]\fR"
+Draw the previously executed commands
+.I first
+through
+.I last
+back for manipulation and possible execution.
+.I first
+and
+.I last
+can be referenced either by their history numbers, or by a string with
+which the command in question begins.
+Normally, the commands are pulled into an editor for manipulation before
+they are executed; the editor is defined by the environmental variable
+.B FCEDIT
+(default, \fBed\fR).
+The commands in question are executed as soon as you exit from the editor.
+Option
+.B \-l
+lists the command(s) on \fBstdout\fR, and so suppresses the editing feature.
+Option
+.B \-n
+inhibits the default history numbers.
+.\".IP "\fBfc \-s \fI[old\fB=\fInew] [command]\fR"
+.\"Re-execute
+.\".I command
+.\"after substituting string
+.\".I new
+.\"for
+.\".I old.
+.IP "\fBfunction \fIfuncname\fB { \fIscript \fB}\fR"
+Define function
+.B funcname
+for the shell to execute.
+For example
+the following defines function
+.B get_name
+for the shell:
+.DM
+	function get_name {
+		echo -n Please enter your name ...
+		read name
+		return 0
+	}
+.DE
+.sp \n(pDu
+When
+.B ksh
+encounters
+.BR get_name ,
+it runs the above-defined function, rather than trying to find
+.B get_name
+on the disk.
+Note that the return status can be any valid status and can be checked
+in the code that called
+.B get_name
+by reading the shell variable \fB$?\fR (described above),
+or by using the function as the argument to an \fBif\fR statement.
+This allows you to build constructs like the following:
+.DM
+	if get_name; then
+		do_something
+	else
+		do_something_else
+	fi
+.DE
+.sp \n(pDu
+To list all defined functions, type the alias
+.BR functions .
+To receive detailed information on a defined function, use the command
+\fBtype \fIname\fR
+where
+.I name
+is the name of the function in which you are interested.
+.IP "\fBgetopts \fIoptstring name [arg ...]\fR"
+Parse the
+.IR arg s
+to
+.IR command.
+See the Lexicon entry for
+.B getopts
+for details.
+.IP "\fBhash \fI[\fB\-r\fI] [name ...]\fR"
+When called without arguments,
+.B hash
+lists the path names of all hashed commands.
+When called with
+.I name
+.B hash
+check to see if it is an executable command, and if so
+adds it to the shell's hash list.
+The \fB\-r\fR option removes
+.I name
+from the hash list.
+.IP "\fBkill \fI[\fB\-l\fI] [signal] process ...\fR"
+Send
+.I signal
+to
+.IR process .
+The default signal is
+.BR TERM ,
+which terminates the process.
+.I signal
+may either be a number or a mnemonic as \fB#define\fRd in header file
+.BR "<signal.h>" .
+When called with the \fB\-l\fR option, it lists all known types of signals.
+See the Lexicon entry for \fBkill\fR for details.
+.IP "\fBlet \fI[expression]\fR"
+Evaluate each
+.I expression.
+This command returns zero if
+.I expression
+evaluates to non-zero (i.e., fails), and returns non-zero if it evalutes to
+zero (i.e., succeeds).
+This is useful for evaluating expressions before actually executing them.
+.IP "\fBprint \fI[\fB\-nreu\fIn] [argument ...]\fR"
+Print each
+.I argument
+on the standard output, separated by spaces and terminated with a newline.
+Option
+.B \-n
+suppresses printing of the newline.
+Option \fB\-u\fIn\fR redirects output from the standard output
+to file descriptor \fIn\fR.
+.sp \n(pDu
+Note that each
+.I argument
+can contain the following standard C escape characters:
+.BR \eb ,
+.BR \ef ,
+.BR \en ,
+.BR \er ,
+.BR \ev ,
+and
+.BI \e ###.
+See the Lexicon article on \fBC Language\fR for details each character's
+meaning.
+The option
+.B \-r
+inhibits this feature, and the
+.B \-e
+option re-enables it.
+.\" .IP "\fBpopd \fI[N ...]\fR"
+.\" Pop the directory stack.
+.\" When used without an argument, it pops the stack once.
+.\" When used with one or more numeric arguments,
+.\" .B popd
+.\" pops the specified items from the stack; item 0 is the top of the stack.
+.\" (For information on the directory stack, see the entry for the command
+.\" .BR dirs ,
+.\" above.)
+.\" .IP "\fBpushd \fI[dir0 ... dirN]\fR"
+.\" Push
+.\" .I dir0
+.\" through
+.\" .I dirN
+.\" onto the directory stack, and
+.\" change the current directory to the last directory pushed onto the stack.
+.\" When called without an argument,
+.\" .B pushd
+.\" exchanges the two top stack elements.
+.\" (For information on the directory stack, see the entry for the command
+.\" .BR dirs ,
+.\" above.)
+.IP "\fBread \fIname ...\fR"
+Read a line from the standard input and assign each token of the input
+to the corresponding shell variable
+.IR name .
+If the input contains fewer tokens than the
+.I name
+list, assign the null string to extra variables.
+If the input contains more tokens, assign the last
+.I name
+the remainder of the input.
+.IP "\fBreadonly \fI[name ...]\fR"
+Mark each shell variable
+.I name
+as a read-only variable.
+Subsequent assignments to read-only variables will not be permitted.
+With no arguments, print the name and value of each read-only variable.
+.IP "\fBreturn \fI[status]\fR"
+Return
+.I status
+to the parent process.
+.IP "\fBset \fI[\fB\-aefhkmnuvx \fI[\fB\-o \fIkeyword] [name ...] ]\fR"
+Set listed flag.
+The \fB\-o\fR option sets \fIkeyword,\fR
+where
+.I keyword
+is a shell option.
+.sp \n(pDu
+When used with one or more
+.I names,
+this command sets shell variables
+.I name ...
+to values of positional parameters beginning with
+.BR $1 .
+.sp \n(pDu
+For example, the command
+.DM
+	set -h -o emacs ignoreeof
+.DE
+.sp \n(pDu
+performs the following:
+turns on hashing for all commands, turns on \*(ME-style command-line
+editing, and turns off exiting upon EOF (that is, you must type \fBexit\fR
+to exit from the shell).
+\fBset\fR commands are especially useful when embedded in your \fB.profile\fR,
+where they can customize \fBksh\fR to your preferences.
+.sp \n(pDu
+For details of this command, see its Lexicon entry.
+.IP \fBshift\fR
+Rename positional parameter
+.B 1
+to current value of
+.B $2,
+and so on.
+.IP "\fBtest \fI[option] [expression]\fR"
+Check
+.I expression
+for condition 
+.I option.
+This is a useful and complex command, with more options than can be listed
+here.
+See its Lexicon entry for details.
+.IP \fBtimes\fR
+Print on the standard output a summary of processing time used by the
+current shell and all of its child processes.
+.IP "\fBtrap \fI[command] [n ...]\fR"
+Execute
+.I command
+if
+.B ksh
+receives signal
+.I n.
+If
+.I command
+is omitted, reset traps to original values.
+To ignore a signal, pass null string as
+.I command.
+With
+.I n
+zero, execute
+.I command
+when the shell exits.
+With no arguments, print the current trap settings.
+.IP "\fBtypeset \fI[\fB\-firx\fI] [\fB+firx\fI] [name [\fB=\fIvalue] ... ]\fR"
+When called without an argument, this command lists all
+variables and their attributes.
+.sp \n(pDu
+When called with an option but without a \fIname\fR,
+it lists all variables that have the specified attribute; \fB-\fR tells
+.B typeset
+to list the value of each variable and \fB+\fR tells it not to.
+.sp \n(pDu
+When called with one or more
+.I names,
+it gives
+.I name
+to the listed attribute.
+If
+.I name
+is associated with a
+.I value,
+.B typeset
+also assigns the
+.I value
+to it.
+.sp \n(pDu
+.B typeset
+recognizes the following attributes:
+.sp \n(pDu
+.nf
+	\fB\-i\fR	Store variable's value as an integer
+	\fB\-f\fR	List function instead of variable
+	\fB\-r\fR	Make the variable read-only
+	\fB\-x\fR	Export variable to the environment
+.fi
+.IP "\fBumask \fI[nnn]\fR"
+Set user file creation mask to
+.I nnn.
+If no argument is given, print the current file creation mask.
+.\".IP "\fBunalias \fI[\fB\-d\fI] name ...\fR"
+.IP "\fBunalias \fIname ...\fR"
+Remove the alias for each
+.IR name .
+.\"The \fB\-d\fR option unaliases an alias for a directory.
+.IP "\fBwait \fI[pid]\fR"
+Hold execution of further commands until process
+.I pid
+terminates.
+If
+.I pid
+is omitted, wait for all child processes.
+If no children are active, this command finishes immediately.
+.IP "\fBwhence \fI[\fB\-v\fI] name ...\fR"
+List the type of command for each
+.I name.
+When called with the \fB\-v\fR option,
+also list functions and aliases.
+.\" .SH "Command-line Options"
+.\" .IP "\fB\-c \fIstring\fR" 0.4i
+.\" Read shell commands from
+.\" .I string.
+.\" .IP \fB\-e\fR
+.\" Exit on any error (command not found or command returning nonzero status)
+.\" if the shell is not interactive.
+.\" .IP \fB\-i\fR
+.\" The shell is interactive, even if the terminal is not attached to it;
+.\" print prompt strings.
+.\" For a shell reading a script, ignore the signals
+.\" .B SIGTERM
+.\" and
+.\" .BR SIGINT .
+.\" .IP \fB\-k\fR
+.\" Place all keyword arguments into the environment.
+.\" Normally,
+.\" .B ksh
+.\" places only assignments to variables preceding
+.\" the command into the environment.
+.\" .IP \fB\-n\fR
+.\" Read commands but do not execute them.
+.\" .IP \fB\-s\fR
+.\" Read commands from the standard input
+.\" and write shell output to the standard error.
+.\" .IP \fB\-t\fR
+.\" Read and execute one command rather than the entire file.
+.\" .IP \fB\-u\fR
+.\" If the actual value of a shell variable is blank,
+.\" report an error rather than substituting the null string.
+.\" .IP \fB\-v\fR
+.\" Print each line as it is read.
+.\" .IP \fB\-x\fR
+.\" Print each command and its arguments as it is executed.
+.\" .IP \fB\-\fR
+.\" Cancel the
+.\" .B \-x
+.\" and
+.\" .B \-v
+.\" options.
+.\" .PP
+.\" If the first character of argument 0 is `-',
+.\" .B ksh
+.\" reads and executes the scripts
+.\" .B /etc/profile
+.\" and
+.\" .B $HOME/.profile
+.\" before reading the standard input.
+.\" .B /etc/profile
+.\" is a convenient place for initializing system-wide variables, such as
+.\" .BR TIMEZONE .
+.SH Aliases
+.B ksh
+implements as aliases a number of commands that
+.B sh
+calls as separate executable programs.
+The
+.B echo
+alias, for instance, does everything that
+.B /bin/echo
+does, but \fBksh\fR does not have to
+.B fork()
+and
+.B exec()
+simply to echo a token.
+Other aliases, like
+.BR pwd ,
+work by printing the contents of shell variables.
+The command
+.B /bin/pwd
+still works should you prefer it, but you must request it
+by its full path name should you not wish to use the much faster alias version.
+.PP
+.B ksh
+sets the following aliases by default.
+If you wish, you can use the built-in command
+.B unalias
+to make one or all of them go away.
+.sp \n(pDu
+.nf
+.B
+	echo=print
+	false=let
+	functions=typeset -f
+	history=fc -l
+	integer=typeset -i
+	login=exec login
+	newgrp=exec newgrp
+	pwd=print -r $PWD
+	true=:
+	type=whence -v
+.R
+.fi
+.PP
+The alias
+.B history
+is especially useful when you are using the Korn shell's history feature.
+When invoked with no argument, it prints the last 13 commands you typed.
+When invoked with one numeric argument, it lists the command that
+corresponds to that argument; for example
+.DM
+	history 106
+.DE
+.PP
+prints the 106th command you entered (assuming that you've entered
+that many).
+When used with two numeric arguments, it prints the range of
+commands between the two arguments; for example
+.DM
+	history 10 99
+.DE
+.PP
+prints the tenth through the 99th commands you entered.
+.SH "Job Control"
+.B ksh
+lets you manipulate and monitor background jobs via its
+.I "job control"
+commands.
+.PP
+The following commands manipulate background jobs:
+.IP \fBjobs\fR
+Display information about all controlled jobs.
+Information is in the following format:
+.sp \n(pDu
+	\fB%\fInum\fB [+-] \fIpid status command\fR
+.sp \n(pDu
+where
+.I num
+indicates the job number,  
+`+' indicates the current job, `-' indicates the previous job,
+.I pid
+is the job's process identifier,
+.I status
+shows the status of the job (e.g., Running, Done, Killed), and
+.I command
+is the command description.
+Note that
+.B ksh
+only checks for changes in job status when waiting for a command to complete.
+.IP "\fBkill \fI[\fB\-\fIsignal] pid ...\fR"
+Described above.
+.IP "\fBwait \fI[pid]\fR"
+Hold execution of further commands until process
+.I pid
+terminates.
+See its Lexicon entry for details.
+.PP
+The following `%' syntax can be used with the above commands:
+.IP \fB%+\fR
+Select the current job.
+.IP \fB%-\fR
+Select the previous job.
+.IP \fB%\fInum\fR
+Select the job with job number
+.IR num .
+.IP \fB%\fIstring\fR
+Select the most recently invoked job whose command begins with \fIstring\fR.
+.IP \fB%?\fIstring\fR
+Select the most recently invoked job whose command contains \fIstring\fR.
+.SH "vi-Style Command-line Editing"
+.BR ksh ,
+has built into it an editing feature
+that lets you recall and edit commands using \fBvi\fR-style editing
+commands.
+When you have finished editing, simply typing \*(RT dispatches
+the command for re-execution.
+.PP
+To turn on \fBvi\fR-style editing, use the command
+.DM
+	set -o vi
+.DE
+.PP
+The following table gives each input-mode command:
+.IP \fB\e\fR 0.75i
+Escape the next erase or kill character.
+.IP \fB<ctrl-D>\fR
+This character (EOF) terminates
+.B ksh
+if the current line is empty.
+Note that the command
+.DM
+	alias logout='exit'
+.DE
+.IP
+neutralizes this effect of EOF.
+.IP \fB<ctrl-H>\fR
+Delete previous character \(em that is, the character to the left.
+.IP \fB<ctrl-V>\fR
+Quote the next character.
+You can use this to embed editing and kill characters within a command.
+.IP \fB<ctrl-W>\fR
+Delete the previous word.
+A ``word'' is any clump of text delineated by white space.
+.IP \fB<ctrl-J>\fR
+.IS \fB<ctrl-M>\fR
+.IS \*(RT
+Execute this line.
+.PP
+The following table gives each editing-mode command:
+.IP "\fI[count] \fBk\fR" 0.75i
+.IS "\fI[count] \fB\-\fR"
+Get previous command from the history buffer.
+.IP "\fI[count] \fBj\fR"
+.IS "\fI[count] \fB+\fR"
+Get next command from the history buffer.
+.IP "\fI[count] \fBG\fR"
+Get command
+.I count
+from the history buffer.
+Default is the least recently entered command.
+.IP \fB/\fIstring\fR
+Search the history buffer for the most recently entered command that contains
+.IR string .
+If
+.I string
+is NULL, use the previous string.
+.I string.
+must be terminated by
+.B <ctrl-M>
+or
+.BR <ctrl-J> .
+.IP \fB?\fIstring\fR
+Same as \fB/\fR, except that
+.B ksh
+seeks the least recently entered command.
+.IP \fBn\fR
+Repeat the previous search.
+.IP \fBN\fR
+Repeat the last search, but in the opposite direction.
+.IP "\fI[count] \fBl\fR"
+Move right
+.I count
+characters (default, one).
+.IP "\fI[count] \fBw\fR"
+Move forward
+.I count
+alphanumeric words (default, one).
+.IP "\fI[count] \fBW\fR"
+Move forward
+.I count
+blank-separated words (default, one).
+.IP "\fI[count] \fBe\fR"
+Move forward to the end of the \fIcount\fR'th word.
+.IP "\fI[count] \fBE\fR"
+Move forward to the end of the \fIcount\fR'th blank-separated word.
+.IP "\fI[count] \fBh\fR"
+Move left
+.I count
+characters (default, one).
+.IP "\fI[count] \fBb\fR"
+Move back
+.I count
+words.
+.IP "\fI[count] \fBB\fR"
+Move back
+.I count
+blank-separated words.
+.IP \fB0\fR
+Move cursor to start of line.
+.IP \fB^\fR
+Move cursor to start of line.
+.IP \fB$\fR
+Move cursor to end of line.
+.IP "\fI[count] \fBf \fIc\fR"
+Move rightward to the \fIcount\fR'th occurrence of character
+.IR c .
+.IP "\fI[count] \fBB \fIc\fR"
+Move leftward to the \fIcount\fR'th occurrence of character
+.IR c .
+.IP "\fI[count] \fBt \fIc\fR"
+Move rightward \fIalmost\fR to the \fIcount\fR'th occurrence of character
+.I c
+(default, one).
+Same as
+.BI f c
+followed by
+.BR h .
+.IP "\fI[count] \fBT \fIc\fR"
+Move leftward \fIalmost\fR to the \fIcount\fR'th occurrence of character
+.I c
+(default, one).
+Same as
+.BI F c
+followed by
+.BR l .
+.IP \fB;\fR
+Repeats the last
+.BR f ,
+.BR F ,
+.BR t ,
+or
+.B T
+command.
+.IP \fB,\fR
+Reverse of \fB;\fR.
+.IP \fBa\fR
+Enter input mode and enter text after the current character.
+.IP \fBA\fR
+Append text to the end of the line; same as
+.BR $a .
+.IP "\fI[count]\fBc\fIc\fR"
+.IS "\fBc\fI[count]c\fR"
+Delete current character through character
+.I c
+and then execute input line.
+.IP \fBs\fR
+Same as
+.BR cc .
+.IP \fI[count]\fBd\fImotion\fR
+.IS \fBd\fI[count]c\fR
+Delete current character through the character
+.IR c .
+.IP \fBD\fR
+Delete current character through the end of line.
+Same as
+.BR d$ .
+.IP \fBi\fR
+Enter input mode and insert text before the current character.
+.IP \fBI\fR
+Enter input mode and insert text before the first word on the line.
+.IP \fI[count]\fBP\fR
+Place the previous text modification before the cursor.
+.IP \fI[count]\fBp\fR
+Place the previous text modification after the cursor.
+.IP \fBR\fR
+Enter input mode and overwrite characters on the line.
+.IP \fBr\fIc\fR
+Replace the current character with character
+.IR c .
+.IP \fI[count]\fBx\fR
+Delete the current character.
+.IP \fI[count]\fBX\fR
+Delete the preceding character.
+.IP \fI[count]\fB.\fR
+Repeat the previous text modification command
+.IP \fB~\fR
+Invert the case of the current character and advance the cursor.
+.IP \fI[count]\fB_\fR
+Append the
+.IR count 'th
+word from the previous command and enter input mode
+(default, last word).
+.IP \fB*\fR
+Attempt file-name generate on the current word.
+If a match is found, replace the current word with the match
+and enter input mode.
+.IP \fBu\fR
+Undo the last text-modification command.
+.IP \fBU\fR
+Restore the current line to its original state.
+.IP \fI[count]\fBv\fR
+Execute command
+.DM
+	fc -e ${VISUAL:-${EDITOR:-vi}}
+.DE
+.IP \fB<ctrl-L>\fR
+Line feed and print the current line.
+.IP \fB<ctrl-J>\fR
+.IS \fB<ctrl-M>\fR
+.IS \*(RT
+Execute the current line.
+.IP \fB#\fR
+Same as
+.BR I#<return> .
+.SH "Command Completion"
+.B ksh
+supports
+.IR "command completion" .
+This feature permits you to invoke a command by typing only a fraction
+of it;
+.B ksh
+fleshes out the command, based on what commands you have already entered.
+.PP
+To invoke command completion,
+set the following in \fB.profile\fR or \fB.kshrc\fR:
+.DM
+	set -h -o emacs
+.DE
+.PP
+or:
+.DM
+	set -h -o vi
+.DE
+.PP
+This turns on hashing and tracking.
+It also turn on command-line editing:
+the former command turns on \*(ME-style editing,
+whereas the latter turn on
+.BR vi -style
+editing.
+.PP
+As an example, say that you type the following commands:
+.DM	
+	compress foo.tar
+	ps alx
+	df -t
+.DE
+.PP
+With \*(ME-style editing,
+if you type \fB<ctrl-X>?\fR, you then see the commands you typed
+in alphabetical
+order:
+.DM
+	compress     df     ps
+.DE
+.PP
+If you want to re-invoke the \fBcompress\fR command without having to type
+all of it, you can use either type \fB<ctrl-R>\fR followed by `c'
+to use the shell's reverse-search capabilities;
+or you can type `c' followed by \fB<esc><esc>\fR
+to have the shell's command-completion facility complete the command.
+.PP
+If you use the reverse-incremental
+search, you get the entire command line as you had typed it.
+Additional uses of \fB<ctrl-R>\fR
+while already in search mode tell \fBksh\fR to
+search further back in its history list of commands.
+.PP
+If, however, you use the command completion, you get only the command.
+So, to continue the
+example, if you type the letter `c' followed by \fB<esc><esc>\fR
+.B ksh
+displays the word
+.BR compress ,
+followed by a \fB<space>\fR, and awaits more input.
+.PP
+In general, the reverse-search is better if you wish to re-execute an
+entire command; but command completion is better if
+you want just the command name.
+.PP
+Under
+.BR vi -style
+editing, you can also use command completion.
+To complete a command, type `*' while in edit mode; or type
+.B <esc>*
+while in input mode.
+.SH "File-Name Completion"
+.B ksh
+also lets you ``complete'' file names and directory names, just like you
+complete command names.
+With \*(ME-style editing,
+the file-completion command is
+.BR <esc><esc> ;
+with
+.BR vi -style
+editing, the file-completion command is `*'
+(in edit mode) or
+.B <esc>*
+(in input mode).
+.PP
+If you are entering a file name and have
+specified enough of the name in order to specify a
+unique file, typing the file-completion command
+completes the file name or directory name.
+If you have not typed enough,
+.B ksh
+remains silent;
+type more characters of the file name, then again try
+the file-completion command.
+If you enter a bogus file name or directory name,
+.B ksh
+beeps to indicate that it cannot complete the given name.
+When
+.B ksh
+completes a file name, it then prints a space character.
+This indicates that the string names
+a file (rather than a directory);
+the space character lets you begin immediately to type the next argument.
+When
+.B ksh
+completes a directory name, it appends a slash (`/') instead of a space
+character, and waits for you to type the next part of the path name.
+.PP
+For example, if you type
+.DM
+	ls -l /usr/spool/uucp
+.DE
+.PP
+followed by
+.BR <esc><esc> ,
+nothing happens because
+of the ambiguity between directory names
+.B /usr/spool/uucp/
+and
+.BR /usr/spool/uucppublic/ .
+.PP
+If you then type the
+letter `p', the command now appears:
+.DM
+	ls -l /usr/spool/uucpp
+.DE
+.PP
+Typing
+.B <esc><esc>
+now expands it out to
+.DM
+	ls -l /usr/spool/uucppublic/
+.DE
+.PP
+which is the name you desire.
+Note that
+.B ksh
+appends the
+trailing slash and waits for more.
+.PP
+A file-name completion example is:
+.DM
+	more /usr/lib/uucp/P
+.DE
+.PP
+followed by
+.BR <esc><esc> ;
+this yields:
+.DM
+	more /usr/lib/uucp/Permissions
+.DE
+.PP
+which saves you eight keystrokes.
+.SH "\&.profile and .kshrc"
+When a user of the Korn shell logs into \*(CO,
+.B ksh
+first executes the script
+.BR /etc/profile .
+This sets up default environmental variables for every user on the
+system, such as the default
+.B PATH
+and the default
+.B TERM
+variables.
+.PP
+Next,
+.B ksh
+executes the script
+.B .profile
+in the user's home directory.
+You can customize this file to suit your preferences.
+For example, you can set up a customized
+.BR PATH ,
+define aliases, and have the shell execute some programs automatically
+(such as \fBcalendar\fR or \fBfortune\fR).
+.PP
+Finally,
+.B ksh
+executes the script named in the environmental variable
+.B ENV
+whenever you invoke a shell.
+By custom, this script is named \fB.kshrc\fR and is kept in your home
+directory, but you name it anything you wish.
+This file should define how you want the shell itself to function.
+In this way, you can ensure that your settings will be available to
+all subshells, as well as to your login shell.
+If you wish to hide these settings from subshells, just conclude your
+.B .kshrc
+with the command:
+.DM
+	unset ENV
+.DE
+.PP
+For more information, see the Lexicon articles \fBprofile\fR, \fB.profile\fR,
+and \fB.kshrc\fR.
+.SH Example
+The following C code creates a program called \fBsplurt.c\fR.
+It demonstrates numbered redirection of \fBksh\fR, by
+writing to five streams without opening them.
+Compile it with the command:
+.DM
+	cc -o splurt splurt.c
+.DE
+.PP
+To call it from the command line, you could type a command of the form:
+.DM
+	splurt	3> splurt3 4> splurt4 5> splurt5 6> splurt6 7> splurt7
+.DE
+.PP
+This will redirect the \fBsplurt\fR's output into files
+.B splurt3
+through
+.BR splurt7 .
+.DM
+#include <stdio.h>
+main()
+{
+	int i;
+	char buf[50];
+.DE
+.DM
+	for(i = 3; i < 8; i++) {
+		sprintf(buf, "For fd %d\en", i);
+		write(i, buf, strlen(buf));
+	}
+}
+.DE
+.SH Files
+\fB/etc/profile\fR \(em System-wide initial commands
+.br
+\fB$HOME/.kshrc\fR \(em Set up user-specific environment
+.br
+\fB$HOME/.profile\fR \(em User-specific initial commands
+.br
+\fB/dev/null\fR \(em For background input
+.\" .br
+.\" \fB/tmp/ksh*\fR \(em Temporary files
+.SH "See Also"
+.Xr "bind," bind
+.Xr "commands," commands
+.Xr "dup()," dup
+.Xr "environ," environ
+.Xr "exec," exec
+.Xr "fork()," fork
+.Xr "getopts," getopts
+.Xr "jobs," jobs
+.Xr "kill," kill
+.Xr ".kshrc," kshrc.p
+.Xr "login," login
+.Xr "newgrp," newgrp
+.Xr "profile," profile
+.Xr "set," set
+.Xr "sh," sh
+.Xr "signal()," signal
+.Xr "test," test
+.Xr "Using COHERENT," using_coh
+.Xr "vsh," vsh
+.Xr "wait" wait
+.PP
+For a list of commands associated with
+.BR ksh ,
+see the
+.B "Shell Commands"
+section of the
+.B Commands
+Lexicon article.
+.PP
+\fIIntroduction to sh, the Bourne Shell\fR, tutorial
+.SH Notes
+Note that the queue of previously issued commands is stored in memory,
+not on disk.
+.PP
+This version of
+.B ksh
+does not support variable arrays.
+.PP
+.II "Forsyth, C."
+.II "Gisin, E."
+.II "Natalie, R."
+.II "Robbins, A."
+.II "Gwynn, D."
+.II "Baalbergen, E."
+The Mark Williams version of
+.B ksh
+is based on the public-domain version of the Korn shell, which in turn
+is based on the public-domain version of the seventh edition
+Bourne shell written by Charles Forsyth and modified
+by Eric Gisin, Ron Natalie, Arnold Robbins, Doug Gwyn,
+and Erik Baalbergen.

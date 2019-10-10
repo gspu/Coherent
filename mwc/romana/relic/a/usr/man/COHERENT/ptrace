@@ -1,0 +1,132 @@
+
+
+ptrace()               COHERENT System Call              ptrace()
+
+
+
+
+Trace process execution
+
+#include <signal.h>
+iinntt ppttrraaccee(_c_o_m_m_a_n_d, _p_i_d, _l_o_c_a_t_i_o_n, _v_a_l_u_e)
+iinntt _c_o_m_m_a_n_d, _p_i_d, *_l_o_c_a_t_i_o_n, _v_a_l_u_e;
+
+ptrace provides  a parent process with  primitives to monitor and
+alter the  execution of a child  process.  These primitives typi-
+cally are used  by a debugger such as db,  which needs to examine
+and change  memory, plant breakpoints, and  single-step the child
+process being debugged.
+
+Once a child process indicates it wishes to be traced, its parent
+issues various commands to control the child.  pid identifies the
+affected process.   The parent may issue a  command only when the
+child process is in a  stopped state, which occurs when the child
+encounters a  signal.  A special  return value of  0177 from wait
+informs the parent that  the child has entered the stopped state.
+The parent  may then examine  or change the  child process memory
+space or restart the process at any point.
+
+When the child process issues  an exec, the child stops with sig-
+nal SIGTRAP  to enable the parent to  plant breakpoints.  The set
+user  id and  set group  id modes are  ineffective when  a traced
+process performs an exec.
+
+The following  list describes each available  command.  A command
+ignores any arguments not mentioned.
+
+00    This  is the only  command the child process  may issue.  It
+     tells the system that the child wishes to be traced.  Parent
+     and child  must agree that  tracing should occur  to achieve
+     the  desired  effect.  Only  the  command  argument is  sig-
+     nificant.
+
+11,22  The  int at  location is the  return value.  Command  1 sig-
+     nifies that  location is  in the instruction  space, whereas
+     command 2 signifies  data space.  Often these two spaces are
+     equivalent.
+
+33    The  return value is the int of  the process description, as
+     defined  in sys/uproc.h.   This call may  be used  to obtain
+     values  such  as  hardware  register  contents  and  segment
+     allocation information.
+
+44,55  Modify  the child  process's memory  by changing the  int at
+     location to  value.  Command  4 means instruction  space and
+     command 5 means  data space.  Shared segments may be written
+     only if no other executing process is using them.
+
+66    Modify the int  at location in the process description area,
+     as with command  3.  The permissible values for location are
+     restricted to such  things as hardware registers and bits of
+     machine status registers that the user may safely change.
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+ptrace()               COHERENT System Call              ptrace()
+
+
+
+
+77    This command restarts the stopped child process after it en-
+     counters a  signal.  The process resumes  execution at loca-
+     tion, or  from where the process was  stopped if location is
+     (int  *)1.  value  gives a  signal  number that  the process
+     receives as it restarts.  This is normally the number of the
+     signal  that caused  the process to  stop, fetched  from the
+     process description area by  a 33 command.  If value is zero,
+     the effect of the signal is ignored.
+
+88    Force the child process to exit.
+
+99    Like command 77, except  that the child stops again with sig-
+     nal SIGTRAP as soon as practicable after the execution of at
+     least one  instruction.  The actual hardware  method used to
+     implement this  command varies from machine  to machine, ex-
+     plaining the imprecise  nature of its definition.  This call
+     may provide part of the basis for breakpoints.
+
+***** Files *****
+
+<signal.h>
+<sys/uproc.h>
+
+***** See Also *****
+
+db, COHERENT system calls, exec, signal(), wait()
+
+***** Diagnostics *****
+
+ptrace returns  -1 if pid  is not the  process id of  an eligible
+child  process or  if some  other argument is  invalid or  out of
+bounds.   Some commands  may return an  arbitrary data  value, in
+which case errno should  be checked to distinguish a return value
+of -1 from an error return.
+
+***** Notes *****
+
+There  is no  way to  specify which signals  should not  stop the
+process.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+

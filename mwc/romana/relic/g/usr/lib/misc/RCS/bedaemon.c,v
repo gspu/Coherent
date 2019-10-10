@@ -1,0 +1,115 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    root:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.09.07.16.31.24;  author root;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.09.07.16.27.40;  author root;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.28.11.15.39;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@Changed for 4.2 headers
+@
+text
+@/* 
+ * Disassociate from controling terminal and process
+ * group. Close all open files.
+ */
+#include	<stdio.h>
+#include	<signal.h>
+#include	<kernel/param.h>
+
+bedaemon()
+{
+	int	child_pid;
+	int	fd;
+	
+	/* Daemon does its own sigsetup. Do it to be standard module for all 
+	 * daemon processes do this extra signal here.
+	 */
+	signal(SIGHUP, SIG_IGN);	/* immune from the group leader death */
+
+	/* When we did not start from background fork and let parent die. */
+	if ((child_pid = fork()) < 0) {
+		fprintf(stderr, "cron: cannot fork\n");
+		exit(1);
+	} else
+		if (child_pid > 0)	/* parent */
+			exit(0);
+	
+	/* Disassociate from controlling terminal & process group */
+	setpgrp();
+	
+	/* This fork should garantee that process can't reacquire a new 
+	 * controlling terminal.
+	 */
+	if ((child_pid = fork()) < 0) {
+		fprintf(stderr, "cron: cannot fork\n");
+		exit(1);
+	} else
+		if (child_pid > 0)	/* parent */
+			exit(0);
+	
+	/* Close all open files, chdir "/", and umask(0). */
+	for (fd = 0; fd < NOFILE; fd++)
+		close(fd);
+	
+	chdir("/");
+	umask(0);	/* We do not want any surprise with file creation */
+}
+
+#ifdef TEST
+main()
+{
+	bedaemon();
+	sleep(100);
+}
+#endif
+
+
+
+
+
+@
+
+
+1.2
+log
+@Unknown
+@
+text
+@d7 1
+a7 1
+#include 	<sys/param.h>
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d41 1
+a41 1
+	for (fd = 0; fd < NUFILE; fd++)
+@

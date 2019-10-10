@@ -1,0 +1,63 @@
+# adj_proto - fix number of blocks and number of inodes
+
+# need at least a block count
+
+if [ $# -lt 1 ]; then
+	echo "Usage: adj_proto block_count protofile..."
+	exit 1
+fi
+
+BLOCK_COUNT=$1
+
+# Sanity range check on BLOCK_COUNT
+
+if [ $BLOCK_COUNT -lt 2000 -o $BLOCK_COUNT -gt 3000 ]; then
+	echo "adj_proto $*:"
+	echo "Block count is \"$BLOCK_COUNT\", expect value 2000..3000." \
+	"  Exiting."
+	exit 1
+fi
+
+# Remaining arguments are proto file names.
+
+shift
+
+for PFILE do
+	if [ -f "$PFILE" ]; then
+
+		# Get second line of proto file.
+		# Replace first number with new block count.
+		# Bump inode count to 100 if less than 80, else add 20.
+
+		set `sed -ne "2p" < $PFILE`
+		B=$1; N=$2; I=$3; M=$4
+		if [ $B -lt 2000 -o $B -gt 3000 ]; then
+			echo "adj_proto: proto file $PFILE has unlikely " \
+			"block count of $B. Exiting."
+			exit 1
+		fi
+
+		if [ "$N" -lt 80 ]; then
+			INODE_COUNT=100
+		else
+			INODE_COUNT=`expr $N + 20`
+		fi
+
+		echo "$PFILE: $B $N $I $M -> $BLOCK_COUNT $INODE_COUNT $I $M"
+		NEW_LINE_2="$BLOCK_COUNT $INODE_COUNT $I $M"
+
+# Do replacement.
+
+/bin/ed - +v $PFILE > /dev/null <<_EOF
+2
+c
+$NEW_LINE_2
+.
+p
+wq
+_EOF
+
+	else
+		echo "adj_proto: can't open proto file \"$PFILE\""
+	fi
+done

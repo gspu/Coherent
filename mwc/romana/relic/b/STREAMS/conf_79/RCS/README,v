@@ -1,0 +1,104 @@
+head     2.0;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.0;
+comment  @# @;
+
+
+2.0
+date     93.07.16.20.04.05;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+2.0
+log
+@*** empty log message ***
+@
+text
+@This directory and its children contain a mostly-working STREAMS system for
+Coherent. The "mostly-working" is due to the fact that as yet polling of
+STREAMS files is not yet supported (although it shortly will be), but more
+importantly the lack of even rudimentary layering in the Coherent filesystem
+code prevents full STREAMS functionality from being available (and hurts
+performance to boot).
+
+Features implemented but not yet glued into the existing Coherent framework
+include...
+	poll (), I_SETSIG, M_SIGNAL, hardware interrupts in drivers
+
+Features implemented but not available through Coherent (and therefore not
+tested at all) include...
+	clone devices, getmsg ()/putmsg (), I_SENDFD/I_RECVFD,
+	scatter/gather read ()/write ()
+
+As yet unimplemented features...
+	autopush via SAD(7), strlog (7), and fairly much any major
+	driver.
+
+At this point, enough is going that if these sources merge well with the
+current (pre-)release kernel held by Hal, then enough is going to give
+substantial new functionality to users. In particular, a STREAMS driver
+could be hacked up to support a large subset of BSD sockets (with the
+emphasis on "hacked", since STREAMS protocols are *protocols* and must
+under normal circumstances be given all the design attention of an ABI).
+
+Many of the sources (especially the headers and makefiles) from around
+r73 have been touched, although mostly the changes appear to be in different
+areas than those revised recently by Hal. Whoever gets the nasty job of
+merging these things in should probably take a full 'diff' and look
+closely to ensure that the changes make sense.
+
+-------------------------------------------------------------------------
+	/ker/conf
+		- Confguration program, 'mkdev', plus sources and kernel
+		  configuration descriptions in mdevice(4), sdevice(4),
+		  mtune(4) and stune(4) format. 'mkdev' reads the above
+		  files plus a makefile template in "template.mak", and
+		  writes a makefile which will build a single ".o" file
+		  with the given configuration.
+	/ker/conf/streams
+		- The streams system, packaged up into a small, reasonably
+		  self-contained unit. The makefile builds the STREAMS code
+		  into a 'Driver.o' file that can be manipulated by the
+		  configuration system (and a Stubs.o file supplies basic
+		  definitions for all the Coherent hooks into STREAMS).
+	/ker/conf/loop
+		- The loop-around driver example from the SVR4 MP STREAMS
+		  Programmer's Guide, with many corrections. Get a copy of
+		  the Guide from your nearest bookstore for more information.
+	/ker/conf/dump
+		- The dump module example from the SVR4 MP STREAMS Programmer's
+		  Guide, lightly edited. When pushed onto a stream, displays
+		  information about STREAMS messages flowing past.
+	/ker/conf/echo
+		- Simple echo driver that reflects data written to it back to
+		  the stream head. A simple test program in this directory
+		  will open "/dev/echo", push the dump mode, write a string
+		  and read it back again as an exercise (the test program is
+		  called 'strtest', and assumes you have made a /dev node
+		  for the echo device which is configured at major number 33
+		  in this distribution).
+
+-------------------------------------------------------------------------------
+
+The /ker/conf/<prefix>/ subdirectories each have a makefile to build the
+Driver.o and whatever other files are needed. This step must be performed
+manually at the moment. Once you have built the driver objects, in theory
+just typing 'bld' in /ker/i386 should build a STREAMS-capable kernel. About
+70K of code and about 32K (by default) of data will be lost to the STREAMS
+system when compiled with 'cc' and with the default level of debugging.
+Compiling with 'gcc' and/or turning off ASSERT () statements (which is not
+recommended at this point) should reduce the code size considerably.
+
+This system is at a *very* early stage of testing... perhaps only 30% of the
+code paths in the system have been touched at all, so many bugs remain. Try
+writing some simple STREAMS drivers and see how it works, and let me know if
+you have any problems!
+@

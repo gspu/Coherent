@@ -1,0 +1,827 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    ;
+comment  @/ @;
+
+
+1.2
+date     91.03.01.09.23.04;  author root;  state Exp;
+branches 1.2.1.1;
+next	1.1;
+
+1.1
+date     91.03.01.09.21.44;  author root;  state Exp;
+branches ;
+next	;
+
+1.2.1.1
+date     91.03.14.13.32.09;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Hooks linked to kernel code segment for linkage to loaded drivers
+@
+
+
+1.2
+log
+@Part of COHERENT 3.1.0 kernel
+@
+text
+@/ /usr/src/sys/i8086/src/ldas.s
+/ 
+////////
+/
+/	Loadable Driver Interface Routines.
+/
+/	Loadable drivers execute in separate code segments, and are unable
+/	to directly call kernel service routines.
+/	Loadable drivers call a kernel service stub within their code segment,
+/	which has has the same name as the desired service routine.
+/	The driver service stub performs a far call to one of these routines.
+/	These routines perform a near call to the desired kernel routine,
+/	and then perform a far return to the driver service stub routine.
+/	The driver service stub routine then does a near return to the driver.
+/
+/ 90/09/11  Hal Snyder
+/ Add ld_call()
+/
+/ $Log:	/usr/src/sys/i8086/src/RCS/ldas.s,v $
+/ Revision 1.1	88/03/24  17:39:39	src
+/ Initial revision
+/ 
+/ 87/12/08	Allan Cornish	/usr/src/sys/i8086/src/ldas.s
+/ Block device interface added to loadable drivers.
+/ ldtimcall() function added to support timed functions in loadable drivers.
+/
+/ 87/10/25	Allan Cornish	/usr/src/sys/i8086/src/ldas.s
+/ Initial version - interface to/from loadable driver processes.
+/
+////////
+
+	.globl	ld_xcall_
+	.globl	ld_call_
+	.globl	xcalled
+	.globl	ldtimcall_
+	.globl	ld_open_
+	.globl	ld_close_
+	.globl	ld_read_
+	.globl	ld_write_
+	.globl	ld_block_
+	.globl	ld_ioctl_
+	.globl	ld_power_
+	.globl	ld_time_
+	.globl	ld_poll_
+	.globl	ldrvint_		/ void  (*ldrvint[16])();
+
+////////
+/
+/ Constants
+/
+////////
+
+	T_LDRV	= 12			/ Offset(tim,t_ldrv).
+	B_FLAG	= 6			/ Offset(buf,b_flag).
+	B_DEV	= 8			/ Offset(buf,b_dev ).
+	BFERR	= 4			/ buf.b_flag bit set on I/O error.
+	DRV_J	= 4			/ offset in driver of dispatcher
+
+////////
+/
+/ External References
+/
+////////
+
+	.globl	nonedev_		/ extern void	 nonedev();
+	.globl	ldrvcon_		/ extern CON *	 ldrvcon[NDRV];
+	.globl	ldrvsel_		/ extern saddr_t ldrvsel[NDRV];
+	.globl	ldrvics_		/ extern saddr_t ldrvics[16];
+	.globl	ldrvipc_		/ extern void  (*ldrvipc[16])();
+
+////////
+/
+/ Shared Data
+/
+////////
+	.shrd
+ldrvint_:			/ Loadable Driver Interrupt Entry Points.
+	.word	ld_intr0
+	.word	ld_intr1
+	.word	ld_intr2
+	.word	ld_intr3
+	.word	ld_intr4
+	.word	ld_intr5
+	.word	ld_intr6
+	.word	ld_intr7
+	.word	ld_intr8
+	.word	ld_intr9
+	.word	ld_intr10
+	.word	ld_intr11
+	.word	ld_intr12
+	.word	ld_intr13
+	.word	ld_intr14
+	.word	ld_intr15
+
+////////
+/
+/ Private Data
+/
+////////
+
+	.prvd
+	.shri
+
+////////
+/
+/ Driver Configuration: Offsets to Function Pointers
+/
+////////
+
+	C_OPEN=4
+	C_CLOSE=6
+	C_BLOCK=8
+	C_READ=10
+	C_WRITE=12
+	C_IOCTL=14
+	C_POWER=16
+	C_TIMER=18
+	C_LOAD=20
+	C_ULOAD=22
+	C_POLL=24
+
+////////
+/
+/ ld_xcall( fp )	- invoke far function.
+/ int (far *fp)();
+/
+////////
+
+ld_xcall_:
+	cli
+	push	bp
+	mov	bp, sp
+	xcall	4(bp)
+	pop	bp
+	ret
+
+////////
+/
+/ call a driver function from the kernel
+/   sel		- CS selector for the driver
+/   fn		- offset in the driver of the function we want
+/   arg[1-3]    - optional arguments
+/
+/ ld_call(sel, fn, arg1, arg2, arg3)
+/ int sel;
+/ int (*fn)(void);
+/ int arg1, arg2, arg3;
+/
+////////
+
+/ stack when ld_call() is called:
+/	arg3
+/	arg2
+/	arg1
+/	fn
+/	sel
+/	return IP
+
+ld_call_:			/ PARAMETERS (arg[1-3]) MUST BE FOUND AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+/	lea	bp, 4(sp)	/ this is what the next 2 instructions do
+	mov	bp, sp
+	add	bp, $4
+				/
+	push	0(bp)		/ Push sel to allow far call
+	push	$DRV_J		/
+				/
+	mov	ax, 2(bp)	/ Push fn
+				/
+	xcall	-8(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	lea	sp, -4(bp)	/
+	pop	bp		/
+	ret			/
+
+////////
+/
+/
+/ ldtimcall( arg, tp )  - service timed far function.
+/
+////////
+
+ldtimcall_:				/
+	push	bp			/
+	mov	bp, sp			/
+					/
+	mov	bx, 6(bp)		/
+	mov	ax, T_LDRV+2(bx)	/
+	push	ax			/ Loadable driver code selector.
+	push	$DRV_J			/ Loadable driver invocation offset.
+	mov	ax, T_LDRV(bx)		/ Desired far function.
+					/
+	xcall	-4(bp)			/
+					/
+	mov	sp, bp			/
+	pop	bp			/
+	ret
+
+////////
+/
+/ xcalled( f, args )
+/ int (*f)();
+/
+/	Input:	AX is pointer to kernel function to be invoked.
+/
+/	Action:	Perform a near call to the specified kernel function,
+/		passing 6 words as optional arguments.
+/		Perform a far return.
+/
+/	Notes:	Invoked by far call from loadable device driver.
+/
+////////
+
+xcalled:			/ 6(bp) = grand-parent IP.
+	push	bp		/ 4(bp) = parent CS
+	mov	bp, sp		/ 2(bp) = parent IP
+				/ AX    = destination function.
+	push	20(bp)	/ Arg 7 /
+	push	18(bp)	/ Arg 6	/
+	push	16(bp)	/ Arg 5	/
+	push	14(bp)	/ Arg 4	/
+	push	12(bp)	/ Arg 3	/
+	push	10(bp)	/ Arg 2	/
+	push	 8(bp)	/ Arg 1	/
+	icall	ax		/
+				/
+	mov	sp, bp		/ Return to loadable driver.
+	pop	bp		/
+	xret			/
+
+////////
+/
+/ ld_open( dev, mode )		- Open Routine.
+/ dev_t dev;
+/ int mode;
+/
+////////
+
+ld_open_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_OPEN(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+////////
+/
+/ ld_close( dev )		- Close Routine.
+/ dev_t dev;
+/
+////////
+
+ld_close_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_CLOSE(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+////////
+/
+/ ld_read( dev, iop )		- Read Routine.
+/ dev_t dev;
+/ IO * iop;
+/
+////////
+
+ld_read_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_READ(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+///////
+/
+/ ld_write( dev, iop )		- Write Routine.
+/ dev_t dev;
+/ IO * iop;
+/
+////////
+
+ld_write_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_WRITE(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+///////
+/
+/ ld_block( bp )		- Block Routine.
+/ BUF * bp;
+/
+////////
+
+ld_block_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	mov	bx, 4(bp)	/ Calculate major device number * 2.
+	movb	bl, B_DEV+1(bx)	/
+	subb	bh, bh		/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_BLOCK(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	bx, 4(bp)	/ bp->b_flag |= BFERR.
+	or    B_FLAG(bx),$BFERR	/
+	mov	sp, bp		/
+	pop	bp		/
+	jmp	bdone_		/ bdone(bp);
+
+////////
+/
+/ ld_ioctl( dev, iop )		- Ioctl Routine.
+/ dev_t dev;
+/ IO * iop;
+/
+////////
+
+ld_ioctl_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_IOCTL(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+////////
+/
+/ ld_power( dev )		- Powerfail Routine.
+/ dev_t dev;
+/
+////////
+
+ld_power_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_POWER(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+////////
+/
+/ ld_time( dev )		- Timer Routine.
+/ dev_t dev;
+/
+////////
+
+ld_time_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_TIMER(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+////////
+/
+/ ld_poll( dev, ev, msec )	- Poll Routine.
+/ dev_t dev;
+/ int ev;
+/ int msec;
+/
+////////
+
+ld_poll_:			/ PARAMETERS MUST REMAIN AT 4(BP).
+	push	bp		/ DRIVER RESIDENT CODE RELIES ON THIS.
+	mov	bp, sp		/
+				/
+	sub	bx, bx		/ Calculate major device number * 2.
+	movb	bl, 5(bp)	/
+	shl	bx, $1		/
+				/
+	mov	cx, ldrvsel_(bx)/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	bx, ldrvcon_(bx)/ Identify driver configuration.
+	or	bx, bx		/
+	je	0f		/
+				/
+	mov	ax, C_POLL(bx)	/ Identify driver function to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+	mov	sp, bp		/ Return to caller.
+	pop	bp		/
+	ret			/
+
+0:	mov	sp, bp
+	pop	bp
+	jmp	nonedev_
+
+////////
+/
+/ Loadable Driver Interrupt Entry Points.
+/
+/	Invoked by Coherent to service specific interrupt.
+/	Identifies which loadable driver interrupt vector to be used.
+/	Invokes interrupt handler which will do far call to loadable driver.
+/
+////////
+
+ld_intr0:
+	mov	bx, $0		/
+	jmp	ld_intr		/
+
+ld_intr1:
+	mov	bx, $2		/
+	jmp	ld_intr		/
+
+ld_intr2:
+	mov	bx, $4		/
+	jmp	ld_intr		/
+
+ld_intr3:
+	mov	bx, $6		/
+	jmp	ld_intr		/
+
+ld_intr4:
+	mov	bx, $8		/
+	jmp	ld_intr		/
+
+ld_intr5:
+	mov	bx, $10		/
+	jmp	ld_intr		/
+
+ld_intr6:
+	mov	bx, $12		/
+	jmp	ld_intr		/
+
+ld_intr7:
+	mov	bx, $14		/
+	jmp	ld_intr		/
+
+ld_intr8:
+	mov	bx, $16		/
+	jmp	ld_intr		/
+
+ld_intr9:
+	mov	bx, $18		/
+	jmp	ld_intr		/
+
+ld_intr10:
+	mov	bx, $20		/
+	jmp	ld_intr		/
+
+ld_intr11:
+	mov	bx, $22		/
+	jmp	ld_intr		/
+
+ld_intr12:
+	mov	bx, $24		/
+	jmp	ld_intr		/
+
+ld_intr13:
+	mov	bx, $26		/
+	jmp	ld_intr		/
+
+ld_intr14:
+	mov	bx, $28		/
+	jmp	ld_intr		/
+
+ld_intr15:
+	mov	bx, $30		/
+	jmp	ld_intr		/
+
+////////
+/
+/ Loadable driver interrupt handler.
+/
+/
+/	Input:	bx = interrupt number * 2.
+/
+////////
+
+ld_intr:
+	push	bp		/
+	mov	bp, sp		/
+				/
+	mov	cx,ldrvics_(bx)	/ Prepare driver interface CS:IP.
+	jcxz	0f		/
+	push	cx		/
+	push	$DRV_J		/ Loadable driver invocation offset.
+				/
+	mov	ax,ldrvipc_(bx)	/ Identify interrupt handler to be invoked.
+	or	ax, ax		/
+	je	0f		/
+				/
+	xcall	-4(bp)		/ Invoke driver interface, which will
+				/	in turn invoke driver function.
+				/
+0:	mov	sp, bp		/
+	pop	bp		/
+	ret			/
+@
+
+
+1.2.1.1
+log
+@has kernel printf's for interrupts called
+@
+text
+@a19 3
+/ Revision 1.2	91/03/01  09:23:04	root
+/ Part of COHERENT 3.1.0 kernel
+/ 
+a94 2
+foo:	.ascii	"I%d %x:%x\n\000"	
+
+d674 1
+a674 2
+	.globl	printf_	/ for debugging
+	.globl	ld_intr	/ for debugging
+a677 13
+	
+/ Diagnostic call: printf(foo, bx/2, ldrvics[bx], ldrvipc[bx])
+push	bx
+push	ldrvipc_(bx)
+push	ldrvics_(bx)
+mov	ax,bx
+shr	ax,$1
+push	ax
+push	$foo
+call	printf_
+add	sp,$8
+pop	bx
+/ End of diagnostic call	
+@
+
+
+1.1
+log
+@Part of COHERENT 3.0.0 kernel
+@
+text
+@d1 1
+a1 1
+/ $Header: /usr/src/sys/i8086/src/RCS/ldas.s,v 1.1 88/03/24 17:39:39 src Exp $
+d3 1
+a3 10
+/	The  information  contained herein  is a trade secret  of INETCO
+/	Systems, and is confidential information.   It is provided under
+/	a license agreement,  and may be copied or disclosed  only under
+/	the terms of that agreement.   Any reproduction or disclosure of
+/	this  material  without  the express  written  authorization  of
+/	INETCO Systems or persuant to the license agreement is unlawful.
+/ 
+/	Copyright (c) 1987
+/	An unpublished work by INETCO Systems, Ltd.
+/	All rights reserved.
+a4 3
+
+////////
+/
+d16 2
+d33 1
+d57 1
+a101 1
+four:	.word	4
+d139 4
+d144 36
+d191 1
+a191 1
+	push	four			/ Loadable driver invocation offset.
+d251 1
+a251 1
+	push	four		/
+d290 1
+a290 1
+	push	four		/
+d330 1
+a330 1
+	push	four		/
+d370 1
+a370 1
+	push	four		/
+d410 1
+a410 1
+	push	four		/
+d452 1
+a452 1
+	push	four		/
+d491 1
+a491 1
+	push	four		/
+d530 1
+a530 1
+	push	four		/
+d571 1
+a571 1
+	push	four		/
+d682 1
+a682 1
+	push	four		/
+@

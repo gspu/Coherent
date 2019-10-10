@@ -1,0 +1,79 @@
+	This directory contains the sources for the spell and typo commands.
+This file is intended to aid the dictionary maintainer in tuning it
+for his local site.
+
+The Dictionary
+
+	The dictionaries for both typo and spell are stored in the directory
+`/usr/dict'.  We will not discuss the typo dictionary here as it is not
+intended to be extended, rather being provided as a screen of the most common
+words.  Remaining words are ordered statistically, rather than by dictionary
+lookup.  Conversely, spell uses an exact membership tester rather than one of
+the several approximate membership tester techniques found in the literature.
+The resultant small speed penalty is more than offset by the ability to have an
+almost perfect lookup record with essentially no misses.  The only misses
+will be such misspelling as the wrong homonym (`their' for `there') or
+the misuse of a proper name (e.g. `manuel' for `manual').
+
+	The dictionary is maintained as a set of word lists.  As there
+are really two dictionaries--a British one and an American one--a set
+of common words (`common') is maintained as well as files with each of
+American (`american') and British (`british') spellings.  More will be
+said later about what words should go into each file.  In addition, there
+is a file reserved for the local dictionary maintainer, called `local',
+which allows him to add words without changing the distributed lists.
+These files can be merged (`sort -mu common british local' or
+`sort -mu common american local') to produce the two master lists.
+These lists are never normally stored in this form, rather the compressed
+lists are stored.  This compression reduces the amount of I/O that must
+occur for the spell command to read in the dictionary.  These compressed
+files are named `clista' and `clistb', for American and British, respectively.
+The shell file `build' reconstructs the compressed lists from these components
+by using the above `sort' commands and the internal comman
+`/usr/src/cmd/spell/spellin' which takes a list of words on its
+standard input and produces a compressed list on its standard output.
+
+	In these words lists, a trailing asterisk (`#') on a word implies that
+there is an optional `s'.  This may signify a plural or a different verb form.
+This shorthand is included so that such plurals can be cheaply maintained
+without the sacrifice in accuracy that would occur with arbitrary suffix
+and prefix stripping code.
+
+British Versus American
+
+	Since there is some dissension in British spelling regarding words
+that end in `ize' or `ise', the `ize' spelling is included in the common
+file and a corresponding entry with `ise' is put into the British file
+(e.g. optimize vs. optimise).  Such words as `honor' vs. `honour' are
+put into the American and British files, respectively.  However,
+in the US there are words which are spelled two ways (e.g. `glamour' vs.
+`glamor') so that the former is put into the common file and the
+latter is put into the American file.  There are no hard and fast rules
+in any case, and thus there are bound to be disagreements no matter what
+is done here.
+
+Updating Word Lists
+
+	Spell maintains a history file, `spellhist', which contains all
+misspelled words that are found.  This will contain a large number of
+words that should not go into the dictionary (e.g. opcodes, variable names,
+very obscure technical terms, etc.) as well as words that should be added.
+This list should be screened periodically and truncated.
+
+	Some of the files, especially `common', are too large to edit with
+`ed' and thus the stream editor (`sed') can be used to manipulate it.
+Also, if it is desired to change `common' rather than `local', new words
+can be put in by creating a new words file, say `new', and merging it
+with sort into a new `common' file (e.g. `sort -mu -o common common new').
+
+	As well, it is always a good idea to check when adding new words
+that the singular is not already there to save adding a plural.
+For example, if the word `macro' was already in the dictionary and
+`macros' was to be added, one could issue the following `sed' command
+to change `macro' to `macro#' (singular or plural):
+	sed 's/^macro$/macro#/' common >new; mv new common
+
+	One last word of caution is in order.  Word lists that are updated
+should be scrupulously checked for errors with a dictionary.  Nothing is
+worse than a spelling dictionary with misspellings in it.  This can happen
+quite easily if a common misspelling is believed from the history file.

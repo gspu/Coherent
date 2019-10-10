@@ -1,0 +1,272 @@
+aassyy -- Device Driver
+
+Device driver for asynchronous serial lines
+
+The device driver aassyy supports serial ports.  It uses major number 5.
+
+aassyy can handle  from one to 32 serial ports.   The ports can be any mixture
+of 8250, 8250B, 16550, 16550A, and equivalent devices, including nearly all
+conventional  COM1  through COM4  serial  cards,  and most  non-intelligent
+multiport  add-in cards.   It automatically  recognizes, and  uses, on-chip
+FIFO, and  it can  specify groups  of ports that  share a  single interrupt
+status.
+
+_T_y_p_e_s _o_f _P_o_r_t _C_o_n_f_i_g_u_r_a_t_i_o_n
+Each port that aassyy serves has  a base name, e.g.,  /ddeevv/ccoomm11rr. Each has its
+own minor device number.  Different configurations of the port are selected
+by using different suffixes, as follows:
+
+ll  (Local) ``Local mode'' means that  the line will have a terminal plugged
+   into it, or is connected to a modem running in command mode.  Local mode
+   uses the minor device with the modem-control bit (bit 7) set.
+
+rr  (Remote) ``Modem control'' means that the line will have a modem plugged
+   into it.   Modem control is  enabled on a  serial line by  resetting the
+   modem control  bit (bit  7) in  the minor number  for the  device.  This
+   allows the  system to generate a hangup signal  when the modem indicates
+   loss of  carrier by  dropping DCD (Data  Carrier Detect).  A  modem line
+   should  always  have its  DSR,  DCD  and CTS  pins  connected.  If  left
+   hanging,  spurious transitions  can cause  severe system  thrashing.  An
+   ooppeenn() to  a modem-control line  will block until a  carrier is detected
+   (i.e., until DCD goes true).
+
+pp  (Polled mode)  ``Polled mode''  means that  the port cannot  generate an
+   interrupt, but  must be checked  (or polled) constantly  by the COHERENT
+   system to  see if  activity has  occurred on it.   Such polling  takes a
+   significant toll on  system performance.  The main reason for supporting
+   polled devices  is that  older style COM  equipment will not  allow both
+   ccoomm11 and ccoomm33 to use interrupts at the same time, nor will it allow both
+   ccoomm22 and ccoomm44 to use interrupts  at the same time.  If you use a port in
+   polled mode, you will get better performance using one of the newer FIFO
+   parts, such as the 16550A.
+
+   To convert from using a polled  to an interrupt driven device, edit file
+   /eettcc/ttttyyss and then type the command:
+
+       kill quit 1
+
+   For details, see the Lexicon entry for ttttyyss.
+
+ff  (Flow control)  A device with  hardware flow control.   Here, signal CTS
+   must be active for the driver  to send data out the port, and signal RTS
+   will be set  active by the driver whenever it  is ready for input.  Some
+   high-speed modems, and some  serial printers, are capable of using these
+   conventions.  If  your equipment  does not support  RTS/CTS handshaking,
+   there is absolutely no benefit to using this option.
+
+Due to limitations in the design of the ports, you can enable interrupts on
+either COM1 or COM3 (or on COM2 or COM4), but not both.  If you wish to use
+both ports simultaneously, one must be run in polled mode.  For example, if
+you wish  to open all four  serial lines, you can open two  of the lines in
+interrupt mode: you can open either COM1 or COM3 in interrupt mode, and you
+can open either  COM2 or COM4 in interrupt mode.   The other two lines must
+be opened in polled mode.
+
+Opening a  device in polled mode  consumes many CPU cycles,  based upon the
+speed of the highest baud rate  requested.  For example, on a 20 MHz 80386-
+based machine, polling  at 9600-baud was found to consume  about 15% of the
+CPU time.  As only one device can use the interrupt line at any given time,
+the best  approach is  to make  the high-speed line  of the  pair interrupt
+driven and open the low-speed  or less-frequently used line in polled mode.
+However, if you enable a polled  line for logins, the port is open and will
+be polled as long as the port remains open (enabled).  Thus, even if a port
+is not in use, the fact  that it has a ggeettttyy on it consumes CPU cycles.  As
+a rule of thumb, try to  open a port in interrupt mode.  If you cannot, use
+the polled version.
+
+If you intend to use a  modem on your serial port, you must insure that the
+DCD signal  from the  modem actually _f_o_l_l_o_w_s  the state of  carrier detect.
+Some modems allow the user to ``strap'' or set the DCD signal so that it is
+always asserted (true).  This  incorrect setup will cause COHERENT to think
+that the  modem is ``connected'' to  a remote modem, even  when there is no
+such connection.
+
+There are eight possible  configurations, and eight valid suffixes.  In the
+example of  the port whose base  name is ccoomm11, the  configurations would be
+found  in  the  directory  /ddeevv  as  /ddeevv/ccoomm11ll,  /ddeevv/ccoomm11rr,  /ddeevv/ccoomm11ppll,
+/ddeevv/ccoomm11pprr, /ddeevv/ccoomm11ffll, /ddeevv/ccoomm11ffrr, /ddeevv/ccoomm11ffppll, and /ddeevv/ccoomm11ffpprr.
+
+_D_r_i_v_e_r _C_o_n_f_i_g_u_r_a_t_i_o_n
+aassyy is usually configured -- and proper names are created in directory /ddeevv
+-- when you install COHERENT.  The following explains how to configure aassyy,
+in case you must modify the original installation.
+
+To configure aassyy, do the following:
+
+11. Type the following command to become the superuser rroooott:
+
+       su root
+
+22. Change to directory /eettcc/ccoonnff.
+
+33. Execute script  aassyy/mmkkddeevv. This script walks you  through the process of
+   describing your serial ports to COHERENT.
+
+44. When you have successfully completed aassyy/mmkkddeevv, type the command:
+
+       bin/idmkcoh -o cohtest
+
+   This  generates a  new kernel,  called  ccoohhtteesstt, which  incorporates the
+   changes you described when you ran aassyy/mmkkddeevv.
+
+55. Boot  your new kernel.   If you  do not  know how to  do this,  read the
+   Lexicon entry bboooottiinngg.
+
+_E_d_i_t_i_n_g /_e_t_c/_d_e_f_a_u_l_t/_a_s_y_n_c
+The first  step in  reconfiguring aassyy  is to edit  /eettcc/ddeeffaauulltt/aassyynncc. This
+file holds the description of how the aassyy driver is to be configured.
+
+aassyy ignores blank lines and lines that begin with a pound sign `#'; you can
+use them  as comments if you  wish.  Each port that is not  in a group must
+have a line beginning with the letter `P', followed by seven numbers:
+
+-> The hexadecimal base address for the port.
+
+-> The IRQ number,  in decimal, used by the port  (use zero if no interrupt
+   line is needed).
+
+-> The hexadecimal value used for control lines OUT1 and OUT2 when the port
+   is open.  Permissible values are 0,  4, 8, and C.  Use 4 if OUT1 must be
+   asserted, 8 if OUT2 must be  asserted, and C if both signals are needed.
+   The most common value needed in this field is 8.
+
+-> One if  the port  needs exclusive  use of its  interrupt line  (true for
+   conventional COM1/COM4 equipment), zero otherwise.
+
+-> Default baud rate for the port.
+
+-> Channel number for the port (0-31).
+
+-> A flag  to indicate  if modem-status interrupts  are to be  disabled for
+   this board: one if they are to be disabled, zero if they are not.
+
+The last field is required because some chips are defective and lock up the
+system  if modem  status interrupts  are enabled.   This flag  protects you
+against such problems, but at the price of disabling hardware flow control.
+
+Many multiport  boards support a separate  I/O address that can  be read to
+determine which port  requires service.  Each group of up  to 16 ports must
+have a  line beginning  with the  letter `G', followed  by a  separate line
+describing each port in the group.  There are four different group types:
+
+11. Bits  in the  status  port are  one  when the  corresponding port  needs
+   service, zero  otherwise.  (Sealevel, Comtrol, Star  Gate, Connect Tech,
+   Boca Research.)
+
+22. Bits  in the  status port  are  zero when  the corresponding  port needs
+   service, one otherwise.  (Arnet.)
+
+33. The low three  bits in the status port give  the slot number on the card
+   for the port needing service.  (GTEK.)
+
+44. The low  four bits in the  status port give the slot  number on the card
+   for the port reading service.  If no port needs service, the status port
+   contains hexadecimal value FF.  (Digiboard.)
+
+The `G' line requires the following  fields.  All are in decimal, except as
+noted:
+
+-> The hexadecimal address for the group-status port.
+
+-> The IRQ  number used  by the  group.  Use zero  if no interrupt  line is
+   needed.
+
+-> The hexadecimal value used for control lines OUT1 and OUT2 when the port
+   is open (usually eight).
+
+-> The type number of the group -- one, two, or three, as described above.
+
+-> The number of ports in the group, 1 through 16.
+
+-> A flag  to indicate  if modem-status interrupts  are to be  disabled for
+   this board: one if they are to be disabled, zero if they are not.
+
+Each group line  is followed by a separate `M'  line for each member of the
+group.  Fields required on the `M' line (in decimal, except as noted) are:
+
+-> The hexadecimal base address for the port.
+
+-> Default baud rate for the port.
+
+-> The slot  number of the  port within the  group 0 through  7.  For group
+   types 1 and  2, slot 0 corresponds to the  least-order bit in the status
+   port, slot 7 to the highest order bit.
+
+-> Channel number for the port (0-31).
+
+The following gives the aassyynncc file  for a system with standard CCOOMM11 through
+CCOOMM44 ports as channels 0 through  3, a Comtrol Hostess 550/16 as channels 4
+through 19, and finally an Arnet Multiport as channels 20 through 27.
+
+# /etc/default/async spec for standard com1-com4
+#Record formats:
+#P     Port   Irq    OUT[12]       Excl   Speed   ChannelNo MS int
+#G     Port   Irq    OUT[12]       Type   Number-of-SlotsNo MS int
+#M     Port   Speed  Slot   Channel
+
+# com1/2/3/4
+P      3f8    4      8      1      9600   0  0
+P      2f8    3      8      1      9600   1  0
+P      3e8    4      8      1      9600   2  0
+P      2e8    3      8      1      9600   3  0
+
+# Hostess 550 16 - two groups of 8 ports, using irq 12
+G      507    12     8      1      8      0
+M      500    9600   0      4
+M      508    9600   1      5
+M      510    9600   2      6
+M      518    9600   3      7
+M      520    9600   4      8
+M      528    9600   5      9
+M      530    9600   6      10
+M      538    9600   7      11
+
+G      547    12     8      1      8      0
+M      540    9600   0      12
+M      548    9600   1      13
+M      550    9600   2      14
+M      558    9600   3      15
+M      560    9600   4      16
+M      568    9600   5      17
+M      570    9600   6      18
+M      578    9600   7      19
+
+# Arnet Multiport - one group of 8 ports, using irq 7
+G      272    7      0      2      8      0
+M      280    9600   0      20
+M      288    9600   1      21
+M      290    9600   2      22
+M      298    9600   3      23
+M      2A0    9600   4      24
+M      2A8    9600   5      25
+M      2B0    9600   6      26
+M      2B8    9600   7      27
+
+You should  look at the version of /eettcc/ddeeffaauulltt/aassyynncc  that is shipped with
+COHERENT  for examples  of all  aassyynncc  features, including  those described
+above.  This file includes  sample configurations for every board that Mark
+Williams Company had available for testing.
+
+_B_u_i_l_d_i_n_g _a _N_e_w _K_e_r_n_e_l
+Now that  you have described  how you want  aassyy to be  configured, the next
+step is  to build a new  kernel.  Log in as the  superuser rroooott and execute
+the following commands:
+
+    cd /etc/conf
+    asy/mkdev
+    bin/idmkcoh -o /_k_e_r_n_e_l__n_a_m_e
+
+where _k_e_r_n_e_l__n_a_m_e is  the new kernel that includes the  aassyy driver.  To run
+this new kernel, simply reboot your machine.
+
+_S_e_e _A_l_s_o
+aassyymmkkddeevv, ddeevviiccee ddrriivveerrss, RRSS-223322
+
+_N_o_t_e_s
+
+If your  system loses  characters while  transferring files on  4800-bps or
+higher-speed lines, _w_e _s_t_r_o_n_g_l_y _u_r_g_e  _y_o_u _t_o _r_e_p_l_a_c_e _y_o_u_r _e_x_i_s_t_i_n_g _8_2_5_0- _o_r
+_1_6_4_5_0-_b_a_s_e_d  _U_A_R_T_s _w_i_t_h  _t_h_o_s_e _b_a_s_e_d  _u_p_o_n _t_h_e _1_6_5_5_0_A  _d_e_s_i_g_n, _s_u_c_h  _a_s _t_h_e
+_N_a_t_i_o_n_a_l  _S_e_m_i_c_o_n_d_u_c_t_o_r _N_S_1_6_5_5_0_A_F_N.  These  newer UARTs  are pin-compatible
+with the older UARTs.   COHERENT automatically senses and enables them when
+it boots.

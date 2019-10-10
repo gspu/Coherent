@@ -1,0 +1,323 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @# @;
+
+
+1.3
+date     94.04.04.10.41.48;  author kroot;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     94.04.04.10.41.32;  author kroot;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     94.04.04.10.41.06;  author kroot;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@R09
+@
+text
+@#!/bin/sh
+# Usage: /etc/newusr user UserName parentdir [ shell ]
+# Requires root permissions.
+
+# File and directory names.
+PFILE=/etc/passwd
+SFILE=/etc/shadow
+GFILE=/etc/group
+LOCK=/etc/passwd.tmp
+MAILDIR=/usr/spool/mail
+LOGSHELL=/bin/sh
+
+#
+# Moby function to add a single user.
+#
+
+add_user () {
+	[ -d $PARENTDIR ] || {
+		echo "$0: Parent directory $PARENTDIR does not exist"
+		return 1
+	}
+
+	# Lock out other access to password and group files.
+
+	set -C
+	trap "" 2 3		# Prevent interrupts
+	2>/dev/null >$LOCK || {
+		echo "$0: access to password files denied" >&2
+		trap 2 3	# Permit interrupts
+		return 2
+	}
+	set +C
+
+	# Sort $PFILE by uid and find max uid.
+
+	sort -n '-t:' +2 -3 -o $PFILE $PFILE
+	set -- `tail -1 $PFILE`
+	set -- ${1#*:*:}
+	UID="${1%:${1#*:}}"
+
+	# Find gid for group "user".
+
+	set -- `grep user $GFILE`
+	set -- ${1#*:*:}
+	GID="${1%:${1#*:}}"
+
+	# Test if user exists already.
+
+	grep "^$USER:" $PFILE >/dev/null && {
+		echo "$0: user $USER already exists" >&2
+		rm $LOCK
+		trap 2 3		# Permit interrupts
+		return 1
+	}
+
+	UID=`expr $UID + 1`
+	HOME=$PARENTDIR/$USER
+	PROF=$HOME/.profile
+	MAILBOX=$MAILDIR/$USER
+	echo "Adding user: name=$USER uid=$UID gid=$GID HOME=$HOME shell=$LOGSHELL"
+
+	# Update password files
+	if [ -f $SFILE ] ; then
+		echo "$USER:*:$UID:$GID:$FULLNAME:$HOME:$LOGSHELL" >>$PFILE
+		echo "$USER::$UID:$GID:$FULLNAME:$HOME:$LOGSHELL" >>$SFILE
+	else
+		echo "$USER::$UID:$GID:$FULLNAME:$HOME:$LOGSHELL" >>$PFILE
+	fi
+
+	# Update group file.
+	cat $GFILE >$LOCK
+	sed -e "/^user:/s/\$/,$USER/" $LOCK >$GFILE
+
+	# Make new directory, .profile, mailbox.
+	mkdir -r $HOME 2>/dev/null || echo $0: directory $HOME already exists
+	rm -f $HOME/.lastlogin
+
+	cat >$PROF << EOF
+MAIL=$MAILBOX
+set -- \$(tty) \$(uname -n)
+TTY=\${1#/dev/}
+SITE=\$2
+PROMPT="\$TTY \$SITE \$(pwd) > "
+EOF
+
+	>$MAILBOX
+	chown $USER $HOME $PROF $MAILBOX
+	chgrp user $HOME $PROF $MAILBOX
+	chmod 600 $MAILBOX
+
+	# Check to see whether the on-line manual is installed.
+
+	[ -f /usr/man/man.index ] && {
+		MAN="
+You can get detailed help on any command by using the 'man' command, for
+example 'man vi'."
+	}
+
+	# Send some boilerplate.
+
+	mail "$USER" << EOF
+Subject: Welcome to the Coherent system!
+As a new user, you might like to familiarize yourself with the environment
+here. Some commands for listing files are 'l', 'lf', and 'ls'. You can get
+brief help on any command by using the 'help' command, for example 'help ls'.
+$MAN
+
+You can use the editors 'vi' and 'me' to edit files; for example, if you edit
+the file '.profile' in your home directory, you can look at some of the
+standard settings for various things such as your shell prompt. By editing
+the '.profile' file you can customize your environment a great deal.
+
+Now that you are in the mailer, you can type '?' for help.
+EOF
+
+	rm $LOCK
+	trap 2 3	# Permit interrupts again
+	return 0
+}
+
+
+#
+# Check usage. If no arguments, enter interactive mode.
+#
+
+[ -w $PFILE ] || {
+	echo "$0: You do not have permission to administer users"
+	exit 1
+}
+
+USER="$1"
+FULLNAME="$2"
+PARENTDIR="$3"
+
+case $# in
+3)	add_user
+	exit $?
+	;;
+
+4)	LOGSHELL="$4"
+	add_user
+	exit $?
+	;;
+
+0)	;;
+
+*)	echo "Usage: $0 user \"User Name\" parentdir [shell]" >&2
+	exit 1
+	;;
+esac
+
+#
+# Interactive mode
+#
+
+. /usr/lib/shell_lib.sh
+
+PARENTDIR="/home"
+LOGSHELL="/usr/bin/ksh"
+
+check_user () {
+	grep "^$1:" $PFILE >/dev/null 2>&1 && {
+		echo "User $1 already exists"
+		return 1
+	}
+	return 0
+}
+
+check_dir () {
+	set -- $1
+	[ -d $1 ] && return 0
+	[ -r $1 ] && {
+		echo "$1 is not a directory."
+		return 1
+	}
+	read_input "Directory $1 does not exist: make it" \
+		   YES_NO "y" require_yes_or_no
+	is_yes $YES_NO && {
+		mkdir -r $1 >/dev/null 2>&1 && return 0
+		echo "Cannot make directory $1"
+	}
+	return 1
+}
+
+check_shell () {
+	case $1 in
+	1 | sh | /bin/sh)
+		LOGSHELL=/bin/sh
+		;;
+
+	2 | ksh | /usr/bin/ksh)
+		LOGSHELL=/usr/bin/ksh
+		;;
+
+	*)	echo "Choose 1 or 2"
+		return 1
+		;;
+	esac
+	return 0
+}
+
+while : ; do
+	read_input "User name to add, or a blank line to finish adding users" \
+		USER "" check_user || break
+	is_empty "$USER" && break
+
+	read_input "Full name of user, or !! to abandon" FULLNAME \
+		"$USER" || continue
+
+	read_input "Parent directory of user's home directory, or !! to \
+abandon" PARENTDIR "$PARENTDIR" check_dir || continue
+
+	echo "
+There are two shells available for use as login shells; choose one of
+  1) the Bourne shell, /bin/sh
+  2) the Korn shell, /usr/bin/ksh."
+	read_input "Choose a shell for user $USER, or !! to abandon" LOGSHELL \
+		"$LOGSHELL" check_shell || continue
+
+	add_user		# Actually add the user
+
+	case $? in
+	0)	read_input "Do you want to set a password for user $USER" \
+			YES_NO "n" require_yes_or_no
+		is_yes $YES_NO && passwd $USER
+		;;
+
+	1)	;;
+
+	*)	echo "$0: A fatal error has occurred"
+		exit $?
+		;;
+	esac
+done
+@
+
+
+1.2
+log
+@R06
+@
+text
+@d159 1
+a159 1
+LOGSHELL="/usr/bin/vsh"
+d195 1
+a195 5
+	3 | vsh | /usr/bin/vsh)
+		LOGSHELL=/usr/bin/vsh
+		;;
+
+	*)	echo "Choose 1, 2 or 3"
+d214 1
+a214 1
+There are three shells available for use as login shells; choose one of
+d216 1
+a216 2
+  2) the Korn shell, /usr/bin/ksh
+  3) the Visual shell, /usr/bin/vsh."
+@
+
+
+1.1
+log
+@R05
+@
+text
+@d17 1
+a17 1
+newusr () {
+d96 1
+a96 3
+example 'man vi'.
+
+"
+d103 3
+a105 4
+As a new user of Coherent 4.2, you might like to familiarize yourself
+with the environment here. Some commands for listing files are 'l',
+'lf', and 'ls'. You can get brief help on any command by using the
+'help' command, for example 'help ls'.
+d107 1
+d113 1
+a113 2
+Now that you are in the mailer, you can type '?' to get help on the
+mail commands.
+d225 1
+a225 1
+	newusr		# Actually add the user
+@

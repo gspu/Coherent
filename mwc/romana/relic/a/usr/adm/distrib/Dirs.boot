@@ -1,0 +1,11 @@
+bin
+conf
+conf/kbd
+drv
+etc
+lost+found
+mnt
+tmp
+usr
+usr/bin
+usr/lib

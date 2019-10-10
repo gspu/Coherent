@@ -1,0 +1,126 @@
+.\" ENVIRONMENTS:  COHERENT3
+.TH paste "" "" Command
+.PC "Merge lines of files"
+\fBpaste [ \-s ] [ \-d \fIlist\fB ] \fIfile ...\fR
+.PP
+.B paste
+merges corresponding lines from multiple input files.
+By default,
+.B paste
+uses the
+.B <tab>
+character to separate text from the files.
+After merging lines from the input files,
+.B paste
+writes the resulting output to standard output,
+thus allowing
+.B paste
+to be used in a shell pipeline.
+.PP
+If end-of-file is reached on any of the input files
+while other files still contain data,
+blank lines will be substituted as input.
+.SH Options
+.B paste
+accepts the following options from the command line.
+.RS
+.IP "\fB-d \fIlist\fR" 0.4i
+.br
+Use the characters found in
+.I list
+to separate the output fields.
+The characters in
+.I list
+are taken in sequence and used circularly,
+i.e. taken in order until the end of
+.I list
+is reached, with a wrap-around back to the beginning of
+.IR list .
+Normally,
+.B paste
+uses the
+.B <tab>
+character to separate the output fields.
+The following character sequences have special meaning when encountered in
+.IR list :
+.sp
+\fB\e\e\fR	output a single backslash character.
+.br
+\fB\et\fR	output a
+.B <tab>
+character.
+.br
+\fB\en\fR	output a
+.B <newline>
+character.
+.br
+\fB\e0\fR	output a null string (i.e., no separator between output fields).
+.sp
+.IP \fB-s\fR
+Output successive lines from each input
+.I file
+across the page,
+with each input line separated from the next by a
+.B <tab>
+character.
+After all input lines from a given file have been concatenated,
+terminate the output line with a
+.B <newline>
+character and repeat the process on the next input file.
+.RE
+.SH Example
+The following two files will be used for subsequent examples.
+.B File1
+contains:
+.ID
+.ta 0.5i
+	File1_Line1
+	File1_Line2
+	File1_Line3
+	File1_Line4
+.IE
+.B File2
+contains:
+.ID
+.ta 0.5i
+	File2_Line1
+	File2_Line2
+	File2_Line3
+	File2_Line4
+.IE
+Given the command:
+.ID
+.ta 0.5i
+	paste File1 File2
+.IE
+the resulting output would be:
+.ID
+.ta 0.5i 1.75i
+	File1_Line1	File2_Line1
+	File1_Line2	File2_Line2
+	File1_Line3	File2_Line3
+	File1_Line4	File2_Line4
+.IE
+Adding the option
+.B \-s
+yields the output:
+.ID
+.ta 0.5i 1.75i 3.0i 4.25i
+	File1_Line1	File1_Line2	File1_Line3	File1_Line4
+	File2_Line1	File2_Line2	File2_Line3	File2_Line4
+.IE
+.SH "See Also"
+.B
+commands,
+cut
+.R
+.SH Author
+.B paste
+is copyright \f(MW!\fR 1989
+by The Regents of the University of California.
+All rights reserved.
+.PP
+.B paste
+is distributed as a service to COHERENT customers, as is.
+It is not supported by Mark Williams Company.
+.I "Caveat utilitor."

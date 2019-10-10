@@ -1,0 +1,295 @@
+/*
+ * Half-hearted version of diff (doesn't
+ * use the complicated algorithm).
+ * This algorithm works on arbitrary files
+ * but is only intended where changes are
+ * minimal and well-spaced.  There is another
+ * algorithm which also takes space but is at
+ * least guaranteed to be linear in time and space (unlike
+ * Least Common Subsequence) and sometimes produces
+ * more realistic results (and sometimes it doesn't)
+ * Consult: "A Technique for Isolating Diffeences between
+ * Files", Paul Heckel, CACM, November 1978.
+ * This shares code with the normal
+ * diff though.
+ */
+
+#include "diff.h"
+
+#define	NPEND	200		/* Default # pending lines */
+#define	NMATCH	2		/* Minimum lines in a row to have a match */
+
+/*
+ * Structure for each line 
+ * This is referenced by the
+ * structure for each file
+ * below.
+ */
+typedef	struct	LINE {
+	unsigned	l_num;		/* Line number */
+	struct LINE	*l_next;	/* Pointer for ungetting lines */
+	char	l_text[];		/* Data of line */
+}	LINE;
+
+/*
+ * Structure of pending lines
+ * and ungot lines stored for
+ * each of the input files.
+ */
+typedef	struct	PENDING {
+	FILE	*p_fp;		/* I/O stream for input */
+	int	p_eof;		/* Reached EOF on this input */
+	char	*p_fn;		/* File name */
+	LINE	*p_master;	/* Master input buffer */
+	LINE	*p_work;	/* Current working line */
+	LINE	*p_ungot;	/* Ungot lines */
+	LINE	*p_lines[NPEND]; /* Pending lines */
+}	PENDING;
+
+PENDING	p1, p2;
+
+LINE	*lcopy();
+
+/*
+ * A NOP routine so that diff()
+ * gets invoked.
+ */
+/* ARGSUSED */
+diffh(args)
+char **args;
+{
+}
+
+/*
+ * The actual code to produce list
+ * of differences by a stupider
+ * (but cheaper) algorithm.
+ */
+diff(fp1, fp2)
+FILE *fp1;
+FILE *fp2;
+{
+	register int top, bot;
+	register int i;
+
+	p1.p_master = p1.p_work = (LINE *)alloc(sizeof(LINE) + LSIZE);
+	p2.p_master = p2.p_work = (LINE *)alloc(sizeof(LINE) + LSIZE);
+	p1.p_fp = fp1;
+	p2.p_fp = fp2;
+	p1.p_fn = fn1;
+	p2.p_fn = fn2;
+	while (lget(&p1) | lget(&p2)) {
+		register char *s1, *s2;
+
+		s1 = p1.p_work->l_text;
+		s2 = p2.p_work->l_text;
+		if (*s1=='\0' && *s2=='\0')
+			continue;
+		if ((*equal)(s1, s2)) {
+			text(s1);
+			continue;
+		}
+		top = 0;
+		lpend(&p1, top);
+		lpend(&p2, top++);
+		do {
+			if (top >= NPEND)
+				cerr("Out of memory, lines %d and %d",
+				    p1.p_lines[0]->l_num, p2.p_lines[0]->l_num);
+			/*
+			 * Not checked, lget has
+			 * to stop going over EOF
+			 * by itself.
+			 */
+			lget(&p1);
+			lget(&p2);
+			lpend(&p1, top);
+			lpend(&p2, top++);
+			bot = top-NMATCH;
+			for (i=0; i<bot; i++) {
+				if (lsearch(i, bot)) {
+					lunget(&p1, i+NMATCH, top);
+					break;
+				}
+				if (lsearch(bot, i)) {
+					lunget(&p2, i+NMATCH, top);
+					break;
+				}
+			}
+		} while (i>bot || i==bot && !lsearch(i, i));
+	}
+}
+
+/*
+ * Get a line and put it into the current
+ * working position.
+ * Return 0 at EOF.
+ */
+lget(pp)
+register PENDING *pp;
+{
+	if (pp->p_master != pp->p_work)
+		free(pp->p_work);
+	if (pp->p_ungot != NULL) {
+		pp->p_work = pp->p_ungot;
+		pp->p_ungot = pp->p_ungot->l_next;
+		return (1);
+	}
+	pp->p_work = pp->p_master;
+	return (lgets(pp));
+}
+
+/*
+ * Unget pending lines between
+ * `beg' and `end' that are
+ * not already dealt with.
+ */
+lunget(pp, beg, end)
+register PENDING *pp;
+register int beg, end;
+{
+	while (--end >= beg) {
+		pp->p_lines[end]->l_next = pp->p_ungot;
+		pp->p_ungot = pp->p_lines[end];
+		pp->p_lines[end] = NULL;
+	}
+}
+
+/*
+ * Copy a line to a new (allocated)
+ * line space.
+ */
+LINE *
+lcopy(lp)
+register LINE *lp;
+{
+	register LINE *rlp;
+	register char *cp;
+
+	for (cp = lp->l_text; *cp != '\0'; cp++)
+		;
+	rlp = (LINE *)alloc(cp-lp->l_text+1 + sizeof(LINE));
+	rlp->l_num = lp->l_num;
+	rlp->l_next = NULL;
+	strcpy(rlp->l_text, lp->l_text);
+	return (rlp);
+}
+
+/*
+ * Save line away in a pending line
+ * position, specified by `pos'.
+ */
+lpend(pp, pos)
+register PENDING *pp;
+register int pos;
+{
+	if (pp->p_lines[pos] != NULL)
+		free(pp->p_lines[pos]);
+	if (pp->p_master != pp->p_work) {
+		pp->p_lines[pos] = pp->p_work;
+		pp->p_work = pp->p_master;
+	} else
+		pp->p_lines[pos] = lcopy(pp->p_work);
+}
+
+/*
+ * Read a string from input (specified
+ * by the PENDING pointer) and throw away
+ * partial lines.
+ */
+lgets(pp)
+register PENDING *pp;
+{
+	register int c;
+	register char *s;
+	register unsigned lim = LSIZE;
+
+	s = pp->p_master->l_text;
+	if (pp->p_eof) {
+		*s = '\0';
+		return (0);
+	}
+	while (--lim > 0 && (c = getc(pp->p_fp)) != EOF)
+		if ((*s++ = c) == '\n')
+			break;
+	*s = '\0';
+	if (c == EOF) {
+		if (s != pp->p_master->l_text)
+			fprintf(stderr, "diff: partial line omitted from %s\n",
+			    pp->p_fn);
+		pp->p_eof++;
+		return (0);
+	}
+	pp->p_master->l_num++;
+	return (1);
+}
+
+/*
+ * Search for a match in the pending lines.
+ * The two parameters are `pos1' and `pos2'
+ * for the position to start searching in
+ * file1 and file2, respectively.  The
+ * search looks for at least NMATCH lines.
+ */
+lsearch(pos1, pos2)
+int pos1;
+int pos2;
+{
+	register LINE **lpp1, **lpp2;
+	register int i;
+	register char *s1, *s2;
+	register int ln11, ln12, ln21, ln22;
+
+	lpp1 = &p1.p_lines[pos1];
+	lpp2 = &p2.p_lines[pos2];
+	/*
+	 * Empty strings are actually
+	 * dummies for after EOF.
+	 */
+	for (i=0; i<NMATCH; i++) {
+		s1 = lpp1[i]->l_text;
+		s2 = lpp2[i]->l_text;
+		if (*s1!='\0' || *s2!='\0')
+			if (!(*equal)(s1, s2))
+				break;
+	}
+	if (i < NMATCH)
+		return (0);
+	lpp1 = p1.p_lines;
+	lpp2 = p2.p_lines;
+	ln11 = lpp1[0]->l_num;
+	ln12 = lpp1[pos1-1]->l_num;
+	ln21 = lpp2[0]->l_num;
+	ln22 = lpp2[pos2-1]->l_num;
+	if (pos1 == 0)
+		append(ln11, ln21, ln22);
+	else if (pos2 == 0)
+		delete(ln11, ln12, ln21);
+	else
+		change(ln11, ln12, ln21, ln22);
+	for (i = 0; i < pos1; i++)
+		text1(lpp1[i]->l_text);
+	prsep();
+	for (i = 0; i < pos2; i++)
+		text2(lpp2[i]->l_text);
+	prend();
+	for (i=0; i<NMATCH; i++)
+		if (*(s1 = lpp1[i+pos1]->l_text) != '\0')
+			text(s1);
+	return (1);
+}
+
+/*
+ * Allocator that also checks for
+ * an prints a message if out of space.
+ */
+char *
+alloc(nb)
+unsigned nb;
+{
+	register char *rp;
+
+	if ((rp = calloc(nb, 1)) == NULL)
+		cerr("out of memory");
+	return (rp);
+}

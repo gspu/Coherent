@@ -1,0 +1,367 @@
+head     1.6;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.6; strict;
+comment  @ * @;
+
+
+1.6
+date     93.03.02.08.16.29;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.09.29.09.41.15;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.09.09.08.39.13;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.08.28.08.56.33;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.04.12.34.05;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.19.40;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.6
+log
+@kernel 73 update
+@
+text
+@/* $Header: /v4a/coh/RCS/poll.c,v 1.2 92/01/06 11:59:56 hal Exp $ */
+/*
+ *	The  information  contained herein  is a trade secret  of INETCO
+ *	Systems, and is confidential information.   It is provided under
+ *	a license agreement,  and may be copied or disclosed  only under
+ *	the terms of that agreement.   Any reproduction or disclosure of
+ *	this  material  without  the express  written  authorization  of
+ *	INETCO Systems or persuant to the license agreement is unlawful.
+ *
+ *	Copyright (c) 1986
+ *	An unpublished work by INETCO Systems, Ltd.
+ *	All rights reserved.
+ */
+
+/*
+ * [Stream] Polling.
+ *
+ *	void pollinit() -- allocate polling buffers
+ *	int pollopen(qp) -- enable polling  by current process  on given queue
+ *	int pollwake(qp) -- wake all processes waiting for poll on given queue
+ *	int pollexit() -- terminate all polls enabled by current process
+ *	event_t * ep;
+ *
+ * $Log:	poll.c,v $
+ * Revision 1.2  92/01/06  11:59:56  hal
+ * Compile with cc.mwc.
+ * 
+ * Revision 1.1	88/03/24  16:14:10	src
+ * Initial revision
+ * 
+ * 86/11/19	Allan Cornish		/usr/src/sys/coh/poll.c
+ * Ported to Coherent from RTX.
+ */
+
+#include <sys/coherent.h>
+#include <sys/proc.h>
+
+/*
+ * Patchable data.
+ */
+int	NPOLL  = 0;
+
+/*
+ * Private data.
+ */
+static	event_t	* efreep;
+
+/**
+ *
+ * event_t *
+ * pollinit()		-- allocate event buffers.
+ */
+event_t *
+pollinit()
+{
+	register event_t * ep;
+	register event_t * ap;
+	static int first = 1;
+
+	/*
+	 * If dynamically growing event pool is specified [NPOLL == 0],
+	 * try to allocate an additional cluster of 32 on each call.
+	 */
+	if (NPOLL == 0) {
+		if (ep = kalloc(32 * sizeof(event_t)))
+			ap = ep + 32;
+	}
+
+	/*
+	 * If statically sized event pool is specified [NPOLL != 0],
+	 * try to allocate the pool on the first call.
+	 */
+	else if (first) {
+		first = 0;
+		if (ep = kalloc(NPOLL * sizeof(event_t)))
+			ap = ep + NPOLL;
+	}
+
+	/*
+	 * If event cluster was allocated, insert into free event queue.
+	 */
+	if (ep) {
+		do {
+			ep->e_pnext = efreep;
+			efreep = ep;
+		} while (++ep < ap);
+	}
+
+	return efreep;
+}
+
+/**
+ *
+ * int
+ * pollopen(qp) -- enable polling by current process on given event queue
+ * event_t * qp;
+ */
+pollopen(qp)
+register event_t * qp;
+{
+	register event_t * ep;
+
+	/*
+	 * Initialize device queue if required.
+	 */
+	if (qp->e_dnext == 0)
+		qp->e_dnext = qp->e_dlast = qp;
+
+	/*
+	 * Obtain a free event buffer, or return.
+	 */
+	if (((ep = efreep) == 0) && ((ep = pollinit()) == 0)) {
+		printf("out of poll buffers\n");
+		return;
+	}
+
+	/*
+	 * Remove event buffer from free queue.
+	 */
+	efreep = ep->e_pnext;
+
+	/*
+	 * Record process pointer in event buffer.
+	 */
+	ep->e_procp = cprocp;
+
+	/*
+	 * Insert event at head of process event singularly-linked queue.
+	 */
+	ep->e_pnext = cprocp->p_polls;
+	cprocp->p_polls = ep;
+
+	/*
+	 * Insert event at tail of circularly-linked device queue.
+	 * This ensures that processes are first-in first-out.
+	 */
+	ep->e_dnext  = qp;
+	(ep->e_dlast = qp->e_dlast)->e_dnext = ep;
+	qp->e_dlast  = ep;
+
+	/*
+	 * Record last process to enable polling on device.
+	 */
+	qp->e_procp = cprocp;
+}
+
+/**
+ *
+ * int
+ * pollwake(qp) -- wake all processes waiting for poll on given queue
+ * event_t * qp;
+ *
+ * Go through extra step of deferring the pollwake to avoid race condition
+ * (in case interrupt handler does a pollwake() during upoll()).
+ */
+pollwake(qp)
+event_t * qp;
+{
+	void dpollwake();
+
+	defer(dpollwake, qp);
+}
+
+void
+dpollwake(qp)
+event_t * qp;
+{
+	register event_t * ep = qp;
+	register PROC    * pp;
+
+	/*
+	 * Clear device process pointer, indicating poll completed.
+	 * NOTE: interrupt handlers may have already cleared it.
+	 */
+	qp->e_procp = 0;
+
+	if (ep = qp->e_dnext) {
+
+		/*
+		 * Service circularly-linked polls on device queue.
+		 */
+		while (ep != qp) {
+			/*
+			 * Wake process if it is sleeping.
+			 */
+			if ((pp = ep->e_procp) && ASLEEP(pp))
+				wakeup(&pp->p_polls);
+
+			ep = ep->e_dnext;
+		}
+	}
+}
+
+/**
+ *
+ * int
+ * pollexit() -- terminate all polls opened by current process
+ */
+int
+pollexit()
+{
+	register PROC    * pp = cprocp;
+	register event_t * ep;
+
+	/*
+	 * Service all polling event buffers enabled by current process.
+	 */
+	while (ep = pp->p_polls) {
+
+		/*
+		 * Remove event buffer from circularly-linked device queue.
+		 */
+		(ep->e_dnext->e_dlast = ep->e_dlast)->e_dnext = ep->e_dnext;
+
+		/*
+		 * Remove event buffer from singularly-linked process queue.
+		 */
+		pp->p_polls = ep->e_pnext;
+
+		/*
+		 * Insert event buffer at head of free event buffer queue.
+		 */
+		ep->e_pnext = efreep;
+		efreep = ep;
+	}
+}
+@
+
+
+1.5
+log
+@
+@
+text
+@d18 1
+a18 1
+ *	void pollinit( ) -- allocate polling buffers
+d21 1
+a21 1
+ *	int pollexit(  ) -- terminate all polls enabled by current process
+d64 2
+a65 2
+	if ( NPOLL == 0 ) {
+		if ( ep = kalloc( 32 * sizeof(event_t) ) )
+d73 1
+a73 1
+	else if ( first ) {
+d75 1
+a75 1
+		if ( ep = kalloc( NPOLL * sizeof(event_t) ) )
+d82 1
+a82 1
+	if ( ep ) {
+d86 1
+a86 1
+		} while ( ++ep < ap );
+d98 1
+a98 1
+pollopen( qp )
+d106 1
+a106 1
+	if ( qp->e_dnext == 0 )
+d112 1
+a112 1
+	if ( ((ep = efreep) == 0) && ((ep = pollinit()) == 0) ) {
+d150 1
+a150 1
+ * pollwake( qp ) -- wake all processes waiting for poll on given queue
+d152 3
+d156 1
+a156 1
+pollwake( qp )
+d159 9
+d177 1
+a177 1
+	if ( ep = qp->e_dnext ) {
+d182 1
+a182 1
+		while ( ep != qp ) {
+d186 2
+a187 2
+			if ( (pp = ep->e_procp) && (pp->p_state == PSSLEEP) )
+				wakeup( &pp->p_polls );
+d208 1
+a208 1
+	while ( ep = pp->p_polls ) {
+@
+
+
+1.4
+log
+@hal update: kernel 62 (60 files)
+@
+text
+@@
+
+
+1.3
+log
+@kernel 61 by hal
+@
+text
+@@
+
+
+1.2
+log
+@changed for ker 59
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

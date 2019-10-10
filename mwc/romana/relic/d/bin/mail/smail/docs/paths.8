@@ -1,0 +1,115 @@
+.TH PATHS 8
+.tr ~
+.SH NAME
+paths \- smail routing database
+.SH DESCRIPTION
+The
+.I paths
+file is the routing database for
+.IR smail .
+Each line of the file provides routing information
+to either a host or to a domain.  Each line should
+have either two or three tab (ascii~0x9) separated fields.
+The format of each line in the paths file is:
+.tr ~
+.sp
+.ce
+\fIkey~~route~~~[cost]\fP
+.sp
+The
+.I key
+field is the key on which searches are performed.
+Typically this is either a UUCP host name or a domain name.
+.I smail
+uses a binary search algorithm when searching the database,
+so the keys must be sorted in ascending order.
+Case is ignored when searching, so the keys should be converted
+to lower case before sorting (see
+.IR lcase (8)
+and
+.IR pathproc (8)).
+.B Warning:
+There is a bug in
+.I sort -f,
+so don't use it.  Convert the keys to lower case, and then sort.
+.PP
+The
+.I route
+field is a "printf" string that details the route that mail to the
+.I key
+should take.
+See
+.I pathalias
+documentation for details.
+.PP
+The optional
+.I cost
+field is used by
+.I smail
+to determine whether to simply queue outbound
+UUCP mail, or to attempt immediate delivery
+(usually by invoking
+.IR uucico ).
+If the cost field is present, and the value is at or below
+.IR smail "'s"
+.I queueing threshold
+then the mail will be queued and an attempt at immediate delivery
+will be made.  This will speed mail delivery between hosts who
+enjoy a cheap uucp link, like a hardwired line or some other
+low cost transport medium, while allowing mail sent over more
+expensive media to accumulate before transmission.
+If the field is absent, the cost defaults to a value
+above the
+.I queueing threshold.
+The default value for the queueing threshold is equal to the pathalias
+cost DEDICATED+LOW.  Thus, direct links with cost DEDICATED+LOW or less
+will see immediate delivery, while the others are queued for later delivery.
+.SH EXAMPLE
+Here's a sample paths file for a small host, like a pc, that doesn't
+want to maintain complete routing information.  It illustrates
+most of the aspect of the
+.I paths
+file.  Assme that the pc's name is
+.I mypc,
+and that it's in domain
+.I .mydomain.
+Also, assume that it has a dedicated link to
+a smart host named
+.I bighub,
+and that
+.IR bighub 's
+administrator has given
+.I mypc
+.B permission
+to use
+.I bighub
+as a mail relay.
+Lastly, assume that
+.I mypc
+has a dialed on demand link to another computer named
+.I friend.
+.nf
+.sp
+.in +5
+\fIpathalias\fP input
+.sp
+ mypc =	.mypc.mydomain
+ mypc friend(DEMAND), bighub(DEDICATED)
+ smart-host = bighub
+.sp
+\fIpaths\fP file produced by \fIpathalias -f inputfile|pathproc\fP
+.sp
+ .mypc.mydomain	%s	0
+ bighub	bighub!%s	95
+ friend	friend!%s	300
+ mypc	%s	0
+ smart-host	bighub!%s	95
+.in
+.sp
+.fi
+.SH SEE ALSO
+pathalias - by Peter Honeyman
+.br
+smail(8), lcasep(8), pathproc(8)
+.SH VERSION
+@(#)paths.8	2.5 (smail) 9/15/87

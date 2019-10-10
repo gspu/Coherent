@@ -1,0 +1,586 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4;
+comment  @ * @;
+
+
+1.4
+date     93.07.08.12.46.46;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.04.07.08.30.20;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.02.25.12.30.30;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.20.52.01;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.4
+log
+@nigel: mods for coh 4.2
+(alpha)
+@
+text
+@/*
+ * write goto table and parsing table out to temp file
+ * to be picked up later by the optimizer
+ * at this point, the tables are fit to be processed by the C parser
+ */
+#include "yacc.h"
+#include <action.h>
+
+char	*actns[] = {
+	"SHIFT",
+	"REDUCE",
+	"ACCEPT",
+	"ERROR"
+};
+
+static int *uv;
+
+go2out()
+{
+	register i;
+
+	if( verbose )
+		fprintf(listout, "\n\nGoto table:\n\n");
+	uv = (int *)yalloc(nstates, sizeof *uv);
+	rewopt();
+	for(i=1; i<nnonterm; i++)
+		outgo2(i);
+	free(uv);
+}
+
+outgo2(n)
+{
+	extern yyredns, yygodef;
+	int max, sno, j;
+	struct sym *sp;
+	struct go2n g2;
+
+
+	sp = ntrmptr[n];
+	for(j=0; j<sp->s_nstates; j++)
+		uv[j] = 0;
+	max = 0;
+	for(j=0; j<sp->s_nstates; j++) {
+		sno = findnt( &states[sp->s_states[j]], n+NTBASE)->ng_st;
+		if( ++uv[sno] > uv[max] )
+			max = sno;
+	}
+	yygodef += uv[max];
+	g2.from = (YYGOTO<<YYACTSH) | n;
+	g2.to = sp->s_nstates - uv[max] + 1;
+	yyredns += g2.to;
+	fwrite(&g2, sizeof g2, 1, optout);
+	if( verbose )
+		fprintf(listout, "%s:\n\n", ntrmptr[n]->s_name);
+	for(j=0; j<sp->s_nstates; j++) {
+		sno = sp->s_states[j];
+		if( (g2.to=findnt(&states[sno], n+NTBASE)->ng_st) == max )
+			continue;
+		g2.from = sno;
+		if( verbose )
+			fprintf(listout, "\t%d\t%d\n",  g2.from, g2.to);
+		fwrite(&g2, sizeof g2, 1, optout);
+	}
+	g2.from = YYOTHERS;
+	g2.to = max;
+	fwrite(&g2, sizeof g2, 1, optout);
+	if( verbose )
+		fprintf(listout, "\t.\t%d\n\n", max);
+}
+
+paout()
+{
+	struct actn *rdact;
+	register i;
+	
+	if (verbose)
+		fprintf(listout, "\n\nParsing action table:\n\n");
+
+	rdact = (struct actn *) yalloc (maxreds, sizeof(*rdact));
+	for(i = 0; i < nstates; i++)
+		outstate(i, rdact);
+	free(rdact);
+}
+
+outstate(n, rdact)
+struct actn rdact[];
+{
+	extern yydefact, yypact;
+	register i, k;
+	register struct state *stp;
+	int size, max, errshift, pno, maxp, j, l;
+	struct lset shls, rdls;
+	struct actn act;
+
+	stp = &states[n];
+	zerolset(&shls);
+	for(i=0; i<stp->s_tgo; i++) 
+		setbit(&shls, stp->s_tgos[i].tg_trm);
+	max = 0;
+	maxp = -1;
+	for(i=k=0; i<stp->s_nred; i++) {
+		pno = stp->s_reds[i].rd_prod->p_prodno;
+		copylset(&rdls, stp->s_reds[i].rd_lset);
+		resolve(n, i, &shls, &rdls);
+		size = 0;
+		for(j=first(&rdls); j>=0; j=next(&rdls, j)) {
+			for(l=0; l<k; l++) 
+				if( rdact[l].a_chr==j ) {
+					redred(n, pno, rdact[l].a_no&YYAMASK, j);
+					goto nextj; /* C needs next <var> */
+				}
+			bounded(l, maxreds, "reductions");
+			rdact[k].a_chr = j;
+			rdact[k++].a_no = (YYREDACT<<YYACTSH) | pno;
+			size++;
+		nextj:
+			;
+		}
+		if( size>max ) {
+			max = size;
+			maxp = pno;
+		}
+	}
+	if( bit(&shls, ERRNO) || maxp==0 ) /* shift on error or accept */
+		maxp = -1;
+
+	/* count total number of actions */
+	size = k + lcount(&shls) + !bit(&shls,ERRNO); /* shifts+reds+default */
+	if( maxp >= 0 ) {
+		size -= max;
+		yydefact += max;
+	}
+	yypact += size;
+	act.a_chr = size;
+	act.a_no = (YYPACTION<<YYACTSH) | n;
+	if( verbose )
+		fprintf(listout, "State %d (size %d):\n\n", n, size);
+	fwrite(&act, sizeof act, 1, optout);
+
+	/* now have shifts in shls redns in rdact */
+
+	/* output shifts */
+	for(j=0; j<stp->s_tgo; j++) {
+		if( !bit(&shls, i = stp->s_tgos[j].tg_trm) )
+			continue;
+		if( i==ERRNO ) { /* will be made default */
+			errshift = stp->s_tgos[j].tg_st;
+			continue;
+		}
+		act.a_chr = i;
+		act.a_no = (YYSHIFTACT<<YYACTSH) | stp->s_tgos[j].tg_st;
+		wract(&act);
+	}
+
+	/* output reductions */
+	for(i=0; i<k; i++) {
+		if( (pno = rdact[i].a_no&YYAMASK) == maxp )
+			continue;
+		if( pno==0 ) /* $accept -> start $end . */
+			rdact[i].a_no = YYACCEPTACT<<YYACTSH;
+		wract(&rdact[i]);
+	}
+
+	/* default action */
+	act.a_chr = YYOTHERS;
+	if( bit(&shls, ERRNO) ) {
+		act.a_no = (YYSHIFTACT<<YYACTSH) | errshift;
+	} else if( maxp>=0 )
+		act.a_no = YYREDACT<<YYACTSH | maxp;
+	else
+		act.a_no = (YYERRACT<<YYACTSH);
+	wract(&act);
+}
+
+wract(actp)
+register struct actn *actp;
+{
+	register unsigned actn;
+	actn = actp->a_no>>YYACTSH;
+	if( verbose ) {
+		fprintf(listout, "\t%s\t%s", actp->a_chr==YYOTHERS?".":
+		    trmptr[actp->a_chr]->s_name, actns[actn]);
+		if( actn<=YYREDACT )
+			fprintf(listout, "\t%d", actp->a_no&YYAMASK);
+		fprintf(listout, "\n");
+	}
+	fwrite(actp, sizeof *actp, 1, optout);
+}
+
+lcount(lp)
+struct lset *lp;
+{
+	register n, count;
+	register unsigned char *ucp;
+	extern unsigned char bcount [];
+
+	count = 0;
+	ucp = lp->l_bits;
+	n = LSETSIZE;
+	do {
+		count += bcount [* ucp ++];
+	} while (-- n);
+	return count;
+}
+
+setdiff(ld, ls)
+struct lset *ld, *ls;
+{
+	register n;
+	register unsigned char *udcp, *uscp;
+
+	n = LSETSIZE;
+	udcp = ld->l_bits;
+	uscp = ls->l_bits;
+	do {
+		* udcp ++ &= ~ * uscp ++;
+	} while (-- n);
+}
+
+setunion(ld, ls)
+struct lset *ld, *ls;
+{
+	register n;
+	register unsigned char *udcp, *uscp;
+
+	n = LSETSIZE;
+	udcp = ld->l_bits;
+	uscp = ls->l_bits;
+	do {
+		* udcp ++ |= * uscp ++;
+	} while (-- n);
+}
+
+setint(ld, ls)
+struct lset *ld, *ls;
+{
+	register n;
+	register unsigned char *udcp, *uscp;
+
+	n = LSETSIZE;
+	udcp = ld->l_bits;
+	uscp = ls->l_bits;
+	do {
+		* udcp ++ &= * uscp ++;
+	} while (-- n);
+}
+
+copylset(ld, ls)
+struct lset *ld, *ls;
+{
+	memcpy (ld->l_bits, ls->l_bits, sizeof (ld->l_bits));
+}
+
+zerolset(ld)
+struct lset *ld;
+{
+	memset (ld->l_bits, 0, sizeof (ld->l_bits));
+}
+
+resolve(sno, p, sls, rls)
+int p;
+struct lset *sls, *rls;
+{
+	register i;
+	struct lset cls;
+	int todo;
+	struct prod *pp;
+	struct sym *tsp;
+
+	copylset(&cls, sls);
+	setint(&cls, rls);
+	pp = states[sno].s_reds[p].rd_prod;
+	for(i=first(&cls); i>=0; i=next(&cls,i) ) { /* conflict on term i */
+		tsp = trmptr[i];
+		if( tsp->s_ass<=UNASSOC || pp->p_ass<=UNASSOC ) {
+			shiftred(sno, pp->p_prodno, i);
+			clrbit(rls, i);
+			continue;
+			/* conflict resolved in favour of shift */
+		}
+		if( pp->p_prc > tsp->s_prc )
+			todo = LASSOC;
+		else if( pp->p_prc < tsp->s_prc )
+			todo = RASSOC;
+		else
+			todo = tsp->s_ass;
+		switch( todo ) {
+		case LASSOC: /* reduce */
+			clrbit(sls, i);
+			break;
+
+		case RASSOC:
+			clrbit(rls, i);
+			break;
+
+		case UNASSOC: /* non-self associating op */
+			clrbit(rls, i);
+			clrbit(sls, i);
+			break;
+		}
+	}
+}
+
+shiftred(sno, pn, tok)
+{
+	register i;
+	struct state *stp;
+
+	stp = &states[sno];
+	++nsrconf;
+	if( !verbose )
+		return;
+	for(i=0; i<stp->s_tgo; i++)
+		if( stp->s_tgos[i].tg_trm==tok )
+			break;
+	fprintf(listout, "State %d: Shift/Reduce conflict ", sno);
+	fprintf(listout, "(shift %d, red'n %d) on %s\n",
+		stp->s_tgos[i].tg_st, pn, trmptr[tok]->s_name);
+}
+
+redred(sno, pn1, pn2, tok)
+{
+	struct state *stp;
+
+	stp = &states[sno];
+	++nrrconf;
+	if( !verbose )
+		return;
+	fprintf(listout, "State %d: Reduce/Reduce conflict ", sno);
+	fprintf(listout, "(red'n %d, red'n %d) on %s\n",
+		pn1, pn2, trmptr[tok]->s_name);
+}
+
+clrbit(lp, n)
+struct lset *lp;
+register unsigned n;
+{
+	lp->l_bits [n / CHAR_BIT] &= ~ (1 << (n & (CHAR_BIT - 1)) );
+}
+
+setbit(lp, n)
+struct lset *lp;
+register unsigned n;
+{
+	lp->l_bits [n / CHAR_BIT] |= 1 << (n & (CHAR_BIT - 1));
+}
+
+bit(lp, n)
+struct lset *lp;
+register unsigned n;
+{
+	return (lp->l_bits [n / CHAR_BIT] >> (n & (CHAR_BIT - 1))) & 1;
+}
+
+first(lp)
+struct lset *lp;
+{
+	return next (lp,-1);
+}
+
+next(lp, n)
+struct lset *lp;
+register unsigned n;
+{
+	register w;
+	register unsigned char *ucp;
+	extern char ltab[];
+
+	if (++ n >= LSETSIZE * CHAR_BIT)
+		return -1;
+	ucp = lp->l_bits;
+	w = ucp [n / CHAR_BIT];
+	w &= ~ ((1 << (n & (CHAR_BIT - 1))) - 1);
+	n /= CHAR_BIT;
+	while (w == 0) {
+		if (++ n >= LSETSIZE)
+			return -1;
+		w = ucp [n];
+	}
+	return n * CHAR_BIT + ltab [w];
+}
+
+struct ntgo *
+findnt(stp, nt)
+register struct state *stp;
+{
+	register i;
+
+	for(i=0; i<stp->s_ntgo; i++ )
+		if( stp->s_ntgos[i].ng_nt==nt )
+			return( &stp->s_ntgos[i] );
+	yyerror(NLNO|FATAL, "oops in findnt");
+}
+@
+
+
+1.3
+log
+@cef changes:	added new command line options to yacc for large grammars
+-sprod N	allow N symbols per production. Default 20
+-items N	Allow N items in any state. Default 160
+-reds N		Allow N reductions per state. Default 300
+@
+text
+@d79 1
+a79 1
+	rdact = yalloc(maxreds, sizeof(*rdact));
+d195 1
+a195 1
+	extern unsigned char bcount[];
+d201 3
+a203 3
+		count += bcount[*ucp++];
+	} while (--n);
+	return(count);
+d216 2
+a217 2
+		*udcp++ &= ~ *uscp++;
+	} while (--n);
+d230 2
+a231 2
+		*udcp++ |= *uscp++;
+	} while (--n);
+d244 2
+a245 2
+		*udcp++ &= *uscp++;
+	} while (--n);
+d251 2
+a252 2
+	register n;
+	register unsigned char *udcp, *uscp;
+a253 8
+	n = LSETSIZE;
+	udcp = ld->l_bits;
+	uscp = ls->l_bits;
+	do {
+		*udcp++ = *uscp++;
+	} while (--n);
+}
+
+d257 2
+a258 2
+	register n;
+	register unsigned char *udcp;
+a259 7
+	n = LSETSIZE;
+	udcp = ld->l_bits;
+	do {
+		*udcp++ = 0;
+	} while (--n);
+}
+
+d336 1
+a336 1
+register n;
+d338 2
+a339 1
+	register unsigned char *ucp;
+a340 4
+	ucp = lp->l_bits;
+	ucp[n>>LOGCHAR] &= ~( 01 << (n & (NBCHAR-1)) );
+}
+
+d343 1
+a343 1
+register n;
+d345 2
+a346 1
+	register unsigned char *ucp;
+a347 4
+	ucp = lp->l_bits;
+	ucp[n>>LOGCHAR] |= 01 << (n & (NBCHAR-1));
+}
+
+d350 1
+a350 1
+register n;
+d352 2
+a353 1
+	register unsigned char *ucp;
+a354 4
+	ucp = lp->l_bits;
+	return( (ucp[n>>LOGCHAR] >> (n&(NBCHAR-1))) & 01 );
+}
+
+d358 1
+a358 1
+	return(next(lp,-1));
+d363 1
+a363 1
+register n;
+d369 2
+a370 2
+	if( ++n >= LSETSIZE*NBCHAR )
+		return(-1);
+d372 3
+a374 3
+	w = ucp[n >> LOGCHAR];
+	w &= ~ ( (01 << (n&(NBCHAR-1))) - 1);
+	n >>= LOGCHAR;
+d376 3
+a378 3
+		if ( ++n >= LSETSIZE )
+			return(-1);
+		w = ucp[n];
+d380 1
+a380 1
+	return( (n<<LOGCHAR) + ltab[w] );
+@
+
+
+1.2
+log
+@update by stevesf as v322
+@
+text
+@d73 1
+d75 3
+d79 4
+a82 4
+	if( verbose )
+		fprintf(listout, "\n\nParsing action table:\n\n");
+	for(i=0; i<nstates; i++)
+		outstate(i);
+d85 2
+a86 1
+outstate(n)
+d93 1
+a93 1
+	struct actn rdact[MAXREDS], act;
+d112 1
+a112 1
+			bounded(l, MAXREDS, "reductions");
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d7 1
+a7 2
+#include "assert.h"
+#include "action.h"
+@

@@ -1,0 +1,131 @@
+#ifndef	READ_H
+#define	READ_H
+
+/*
+ *-IMPORTS:
+ *	<sys/compat.h>
+ *		CONST
+ *		EXTERN_C_BEGIN
+ *		EXTERN_C_END
+ *		PROTO ()
+ */
+
+#include <sys/compat.h>
+
+
+/*
+ * Structure of an input source.
+ */
+
+#ifndef	INPUT_T
+#define	INPUT_T
+typedef struct input	input_t;
+#endif
+
+#ifndef	BUILD_T
+#define	BUILD_T
+typedef	struct builder	build_t;
+#endif
+
+#ifndef	LEX_T
+#define	LEX_T
+typedef	struct lexinfo	lex_t;
+#endif
+
+#ifndef	TOKEN_T
+#define	TOKEN_T
+typedef struct token	token_t;
+#endif
+
+
+/*
+ * Structure of a token returned by read_token (), which reflects the method
+ * used to parse the token. In order to reduce data copying, we permit input
+ * sources to provide a way of getting a token into memory without using the
+ * object-builder system (since for sources such as strings, that involves
+ * a large amount of totally unnecessary work).
+ *
+ * If "tok_heap" is not NULL, then it points to a build heap where the data
+ * for the token was copied as it was read. If is it NULL, then "tok_data" and
+ * "tok_len" may point to token data, or may be NULL and 0 respectively to
+ * indicate that no token was read.
+ */
+
+struct token {
+	CONST unsigned char *
+			tok_data;
+	size_t		tok_len;
+	build_t	      *	tok_heap;
+};
+
+
+/*
+ * EOF value returned by the functions defined here; must be the same value as
+ * IN_EOF, since typically we just return values from the in... () functions.
+ */
+
+enum {
+	READ_EOF	= -1
+};
+
+
+/*
+ * Flags for numeric input
+ */
+
+enum {
+	UNSIGNED	= 0,
+	SIGNED		= 1
+};
+
+
+/*
+ * For determining whether read_ints () is allowed to read a range or not.
+ */
+
+enum {
+	NO_RANGE	= 0,
+	RANGE		= 1
+};
+
+
+EXTERN_C_BEGIN
+
+int		read_char	PROTO ((input_t * _input));
+void		unread_char	PROTO ((input_t * _input));
+void		read_error	PROTO ((input_t * _input));
+void		read_close	PROTO ((input_t * _input));
+
+int		read_long	PROTO ((input_t * _input, long * _longp,
+					int _radix));
+int		read_ulong	PROTO ((input_t * _input,
+					unsigned long * _ulongp, int _radix));
+
+void		read_flush	PROTO ((input_t * _input, lex_t * _lexp));
+
+int		read_token	PROTO ((input_t * _input, lex_t * _lexp,
+					build_t * _heap, token_t * _tok));
+
+void		token_discard	PROTO ((token_t * _tok));
+void		token_end	PROTO ((token_t * _tok));
+void		token_copy	PROTO ((token_t * _tok, build_t * _heap));
+
+void		check_not_eol	PROTO ((int _ch));
+int		expect_eol	PROTO ((input_t * _input, lex_t * _lexp,
+					int _ch));
+
+int		read_ulongs	PROTO ((input_t * _input, lex_t * _lexp,
+					unsigned long * _numbers,
+					int _rangeflag));
+int		read_longs	PROTO ((input_t * _input, lex_t * _lexp,
+					long * _numbers, int _rangeflag));
+int		read_ints	PROTO ((input_t * _input, lex_t * _lexp,
+					int * _numbers, int _rangeflag));
+int		read_uints	PROTO ((input_t * _input, lex_t * _lexp,
+					unsigned int * _numbers,
+					int _rangeflag));
+
+EXTERN_C_END
+
+
+#endif	/* ! defined (READ_H) */

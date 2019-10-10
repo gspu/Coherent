@@ -1,0 +1,236 @@
+/*
+ * This is the machine specific header file for the iAPX-86 compilers.
+ * It is used in both the SMALL and LARGE models of segmentation.
+ * It contains typedefs, register names and macros for all compiler phases.
+ * This one produces an IEEE fp TINY compiler which does both models RUNNING_LARGE.
+ */
+#define	DATE		"07/11/89"	/* Date			*/
+#define	VERSMWC		"V3.0.7"	/* MWC version number	*/
+#define	VERSINT		"X324"		/* Intel version number	*/
+
+#define	EATDOL		0	/* Eat '$' in identifiers?	*/
+#define	IEEE		1	/* IEEE format?			*/
+#define	DECVAX		0	/* DECVAX format?		*/
+#define	NATIVEFP	1	/* Host fp == target fp?	*/
+#define MCFFP		0	/* Motorola fast floating point? */
+#define	TINY		1	/* No code gen debug info?	*/
+#ifndef	YATC
+#define	YATC		0	/* Not code table compile	*/
+#endif
+#define RUNNING_LARGE	1	/* Long pointers?		*/
+#define	SIZEOF_LARGE	0	/* long sizeof_t fields		*/
+#define SPLIT_CC1	0	/* CC1A-CC1B?			*/
+#define AS_FORMAT	1	/* Coherent/Rainbow .s format?	*/
+#define	INTEL		0	/* Intel copyright?		*/
+#define	OMF286		0	/* 286 object format?		*/
+#define	TEMPBUF		0	/* Memory tempfile buffers?	*/
+
+#define	NDP		1	/* 8087?			*/
+#define	EMUFIXUPS	0	/* M: 8087 emulation fixups?	*/
+#define ONLYSMALL	0	/* Just SMALL model?		*/
+
+/*
+ * Types.
+ */
+#define	S8	0		/* Signed byte */
+#define	U8	1		/* Unsigned byte */
+#define	S16	2		/* Signed word */
+#define	U16	3		/* Unsigned word */
+#define	S32	4		/* Signed long */
+#define	U32	5		/* Unsigned long */
+#define	F32	6		/* Short floating point */
+#define	F64	7		/* Long  floating point */
+#define	BLK	8		/* Block of bytes */
+#define	FLD8	9		/* Field, byte wide */
+#define	FLD16	10		/* Field, word wide */
+#define	LPTR	11		/* Large (2 word) pointer */
+#define	LPTB	12		/* Large (2 word) pointer to BLK */
+#define	SPTR	13		/* Small (1 word) pointer */
+#define	SPTB	14		/* Small (1 word) pointer to BLK */
+
+#define	TRUTH	S16		/* Type used for truth values */
+#define	LOFS	LPTR		/* Large, offset LEAF type */
+#define	SOFS	SPTR		/* Small, offset LEAF type */
+#define	IVAL_T	S16		/* Type for ival_t con */
+#define	LVAL_T	S32		/* Type for lval_t con */
+#define	DVAL_T	F64		/* Type for dval_t con */
+#define	NBPBYTE	8		/* # of bits in a "byte" */
+#define	NBPSTRG	8		/* Structure granularity */
+
+/*
+ * For each machine type there is
+ * a flag bit type.
+ */
+#define	FS8	01
+#define	FU8	02
+#define	FS16	04
+#define	FU16	010
+#define	FS32	020
+#define	FU32	040
+#define	FF32	0100
+#define	FF64	0200
+#define	FBLK	0400
+#define	FFLD8	01000
+#define	FFLD16	02000
+#define	FLPTR	04000
+#define FLPTB	010000
+#define	FSPTR	020000
+#define FSPTB	040000
+
+/*
+ * Allocation types.
+ */
+#ifdef  vax
+typedef	short	ival_t;		/* 16 bits */
+typedef	int	lval_t;		/* 32 bits */
+#else
+typedef	int	ival_t;		/* ints */
+typedef	long	lval_t;		/* longs */
+#endif
+typedef	char	dval_t[8];	/* doubles */
+typedef int	sizeof_t;	/* sizeof constants */
+
+/*
+ * Limits.
+ */
+#define	MAXIV	32767L		/* Max integer */
+#define	MAXUV	65535L		/* Max unsigned integer */
+#define	MAXUCE	255		/* Max unsigned char enumeration */
+#define	UIMASK	0xFFFF0000L	/* Unsigned int check mask */
+#define	SIMASK	0xFFFF8000L	/* Signed int check mask */
+#define	SLMASK	0x80000000L	/* Signed long check mask */
+#define	ASMASK	0x0000FFFFL	/* Address space mask */
+#define MAXMEMB	MAXIV		/* Max struct/union member offset */
+#define	MAXESIZE MAXUV		/* Max struct/union/array size */
+
+/*
+ * Registers.
+ * This list includes the machine's
+ * actual registers, some registers that are
+ * only given names for the benefit of the
+ * code output routines, and the pseudo registers
+ * used by the code generator.
+ */
+#define	AX	0
+#define	DX	1
+#define	BX	2
+#define	CX	3
+
+#define	SI	4
+#define	DI	5
+#define	SP	6
+#define	BP	7
+
+#define	FPAC	8
+
+#define	ES	9
+#define	CS	10
+#define	SS	11
+#define	DS	12
+
+#define	DXAX	13
+#define	CXBX	14
+
+#define	SSSP	15
+#define	SSBP	16
+
+#define	ESAX	17
+#define	ESBX	18
+#define	ESSI	19
+#define	ESDI	20
+
+#define DSAX	21
+#define DSBX	22
+#define	DSSI	23
+#define	DSDI	24
+
+#define	AL	25
+#define	BL	26
+#define	CL	27
+#define	DL	28
+#define	AH	29
+#define	BH	30
+#define	CH	31
+#define	DH	32
+
+#define	NONE	33
+#define	ANYR	34
+#define	ANYL	35
+#define	PAIR	36
+#define	TEMP	37
+#define	LOTEMP	38
+#define	HITEMP	39
+
+#define	NRREG	25	/* Number of real regs */
+#define	NREG	40	/* Number of regs */
+#define	FRREG	AX
+
+#define	BAX	01
+#define	BDX	02
+#define	BBX	04
+#define	BCX	010
+#define	BSI	020
+#define	BDI	040
+#define	BSP	0100
+#define	BBP	0200
+#define	BFPAC	0400
+#define	BES	01000
+#define	BCS	02000
+#define	BSS	04000
+#define	BDS	010000
+
+/*
+ * Definitions for the "a_mode"
+ * field of an AFIELD object. Some bits are
+ * used only by the peephole optimizer routines in
+ * the "mregstate" and "sregstate" tables.
+ */
+#define	A_REGM	0x000F		/* Register code, etc */
+#define	A_AMOD	0x00F0		/* Address mode */
+#define	A_PREFX	0x0F00		/* Escape prefix needed */
+#define	A_EA	0x1000		/* Flag for peephole; effective address */
+#define A_OFFS	0x2000		/* Flag for getfield; offset present */
+#define	A_LID	0x4000		/* Flag for getfield; local id present */
+#define	A_GID	0x8000		/* Flag for getfield; global id present */
+
+#define	A_NONE	0		/* General "none" value */
+
+#define	A_BR	(1<<4)		/* Byte register */
+#define	A_WR	(2<<4)		/* Word register */
+#define	A_SR	(3<<4)		/* Segment register */
+#define	A_IMM	(4<<4)		/* Immediate */
+#define	A_DIR	(5<<4)		/* Direct */
+#define	A_X	(6<<4)		/* Indexed */
+
+#define	A_ES	(1<<8)		/* ES: needed */
+#define	A_CS	(2<<8)		/* CS: needed */
+#define	A_SS	(3<<8)		/* SS: needed */
+#define	A_DS	(4<<8)		/* DS: needed */
+
+#define	A_XSI	(A_X|0x04)	/* [si] */
+#define	A_XDI	(A_X|0x05)	/* [di] */
+#define	A_XBP	(A_X|0x06)	/* [bp] */
+#define	A_XBX	(A_X|0x07)	/* [bx] */
+
+#define	A_RAX	(A_WR|0x00)	/* ax */
+#define	A_RCX	(A_WR|0x01)	/* cx */
+#define	A_RDX	(A_WR|0x02)	/* dx */
+#define	A_RBX	(A_WR|0x03)	/* bx */
+#define	A_RSP	(A_WR|0x04)	/* sp */
+#define	A_RBP	(A_WR|0x05)	/* bp */
+#define	A_RSI	(A_WR|0x06)	/* si */
+#define	A_RDI	(A_WR|0x07)	/* di */
+
+#define	A_RAL	(A_BR|0x00)	/* al */
+#define	A_RCL	(A_BR|0x01)	/* cl */
+#define	A_RDL	(A_BR|0x02)	/* dl */
+#define	A_RBL	(A_BR|0x03)	/* bl */
+#define	A_RAH	(A_BR|0x04)	/* ah */
+#define	A_RCH	(A_BR|0x05)	/* ch */
+#define	A_RDH	(A_BR|0x06)	/* dh */
+#define	A_RBH	(A_BR|0x07)	/* bh */
+
+#define	A_RES	(A_SR|0x00)	/* es */
+#define	A_RCS	(A_SR|0x01)	/* cs */
+#define	A_RSS	(A_SR|0x02)	/* ss */
+#define	A_RDS	(A_SR|0x03)	/* ds */

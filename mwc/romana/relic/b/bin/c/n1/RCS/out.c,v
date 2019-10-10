@@ -1,0 +1,607 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     93.02.12.15.56.55;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.11.55.18;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@steve: fixed bugs found when trying to build MWC cc with gcc
+@
+text
+@/*
+ * The routines in this file perform code output.
+ * That is, they walk down a selected tree,
+ * expanding the code patterns and filling in the blanks.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+/*
+ * Code output.
+ * All registers have been set up by selection.
+ * A pointer to the selected macro has been stashed in the tree.
+ * Walk down the tree, putting out the required code.
+ * It would be nice if select and this guy could be one routine.
+ */
+output(tp, c, s, n)
+register TREE *tp;
+{
+	register TREE *ap;
+	register op;
+	int lab0, lab1, rel;
+
+again:
+#if !TINY
+	if (oflag > 1)
+		snapf("output(%P, %C, %d, L%d); %A\n",
+			tp, c, s, n, tp->t_op);
+#endif
+	if ((op=tp->t_op) == COMMA) {
+		output(tp->t_lp, MEFFECT, 0, 0);
+		tp = tp->t_rp;
+		goto again;
+	}
+	if (op == QUEST) {
+		lab0 = newlab();
+		lab1 = newlab();
+		output(tp->t_lp, MFLOW, 0, lab0);
+		ap = tp->t_rp;
+		output(ap->t_lp, c, s, n);
+		genubr(lab1);
+		genlab(lab0);
+		output(ap->t_rp, c, s, n);
+		genlab(lab1);
+		return;
+	}
+	if (c == MFLOW) {
+		if (op == NOT) {
+			s = !s;
+			tp = tp->t_lp;
+			goto again;
+		}
+		if (op == LEAF) {
+			ap = tp->t_lp;
+			if (ap->t_op==ICON || ap->t_op==LCON) {
+				if ((grabnval(ap)!=0) == s)
+					genubr(n);
+				return;
+			}
+		}
+		if (op==ANDAND || op==OROR) {
+			if ((op==OROR) == s) {
+				output(tp->t_lp, MFLOW, s, n);
+				output(tp->t_rp, MFLOW, s, n);
+				return;
+			}
+			lab0 = newlab();
+			output(tp->t_lp, MFLOW, !s, lab0);
+			output(tp->t_rp, MFLOW,  s, n);
+			genlab(lab0);
+			return;
+		}
+		rel = NE;
+		if (isrelop(op)) {
+			rel = op;
+			if (isnval(tp->t_rp, 0)
+			 && tp->t_lp->t_op != QUEST) {
+				if (rel == ULE)
+					rel = EQ;
+				else if (rel == UGT)
+					rel = NE;
+				tp = tp->t_lp;
+				ap = tp;
+				while ((op=ap->t_op) == COMMA)
+					ap = ap->t_rp;
+				if (isrelop(op) || isflow(op)) {
+					switch (rel) {
+	
+					case EQ:
+					case LE:
+					case ULE:
+						s = !s;
+					case NE:
+					case GT:
+					case UGT:
+						goto again;
+					}
+				}
+			}
+		}
+		if (s == 0)
+			rel = otherel[rel-EQ];
+		while ((op=tp->t_op) == COMMA) {
+			output(tp->t_lp, MEFFECT, 0, 0);
+			tp = tp->t_rp;
+		}
+		c = MEQ + rel - EQ;
+		if (op == QUEST)
+			goto again;
+	}
+	if (op == CALL) {
+		outcall(tp, c, n);
+		return;
+	}
+	if (op == FIXUP) {
+		output(tp->t_lp, MRVALUE, 0, 0);
+		tp->t_lp->t_op  = REG;
+		tp->t_lp->t_reg = tp->t_lp->t_rreg;
+		walk(tp, amd);
+	}
+	outtree(tp, c, n);
+}
+
+/*
+ * This routine does the general cases of code output.
+ * It generates code to output the subgoals,
+ * then expands the code macro for this node.
+ */
+outtree(tp, cxt, lab)
+register TREE *tp;
+{
+	register TREE	*lp, *rp;
+	PAT		*patp;
+	FLAG		lflag, rflag, lpflag, rpflag;
+	TREE		*ap;
+	int		op;		/* Tree operator */
+	int		lab0, lab1;	/* Manufactured labels */
+	unsigned char	*mp;		/* Macro pointer */
+	int		c;		/* Current macro byte */
+	int		false;		/* Conditional macro state */
+	int		opcode;		/* Machine operation */
+	int		opv;		/* Opcode size variant */
+	int		naddr;		/* Number of addresses output */
+	int		nse;		/* Side effect flag */
+	int		star;		/* Indirection of computed address */
+	int		npfx;		/* Number of prefix bytes */
+	unsigned char	pfx[8];		/* Prefix bytes */
+	int		label;		/* jump label */
+	MASK		mask;		/* Bit field mask */
+	TREE		node;		/* Automatic node */
+
+	/*
+	 * Gather flags and types from the tree node.
+	 * If the left operand is a FIELD,
+	 * pull off the field and make up the appropriate mask.
+	 */
+#if !TINY
+	snapfix(&node);
+	if (oflag > 1) {
+		snapf("outtree(%P, %C, L%d);\n", tp, cxt, lab);
+		if (oflag > 2)
+			snapf("%W%E%W", "Outtree", tp, NULL);
+	}
+#endif
+	if ((patp=tp->t_patp) == NULL) {
+#if	!TINY
+		printf("tp = ");
+		psnap((char *) tp);
+		printf("\n");
+#endif
+		cbotch("no patp");
+	}
+	if ((lp=tp->t_lp)->t_op == FIELD) {
+		mask = ((MASK)01<<lp->t_width) - 1;
+		mask = mask << lp->t_base;
+		lp = lp->t_lp;
+	}
+	lflag = lp->t_flag;
+	lpflag = 0;
+	if (patp->p_lflag != 0)
+		lpflag = flagcache[patp->p_lflag-1];
+	rflag = rpflag = 0;
+	if ((rp=tp->t_rp) != NULL) {
+		rflag = rp->t_flag;
+		if (patp->p_rflag != 0)
+			rpflag = flagcache[patp->p_rflag-1];
+	}
+	/*
+	 * Perform output for any subgoals.
+	 * This code is similar to that in select,
+	 * but works in exactly the reverse order.
+	 */
+	if (selmiss(lpflag, lflag)
+	&& islvadr(lpflag) && !isadr(lflag) && !isind(lflag))
+		outofs(lp);
+	if (selmiss(rpflag, rflag)
+	&& islvadr(rpflag) && !isadr(rflag) && !isind(rflag))
+		outofs(rp);
+	if (selmiss(lpflag, lflag) && isrvadr(lpflag) && !isadr(lflag)) {
+		ap = lp;
+		if (isofs(lflag))
+			ap = findoffs(lp);
+		output(ap, MLVALUE, 0, 0);
+		ap->t_op  = REG;
+		ap->t_reg = ap->t_rreg;
+		walk(lp, amd);
+	}
+	if (selmiss(rpflag, rflag) && isrvadr(rpflag) && !isadr(rflag)) {
+		ap = rp;
+		if (isofs(rflag))
+			ap = findoffs(rp);
+		output(ap, MLVALUE, 0, 0);
+		ap->t_op  = REG;
+		ap->t_reg = ap->t_rreg;
+		walk(rp, amd);
+	}
+	/* BUG - these are not reversed, but maybe another bug, too */
+	if ((rpflag&T_TREG) != 0) {
+		output(rp, MRVALUE, 0, 0);
+		rp->t_op = REG;
+		rp->t_reg = rp->t_rreg;
+		amd(rp, NULL);
+	}
+	if ((lpflag&T_TREG) != 0) {
+		output(lp, MRVALUE, 0, 0);
+		lp->t_op = REG;
+		lp->t_reg = lp->t_rreg;
+		amd(lp, NULL);
+	}
+	if (isind(lflag))
+		outofs(lp);
+	if (isind(rflag))
+		outofs(rp);
+	/*
+	 * Expand the code macro.
+	 * Handle prefix bytes,
+	 * the no side effect flag byte,
+	 * the op variant prefix,
+	 * jumps to other parts of the table,
+	 * and conditional macros.
+	 */
+#if	!TINY
+	if (isvariant(VTPROF)) {
+		bput(DLABEL);
+		bput(DC_LINE);
+		iput((ival_t)patp->p_fline);
+		sput(namecache[patp->p_fname]);
+		bput(DT_NONE);
+		iput((ival_t)0);
+	}
+#endif
+	op = tp->t_op;
+	lab0 = lab1 = -1;
+	false = naddr = opv = nse = npfx = star = 0;
+	mp = patp->p_macro;
+	while ((c = *mp++) != M_END) {
+		/* Unsatisfied conditions ignore everything but goto's */
+		if (false) {
+			if (c == M_ENDIF) {
+				false = 0;
+				continue;
+			}
+			if (c != M_JMP1 && c != M_JMPB && c != M_JMP2)
+				continue;
+		}
+		switch (c) {
+
+		case M_JMP1:
+			label = mp[0];
+		jump:
+			mp = macros + label;
+			continue;
+
+		case M_JMPB:
+			label = ((char *)mp) - macros - 1 - mp[0];
+			goto jump;
+
+		case M_JMP2:
+			label = mp[0] + (mp[1] << 8);
+			goto jump;
+
+		case M_IFV:	/* Value context conditional */
+			false = (cxt!=MLVALUE && cxt!=MRVALUE);
+			continue;
+
+		case M_IFE:	/* Effect context conditional */
+			false = (cxt != MEFFECT);
+			continue;
+
+		case M_IFR:	/* Relational context condtional */
+			false = (cxt < MEQ);
+			continue;
+
+		case M_ENDIF:	/* End of conditional */
+			continue;
+
+		case M_TN:	/* Adjust the opcode according */
+		case M_TL:	/* to the type of the base, left, */
+		case M_TR:	/* or right node via maptype(...) */
+			opv = c;
+			continue;
+
+		case M_OP0:	/* Use the opcode table to select */
+		case M_OP1:	/* one of three variations of opcode */
+		case M_OP2:
+			opcode = optab[op-MIOBASE][c-M_OP0];
+		outop:
+			opcode = maptype(opv, opcode, tp);
+			bput(CODE);
+			bput(opcode);
+			naddr = opv = 0;
+			continue;
+
+		case M_CALL:
+			outopcall(0);
+			continue;
+
+		default:	/* This should be a machine opcode */
+			if (c < M_ORG) {
+				opcode = mapcode(c, tp);
+				goto outop;
+			}
+			cbotch("bad macro %d", c);
+			/* NOTREACHED */
+
+		case M_NSE:	/* Set no side effect flag for genadr */
+			nse++;
+			continue;
+
+		case M_HI:	/* Set part of address prefix for genadr */
+		case M_LO:
+			pfx[npfx++] = c;
+			continue;
+
+		case M_STAR:	/* Indicate indirection of address */
+			star += 1;
+			continue;
+
+		case M_AN:	/* Output address form of base node */
+			ap = tp;
+		outadr:
+			if (opv != 0) {
+				/* Add prefix bytes depending on type. */
+				mappfx(tp, opv, pfx, &npfx);
+				opv = 0;
+			}
+			if (star)
+				genstar(ap, nse, npfx, pfx);
+			else
+				genadr(ap, nse, npfx, pfx);
+			nse = npfx = star = 0;
+			naddr += 1;
+			continue;
+
+		case M_AL:	/* Output address form of left node */
+			ap = lp;
+			goto outadr;
+
+		case M_AR:	/* Output address form of right node */
+			ap = rp;
+			goto outadr;
+
+		case M_R:	/* Output node register */
+			node.t_reg = tp->t_treg;
+			node.t_type = tp->t_type;
+		outreg:
+			node.t_op  = REG;
+			ap = &node;
+			goto outadr;
+
+		case M_RL:	/* Output left temp register */
+			node.t_reg = lp->t_rreg;
+			node.t_type = lp->t_type;
+			goto outreg;
+
+		case M_RR:	/* Output right temp register */
+			node.t_reg = rp->t_rreg;
+			node.t_type = rp->t_type;
+			goto outreg;
+
+		case M_REGNO:	/* Literal register from tables */
+			node.t_op  = REG;
+			node.t_reg = *mp++;
+			ap = &node;
+			goto outadr;
+
+		case M_ICON:	/* Literal ival_t constant */
+			c = *mp++;
+			node.t_ival = ivalcache[c-1];
+		outival:
+			node.t_op = ICON;
+			node.t_type = IVAL_T;
+			ap = &node;
+			goto outadr;
+
+		case M_SIZE:	/* Size of block object */
+			node.t_ival = tp->t_size;
+			goto outival;
+
+		case M_SSIZE:	/* Size of block object on stack */
+			node.t_ival = mapssize(tp->t_size);
+			goto outival;
+
+		case M_LCON:	/* Literal lval_t constant */
+			c = *mp++;
+			node.t_lval = lvalcache[c-1];
+		outlval:
+			node.t_op =   LCON;
+			node.t_type = LVAL_T;
+			ap = &node;
+			goto outadr;
+
+		case M_EMASK:	/* Field extraction mask */
+			node.t_lval = (lval_t) mask;
+			goto outlval;
+
+		case M_CMASK:	/* Field clear mask */
+			node.t_lval = (lval_t) ~mask;
+			goto outlval;
+
+		case M_GID:	/* Literal global identifier */
+			c = *mp++;
+			node.t_op = GID;
+			node.t_sp = gidpool(gidcache[c-1]);
+			node.t_seg = SANY;
+			node.t_offs = 0;
+			ap = &node;
+			goto outadr;
+
+#if BITS
+		case M_BITL:	/* Bit number of left node */
+			node.t_ival = getbit(lp);
+			goto outival;
+
+		case M_BITR:	/* Bit number of right node */
+			node.t_ival = getbit(rp);
+			goto outival;
+#endif
+
+		case M_TOS:	/* Generate top of stack address */
+			gentos(opcode, naddr++);
+			continue;
+
+		case M_LAB0:	/* Generated label #0 */
+			if (lab0 < 0)
+				lab0 = newlab();
+			node.t_label = lab0;
+		outlid:
+			node.t_op = LID;
+			node.t_seg = SANY;
+			node.t_offs = 0;
+			ap = &node;
+			goto outadr;
+
+		case M_LAB1:	/* Generated label #1 */
+			if (lab1 < 0)
+				lab1 = newlab();
+			node.t_label = lab1;
+			goto outlid;
+
+		case M_DLAB0:	/* Define label #0 */
+			if (lab0 < 0)
+				lab0 = newlab();
+			bput(LLABEL);
+			iput((ival_t)lab0);
+			continue;
+
+		case M_DLAB1:	/* Define label #1 */
+			if (lab1 < 0)
+				lab1 = newlab();
+			bput(LLABEL);
+			iput((ival_t)lab1);
+			continue;
+
+		case M_LAB:	/* The label associated with the tree */
+			node.t_label = lab;
+			goto outlid;
+
+		case M_REL0:
+		case M_REL1:
+			bput(CODE);
+			bput(optab[cxt-MEQ+EQ-MIOBASE][c-M_REL0]);
+			naddr = 0;
+			continue;
+
+#if	LONGREL
+		case M_LREL0:
+		case M_LREL1:
+		case M_LREL2:
+			bput(CODE);
+			opcode = cxt-MEQ+EQ;
+			if (c == M_LREL2) {
+				if (opcode>=GT && opcode<=LT)
+					opcode += UGT-GT;
+				bput(optab[opcode-MIOBASE][0]);
+				naddr = 0;
+				continue;
+			}
+			if (c == M_LREL1)
+				opcode = fliprel[opcode-EQ];
+			bput(optab[opcode-MIOBASE][2]);
+			naddr = 0;
+			continue;
+#endif
+
+		}
+	}
+}
+
+/*
+ * Given a pointer to an offset type tree,
+ * dig up the subtree that gets loaded into the base register
+ * and make a recursive call to generate the code that does the load.
+ */
+outofs(tp)
+TREE *tp;
+{
+	register TREE *ap;
+
+	ap = findoffs(tp);
+	output(ap, MLVALUE, 0, 0);
+	ap->t_op  = REG;
+	ap->t_reg = ap->t_rreg;
+	walk(tp, amd);
+}
+
+#if BITS
+/*
+ * Figure out and output a bit number.
+ * The argument must be flagged as a bit thing.
+ */
+getbit(tp)
+register TREE *tp;
+{
+	register ival_t half;
+
+	if ((tp->t_flag&(T_UOBS|T_LOBS|T_UOBC|T_LOBC)) == 0)
+		cbotch("bad bit");
+	{
+		register op;
+
+		while ((op=tp->t_op) == LEAF)
+			tp = tp->t_lp;
+		if (op == ICON)
+			half = tp->t_ival;
+		else if ((tp->t_flag&(T_UOBS|T_UOBC)) != 0)
+			half = upper(tp->t_lval);
+		else
+			half = lower(tp->t_lval);
+	}
+	if ((tp->t_flag&(T_UOBC|T_LOBC)) != 0)
+		half = ~half;
+	{
+		register bitnum;
+
+		bitnum = 0;
+		while ((half&01) == 0) {
+			half >>= 1;
+			++bitnum;
+		}
+		return (bitnum);
+	}
+}
+#endif
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d278 1
+a278 1
+			label = mp - macros - 1 - mp[0];
+@

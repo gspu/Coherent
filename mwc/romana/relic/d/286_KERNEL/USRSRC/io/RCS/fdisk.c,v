@@ -1,0 +1,151 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    root:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.03.25.19.09.17;  author root;  state Exp;
+branches 1.1.1.1;
+next	;
+
+1.1.1.1
+date     91.03.25.19.24.46;  author root;  state Exp;
+branches ;
+next	1.1.1.2;
+
+1.1.1.2
+date     91.04.19.10.16.50;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@function called by device drivers to load partition table
+@
+
+
+
+1.1
+log
+@used in COHERENT 3.1.0
+@
+text
+@/* (-lgl
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/**
+ *
+ * fdisk( dev, fp )	--	Fixed Disk Configuration
+ * dev_t dev;
+ * struct fdisk_s *fp;
+ *
+ *	Input:	dev = special device to read partition information from
+ * 		fp  = pointer to memory-resident partition info (to update)
+ *
+ *	Action:	Open special device for reading.
+ *		Read first block from the device.
+ *		If valid signature present on block,
+ *			copy partition information to memory
+ *
+ *	Return:	1 = partition information successfully updated
+ *		0 = failure (could not read block, or bad signature)
+ */
+
+#include <coherent.h>
+#include <uproc.h>
+#include <errno.h>
+#include <inode.h>
+#include <sys/fdisk.h>
+#include <buf.h>
+#include <con.h>
+
+fdisk( dev, fp )
+dev_t dev;
+register struct fdisk_s *fp;
+{
+	register struct hdisk_s *hp;
+	BUF *bp;
+	int s, i;
+	int ret = 0;
+
+	s = sphi( );
+	dopen( dev, IPR, DFBLK );
+
+	if ( u.u_error == 0 ) {		/* special device now open */
+
+		if (bp = bread(dev, (daddr_t) 0, 1)) {	/* data read */
+
+			/* buffer cache is in kernel data space */
+			hp = FP_OFF(bp->b_faddr);
+
+			if ( hp->hd_sig == HDSIG ) {	/* valid data */
+
+				for (i=0; i < NPARTN; ++i)
+					*fp++ = hp->hd_partn[i];
+
+				ret   = 1;
+			}
+			brelease( bp );
+		}
+		dclose( dev );
+	}
+	spl( s );
+	return ret;
+}
+@
+
+
+1.1.1.1
+log
+@debug printf's added
+@
+text
+@a5 3
+/*
+ * $Log$
+ */
+a39 1
+int erf = -1;
+a57 1
+else erf=1;
+a61 1
+else erf=0;
+d63 1
+a63 7
+switch (erf) {
+case 0:
+	devmsg(dev, "fdisk: open failed");
+	break;
+case 1:
+	devmsg(dev, "fdisk: bad signature");
+	break;
+a64 2
+	return ret;
+}
+@
+
+
+1.1.1.2
+log
+@Debug printf's added.
+@
+text
+@d45 1
+a45 1
+printf("fdisk(): special dev open\n");
+a56 2
+			} else {
+printf("fdisk(): sig=%x, want=%x\n", hp->hd_sig, HDSIG);
+a58 2
+		} else {
+printf("fdisk(): bread failed\n");
+a60 2
+	} else {
+printf("fdisk(): special dev not open\n");
+d63 8
+d73 6
+@

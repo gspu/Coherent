@@ -1,0 +1,700 @@
+head     1.6;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.6;
+comment  @ * @;
+
+
+1.6
+date     93.03.26.12.36.46;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     93.02.10.16.57.08;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.22.09.55.32;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.01.10.18.21.29;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.23.22.05.14;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.23.22.04.57;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.6
+log
+@steve: added ++cp
+@
+text
+@/*
+ * libc/stdio/_dtefg.c
+ * ANSI-compliant C standard i/o library internals.
+ * _dtefg(), _dtoa()
+ * ANSI 4.9.6.1.
+ * Floating point output conversion routines for 'printf'.
+ * Conditionalized #if _IEEE to do 8087 conversion.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <float.h>
+#include <math.h>
+
+#if	0
+#include <locale.h>
+#else
+#define	_decimal_point	'.'
+#endif
+
+extern	char	*_dtof();
+
+#if	_IEEE
+#include <stddef.h>
+#include <string.h>
+
+/*
+ * This table is indexed by the return value of the "_fxam" routine.
+ * The number is converted if the entry is NULL,
+ * otherwise the entry gives the string to print.
+ */
+static readonly char *fxamsg[] = {
+	"{+ Unnormal}",
+	"{+ NAN}",
+	"{- Unnormal}",
+	"{- NAN}",
+	NULL,			/* + Normal	*/
+	"{+ Infinity}",
+	NULL,			/* - Normal	*/
+	"{- Infinity}",
+	NULL,			/* +0		*/
+	NULL,			/* Empty	*/
+	NULL,			/* -0		*/
+	NULL,			/* Empty	*/
+	"{+ Denormal}",
+	NULL,			/* Empty	*/
+	"{- Denormal}",
+	NULL			/* Empty	*/
+};
+#endif
+
+/*
+ * Convert a floating point number 'd' from binary
+ * into 'e', 'E', 'f', 'g', or 'G' format ASCII in the buffer 'cp'.
+ * 'fmt' is the conversion type.
+ * 'prec' is the precision.
+ * 'aflag' is the '#' flag from the conversion specication.
+ * 'signp' points to the returned sign (-1 negative, 1 nonnegative).
+ * Return a pointer past the last character.
+ *
+ * Called from printf() for fp conversions and from gcvt().
+ */
+char *
+_dtefg(cp, dp, fmt, prec, aflag, signp)
+register char *cp; double *dp; int fmt, prec, aflag; int *signp;
+{
+	int	eflag, decexp;
+	char	tbuf[DBL_DIG+1];
+	double	d;
+
+	d = *dp;
+#if	_IEEE
+	{
+		register char *cp2;
+
+		/* Print given string if 8087 format is special. */
+		if ((cp2=fxamsg[_fxam(d)]) != NULL) {
+			strcpy(cp, cp2);
+			return cp + strlen(cp);
+		}
+	}
+#endif
+
+	if (prec == 0 && (fmt == 'g' || fmt == 'G'))
+		prec = 1;
+	else if (prec == -1)
+		prec = 6;			/* Default precision */
+
+	if (d < 0.0) {
+		d = -d;				/* Force d nonnegative */
+		*signp = -1;
+	} else
+		*signp = 1;
+	_dtoa(fmt, &d, prec, &decexp, tbuf);
+	eflag = (fmt=='e' || fmt=='E'
+	      || ((fmt=='g' || fmt=='G') && (decexp < -4 || decexp >= prec)));
+	cp = _dtof(cp, tbuf, prec, eflag ? 0 : decexp, fmt, aflag);
+	if (eflag) {
+		*cp++ = (fmt == 'E' || fmt == 'G') ? 'E' : 'e';
+		cp += sprintf(cp, "%+03d", decexp);
+	}
+	return cp;
+}
+
+/*
+ * Copy ASCII number from 'cp' to 'buf' in %f format
+ * with precision 'prec' and decimal exponent 'decexp'.
+ * The 'fmt' determines whether trailing zeros are suppressed.
+ * Return a pointer past the last character.
+ */
+static
+char *
+_dtof(buf, cp, prec, decexp, fmt, aflag)
+register char *buf, *cp; register int prec, decexp, fmt, aflag;
+{
+	if (decexp < 0)
+		*buf++ = '0';			/* Units digit '0' */
+	else
+		do
+			*buf++ = *cp ? *cp++ : '0';	/* integral part */
+		while (decexp--);
+	if (!aflag && (prec == 0 || ((fmt=='g'|| fmt=='G') && *cp == '\0')))
+		return buf;
+	*buf++ = _decimal_point;		/* '.' */
+	while (prec-- > 0) {
+		if ((fmt=='g' || fmt=='G') && *cp == '\0' && !aflag)
+			break;			/* suppress trailing zeros */
+		if (++decexp < 0)
+			*buf++ = '0';		/* put leading zero */
+		else
+			*buf++ = *cp ? *cp++ : '0';
+	}
+	return buf;
+}
+
+/*
+ * Convert the mantissa of nonnegative double 'd' to a string of ASCII digits
+ * in the supplied buffer 'buf'.
+ * Store the decimal exponent indirectly through 'decexpp'.
+ * The first digit of the mantissa is implicitly followed by '.'
+ * The result has no leading zeros (unless d=0.0) and no trailing zeros.
+ * The precision 'prec' and format 'fmt' determine the digit count.
+ * The maximum length of the result is DBL_DIG+1 (for the NUL).
+ * For example, if *dp==123.456789 and prec==3:
+ *	fmt=='e'	"1234"		decexp==2	1.234e+02
+ *	fmt=='f'	"123456"	decexp==2	123.456
+ *	fmt=='g'	"123"		decexp==2	123
+ * This is called directly by ecvt() and fcvt(), as well as from _dtefg().
+ */
+void
+_dtoa(fmt, dp, prec, decexpp, buf) int fmt; double *dp; int prec; int *decexpp; char *buf;
+{
+	register char *	cp;
+	register int	digit;
+	register int	decexp;
+	int		ndigits;
+	int		binexp;
+	double		d;
+	double		dexp;
+
+	/* Handle 0.0 as a special case. */
+	cp = buf;
+	if ((d = *dp) == 0.0) {
+ret0:
+		*decexpp = 0;
+		*cp++ = '0';
+		*cp ='\0';
+		return;
+	}
+
+	/* Reduce d to range [1., 10) and set decexp accordingly. */
+	/* Approximate the decimal exponent from the binary exponent. */
+	/* Obscure but it makes floating output much more efficient. */
+	frexp(d, &binexp);			/* Find binary exponent */
+	if (modf((--binexp)/LOG10B2, &dexp) < 0.0)
+		dexp -= 1.0;			/* Scale, take integer part */
+	decexp = dexp;				/* Convert to integer */
+	d *= _pow10(-decexp);			/* Reduce d by power of 10 */
+	if (d >= 10.) {				/* May be off by 1 place */
+		++decexp;
+		d *= 0.10;
+	}
+	*decexpp = decexp;			/* Store the decimal exponent */
+
+	/* Compute the desired number of result digits. */
+	if (fmt == 'e' || fmt == 'E')
+		ndigits = prec + 1;		/* For 'e' or 'E' format */
+	else if (fmt == 'f')
+		ndigits = prec + decexp + 1;	/* For 'f' format */
+	else
+		ndigits = prec;			/* For 'g' or 'G' format */
+	if (ndigits <= 0) {			/* No significant digits */
+		if (ndigits == 0 && d > 5.0)	/* Round up to one digit */
+			goto ret1;		/* and return "1" */
+		else
+			goto ret0;		/* return "0" */
+	} else if (ndigits > DBL_DIG)
+		ndigits = DBL_DIG;		/* Maximum precision */
+	
+	/* Compute the result digits. */
+	for ( ; cp < &buf[ndigits] && d != 0.0; ) {
+		digit = (int) d;
+		*cp++ = digit + '0';		/* Store next digit */
+		d = 10.0 * (d-digit);		/* and reduce d accordingly */
+	}
+	*cp = '\0';				/* NUL-terminate result */
+
+	/* Round up the result if appropriate. */
+	if (d <= 5.0) {				/* Do not round up */
+		while (--cp != buf && *cp == '0')
+			*cp = '\0';		/* Strip a trailing '0' */
+		return;
+	}
+	while (cp-- != buf) {			/* Round up */
+		if (++*cp <= '9')		/* Bump last digit */
+			return;
+		*cp = '\0';			/* Strip a trailing '0' */
+	}
+	++cp;					/* Point to buf again */
+ret1:
+	++*decexpp;				/* and return "1" */
+	*cp++ = '1';
+	*cp = '\0';
+}
+
+/* end of libc/stdio/_dtefg.c */
+@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@d219 1
+@
+
+
+1.4
+log
+@steve handed updated 1/21/92
+@
+text
+@d3 3
+d7 1
+a7 1
+ * Conditionalized #if _IEEE to do 80x87 conversion.
+d10 3
+d15 6
+a20 1
+extern	char	*_dtoa();
+a21 3
+extern	double	frexp();
+extern	double	modf();
+extern	double	_pow10();
+d24 2
+a25 1
+#include <stdio.h>
+a26 2
+extern	char	*strcpy();
+
+d54 5
+a58 3
+ * into 'e', 'f' or 'g' format ASCII in the buffer 'buf'.
+ * The 'fmt' argument is the conversion type.
+ * The 'prec' argument is the precision.
+d60 2
+d64 2
+a65 5
+_dtefg(fmt, dp, prec, buf)
+int		fmt;
+double		*dp;
+int		prec;
+register char	*buf;
+d67 3
+a69 4
+	register char	*cp;
+	int		decexp, sign;
+	char		tbuf[64];
+	double		d;
+d73 8
+a80 4
+	/* Print given string if 80x87 format is special. */
+	if ((cp=fxamsg[_fxam(d)]) != NULL) {
+		strcpy(buf, cp);
+		return(buf + strlen(buf));
+d84 5
+a88 2
+	if (prec < 0)
+		prec = 6;				/* Default precision */
+d90 11
+a100 2
+		d = -d;					/* Force d nonnegative */
+		*buf++ = '-';				/* Leading '-' */
+d102 1
+a102 11
+	cp = _dtoa(fmt, d, prec, &decexp, &sign, tbuf);
+	if (fmt == 'e'
+	 || (fmt == 'g' && (decexp > 4 || decexp < -prec))) {	/* 'e' format */
+		buf = _dtof(buf, cp, prec, 0, fmt=='g');	/* mantissa */
+		if (decexp >= 0)
+			sprintf(buf, "e+%02u", decexp);		/* exponent */
+		else
+			sprintf(buf, "e-%02u", -decexp);
+		return(buf + strlen(buf));
+	}
+	return(_dtof(buf, cp, prec, decexp, fmt=='g'));	/* 'f' format */
+d108 1
+a108 1
+ * The 'isgfmt' flag determines whether trailing zeros are suppressed.
+d113 2
+a114 6
+_dtof(buf, cp, prec, decexp, isgfmt)
+register char *buf;
+register char *cp;
+register int prec;
+register int decexp;
+int isgfmt;
+d118 7
+a124 6
+	else do
+		*buf++ = *cp ? *cp++ : '0';	/* or integral part */
+	while (decexp--);
+	if (prec == 0 || (isgfmt && *cp == '\0'))
+		return(buf);
+	*buf++ = '.';				/* '.' */
+d126 1
+a126 1
+		if (isgfmt && *cp == '\0')
+d133 1
+a133 1
+	return (buf);
+d137 2
+a138 3
+ * Convert nonnegative double 'd' to string of ASCII digits with no leading zeros
+ * (unless "0") and no trailing zeros, with precision 'prec' in format 'fmt'.
+ * Return a pointer to the converted string, usually (not always) in 'buf'.
+d140 9
+a148 2
+ * The first digit of the return value is implicitly followed by '.'
+ * and the return value is implicitly multiplied by 10 to the decimal exponent.
+d150 2
+a151 8
+char *
+_dtoa(fmt, d, prec, decexpp, signp, buf)
+int	fmt;
+double	d;
+int	prec;
+int	*decexpp;
+int	*signp;
+char	*buf;
+d153 1
+a153 1
+	register char	*cp;
+d158 1
+a160 11
+	/*
+	 * Force d >= 0.0.  The "signp" arg is extraneous in the _dtefg() call,
+	 * but is retained for the calls from ecvt() and fcvt().  Bah.
+	 */
+	if (d < 0.0) {
+		*signp = 1;
+		d = -d;
+	}
+	else
+		*signp = 0;
+
+d162 3
+a164 1
+	if (d == 0.0) {
+d166 3
+a168 1
+		return("0");
+d175 2
+a176 2
+	if (modf((--binexp)/LOG10B2, &dexp) < 0.0)	/* Scale, take integer part */
+		dexp -= 1.0;
+d186 4
+a189 2
+	if (fmt == 'e' || (fmt == 'g' && (decexp > 4 || decexp < -prec)))
+		ndigits = prec + 1;		/* For 'e' format */
+d191 1
+a191 1
+		ndigits = prec + decexp + 1;	/* For 'f' format */
+d193 7
+a199 10
+		if (ndigits == 0 && d > 5.0) {	/* Round up to one digit */
+			++*decexpp;
+			return("1");
+		}
+		*decexpp = 0;
+		return("0");
+	}
+	else if (ndigits > L10P)
+		ndigits = L10P;			/* Maximum precision */
+
+d201 1
+a201 1
+	for (cp = buf; cp < &buf[ndigits] && d != 0.0; ) {
+d212 1
+a212 1
+		return (buf);
+d216 1
+a216 1
+			return (buf);
+d219 4
+a222 2
+	++*decexpp;				/* Bump exponent */
+	return("1");				/* and return "1" */
+@
+
+
+1.3
+log
+@steve 1/10/92
+Changed NDP conditionals to _IEEE (to return e.g. "Infinity" or "NaN"
+when items have the appropriate form, as defined by _fxam()).
+@
+text
+@d2 1
+d171 2
+a172 1
+	modf((--binexp)/LOG10B2, &dexp);	/* Scale, take integer part */
+d219 2
+@
+
+
+1.2
+log
+@steve 4/23/90
+Replaced old COHERENT dtefg source with more reliable MSDOS source.
+Note that the calling sequence of _dtefg() changed, the second
+arg should be double * rather than double.  printf() must be changed too.
+@
+text
+@d3 1
+a3 1
+ * Conditionalized #if NDP to do 8087 conversion.
+d14 1
+a14 1
+#if	NDP
+d64 2
+a65 2
+#if	NDP
+	/* Print given string if 8087 format is special. */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d3 1
+a3 1
+ * This source is conditionalized #if NDP to do 8087 conversion.
+d8 7
+a14 1
+#if NDP
+d17 2
+d20 3
+a22 3
+ * This table, indexed by the return value of the "_fxam" routine,
+ * gives the string to print.
+ * The number is converted if the entry is NULL.
+d29 1
+a29 1
+	NULL,
+d31 1
+a31 1
+	NULL,
+d33 4
+a36 4
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+d38 1
+a38 1
+	NULL,
+d40 1
+a40 1
+	NULL
+d45 2
+a46 2
+ * Convert a floating point number from binary
+ * into 'e', 'f' or 'g' format ASCII.
+d48 2
+a49 3
+ * The 'w' argument is the precision.
+ * The characters get put into the buffer 'bp'.
+ * A pointer past the last character is returned.
+d52 5
+a56 3
+_dtefg(fmt, d, w, bp)
+double	d;
+char	*bp;
+d58 2
+a59 4
+	register char	*cp1, *cp2;
+	int		dscale;
+	int		minusf;
+	char		*_dtoa();
+d61 1
+d63 6
+a68 6
+#if NDP
+	if ((cp1=fxamsg[_fxam(d)]) != NULL) {
+		cp2 = bp;
+		while (*cp2++ = *cp1++)
+			;
+		return (cp2);
+a70 5
+	if (w < 0)
+		w = 6;
+	cp1 = _dtoa(fmt, d, w, &dscale, &minusf, tbuf);
+	if (fmt == 'g') {
+		int	nd;
+d72 5
+a76 10
+		cp2 = cp1;
+		while (*cp2)
+			++cp2;
+		while (cp2!=cp1 && cp2[-1]=='0')
+			--cp2;
+		nd = cp2-cp1;
+		if (dscale < -3 || dscale > nd+5)
+			fmt = 'e';
+		else if (dscale >= nd)
+			w = 0;				/* 'd' format */
+d78 9
+a86 32
+	cp2 = bp;
+	if (minusf != 0)
+		*cp2++ = '-';
+	if (fmt == 'e') {
+		*cp2++ = *cp1++;
+		if (d != 0.0)
+			--dscale;
+		for (*cp2++ = '.'; w > 0; --w)
+			*cp2++ = *cp1 ? *cp1++ : '0';
+		*cp2++ = 'e';
+		if (dscale >= 0)
+			*cp2++ = '+';
+		else {
+			*cp2++ = '-';
+			dscale = -dscale;
+		}
+		sprintf(cp2, "%u", dscale);
+		cp2 += strlen(cp2);
+	} else {
+		if (dscale <= 0)
+			*cp2++ = '0';
+		else do
+			*cp2++ = *cp1 ? *cp1++ : '0';
+		while (--dscale);
+		if (w != 0) {
+			for (*cp2++ = '.'; w > 0; --w) {
+				if (dscale++ < 0)
+					*cp2++ = '0';
+				else
+					*cp2++ = *cp1 ? *cp1++ : '0';
+			}
+		}
+d88 1
+a88 1
+	return (cp2);
+d92 4
+a95 4
+ * Convert double to string of ASCII digits
+ * rounded after precision digits behind the decimal point.
+ * The decimal scale is stored indirectly through 'dscalep' and the sign
+ * (nonzero if negative) is saved indirectly through 'minusfp'.
+d97 1
+d99 37
+a135 1
+_dtoa(fmt, d, w, dscalep, minusfp, buf)
+d137 3
+a139 3
+int	w;
+int	*dscalep;
+int	*minusfp;
+d144 2
+a145 3
+	register int	i;
+	register int	dscale;
+	int		ndigit;
+d147 1
+a147 2
+	double		frexp();
+	double		_pow10();
+d149 6
+a154 12
+	if (d >= 0.0) {
+		*minusfp = 0;
+		if (d == 0.0) {
+			*dscalep = 0;
+			cp = buf;
+			while (w-- != 0)
+				*cp++ = '0';
+			*cp = '\0';
+			return (buf);
+		}
+	} else {
+		*minusfp = 1;
+a156 5
+	frexp(d, &binexp);
+	dscale = binexp / LOG10B2;
+	d /= _pow10(dscale);
+	if (d >= 1.0)
+		++dscale;
+d158 24
+a181 8
+		d *= 10.0;
+	*dscalep = dscale;
+	digit = (int) d;
+	cp = buf;
+	ndigit = w;
+	if (fmt == 'f'
+	 || fmt == 'g' && 0 <= dscale && dscale <= 5+w)
+		ndigit = w+dscale;
+d183 14
+a196 8
+		ndigit = w+1;
+	if (ndigit < 0)
+		ndigit = 0;
+	if (ndigit > L10P)
+		ndigit = L10P;
+	for (i=0; i<ndigit; ++i) {
+		*cp++ = digit + '0';
+		d = 10.0 * (d-digit);
+d198 2
+d201 6
+a206 2
+	*cp = '\0';
+	if (digit < 5)
+d208 3
+a210 3
+	while (cp != buf) {
+		--cp;
+		if (++*cp <= '9')
+d212 1
+a212 1
+		*cp = '0';
+d214 2
+a215 4
+	*cp = '1';
+	cp[ndigit] = '\0';
+	++*dscalep;
+	return (buf);
+@

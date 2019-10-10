@@ -1,0 +1,218 @@
+/* readperm():	Read the Permissions file, looking for the entry that matches
+ *		our system. Continue reading and concatenating until we
+ *		hit EOF or the next MACHINE line.
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX		175
+#define PERMISSIONS	"/usr/lib/uucp/Permissions"
+
+/* fields needed for our sys file entry: */
+
+extern char	request[];		/* REQUEST files from Permissions */
+extern char	transfer[];		/* SEND files from Permissions */
+extern char	readpath[];		/* READ from Permissions */
+extern char	no_readpath[];	/* NOREAD from Permissions */
+extern char	writepath[];		/* WRITE from Permissions */
+extern char	no_writepath[];	/* NOWRITE from Permissions */
+extern char	commands[];		/* COMMANDS from Permissions */
+extern char	myname[];		/* MYNAME from Permissions */
+
+extern char	parseline[];	/* this will be our concatenated Permissions */
+
+extern int getrest();			/* complete concatenating Permissions string */
+extern int parseperm();		/* parse a field out of Permissions string */
+extern int cvnowritwe();		/* convert NOREAD and NOWRITE to useable format */
+
+readperm(sys)
+char *sys;
+{
+
+	FILE *infp;
+	char rdline[MAX];	/* line read from Permissions */
+	char chksys[15];	/* used to look for MACHINE= */
+	char chkmch[8];		/* holds MACHINE */
+	char *endname;		/* Points to end of parsed name */
+
+	if( (infp = fopen(PERMISSIONS,"r")) == NULL){
+		printf("Error opening %s!\n",PERMISSIONS);
+		exit(1);
+	}
+
+	/* initialize our stuff */
+
+	strcpy(parseline,"");
+	strcpy(request,"");
+	strcpy(transfer,"");
+	strcpy(readpath,"");
+	strcpy(no_readpath,"");
+	strcpy(writepath,"");
+	strcpy(no_writepath,"");
+	strcpy(commands,"");
+	strcpy(myname,"");
+
+
+	/* Read Permissions one line at a time until we find a
+	 * line that has MACHINE="SYSTEM".
+	 */
+	strcpy(chkmch,"MACHINE=");
+	sprintf(chksys,"%s%s",chkmch,sys);
+
+	while(fgets(rdline,MAX,infp)!= NULL){
+		if((endname = strstr(rdline, chksys)) != NULL
+		   && (isspace(endname[strlen(chksys)])
+		       || endname == '\0')
+		     ){	/* matched MACHINE=sys */
+			strcpy(parseline, rdline);
+			getrest(infp);		/* get rest of Permissions entrry */
+			break;
+		}
+	}
+
+	fclose(infp);
+
+	if(parseline[0] == '\0'){	/* no line found */
+		printf("No Permissions entry for system %s found!\n",sys);
+		printf("Default settings will be assigned to this site.\n");
+		return;
+	}
+
+
+	/* we will now call parseperm(), giving it a pointer to the Permissions
+	 * line, pointer to the Permissions field to find and pointer to
+	 * sys field to fill. We pray that NOREAD and NOWRITE follow
+	 * READ= and WRITE=, or we will not correctly parse this entry.
+	 */
+
+	parseperm(parseline, "MYNAME",myname);
+	parseperm(parseline, "COMMANDS", commands);
+	parseperm(parseline, "READ",readpath);
+	parseperm(parseline, "NOREAD",no_readpath);
+	parseperm(parseline, "WRITE",writepath);	
+	parseperm(parseline, "NOWRITE",no_writepath);	
+	parseperm(parseline, "REQUEST",request);
+	parseperm(parseline, "SENDFILES",transfer);
+
+
+	if(no_readpath[0] != '\0')
+		cvnowrite(no_readpath);
+
+	if(no_writepath[0] != '\0')
+		cvnowrite(no_writepath);
+
+
+#ifdef DEBUG
+	printf("myname is {%s}  ",myname);
+	printf("commands are {%s}\n",commands);
+	printf("read paths are {%s} {%s}\n",readpath, no_readpath);
+	printf("write paths are {%s} {%s}\n",writepath, no_writepath);
+	printf("transfer {%s}  request {%s}\n",transfer, request);
+#endif
+
+}
+
+
+/* getrest():	get the rest of the Permissions entry for the current
+ *		system. We will stop concatenating when we find the
+ *		next MACHINE line.
+ */
+
+
+getrest(infp)
+FILE *infp;
+{
+	char rdline[MAX];
+
+	while((fgets(rdline, MAX, infp))!= NULL){
+		if(strstr(rdline,"MACHINE") == NULL){
+			strcat(parseline, rdline);
+		}else{
+			return;
+		}
+	}
+}
+
+
+
+/* parseperm():	given a Permissions line, field to look for and field
+ *		to fill, find the field in the line and fill it for sys
+ */
+
+parseperm(line, srchname, fillname)
+char *line;		/* master permissions entry */
+char *srchname;		/* Permissions field we are looking for */
+char *fillname;		/* sys field to fill with Permissions data */
+
+{
+	char *fldptr;		/* point to field we will fill. */
+	char *lineptr;		/* point to master Permissions line */
+
+
+	/* set pointer to field to fill for sys file */
+	fldptr = fillname;
+	*fldptr = '\0';
+
+	if((lineptr = strstr(line,srchname)) == NULL){
+#ifdef DEBUG
+		printf("No %s entry found.\n", srchname);
+#endif /* DEBUG */
+		return;
+	}else{
+	        /* Check to make sure it's not a NOxxxxx variation */
+	        if(!isspace(*(lineptr - 1)) && srchname[0] != 'N') {
+		    if((lineptr = strstr(lineptr + strlen(srchname) , srchname)) == NULL)
+			return;
+		}
+		lineptr += strlen(srchname);
+		while(isspace(*lineptr))
+		    lineptr++;
+		if(*lineptr == '=')
+			lineptr++;
+		while(isspace(*lineptr))
+		    lineptr++;
+		while(!isspace(*lineptr) && *lineptr != EOF){
+			if(*lineptr == ':'){	/* convert colon to space */
+				*lineptr = ' ';
+			}
+			*fldptr++ = *lineptr++;
+		}
+		*fldptr = '\0';
+	}
+
+	return;
+}	
+
+
+/* cvnowrite(): convert the NOWRITE and NOREAD strings to something
+ * 		useable in the sys file. In this instance, we are
+ *		going to walk down the string and convert SPACES
+ *		to SPACE! ( !)
+ */
+
+cvnowrite(line)
+char *line;
+{
+	char *ptrline;
+	char *ptrnew;
+	char newline[MAX];
+
+	ptrline = line;
+	ptrnew = newline;
+	*ptrnew++='!';		/* set up our string to begin with '!' */
+
+	while(*ptrline != '\0'){
+		if(*ptrline == ' '){
+			*ptrnew++ = ' ';
+			*ptrnew++ = '!';
+			*ptrline++;
+		}else{
+			*ptrnew++ = *ptrline++;
+		}
+	}
+	*ptrnew = '\0';
+
+	strcpy(line, newline);	/* copy new line over old one */
+}

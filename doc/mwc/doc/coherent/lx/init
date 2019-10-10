@@ -1,0 +1,276 @@
+.TH init "" "" "System Administration"
+.PC "System initialization"
+.B /etc/init
+.PP
+\*(CO invokes processes in special order.
+The kernel invokes the command
+.B init
+as the initial process in the system.
+.B init
+runs as long as the system remains up.
+.B init
+is the first process that the kernel starts.
+The kernel always gives this process identifier 1.
+.PP
+.B init
+has two primary tasks:
+First, it guides the system through the latter stages of booting and
+entering multi-user mode.
+Second, it launches the appropriate processes
+so that users can log in and log out of \*(CO correctly.
+The rest of this article describes how
+.B init
+performs these tasks.
+.SH "Booting and Entering Multi-user Mode"
+The following that
+.B init
+performs as it guides the system through entering multi-user mode.
+.PP
+.II wtmp
+.II /usr/adm/wtmp
+First, if file
+.B /usr/adm/wtmp
+exists,
+.B init
+records there the date and time at which the system is being booted.
+.PP
+.II console
+.II /dev/console
+.II brc
+.II /etc/brc
+.B init
+then executes the shell script
+.BR /etc/brc .
+.II fsck
+This script usually loads the keyboard table and invokes the command
+.BR fsck
+to check the file systems for errors
+If this script returns zero, then
+.B init
+enters multi-user mode; if not, it spawns the single-user shell.
+.PP
+.II rc
+.II /etc/rc
+When the user at the console terminates the single-user shell
+(usually by typing
+.BR <ctrl-D> ),
+.B init
+executes script
+.BR /etc/rc
+and brings the system up to the multiuser state.
+.B /etc/rc
+performs such chores as setting the time zone, removing
+stale temporary files and lock files, and initializing the modem.
+.II accton
+If you wish, it can invoke the command
+.B accton
+to enable process accounting.
+.PP
+.II ttys
+.II /etc/ttys
+.B init
+then reads file
+.BR /etc/ttys .
+For every local, enabled line,
+.B init
+spawns the command
+.B getty
+with two arguments:
+the name of the port, and its speed (as given in
+.BR /etc/ttys ).
+Before it spawns a
+.BR getty ,
+.B init
+sets the group number for a new process group.
+.PP
+For a remote line,
+.B init
+spawns another copy of itself, which waits for carrier detect.
+Each
+.B init
+process spawned for a remote line also spawns
+.B getty
+when it detects a carrier signal on its port.
+(Note that this use of a second
+.B init
+process is unique to \*(CO.)
+.PP
+.B init
+then waits for the termination of its child processes.
+If one of the
+.B getty
+processes terminates,
+.B init
+respawns it.
+If another process terminates,
+.B init
+waits to receive its return value, so the
+process does not become a ``zombie''.
+.SH "Logging In Users"
+The following describes how
+.B init
+logs users in.
+.PP
+.II getty
+As mentioned in the previous section,
+.B init
+invokes process
+.BR getty
+for each enabled device on the system.
+.B getty
+and passes it as arguments the speed and the device upon which it should run.
+.B getty
+waits until someone tries to log in.
+Under \*(CO,
+.B getty
+sets the tty's line speed and local-edit characters and prompts the user
+to log in.
+It then locks the port, and invokes
+.B login
+with what the user has typed.
+.\" Nigel added the lock file support here.
+.\" 
+.\" SV.3:	  reads /etc/gettydefs to set the line parameters, is able
+.\" 	  to handle incoming and outgoing uucp connections on one single
+.\" 	  line, is able to run a fax receiver instead of the login
+.\" 	  process and much much more. Creates the lock file so that
+.\" 	  other processes don't try to run on the line.
+.PP
+At this point, the command
+.B login
+takes over the task of logging in the user.
+.B login
+first asks the user for his password.
+.II passwd
+.II /etc/passwd
+It then reads the encrypted password from file
+.BR /etc/passwd .
+.II shadow
+.II /etc/shadow
+If the password consists of one asterisk `*',
+.B login
+then reads the encrypted password from file
+.BR /etc/shadow .
+It then compares the retrieved password with what the user has typed.
+.PP
+If the user has entered his password correctly,
+.B login
+executes various ``housekeeping'' tasks needed to get the user up and running
+under \*(CO.
+.II utmp
+.II /usr/adm/utmp
+These include 
+It records in file
+.B /usr/adm/utmp
+the fact of the user's logging in, which
+lets the system keep a running talley of who is logged into the system.
+For details on how
+.B login
+manages the task of logging in,
+see its entry in the Lexicon.
+.PP
+As its last action,
+.B login
+invokes the program named in
+.BR /etc/passwd .
+This usually is an interactive shell (i.e., \fBsh\fR or \fBksh\fR),
+but can also be another program (e.g.,
+.BR uucico ).
+If
+.B login
+invokes an interactive shell, it does so with the first character of
+its \fBargv[0]\fR set to `-',
+so that the shell knows that it is a login shell.
+(For example, if
+.B login
+invokes
+.BR ksh ,
+its
+.B argv[0]
+is
+.BR \-ksh .)
+.PP
+.II /etc/profile
+.II profile
+The shell first executes file
+.BR /etc/profile ,
+then
+.BR $HOME/.profile .
+Once these are executed, the shell displays its command-line prompt,
+and the user is ready to begin issuing commands to \*(CO
+.PP
+When the login shell terminates,
+.B init
+removes its record from file
+.BR /usr/adm/utmp .
+Then it reopens the appropriate terminal and invokes
+.BR getty ,
+as described above.
+The device is now ready to receive another login.
+.SH Signals
+.II SIGQUIT
+.B init
+accepts two signals.
+When it receives
+.BR SIGQUIT ,
+it re-reads
+.BR /etc/ttys ,
+spawns
+.BR getty s
+on newly enabled devices, and stops
+.BR getty s
+on disabled devices.
+The command
+.DM
+	kill quit 1
+.DE
+.PP
+sends
+.B SIGQUIT
+to the
+.B init
+process.
+.II SIGHUP
+.II SIGKILL
+When
+.B init
+receives
+.BR SIGHUP ,
+it sends
+.B SIGKILL
+to every process and brings the system down to single-user mode.
+.II kill
+The command
+.DM
+	kill -1 1
+.DE
+.PP
+sends
+.B SIGHUP
+to the
+.B init
+process.
+.SH Files
+\fB/dev/console\fR \(em Console terminal
+.br
+\fB/dev/tty\?\?\fR \(em Terminal devices
+.br
+\fB/etc/rc\fR \(em initialization command file
+.br
+\fB/etc/brc\fR \(em Boot command file
+.br
+\fB/etc/ttys\fR \(em Active terminals
+.br
+\fB/etc/utmp\fR \(em Logged in users
+.br
+\fB/usr/adm/wtmp\fR \(em Login accounting data
+.br
+\fB/usr/spool/uucp/LCK..*\fR \(em Terminal locks
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "getty," getty
+.Xr "kill," kill
+.Xr "ksh," ksh
+.Xr "login," login
+.Xr "sh," sh
+.Xr "ttys" ttys

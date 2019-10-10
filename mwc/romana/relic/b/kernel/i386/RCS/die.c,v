@@ -1,0 +1,571 @@
+head     1.8;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.8; strict;
+comment  @ * @;
+
+
+1.8
+date     92.11.23.09.40.45;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.11.13.11.09.53;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.10.22.14.18.32;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.10.12.10.03.27;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.09.29.09.51.54;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.08.20.12.55.01;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.04.12.41.41;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.22.27;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.8
+log
+@hal: kernel 69 update
+@
+text
+@#if KLAATU
+#define SERIAL_CONSOLE	1
+#define INS8250 0x3f8	/* klaatu */
+#endif
+
+#if GORT
+#define SERIAL_CONSOLE	1
+#define	INS8250	0x290	/* gort */
+#endif
+
+#ifndef INS8250
+#define INS8250 0x3f8
+#endif
+
+/*
+ * die.c -- Get information out from a very young kernel which probably
+ * can't do printf()'s.
+ */
+
+#include <sys/coherent.h>
+#include <sys/mmu.h>
+#include <ctype.h>
+
+#define COLOR	((char *) (0x0000B0000 + ctob(SBASE-PBASE)))
+#define MONO	((char *) (0x0000B8000 + ctob(SBASE-PBASE)))
+#define PAGING	(0x80000000)	/* Paging bit in cr0, set if paging is on.  */
+static int chirp_off;
+
+/*
+ * void _chirp(char c, off);
+ * Put character 'c' directly in video memory at offset 'off';
+ *
+ * This routine must not use any static variables, since the .data
+ * segment is not necessarily available yet.
+ */
+void
+_chirp(c, off)
+char c;
+int off;
+{
+#if SERIAL_CONSOLE
+	__putchar(c);
+#else
+	if (!paging()) {
+		*(COLOR + off) = c;
+		*(MONO + off) = c;
+	} else {
+		*((char *) (ctob(VIDEOa) + off)) = c;
+		*((char *) (ctob(VIDEOb) + off)) = c;
+	}
+#endif
+} /* _chirp() */
+
+/*
+ * void chirp(char c);
+ * Put character 'c' directly in the first character of video memory;
+ *
+ * This routine must not use any static variables, since the .data
+ * segment is not necessarily available yet.
+ */
+void
+chirp(c)
+char c;
+{
+	_chirp(c, 158);
+} /* chirp() */
+
+/*
+ * void strchirp(char *str);
+ * Put string 'str' directly in the next character of video memory;
+ * Note that calls to chirp and dchirp do not effect what mchirp considers
+ *      to be the next character.
+ *
+ * This routine uses a ds variable, so it must not be used until the .data
+ * segment is available (this currently happens in the middle of mchinit).
+ */
+void
+strchirp(str)
+char *str;
+{
+	char c;
+	
+	while (c = *str++) {
+		_chirp(c, chirp_off);
+		chirp_off += 2;
+	}
+} /* strchirp() */
+
+/*
+ * void mchirp(char c);
+ * Put character 'c' directly in the next character of video memory;
+ * If c == 0 reset the "next" character to be the first character.
+ * Note that calls to chirp and dchirp do not effect what mchirp considers
+ *      to be the next character.
+ *
+ * This routine uses a static variable, so it must not be used until the .data
+ * segment is available (this currently happens in the middle of mchinit).
+ */
+void
+mchirp(c)
+char c;
+{
+	if ('\0' != c) {
+		_chirp(c, chirp_off);
+		chirp_off += 2;
+	}
+	else
+		chirp_off = 0;
+} /* mchirp() */
+
+/*
+ * void dchirp(char c, charpos);
+ * Put character 'c' directly in the 'charpos' character of video memory;
+ *
+ * This routine must not use any static variables, since the .data
+ * segment is not necessarily available yet.
+ */
+void
+dchirp(c, charpos)
+	char c;
+{
+	_chirp(c, charpos<<1);
+} /* dchirp() */
+
+/*
+ * void die(char c);
+ * Put character 'c' directly in video memory, and then halt.
+ */
+void
+die(c)
+	char c;
+{
+	_chirp(c, 0);
+	for (;;) {
+		halt();
+	}
+}
+
+#define LINESIZE 80
+
+/*
+ * puts() -- put a NUL terminated string.
+ * Takes one argument--a pointer to a NUL terminated character string.
+ */
+void
+puts(s)
+	register char *s;
+{
+	while (*s != '\0') {
+		mchirp(*s++);
+	}
+
+} /* puts() */
+
+
+#define BS '\010'
+#define DEL '\0'	/* This is really what getchar() returns!  */
+#define NAK '\025'
+
+#define BITS_PER_INT16		16	/* Number of bits in an int16.  */
+#define DIGITS_PER_INT16	4	/* Maximum hex digits in a 16 bit number.  */
+#define DIGITS_PER_INT8		2	/* Maximum hex digits in an 8 bit number.  */
+
+/*
+ * Print a 32/16/8 bit integers in hexadecimal.
+ */
+void print32(num)	{hexprint(num,8);}
+void print16(num)	{hexprint(num,4);}
+void print8(num)	{hexprint(num,2);}
+
+#if SERIAL_CONSOLE
+#define OUTCH(c)	__putchar(c)
+#else
+#define OUTCH(c)	mchirp(c)
+#endif
+
+hexprint(n, hexdigits)
+int n, hexdigits;
+{
+	int shift;
+	char digit, outch;
+
+	for (shift = 4*(hexdigits-1); shift >= 0; shift -= 4) {
+		digit = (n >> shift) & 0xF;
+		if (digit > 9)
+			outch = 'A'+digit-10;
+		else
+			outch = '0'+digit;
+		OUTCH(outch);
+	}
+	OUTCH(' ');
+}
+
+outch(c)
+int c;
+{
+	OUTCH(c);
+}
+
+#define	ASCII	1
+#define	XONXOFF	1
+#define	BAUD	9600
+
+/*
+ *	file:	i8251.c
+ *
+ *	This version of putchar works with the serial lines.
+ *	Various configurations are possible through conditional
+ *	defines:
+ *
+ *	BAUD	default 9600
+ *		specifies the baudrate, can be as high as 38400
+ *
+ *	CONSOLE	default COM1:
+ *		is the base address of the uart
+ *
+ *	ASCII	default BINARY
+ *		if set, maps '\n' into CR, LF and reduces input
+ *		to 7-bit
+ *
+ *	XONXOFF	default not enabled
+ *		allows user to control output
+ *
+ */
+
+#define	THR	(INS8250+0)
+#define	IER	(INS8250+1)
+#define	IIR	(INS8250+2)
+#define	LCR	(INS8250+3)
+#define	MCR	(INS8250+4)
+#define	LSR	(INS8250+5)
+#define	MSR	(INS8250+6)
+
+#define	RBR	THR
+#define	DLL	THR
+#define	DLM	IER
+
+#define	DR	0x01
+#define	THRE	0x20
+
+__cinit()
+{
+#if SERIAL_CONSOLE
+	register rate;
+
+#if	BAUD
+	rate = 115200L / BAUD;
+#else
+	rate = 1;
+#endif
+	outb(LCR, 0x00);
+	outb(IER, 0x00);
+	outb(LCR, 0x80);
+	outb(DLL, rate);
+	outb(DLM, rate>>8);
+	outb(LCR, 0x03);
+	outb(MCR, 0x03);
+	__putchar('\007');
+	__putchar('g');
+#endif
+}
+
+#define CTLQ	0021
+#define CTLS	0023
+
+__getchar()
+{
+	register c;
+
+	while( (inb(LSR) & DR) == 0 )
+		;
+	c = inb( RBR );
+#if	ASCII
+	c &= 0x7F;
+#endif
+	return( c );
+}
+
+__putchar( c )
+register c;
+{
+	register f;
+
+#if	ASCII
+	if (c == '\n')
+		putchar( '\r' );
+#endif
+	while( ((f=inb(LSR)) & THRE) == 0 )
+		;
+#if	XONXOFF
+	if( (f & DR) != 0 ) {
+		f = inb( RBR ) & 0x7F;
+		if (f == CTLS) {
+			do {
+				while( (inb(LSR) & DR) == 0)
+					;
+				f = inb( RBR ) & 0x7F;
+			} while (f != CTLQ);
+		}
+	}
+#endif
+	outb( THR, c );
+	return( c );
+}
+@
+
+
+1.7
+log
+@hal: kernel 68: added window support, untested 287 support
+@
+text
+@d38 2
+a39 1
+	char c;
+d41 3
+a43 1
+#if 1
+a50 2
+#else
+__putchar(c);
+d171 1
+a171 1
+#ifdef SERIAL_CONSOLE
+d243 1
+a243 1
+#ifdef SERIAL_CONSOLE
+d262 1
+d265 1
+@
+
+
+1.6
+log
+@kernel 66: floating point context switching, exceptions and signal handlers.
+@
+text
+@d1 11
+d13 2
+d62 1
+a62 1
+	char c;
+d78 1
+a78 1
+	char *str;
+d193 6
+a223 3
+#ifndef INS8250
+#define	INS8250	0x290
+#endif
+d258 1
+a258 1
+	__putchar('G');
+@
+
+
+1.5
+log
+@hal: kernel 64: shorter code for print8/16/32 without need for data seg
+/.
+@
+text
+@d1 1
+d205 1
+d207 1
+@
+
+
+1.4
+log
+@*** empty log message ***
+@
+text
+@d86 1
+a86 1
+	char c;
+a128 1
+ * Does no error checking.  Calls the assembly language routine putc().
+a144 50
+/*
+ * Reverse string s in place.
+ * Straight from K&R.
+ */
+void
+reverse(s)
+	char s[];
+{
+	int c, i, j;
+
+	for (j = 0; s[j] != '\0'; ++j) {
+		/* This is strlen(s).  */
+	}
+	--j;	/* strlen(s) - 1 */
+
+	for (i = 0; i < j; i++, j--) {
+		c = s[i];
+		s[i] = s[j];
+		s[j] = c;
+	}
+} /* reverse() */
+
+#define BASE16 16
+/*
+ * Convert n to digits in s, base base.
+ * Works for any base from 2 to 36.
+ * Modified itoa() from K&R.
+ */
+void
+itobase(n, s, base)
+	unsigned long n;
+	char s[];
+	int base;
+{
+	unsigned short i;
+
+	i = 0;
+	do {	/* Generate digits in reverse order.  */
+		s[i] = n % base + '0';	/* Get next digit.  */
+		/* Adjust for the gap between '9' and 'A'.  */
+		if (s[i] > '9') {
+			s[i] += ('A' - '9') - 1;
+		}
+		++i;
+	} while ((n /= base) > 0); /* Delete it.  */
+	
+	s[i] = '\0';
+	reverse(s);
+} /* itobase() */
+
+d148 1
+d150 1
+a150 1
+ * Print a 32 bit integer in hexadecimal.
+d152 3
+a154 5
+void
+print32(my_int)
+	unsigned long my_int;
+{
+	static char buffer[sizeof("ffffffff")];
+d156 5
+a160 3
+	itobase(my_int, buffer, BASE16);
+	puts(buffer);
+}
+d162 2
+a163 6
+/*
+ * Print a 16 bit integer in hexadecimal.
+ */
+void
+print16(my_int)
+	unsigned short my_int;
+d165 2
+a166 1
+	static char buffer[sizeof("ffff")];
+d168 9
+a176 2
+	itobase((unsigned long) my_int, buffer, BASE16);
+	puts(buffer);
+a178 13
+/*
+ * Print an 8 bit integer in hexadecimal.
+ */
+void
+print8(my_int)
+	unsigned char my_int;
+{
+	static char buffer[sizeof("ff")];
+
+	itobase((unsigned long) my_int, buffer, BASE16);
+	puts(buffer);
+}
+
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d282 1
+d299 1
+@
+
+
+1.2
+log
+@kernel 59: hex output
+@
+text
+@d26 2
+a27 1
+	if (0 == (read_cr0() & PAGING)) {
+d34 3
+a52 1
+
+d54 1
+a54 1
+ * void mchirp(char *str);
+d238 102
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d8 1
+d120 115
+@

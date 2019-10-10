@@ -1,0 +1,142 @@
+# Generated from idtune.sh on Tue Nov 16 11:42:25 1993 CST
+# (-lgl
+#	Coherent 386 release 4.2-Beta
+#	Copyright (c) 1982, 1993 by Mark Williams Company.
+#	All rights reserved. May not be copied without permission.
+#	For copying permission and licensing info, write licensing@mwc.com
+# -lgl)
+
+# Shell version of something similar to the System V 'idtune' command
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Output an error message to standard error, prefixed by the command name.
+
+report_error () {
+	basename $COMMAND_NAME "" "echo " ": $*" 1>&2
+}
+
+
+# Report a usage message to standard error.
+
+usage () {
+	report_error Change values of configurable parameters
+	cat <<\END 1>&2
+usage:	[-f] [-m] [-p param] param value [param value] ...
+	-f suppresses interactive confirmation of the change
+	-m specifies that the current value be raised to the given minimum
+	-p displays the current value of param (non-SVr4 usage)
+END
+}
+
+
+# Read the mtune/stune parameters for a variable into shell globals
+
+read_mstune () {
+	grep ^"$1$WHITESPACE" $MTUNE_FILE $STUNE_FILE 2>/dev/null 1>&2
+	is_equal $? 0 || {
+		report_error There is no installed tunable parameter called $1
+		return 1
+	}
+
+	set `grep "^$1$WHITESPACE" $MTUNE_FILE 2>/dev/null` \
+	    `grep "^$1$WHITESPACE" $STUNE_FILE 2>/dev/null`
+	MTUNE_MIN=$2
+	MTUNE_DEFAULT=$3
+	MTUNE_MAX=$4
+	if val $(($# > 4)) ; then
+		STUNE_VALUE=$6
+	else
+		STUNE_VALUE=$3
+	fi
+	OLD_STUNE_VALUE=$STUNE_VALUE
+}
+
+
+# Update the value of a tunable parameter
+
+write_mstune () {
+	is_equal $OLD_STUNE_VALUE $2 && return 0
+
+	val $(($2 < $MTUNE_MIN)) && {
+		report_error \
+"Parameter $1: New value $2 less than specified minimum of $MTUNE_MIN"
+		return 1
+	}
+
+	val $(($2 > $MTUNE_MAX)) && {
+		report_error \
+"Parameter $1: New value $2 exceeds the specified maximum of $MTUNE_MAX"
+		return 1
+	}
+
+	$HOME_DIR/devadm -x $MTUNE_FILE -y $STUNE_FILE -s"$1 $2" -W
+}
+
+
+# Confirm the parameter change
+
+ask () {
+	echo Tunable parameter $1 is currently set to $2.
+	read_input "Is it OK to change it to $3" yesno "y" require_yes_or_no
+	is_yes $yesno
+}
+
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+CONF_PATH="$(pwd):$CONF_DIR:$CONF_DIR/install_conf:$CONF_PATH"
+
+find_file mtune $CONF_PATH "MTUNE_FILE=" \
+	"report_error File \'mtune\' is not found in $CONF_PATH; exit 126"
+find_file stune $CONF_PATH "STUNE_FILE=" \
+	"report_error File \'stune\' is not found in $CONF_PATH; exit 126"
+
+WHITESPACE="[	 ]"		: A space and a tab
+
+is_equal $# 0 && {
+	usage
+	exit 100
+}
+
+while getopts fmp: SWITCH ; do
+	case $SWITCH in
+	f)	FORCE=1
+		;;
+
+	m)	MINIMUM=1
+		;;
+
+	p)	read_mstune $OPTARG || exit 1
+		echo $OPTARG $OLD_STUNE_VALUE
+		;;
+
+	*)	usage
+		exit 100
+		;;
+	esac
+done
+
+shift $(($OPTIND - 1))
+
+while val $(($# >= 2)) ; do
+	read_mstune $1 || exit 1
+
+	# If there is no change, do nothing. If there is a minimum and
+	# the current value is large enough, do nothing. Otherwise,
+	# make the change if forced or the user confirms.
+
+	[ "$STUNE_VALUE" -ne "$2" -a \
+	  \( -z "$MINIMUM" -o "$STUNE_VALUE" -lt $2 \) ] &&
+	   { ! is_empty "$FORCE" || ask $1 "$STUNE_VALUE" $2; } && {
+		write_mstune $1 $2
+	}
+	shift 2
+done
+
+is_equal $# 0 || {
+	usage
+	exit 100
+}

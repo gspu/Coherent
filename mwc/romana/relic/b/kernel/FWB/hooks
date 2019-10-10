@@ -1,0 +1,54 @@
+The C routines of this device driver call assembly routines
+to produce the various clicks and sounds.
+These are contained in sdsounds.s.
+This is the only assembly (thank God).
+
+There are several hooks between this code and the kernel.
+
+sdload is called by isload (in kb.c), as the last command.
+
+sduload is called by isuload (in kb.c), as the last command.
+
+sdtime is called by mmtime (in mm.c), as the last command before rescheduling.
+Sdtime manages longer sounds such as error bells,
+and executes the deferred speech commands.
+It also maintains the ongoing reading of text in the internal buffer.
+Once reading is initiated, sdtime performs a form of polling,
+asking whether the synthesizer is ready for more.
+If it is, send more text.
+Continue reading until another command is entered.
+The polling rate of 10HZ is (generally) adequate for this task.
+The rescheduling frequency is dynamically determined by the variable mmticks.
+Usually this is set to 10 ticks, the original value.
+It is upped to 1 tick when producing audio feedback
+or initiating speech.
+The new routine mmhasten hastens the execution
+of mmtime() by rescheduling with mmticks = 1.
+
+mmgo1() is called from mm_start() in mm.c.
+After each byte is taken from the output queue of the tty,
+c = ttout(tp),
+call mmgo1(c), and exit the loop if the return value is 0.
+mmgo1() in turn calls mmgo() if the character needs
+to be displayed on the screen.
+
+isrint() in kb.c calls sdinkey_coh().
+This in turn calls isin() if the character is destined
+for the tty input queue.
+If the return is 0 then kb.c calls the usual machinery,
+including isspecial() to interpret special characters.
+Some code in isrint() is modified to allow control-fkeys to pass through;
+they were originally discarded.
+
+Before initializing the serial ports, al.c calls sdport_taken
+to see if a speech session has taken over a serial port,
+whereupon al.c should leav it alone.
+As a quick hack, both sibling ports are declared nonexistent.
+Someday we will leave the sibling port accessible.
+
+Patchable variables sd0synth, sd0comport, and sd0bufsize
+determine the type of synthesizer, the serial port it is attached to,
+and the desired size of the internal circular buffer respectively.
+Use patch to change these parameters.
+Set sd0synth to 0 and the driver behaves
+exactly as it use to.

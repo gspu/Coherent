@@ -1,0 +1,522 @@
+.TH "transports" "" "" "System Administration"
+.PC "Describe mail transportation systems"
+.B /usr/lib/mail/transports
+.PP
+.II /usr/lib/mail/transports
+.II transports
+The program
+.B smail
+reads file
+.B /usr/lib/mail/transports
+for information on the commands it can use to deliver mail, either to
+your local system or to a remote system.
+.PP
+Each entry within
+.B transports
+names a transport and sets its attributes.
+Each entry consists of the following information:
+.IP \(bu 0.3i
+The name of the transport.
+This attribute begins the definition of a transport.
+The name must be unique, it must appear flush with the left margin,
+and must be followed by a single colon `:'.
+.IP \(bu
+The name of the
+.IR driver ,
+or program that implements the transport.
+This can be a command that is part of
+.BR smail 's
+suite of utilities (which are contained in directory
+.BR /usr/lib/mail ),
+or can be an ordinary \*(CO command.
+If the latter, then the full name of the command that implements the
+driver is given with a
+.B cmd
+attribute.
+This is demonstrated below.
+.IP \(bu
+A set of generic attributes for the transport.
+These attributes are ``generic'' because they can come from
+a set that can be applied to any router.
+.IP \(bu
+A set of driver-specific attributes.
+These can be applied only to entries that use this driver.
+.PP
+To extend an entry across multiple lines, begin successive lines
+with white space.
+.PP
+.SH "Attributes of a Transport"
+The following gives the generic attributes that a transport can have.
+Each attribute is followed by its type (Boolean, string, or number).
+To set a string or number attribute,
+its name should be followed by an `=', then the value
+to which you are setting it.
+To set a Boolean attribute, prefix it with a `+'; to unset a Boolean attribute,
+prefix it with a `-'.
+.IP "\fBbsmtp \fR(Boolean)"
+This transport uses a batched SMTP format, in which the message is
+enclosed within an envelope of SMTP commands.
+You can use such a transport to send mail
+in SMTP format to remote hosts,
+even when direct two-way connections are not feasible.
+For example, this will work over \*(UU and eliminates difficulties
+with sending arbitrary addresses as arguments to the command
+.BR uux .
+Use of this attribute
+also turns on the attribute
+.BR dots .
+When this attribute is also used with the attribute
+.BR uucp ,
+.B smail
+uses \*(UU-style bang-path addresses in the SMTP envelope.
+.IP "\fBcrlf \fR(Boolean)"
+If set, each line of the header and message ends within the pair of characters
+CR:LF rather than a single newline character.
+In general, this is not a useful attribute, as the SMTP transport
+(which requires this as a part of the interactive protocol)
+always does this anyway.
+.IP "\fBdebug \fR(Boolean)"
+If set, this attribute replaces the body of the message
+with debugging information.
+You can use it, for example, as a shadow transport, to watch the flow of
+mail for debugging purposes.
+This lets you debug mail while avoid the problems that arise from
+saving other users' personal correspondence.
+.IP "\fBdots \fR(Boolean)"
+If set, then
+.B smail
+uses the ``hidden-dot'' protocol.
+With this protocol,
+.B smail
+prefixes a period `.' onto every line that already begins with a period.
+All of the various SMTP modes imply this behavior.
+.IP "\fBdriver \fR(string)"
+This attribute names the specific entity that actually transports the mail.
+It is required.
+.IP "\fBerror_transport \fR(string)"
+This attribute names another transport that
+.B smail
+can use to send the message, should this transport fail.
+.IP "\fBfrom \fR(Boolean)"
+If set,
+.B smail
+supplies a ``From<space>'' line before the message
+when it delivers mail via this transport.
+If this is a remote transport (i.e., the attribute
+.B local
+is not turned on), this line ends with the string
+.DS
+	remote from \fIhostname\fR
+.DE
+.IP
+where
+.I hostname
+is the \*(UU name for your local host (as set in file
+.BR /etc/uucpname ).
+This is useful for delivery via \*(UU and for delivering mail to standard
+mailbox files, which require this format.
+.IP "\fBhbsmtp \fR(Boolean)"
+``Half-baked'' batched SMTP.
+This is batched SMTP mode without an initial
+.B HELO
+command or an ending
+.B QUIT
+command.
+.B smail
+can use this transport to create files that it will later concatenate
+into a batch of SMTP commands and multiple messages.
+Use of this attribute also turns on attribute
+.BR dots .
+.IP "\fBlocal_xform \fR(Boolean)"
+If this attribute is set,
+.B smail
+uses the form of the header and envelope information
+appropriate for delivery to your local host.
+This changes no existing header field, except that it inserts commas
+into the fields that name the sender and recipient.
+This also affects the form of any generated
+.B From
+line and the form of envelope addresses used in SMTP commands.
+.IP
+You can also use this attribute when delivering mail to a remote site
+that is also running
+.B smail
+version 3.1.
+This is useful within a domain that maintains consistent user-forwarding
+information.
+This leaves a message in unqualified format until it leaves the domain via
+a gateway.
+.IP "\fBlocal \fR(Boolean)"
+This implies that attribute
+.B local_xform
+is set, but implies that delivery really is the final delivery to a user,
+file, or program on your local host.
+This attribute disables generation of a bounce message that
+results should a message exceed its allowed hop-count.
+.IP "\fBmax_addrs \fR(number)"
+This attribute sets the maximum number of recipient addresses
+that can be given in one call to the transport.
+If this is turned off, then there is no maximum.
+The default number is one; typically,
+this attribute either is left at one or turned off.
+.IP "\fBmax_chars \fR(number)"
+This states the maximum number of characters in the addresses that can be
+given in one call to this transport.
+If this is turned off, there is no maximum number.
+The default number is about one third of the number of characters
+that can be passed as arguments to a program.
+When using SMTP transports, this should be turned off unless a
+remote host is known to be unable to handle a large number of addresses.
+For delivery over \*(UU to
+.B rmail
+ona remote system,
+this should be in the neighborhood of 200 to 250,
+to avoid buffer overruns at the remote site.
+\*(UU generally has small buffers to hold argument information.
+.IP
+If
+.B smail
+is given an address whose length exceeds this number,
+then the address will be passed with one call to the transport.
+Thus, this limit is not strictly enforced.
+.IP "\fBmax_hosts \fR(number)"
+This states the maximum number of different hosts
+that can be given in one call to the transport.
+If this is turned off using the form
+.BR \-max_hosts ,
+there is no maximum number.
+The default number is one and typically this is not changed.
+.IP "\fBreceived \fR(Boolean)"
+If this attribute is set,
+.B smail
+inserts a
+.B Received:
+field into each message it delivers via this transport.
+The form of this field is taken from the attribute
+.B received_field
+in file
+.BR /usr/lib/mail/config .
+This attribute is on by default.
+.IP "\fBreturn_path \fR(Boolean)"
+If this attribute is set,
+.B smail
+inserts field
+.B Return-Path:
+into the header of each message it delivers via this transport.
+The form of this field is taken from the attribute
+.B return_path_field
+in file
+.BR /usr/lib/mail/config .
+Use this attribute only with a transport that performs final delivery to a
+local destination.
+.IP "\fBshadow \fR(string)"
+This names a second transport through which
+.B smail
+also sends the message.
+This second transport usually performs some task that is unrelated
+to the actual delivery of the message.
+For example, you could use a shadow transport to start a program
+that looked up the sender within a data base and displayed her picture
+in a window on your workstation.
+.B smail
+calls the shadow transport only if the primary transport
+successfully delivers the message.
+.IP "\fBstrict \fR(Boolean)"
+If this flag is set, then
+.B smail
+attempts to transform mail that does not conform to RFC822 standards.
+This may be useful for sites that gateway between the \*(UU zone and
+the Internet.
+In general, it is not a good idea to turn on this attribute,
+as it changes the contents of headers fields.
+Turn on this attribute only when you know that some remote hosts understand
+only mail that conforms to the RFC822 standard.
+.IP "\fBunix_from_hack \fR(Boolean)"
+If set, then
+.B smail
+inserts the character `>' before any line in the message that begins with the
+string ``From''.
+.II mailx
+.II Mail
+This is required for local delivery to mailbox files that are in the
+standard form expected by the System-V program
+.B mailx
+and the BSD program
+.BR Mail .
+.IP "\fBuucp \fR(Boolean)"
+If set, then
+.B smail
+converts outgoing recipient addresses into \*(UU-style paths of the form
+\fIhosta\^\fB!\fIhostb\^\fB!\fIhostc\^\fB!\fIuser\fR.
+An exception is that
+.B smail
+preserves any use of `%' as an address operator.
+Thus,
+.B smail
+would convert an envelope address of the form
+.B user%hostb@hosta
+to
+.BR hosta!user%hostb .
+This only affects envelope addresses and does
+.I not
+affect the body of the message or its header.
+.IP "\fBinet \fR(Boolean)"
+If you set this attribute,
+.B smail
+converts output-recipient addresses to Internet specifications.
+This is not the same as the attribute
+.BR strict ,
+because the transformations apply only to the envelope's
+address, and not to header's.
+If
+.B inet
+is defined,
+then when
+.B smail
+routes a message to a remote system, it generates a
+``route-addr'' address rather than ``bang-path'' address.
+Thus, if
+.B smail
+is given the address
+.B user%host@gateway
+and
+.B gateway
+is reached through the path
+.BR hosta!hostb!hostc ,
+then
+.B smail
+generates the address
+.B @hostb,@hostc:user%host@gateway
+to
+be sent to the host
+.BR @hosta .
+.IP "\fBretry_dir \fR(string)"
+This attribute tells
+.B smail
+to use the subdirectory under directory
+.B /usr/lib/mail/retry
+for managing host retry intervals for this transport.
+By default, the directory is named after the transport.
+However, multiple transports can share a retry directory by using
+.B retry_dir
+to force each to use that directory.
+For example, by default the definition of each TCP/IP SMTP transport uses
+.B retry_dir
+to force that transport to use retry directory
+.BR smtp .
+.IP "\fBremove_header \fR(string)"
+Tell
+.B smail
+to remove the named header field from each message it sends via this transport.
+This is an expansion string, so header removal can be made dependent
+upon some condition.
+If expansion of the string results in an empty string,
+then no header is removed.
+You can specify any number of
+.B remove_header
+attributes for a given transport.
+.IP "\fBinsert_header \fR(string)\fR"
+.IS "\fBappend_header \fR(string)\fR"
+Add the given header field at the beginning (\fBinsert_header\fR) or end
+(\fBappend_header\fR) of the message header for transport.
+These are expansion strings, so the header (and the existence of the
+header) can be made to depend on some conditions.
+If expansion of the string results in an empty string, then
+.B smail
+does not add a header.
+You can specify any number of
+.B insert_header
+and
+.B append_header
+attributes for a given transport.
+.SH "The Default Transports"
+The following describes the transports that are defined in the version of
+.B /usr/lib/mail/transports
+that is shipped with \*(CO.
+.PP
+The first transport,
+.BR local ,
+delivers mail to a user on your system:
+.DM
+	# local - deliver mail to local users
+	#
+	# By default, smail will append directly to user mailbox files.
+	#
+	local:	driver=appendfile,      # append message to a file
+		return_path,            # include a Return-Path: field
+		from,                   # supply a From_ envelope line
+		local;                  # use local forms for delivery
+.DE
+.DM
+		file=/usr/spool/mail/${lc:user}, # location of mailbox files
+		mode=0600,                       # For BSD: only the user can
+		                                 # read and write file
+		notify_comsat,                   # notify comsat daemon of delivery
+		suffix="\e1\e1\e1\e1\n",             # MMDF mailbox format
+		prefix="\e1\e1\e1\e1\n",             # MMDF mailbox format
+.DE
+.PP
+The next transport,
+.BR pipe ,
+delivers mail to a shell command:
+.DM
+	# pipe -deliver mail to shell commands
+	#
+	# This is used implicitly when smail encounters addresses which begin with
+	# a vertical bar character, such as "|/usr/lib/news/recnews talk.bizarre".
+	# The vertical bar is removed from the address before being given to the
+	# transport.
+	pipe:	driver=pipe,            # pipe message to another program
+		return_path,            # include a Return-Path: field
+		from,                   # supply a From_ envelope line
+		local;                  # use local forms for delivery
+.DE
+.DM
+		cmd="/bin/sh -c $user", # send address to the Bourne Shell
+		parent_env,             # environment info from parent addr
+		pipe_as_user,           # use user-id associated with address
+		ignore_status,          # ignore a non-zero exit status
+		ignore_write_errors,    # ignore write errors, i.e., broken pipe
+		umask=0022,             # umask for child process
+		-log_output,            # do not log stdout/stderr
+.DE
+.PP
+The next transport,
+.BR file ,
+delivers mail to a file:
+.DM
+	# file - deliver mail to files
+	#
+	# This is used implicitly when smail encounters addresses which begin with
+	# a slash or squiggle character, such as "/usr/info/list_messages" or
+	# perhaps "~/Mail/inbox".
+	file:	driver=appendfile,
+		return_path,           # include a Return-Path: field
+		from,                  # supply a From_ envelope line
+		local;                 # use local forms for delivery
+.DE
+.DM
+		file=$user,            # file is taken from address
+		append_as_user,        # use user-id associated with address
+		expand_user,           # expand ~ and $ within address
+		mode=0644,             # you may wish to change this
+		                       # mode, depending upon local
+		                       # conventions and preferences
+		suffix="\e1\e1\e1\e1\n",       # MMDF mailbox format
+		prefix="\e1\e1\e1\e1\n",       # MMDF mailbox format
+.DE
+.PP
+The next transport ,
+.BR uux ,
+invokes the \*(UU command
+.B uux
+to deliver messages to a remote site via \*(UU:
+.DM
+	# uux - deliver to the rmail program on a remote UUCP site
+	#
+	# HDB UUCP users should comment out the first cmd= line below, and
+	# uncomment the second.
+	uux:	driver=pipe,
+		uucp,              # use UUCP-style addressing forms
+		from,              # supply a From_ envelope line
+		max_addrs=5,       # at most 5 addresses per invocation
+		max_chars=200;     # at most 200 chars of addresses
+.DE
+.DM
+		# the -r flag prevents immediate delivery, parentheses around the
+		# $user variable prevent special interpretation by uux.
+		cmd="/usr/bin/uux - -r -a$sender -g$grade $host!rmail $(($user)$)",
+		pipe_as_sender,    # have uucp logs contain caller
+		log_output,        # save error output for bounce messages
+.DE
+.PP
+Transport
+.B demand
+delivers mail to command
+.B rmail
+on a remote system:
+.DM
+	# demand - deliver to a remote rmail program, polling immediately
+	#
+	# HDB UUCP users should comment out the first cmd= line below, and
+	# uncomment the second.
+	demand:	driver=pipe,
+		uucp,                  # use UUCP-style addressing forms
+		from,                  # supply a From_ envelope line
+		max_addrs=5,           # at most 5 addresses per invocation
+		max_chars=200;         # at most 200 chars of addresses
+.DE
+.DM
+		cmd="/usr/bin/uux - -a$sender -g$grade $host!rmail $(($user)$)",
+		pipe_as_sender,        # have uucp logs contain caller
+		log_output,            # save error output for bounce messages
+.DE
+.PP
+The final two transports are local versions of previously defined tranports.
+What a local transport is, and the advantages it offers, is described above.
+.PP
+Transport
+.B local_uux
+is a local version of transport
+.BR uux :
+.DM
+	local_uux:
+		driver=pipe,
+		local_xform,        # transfer using local message format
+		uucp,               # use uucp-conformant addresses
+		from,               # supply a From_ envelope line
+		max_addrs=5,        # at most 5 addresses per invocation
+		max_chars=200;      # at most 200 chars of addresses
+.DE
+.DM
+		# the -r flag prevents immediate delivery, parentheses around the
+		# $user variable prevent special interpretation by uux.
+		cmd="/usr/bin/uux - -r -a$sender -g$grade $host!rmail $(($user)$)",
+		pipe_as_sender,     # have uucp logs contain caller
+		log_output,         # save error output for bounce messages
+.DE
+.PP
+Finally,
+.B local_demand
+is a local form of transport
+.BR demand :
+.DM
+	local_demand:
+		driver=pipe,
+		local_xform,         # transfer using local formats
+		uucp,                # use uucp-conformant addresses
+		from,                # supply a From_ envelope line
+		max_addrs=5,         # at most 5 addresses per invocation
+		max_chars=200;       # at most 200 chars of addresses
+.DE
+.DM
+		cmd="/usr/bin/uux - -a$sender -g$grade $host!rmail $(($user)$)",
+		pipe_as_sender,      # have uucp logs contain caller
+		log_output,          # save error output for bounce messages
+.DE
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "config [smail]," config.s
+.Xr "directors," directors
+.Xr "mail [overview]," mail.o
+.Xr "smail," smail
+.Xr "routers" routers
+.SH Notes
+For information on how the configuration files
+.BR directors ,
+.BR routers ,
+and
+.B transports
+relate to each other, see the Lexicon entry for
+.BR directors .
+.PP
+Copyright \(co 1987, 1988 Ronald S. Karr and Landon Curt Noll.
+Copyright \(co 1992 Ronald S. Karr.
+.PP
+For details on the distribution rights and restrictions
+associated with this software, see file
+.BR COPYING ,
+which is included with the source code to the
+.B smail
+system; or type the command:
+.BR "smail \-bc" .

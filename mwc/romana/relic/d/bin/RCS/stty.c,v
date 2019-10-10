@@ -1,0 +1,585 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.12.02.10.01.38;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.12.11.16.52.22;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.12.11.16.51.15;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 12/11/90
+Initial MWC RCS revision.
+This corresponds to the COHERENT V300 /bin/stty object.
+@
+
+
+1.3
+log
+@hal added -hup option. Hal also notes that there is no way for a user program
+to know the states of flags, as they are in TTY structs, not sgttyb.
+@
+text
+@/*
+ * Set options for the current output terminal.
+ */
+
+#include <stdio.h>
+#include <sgtty.h>
+
+#define	ON	1
+#define	OFF	2
+#define	NONE	(-1)		/* Disabled character */
+#define	NEXT	(-2)		/* Get next arg */
+#define	DEL	0177		/* Del/rubout in ASCII */
+
+/* Functions to set and reset parameters */
+int	smode();
+int	sspeed();
+int	sedit();
+int	stchars();
+int	sflag();
+int	sane();
+
+struct	sgttyb	sgttyb;
+struct	tchars	tchars;
+
+int	hupflag;		/* Set hangup on close mode */
+int	exclflag;		/* Set exclusive mode */
+int	allflag;		/* Display all modes */
+int	scmd = TIOCSETP;	/* Ordinary stty command */
+int	printflag;		/* On for printing modes */
+
+#define	NOPTS	(sizeof(sopts)/sizeof(struct sopts))
+
+struct	sopts {
+	char	*s_opt;
+	int	(*s_func)();	/* Function takes arg1 & arg2 */
+	char	*s_arg1;
+	int	s_arg2;
+	int	s_arg3;
+}	sopts[] = {
+	"flush", sflag, &scmd, TIOCSETP, 0,
+	"-flush", sflag, &scmd, TIOCSETN, 0,
+	"even", smode, NULL, EVENP, 0,
+	"-even", smode, NULL, 0, EVENP,
+	"odd", smode, NULL, ODDP, 0,
+	"-odd", smode, NULL, 0, ODDP,
+	"raw", smode, NULL, RAW, 0,
+	"-raw", smode, NULL, 0, RAW,
+	"cooked", smode, NULL, 0, RAW,
+	"rawin", smode, NULL, RAWIN, 0,
+	"-rawin", smode, NULL, 0, RAWIN,
+	"rawout", smode, NULL, RAWOUT, 0,
+	"-rawout", smode, NULL, 0, RAWOUT,
+	"cbreak", smode, NULL, CBREAK, 0,
+	"-cbreak", smode, NULL, 0, CBREAK,
+	"-nl", smode, NULL, CRMOD, 0,
+	"nl", smode, NULL, 0, CRMOD,
+	"echo", smode, NULL, ECHO, 0,
+	"-echo", smode, NULL, 0, ECHO,
+	"lcase", smode, NULL, LCASE, 0,
+	"-lcase", smode, NULL, 0, LCASE,
+	"-tabs", smode, NULL, XTABS, 0,
+	"tabs", smode, NULL, 0, XTABS,
+	"tandem", smode, NULL, TANDEM, 0,
+	"-tandem", smode, NULL, 0, TANDEM,
+	"crt", smode, NULL, CRT, 0,
+	"-crt", smode, NULL, 0, CRT,
+	"ek", sedit, NULL, '#', '@@',
+#if DELAY
+	"cr0", smode, NULL, CR0, CRDELAY,
+	"cr1", smode, NULL, CR1, CRDELAY,
+	"cr2", smode, NULL, CR2, CRDELAY,
+	"cr3", smode, NULL, CR3, CRDELAY,
+	"nl0", smode, NULL, NL0, NLDELAY,
+	"nl1", smode, NULL, NL1, NLDELAY,
+	"nl2", smode, NULL, NL2, NLDELAY,
+	"nl3", smode, NULL, NL3, NLDELAY,
+	"ff0", smode, NULL, FF0, VTDELAY,
+	"ff1", smode, NULL, FF1, VTDELAY,
+	"bs0", smode, NULL, BS0, BSDELAY,
+	"bs1", smode, NULL, BS1, BSDELAY,
+	"tab0", smode, NULL, TAB0, TBDELAY,
+	"tab1", smode, NULL, TAB1, TBDELAY,
+	"tab2", smode, NULL, TAB2, TBDELAY,
+	"tab3", smode, NULL, TAB3, TBDELAY,
+#endif
+	"0", sspeed, NULL, B0, B0,
+	"50", sspeed, NULL, B50, B50,
+	"75", sspeed, NULL, B75, B75,
+	"110", sspeed, NULL, B110, B110,
+	"134", sspeed, NULL, B134, B134,
+	"134.5", sspeed, NULL, B134, B134,
+	"150", sspeed, NULL, B150, B150,
+	"200", sspeed, NULL, B200, B200,
+	"300", sspeed, NULL, B300, B300,
+	"600", sspeed, NULL, B600, B600,
+	"1200", sspeed, NULL, B1200, B1200,
+	"1800", sspeed, NULL, B1800, B1800,
+	"2000", sspeed, NULL, B2000, B2000,
+	"2400", sspeed, NULL, B2400, B2400,
+	"3600", sspeed, NULL, B3600, B3600,
+	"4800", sspeed, NULL, B4800, B4800,
+	"7200", sspeed, NULL, B7200, B7200,
+	"9600", sspeed, NULL, B9600, B9600,
+	"19200", sspeed, NULL, B19200, B19200,
+	"exta", sspeed, NULL, EXTA, EXTA,
+	"extb", sspeed, NULL, EXTB, EXTB,
+	"hup", sflag, &hupflag, TIOCHPCL, 0,
+	"-hup", sflag, &hupflag, TIOCCHPCL, 0,
+	"excl", sflag, &exclflag, TIOCEXCL, 0,
+	"-excl", sflag, &exclflag, TIOCNXCL, 0,
+	"print", sflag, &printflag, 1, 0,
+	"erase", sedit, NULL, NEXT, 0,
+	"kill", sedit, NULL, 0, NEXT,
+	"start", stchars, &tchars.t_startc, 0, 0,
+	"stop", stchars, &tchars.t_stopc, 0, 0,
+	"eof", stchars, &tchars.t_eofc, 0, 0,
+	"break", stchars, &tchars.t_brkc, 0, 0,
+	"quit", stchars, &tchars.t_quitc, 0, 0,
+	"intr", stchars, &tchars.t_intrc, 0, 0,		/* compatibility */
+	"int", stchars, &tchars.t_intrc, 0, 0,
+	"sane", sane, NULL, 0, 0
+};
+
+/*
+ * Names of the speeds
+ */
+char	*speeds[] = {
+	"(hang up line)",
+	"50 baud",
+	"75 baud",
+	"110 baud",
+	"134.5 baud",
+	"150 baud",
+	"200 baud",
+	"300 baud",
+	"600 baud",
+	"1200 baud",
+	"1800 baud",
+	"2000 baud",
+	"2400 baud",
+	"3600 baud",
+	"4800 baud",
+	"7200 baud",
+	"9600 baud",
+	"19.2 Kbaud",
+	"exta",
+	"extb",
+};
+
+int	sgtflag;		/* Says need sgtty */
+int	tcflag;			/* Set terminal characters */
+int	ttyfd;			/* Fd for setting attributes */
+
+int	gargc;
+char	**gargv;
+char	*argv0;			/* For usage() */
+
+/*
+ * Main routine reads options and
+ * calls appropriate mode setting routines.
+ */
+main(argc, argv)
+char *argv[];
+{
+	char ttyname[40];
+	register struct sopts *sp;
+	register char *ap;
+
+	ttyfd = fileno(stdout);
+	gargc = argc;
+	gargv = argv;
+	argv0 = argv[0];
+	while (argc > 1)  {
+		if (argv[1][0] == '-')  {
+			if (argv[1][1] == 't')  {
+				sprintf(ttyname, "/dev/%s", &argv[1][2]);
+				if ((ttyfd = open(ttyname, 1)) >= 0) {
+					argv++;
+					gargv++;
+					argc--;
+					gargc--;
+				} else {
+					ttyfd = fileno(stdout);
+					argv++;
+					argc--;
+				}
+			} else if (argv[1][1] == 'a')  {
+				allflag = 1;
+				argv++;
+				gargv++;
+				argc--;
+				gargc--;
+			} else {
+				argv++;
+				argc--;
+			}
+		} else {
+			argv++;
+			argc--;
+		}
+	}
+	getmodes();
+	if (gargc <= 1)
+		prmodes();
+	else
+		while (gargc-- > 1) {
+			ap = *++gargv;
+			for (sp = sopts; sp < &sopts[NOPTS]; sp++)
+				if (strcmp(sp->s_opt, ap) == 0) {
+					(*sp->s_func)(sp->s_arg1, sp->s_arg2,
+						sp->s_arg3);
+					break;
+				}
+			if (sp == &sopts[NOPTS])
+				sterr("bad mode `%s'", ap);
+		}
+	setmodes();
+	if (printflag)
+		prmodes();
+	exit(0);
+}
+
+/*
+ * smode - sets mode part of TIOCSETP structure.
+ * First clears out bits in `reset' and then
+ * sets bits in `set'.
+ */
+smode(junkp, set, reset)
+char *junkp;
+int set, reset;
+{
+	sgtflag = 1;
+	sgttyb.sg_flags &= ~reset;
+	sgttyb.sg_flags |= set;
+}
+
+/*
+ * Set input and output speeds into sgttyb.
+ */
+sspeed(junkp, ispeed, ospeed)
+char *junkp;
+int ispeed, ospeed;
+{
+	sgtflag = 1;
+	sgttyb.sg_ispeed = ispeed;
+	sgttyb.sg_ospeed = ospeed;
+}
+
+/*
+ * Set up erase and kill line editing
+ * characters.
+ */
+sedit(junkp, erase, kill)
+char *junkp;
+int erase, kill;
+{
+	sgtflag = 1;
+	if (erase != 0)
+		if (erase == NEXT)
+			sgttyb.sg_erase = cget(); else
+			sgttyb.sg_erase = erase;
+	if (kill != 0)
+		if (kill == NEXT)
+			sgttyb.sg_kill = cget(); else
+			sgttyb.sg_kill = kill;
+}
+
+/*
+ * set a flag
+ * (e.g. hup, excl, flush)
+ */
+sflag(flagp, val, junk)
+int *flagp;
+int val, junk;
+{
+	*flagp = val;
+}
+
+/*
+ * Set one of the terminal chars.
+ */
+/* ARGSUSED */
+stchars(cp, junk, morejunk)
+char *cp;
+int junk, morejunk;
+{
+	tcflag = 1;
+	*cp = cget();
+}
+
+/*
+ * Print out the attributes
+ * of the terminal.
+ */
+prmodes()
+{
+	prchar("Erase = ", sgttyb.sg_erase);
+	prchar(", kill = ", sgttyb.sg_kill);
+	putc('\n', stderr);
+	prchar("Interrupt = ", tchars.t_intrc);
+	prchar(", quit = ", tchars.t_quitc);
+	prchar(", break = ", tchars.t_brkc);
+	putc('\n', stderr);
+	prchar("Start = ", tchars.t_startc);
+	prchar(", stop = ", tchars.t_stopc);
+	prchar(", eof = ", tchars.t_eofc);
+	putc('\n', stderr);
+	if (sgttyb.sg_ispeed == sgttyb.sg_ospeed)
+		fprintf(stderr, "Speed: %s\n", speeds[sgttyb.sg_ispeed]);
+	else
+		fprintf(stderr, "Speed: %s (in), %s (out)\n",
+			speeds[sgttyb.sg_ispeed],
+			speeds[sgttyb.sg_ospeed]);
+	fprintf(stderr, "Modes:");
+	prflag(EVENP, "even", NULL);
+	prflag(ODDP, "odd", NULL);
+	prdelay(RAW, "rawin", "rawout", "raw");
+	if (allflag) {
+		prflag(CRMOD, "-nl", "nl");
+		prflag(ECHO, "echo", "-echo");
+		prflag(LCASE, "lcase", "-lcase");
+		prflag(CBREAK, "cbreak", "-cbreak");
+		prflag(TANDEM, "tandem", "-tandem");
+		prflag(CRT, "crt", "-crt");
+/* The following code gives misinformation.  Removed 91/11/17 - hws */
+#if 0
+		if (exclflag)
+			fprintf(stderr, " excl");
+		else
+			fprintf(stderr, " -excl");
+		if (hupflag)
+			fprintf(stderr, " hup");
+		else
+			fprintf(stderr, " -hup");
+#endif
+	} else {
+		prflag(CRMOD, NULL, "nl");
+		prflag(ECHO, "echo", NULL);
+		prflag(LCASE, "lcase", NULL);
+		prflag(CBREAK, "cbreak", NULL);
+		prflag(TANDEM, "tandem", NULL);
+		prflag(CRT, "crt", NULL);
+	}
+	/* Delays not supported but should be included here */
+	prflag(XTABS, "-tabs", "tabs");
+	putc('\n', stderr);
+}
+
+/*
+ * Print out a single flag
+ */
+prflag(mask, ons, offs)
+int mask;
+char *ons, *offs;
+{
+	if (sgttyb.sg_flags & mask) {
+		if (ons != NULL)
+			fprintf(stderr, " %s", ons);
+	} else
+		if (offs != NULL)
+			fprintf(stderr, " %s", offs);
+}
+
+/*
+ * Print out a 4-value delay-type (or raw)
+ * flag.
+ */
+prdelay(mask, s1, s2, s3)
+register int mask;
+char *s1, *s2, *s3;
+{
+	register int t;
+	register int mode;
+	register char *s = NULL;
+
+	mode = sgttyb.sg_flags;
+	while ((mask & 01) == 0) {
+		mask >>= 1;
+		mode >>= 1;
+	}
+	t = mode&mask;
+	if (t == 1)
+		s = s1;
+	else if (t == 2)
+		s = s2;
+	else if (t == 3)
+		s = s3;
+	if (s != NULL)
+		fprintf(stderr, " %s", s);
+}
+
+/*
+ * Print out a character taking into
+ * account special characters.
+ */
+prchar(s, c)
+char *s;
+register unsigned char c;
+{
+	fprintf(stderr, "%s", s);
+	if (c == -1)
+		fprintf(stderr, "off");
+	else if (c == DEL)
+		fprintf(stderr, "DEL");
+	else if (c < ' ')
+		fprintf(stderr, "ctrl-%c", c+'A'-1);
+	else if (c > DEL)
+		fprintf(stderr, "'\\%3o'", c&0377);
+	else
+		fprintf(stderr, "'%c'", c);
+}
+
+/*
+ * Get the modes and tchars value.
+ */
+getmodes()
+{
+	if (ioctl(ttyfd, TIOCGETC, &tchars) < 0
+	 || ioctl(ttyfd, TIOCGETP, &sgttyb) < 0)
+		sterr("not a terminal");
+}
+
+/*
+ * Set the modes as appropriate
+ * for the commands given.
+ */
+setmodes()
+{
+	if (sgtflag)
+		ioctl(ttyfd, scmd, &sgttyb);
+	if (tcflag)
+		ioctl(ttyfd, TIOCSETC, &tchars);
+	if (hupflag)
+		ioctl(ttyfd, hupflag, 0);
+	if (exclflag)
+		ioctl(ttyfd, exclflag, 0);
+}
+
+/*
+ * Get another character from
+ * the command line (e.g. stty erase x)
+ */
+cget()
+{
+	register char *ap;
+
+	if (gargc < 2)
+		usage();
+	ap = gargv[1];
+	gargv++;
+	gargc--;
+	if (strcmp(ap, "off") == 0)
+		return (NONE);
+	if (strcmp(ap, "DEL") == 0)
+		return (DEL);
+	if (strncmp(ap, "ctrl-", 5)==0 && ap[5]!='\0' && ap[6]=='\0')
+		return (ap[5]&~0140);
+	if (*ap=='\\' && ap[1]>='0' && ap[1]<='7') {
+		register char *cp;
+		register int n;
+
+		n = 0;
+		cp = ap+1;
+		while (*cp>='0' && *cp<='7')
+			n = n*8 + *cp++-'0';
+		if (*cp == '\0')
+			return (n);
+	}
+	if (*ap=='^' && ap[1]!='\0') {
+		if (ap[2]=='\0' && ap[1]&0100)
+			return (ap[1]&~0140);
+	} else if (*ap!='\0' && ap[1]=='\0')
+		return (*ap);
+	sterr("Badly-formed character `%s'", ap);
+}
+
+/*
+ * Print out usage message
+ */
+usage()
+{
+	fprintf(stderr, "Usage: %s [-a] [-tttyname] [modes|speeds|chars|]\n",
+		argv0);
+	exit(1);
+}
+
+/*
+ * Error messages with exit from stty.
+ */
+/* VARARGS */
+sterr(x)
+{
+	if (isatty(fileno(stdout)))
+		fprintf(stderr, "stty: ");
+	fprintf(stderr, "%r", &x);
+	fprintf(stderr, "\n");
+	exit (1);
+}
+
+/*
+ * Set terminal parameters to something reasonable.
+ */
+sane()
+{
+	sgtflag = 1;
+	sgttyb.sg_flags &= ~(RAW | CBREAK);	/* cooked -cbreak */
+	sgttyb.sg_flags |= (CRMOD | ECHO);	/* -nl echo */
+}
+@
+
+
+1.2
+log
+@steve 12/11/90
+Source changes from norm:
+Mode "intr" recognized for compatibility, means same as "int".
+Mode "sane" added, means cooked -cbreak -nl echo.
+Fixed two bugs in prmodes(): "stty -a" previously printed the opposite
+of the nl flag value rather than the echo flag value for "echo", and
+"stty" previously printed "NULL" rather than nothing for -echo mode.
+@
+text
+@d108 1
+d325 2
+d335 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d20 1
+d118 3
+a120 1
+	"int", stchars, &tchars.t_intrc, 0, 0
+d155 1
+a155 1
+char *argv0;			/* For usage() */
+d319 1
+a319 1
+		prflag(CRMOD, "echo", "-echo");
+d334 1
+a334 1
+		prflag(ECHO, "echo", "NULL");
+d495 10
+@

@@ -1,0 +1,129 @@
+.TH setvbuf() "" "" "STDIO Function (libc)"
+.PC "Set alternative file-stream buffer"
+.B "#include <stdio.h>"
+\fBint setvbuf(\fIfp\^\fB, \fIbuffer\^\fB, \fImode\^\fB, \fIsize\^\fB)\fR
+\fBFILE *\fIfp\^\fB; char *\fIbuffer\^\fB; int \fImode\^\fB; size_t \fIsize\^\fB;\fR
+.PP
+.II "stream^set alternative buffer"
+.II "buffer^set alternative for stream"
+When the functions
+.B fopen()
+and
+.B freopen()
+open a stream, they automatically establish a buffer for it.
+The buffer is
+.B BUFSIZ
+bytes long.
+.B BUFSIZ
+is a manifest constant that is defined in the header
+\fBstdio.h\fR.
+.PP
+The function
+.B setvbuf()
+alters the buffer used with the stream pointed to by
+.I fp
+from its default buffer to
+.IR buffer .
+Unlike the related function
+.BR setbuf() ,
+it also allows you set the size of the new buffer as well as the form
+of buffering.
+.PP
+.I buffer
+is the address of the new buffer.
+.I size
+is its size, in bytes.
+.I mode
+is the manner in which you wish the stream to be buffered, as follows:
+.DS
+.ta 0.4i 1.25i
+	\fB_IOFBF\fR	Fully buffered
+	\fB_IOLBF\fR	Line-buffered
+	\fB_IONBF\fR	No buffering
+.DE
+.PP
+These constants are defined in the header
+.BR stdio.h .
+.PP
+You should call
+.B setvbuf()
+after a stream has been opened but before any data have been written to
+or read from the stream.
+For example, the following give
+.I fp
+a 50-byte buffer that is line-buffered:
+.DM
+	char buffer[50];
+	FILE *fp;
+.DE
+.DM
+	fopen(fp, "r");
+	setvbuf(fp, buffer, _IOLBF, sizeof(buffer));
+.DE
+.PP
+On the other hand, the following turns off buffering for the standard
+output stream:
+.DM
+	setvbuf(stdout, NULL, _IONBF, 0);
+.DE
+.PP
+.B setvbuf()
+returns zero if the new buffer could be established correctly.
+It returns a value other than zero if something went wrong or if
+an invalid parameter is given for
+.I mode
+or
+.IR size .
+.SH Example
+This example uses
+.B setvbuf()
+to turn off buffering and echo.
+.DM
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+.DE
+.DM
+main(void)
+{
+	int c;
+.DE
+.DM
+	if(setvbuf(stdin,  NULL, _IONBF, 0))
+		fprintf(stderr, "Couldn't turn off stdin buffer\en");
+.DE
+.DM
+	if(setvbuf(stdout,  NULL, _IONBF, 0))
+		fprintf(stderr, "Couldn't turn off stdout buffer\en");
+.DE
+.DM
+	while((c = getchar()) != EOF)
+		putchar(c);
+}
+.DE
+.SH "See Also"
+.Xr "fclose()," fclose
+.Xr "fflush()," fflush
+.Xr "fopen()," fopen
+.Xr "freopen()," freopen
+.Xr "libc," libc
+.Xr "setbuf()" setbuf
+.br
+\*(AS, \(sc7.9.5.6
+.SH "Notes"
+.B setvbuf()
+affects the buffering of an I/O stream
+but does not affect any buffering that performed by the device
+upon which the text is typed.
+Some devices (e.g.,
+.BR /dev/tty )
+are buffered by default.
+To turn off the buffering of what a user types, you must both turn off
+buffering on the input stream and turn off buffering on the device itself.
+For example, to turn off buffering on a terminal device,
+you must both call
+.B setvbuf()
+to change the size of the input buffering to zero,
+and call
+.B stty()
+to put the terminal device into raw mode.

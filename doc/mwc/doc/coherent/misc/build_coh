@@ -1,0 +1,158 @@
+
+From gort!hal  Tue Apr 19 00:16:50 1994 remote from mwc
+Received: by lepanto.chi.il.us (smail2.5.3-coh) id AA05487; 19 Apr 94 00:16:50 GMT (Tue)
+Received: by mwc.com (smail2.5.3-coh) id AA16079; 19 Apr 94 00:07:19 GMT (Tue)
+Received: by gort.mwc.com (smail2.5.3-coh) id AA04951; 18 Apr 94 19:07:11 CDT (Mon)
+Subject: how to make a distribution
+To: chris@gort.mwc.com (Chris)
+From: Hal Snyder <hal@gort.mwc.com>
+Cc: louis@gort.mwc.com (LG), fred@gort.mwc.com, steve@gort.mwc.com,
+	jay@gort.mwc.com, rs@gort.mwc.com
+X-Mailer: ELM [version 2.3 PL11]
+Message-Id: <9404181907.AA04951@gort.mwc.com>
+Date: 18 Apr 94 19:07:11 CDT (Mon)
+Status: RO
+
+MAKING COHERENT O.S. DISKETTE SETS.
+===================================
+Mon Apr 18 18:57:35 1994 CDT
+===================================
+
+This document describes how to use scripts to generate a set of floppy
+diskettes that will install or update the COHERENT operating system.
+
+DISCLAIMERS:
+
+1.  This version is just a rough draft.  I will test it and fill in more
+    details when I have time after I get back from Albuquerque.  I am open
+    to comments now, however.
+
+2.  The kluge edits at the end of diskette one are a pain, and will cause
+    serious headaches if you screw them up.  I started some m4 toys to
+    eliminate them, but have not had time to finish.
+
+===================================
+
+1.  Directories in use.  The profiles take care of setting two key
+environment variables used during the making of a distribution:
+
+$a (usually /usr/adm/distrib) - this directory contains the scripts
+used.  Its subdirectory, "divvy", contains information on which diskette
+numbers contain which files - however, diskette #1 within this directory
+refers to the *second* diskette of the set, not the first.
+
+$n (usually /ndistrib) - this directory is the root of the image of the
+COHERENT operating system that will be installed.  Also, directory
+"$n/../ker" is where 3-1/2" and 5-1/4" kernel binaries are kept.
+
+===================================
+
+2.  Changes to the Distribution.
+
+Since the files in the distribution tree will ultimately be sent to (we
+hope) tens of thousands of customers, the following steps *must* be
+followed exactly, without fail.
+
+Generally, all changes to bits on $n should be made by me (hal).  In the
+event that it seems reasonable for someone else to make a change to the
+distribution bits, notify me, and *confirm* with me that I received the
+notification.  Make a note of exactly what was done, why, and the date
+when the change was made.  This must be done for change of permission,
+deleting obsolete files, and adding new files as well as for simple file
+updates.
+
+When updating an existing file on $n, the following extra-conservative
+procedure must be followed:
+
+Sanity-test *all* changes to the distribution with at least one other
+programmer.  No change is too trivial to cause major trouble.  It is
+best to check with someone who has made several hundred distributions
+already, such as Steve or me.
+
+Suppose the file is /bin/foo, and you have a new version of /bin/foo on
+floppy.
+
+	/bin/mount f0 -r
+	/bin/ls -l /f0/foo $n/bin/foo
+
+	# Inspect ls output now to verify date information and
+	# presence of the files in question.
+
+	/bin/cp -d /f0/foo $n/bin/foo
+	/bin/ls -l /f0/foo $n/bin/foo
+
+	# Now $n/bin/foo should have new date and size matching /f0/foo, but
+	# same permissions and ownership as old $n/bin/foo.
+
+	/bin/umount f0
+
+WARNING:  Do not edit files, run test programs, or otherwise horse
+around with the distribution computer.  Doing so is a good way to
+overwrite master files, or ship 40,000 copies of FOO to our customers.
+Always make your file on another system, and copy it to the distribution
+system.
+
+===================================
+
+3.  Making a Distribution.
+
+Making a distribution on diskette is accomplished in two fairly lengthy
+steps:  first, splitting the current set of bits among the destination
+diskettes; and second, writing out the diskettes.  The main script,
+"mkdist", is set up to do both steps, or just the second step if a
+satisfactory split already exists.  Here are the steps in using mkdist:
+
+If this is your first time, I recommend viewing the mkdist script, along
+with splitdist, mkboot, squashdirs, and divvy (all in $a) before running
+any of them.
+
+1.  Make sure the contents of $n make a valid distribution, i.e., double
+    check that any significant changes went into the right place (under
+    $n, not under /), and that there are no temp files lying around in
+    $n/tmp or $n/usr/tmp.
+2.  Make sure there are two kernels of equal size and date in $n/../ker,
+    one for 3-1/2" and another for 5-1/4".  In examples below, we will
+    call them fva_kernel and fha_kernel.
+3.  Save a .sym file from one of the kernels, say on a separate diskette,
+    for future debugging.  Label and date the diskette.
+4.  Format a set of diskettes for each size, preferably *not* using the
+    distribution system, using
+      /etc/fdformat -av -i 3 -o 13 /dev/rfha{01}
+    (prepare 6 diskettes) for 5-1/4", and
+      /etc/fdformat -av -i 3 -o 9 /dev/rfva{01}
+    (prepare 5 diskettes) for 3-1/2" diskette.
+5.  Log onto the distribution computer as root, and cd to $a.
+6.  Type
+      ./mkdist fva $n /tmp/fva $n/../ker/fva_kernel
+7.  You will be asked if you want to make a new split, or use the existing
+    one.  If anything in the kernel or in $n has changed, you must make a
+    new split.  Making a new split adds about 25 minutes to the procedure.
+8.  You will be asked for an id for the set, and a default, such as
+    Coh_420 will be offered.  Hit enter to accept the default.
+9.  The script may pause once or twice to display informative data on
+    diskette space used, and number of diskettes needed.  You should probably
+    write this down.  Note that divvy only counts diskettes after the boot
+    disk.
+10. After the distribution has been split, you will be prompted to insert
+    your freshly formatted diskettes.  After the first diskette is written,
+    there are four kluge edits that differ between formats.  The script
+    opens up a vi session on the files in question.
+    a.  Enter the correct number of diskettes, and the correct device name
+        (fha/fva) in the /etc/install line of /etc/brc.install.
+    b.  Enter the correct number of diskettes, and the correct device name
+        (fha/fva) in the /etc/install line of /etc/brc.update.
+    c.  Fix the DEFF0/DEFF1 lines in /bin for the proper format, i.e. if
+        you are making a 3-1/2" distrib, DEFF0 is /dev/fva0 and DEFF1 is
+        /dev/fha1; if you are making a 5-1/4" distrib, DEFF0 is /dev/fha0
+        and DEFF1 is /dev/fva1.
+    d.  Uncomment the appropriate #a/#a9/#b/#b9 lines in /etc/default/msdos.
+        There are two sets of these at the bottom of the file, each clearly
+        commented as to when it should be enabled.
+11. Make the rest of the diskettes, without any more kluge edits.
+-- 
+Hal Snyder, M.D.		hal@mwc.com			itis
+Mark Williams Company     	(708)-291-6700 (voice)		foras
+60 Revere Drive, Suite 250	(708)-291-6750 (fax)		rixsatis
+Northbrook, IL 60062
+
+

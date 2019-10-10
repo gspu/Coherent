@@ -1,0 +1,102 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     93.02.12.15.56.11;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.11.49.01;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@steve: fixed bugs found when trying to build MWC cc with GCC
+@
+text
+@/*
+ * common/bput.c
+ * Standard stream library for the
+ * C compiler and other compilers that use
+ * C compiler factilities.
+ * Output a byte.
+ */
+
+#include <stdio.h>
+#ifdef   vax
+#include "INC$LIB:mch.h"
+#include "INC$LIB:stream.h"
+#else
+#include "mch.h"
+#include "stream.h"
+#endif
+
+extern	FILE	*ofp;
+
+bput(b)
+int b;
+{
+#if	0
+	/*
+	 * Some versions VAX and i8086 stdio putc(b, ofp) return EOF (-1)
+	 * for char arg 255 (because the argument gets sign-extended from
+	 * char 0xFF to int 0xFFFF, and putc returns its arg on success
+	 * without masking it).  The following line avoids this bug.
+	 */
+	b &= 0xFF;		/* avoid putc sign-extension bug */
+#endif
+#if	TEMPBUF
+	if (ofp == NULL) {
+		if (outbufp == outbufmax) {
+			extern char *realloc();
+			unsigned char *cp;
+
+			tempsize += tempsize / 2;
+			cp = inbuf;
+			inbuf = realloc(inbuf, tempsize);
+			inbufp += inbuf - cp;
+			inbufmax += inbuf - cp;
+			cp = outbuf;
+			outbuf = realloc(outbuf, tempsize);
+			outbufp += outbuf - cp;
+			outbufmax = outbuf + tempsize;
+			if (inbuf == NULL || outbuf == NULL)
+				cfatal("out of space in memory buffer; use \"-T0\" option");
+		}
+		*outbufp++ = b;
+		return;
+	}
+#endif
+#if	MSDOS
+	if (_binputc(b, ofp) == EOF)
+#else
+	if (putc(b, ofp) == EOF)
+#endif
+		cfatal("temporary file write error");
+}
+
+/* end of common/bput.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d36 1
+a36 1
+			char *cp;
+@

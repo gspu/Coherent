@@ -1,0 +1,34 @@
+#ifndef __FTIOCTL_H__
+#define __FTIOCTL_H__
+
+/* Get up to 29 KBytes of QIC-40/QIC-80 tape header information. */
+
+struct FtHdrBuf {
+	unsigned int	bufLen;
+	unsigned char *	buffer;
+};
+
+#define	FT_IOC		(('F' << 16) | ('t' << 8))
+
+#define FT_GET_HEADER	(FT_IOC | 1)
+#define FT_SET_HEADER	(FT_IOC | 2)
+#define FT_GET_OFFSET	(FT_IOC | 3)
+#define FT_SET_OFFSET	(FT_IOC | 4)
+
+/* Test area. */
+
+#define FT_FIND_SEG	50	/* test ioctl command */
+#define FT_PRINT_STAT	51	/* test ioctl command */
+#define FT_SKIP_TAPE	52	/* test ioctl command */
+#define FT_PRINT_STAT2	53	/* test ioctl command */
+#define FT_READ_POS	54	/* test ioctl command */
+#define FT_STOP_TAPE	55	/* test ioctl command */
+#define FT_SPECIFY	56	/* test ioctl command */
+#define FT_READ_BLOCKS	57	/* test ioctl command */
+#define FT_READ_SEGMENTS	58	/* test ioctl command */
+
+#define FT_FAKE_BBT_MAP	60
+#define FT_FAKE_BBT_SEG	61
+#define FT_FAKE_IOERR	62
+
+#endif /* __FTIOCTL_H__ */

@@ -1,0 +1,123 @@
+head	4.2;
+access
+	hal
+	ljg
+	fred
+	udo
+	nigel;
+symbols
+	r12:4.2;
+locks; strict;
+comment	@# @;
+
+
+4.2
+date	93.09.22.05.32.59;	author rcsadmin;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+4.2
+log
+@This is the baseline version
+@
+text
+@# Master makefile
+
+# Use of GCC for compilations of DDI/DKI drivers caused by this makefile is
+# strongly recommended. Comment out the following lines if you cannot use gcc
+# for some reason. The default compiler is fine for the Space.c and conf.c
+# files, though.
+
+CONFDIR=.
+PREFIX=.
+MANIFEST=$(PREFIX)/conf
+MAKEFILE=Makefile
+MAKEARGS="CC=$(CC)" "CFLAGS=$(CFLAGS)" \
+	 "LDFLAGS=$(LDFLAGS)" "LIBFLAGS=$(LIBFLAGS)" \
+	 "CONFDIR=$(CONFDIR)"
+GCC=gcc
+GCCFLAGS=-O2 $(CFLAGS) # -Wall -ansi -pedantic
+GLDFLAGS=-nostdlib /lib/ndp/crts0.o
+GLIBFLAGS=-lc
+BIN=bin
+
+everything:	all $(CONFDIR)/drvbld.mak configure
+
+all clean setup depend:
+	+j=$$(pwd); for i in */src/[Mm]akefile; do \
+		case $$i in \
+		[!*]*)	cd $${i%/*} ; echo $$(pwd); \
+			$(MAKE) $(MAKEARGS) \
+				PREFIX=$(MANIFEST)/$${i%%/*} $@@ || (echo FAIL;exit 1;); \
+			cd $$j; ;; \
+		esac \
+	done
+
+gcc:
+	+exec $(MAKE)	"CC=$(GCC)" "CFLAGS=$(GCCFLAGS)" \
+			"LDFLAGS=$(GLDFLAGS)" "LIBFLAGS=$(GLIBFLAGS)" \
+			 "CONFDIR=$(CONFDIR)" \
+			-f $(MAKEFILE)
+
+# The only difference between this and the action above is Hal's desire
+# to see the system walk over the directories.
+
+manifest distrib:
+	@@j=$$(pwd); for i in */src/[Mm]akefile; do \
+		case $$i in \
+		[!*]*)	cd $${i%/*} ; \
+			$(MAKE) $(MAKEARGS) \
+				PREFIX=$(MANIFEST)/$${i%%/*} $@@ || exit 1; \
+			cd $$j; ;; \
+		esac \
+	done
+
+# Update binaries of drivers and the 'devadm' program
+# As a detail, we check to see that a device for major number 4 is installed,
+# otherwise the kernel will be built without a console and will fail to be
+# very useful.
+
+$(CONFDIR)/drvbld.mak: $(CONFDIR)/mdevice $(CONFDIR)/sdevice \
+			$(CONFDIR)/template.mak $(BIN)/idcheck \
+			$(BIN)/devadm
+	$(BIN)/idcheck -i $(CONFDIR) -B -l 4; if [ $$? -gt 0 -a $$? -lt 100 ]; \
+		then exit 0; \
+		else echo "No console device configured"; exit 1;\
+		fi
+	CONFPATH=$$(pwd) $(BIN)/devadm -d -I $(CONFDIR)
+
+configure:
+	export CONFPATH=$$(pwd); cd $(CONFDIR); \
+		make K386LIB=$(K386LIB) TARGET=$(TARGET) -f drvbld.mak
+
+# Set up additional dependencies for top-level actions, and then define the
+# additional actions.
+
+clean:	conf_clean
+setup:	conf_setup
+manifest: conf_manifest
+distrib: conf_distrib
+
+conf_clean:
+	rm -f drvbld.mak conf.[ch] obj/*
+
+conf_setup:
+	if [ ! -d obj ]; then mkdir obj; fi
+
+conf_manifest:
+	@@for i in Makefile template.mak [ms]tune [ms]device; do \
+		echo $(MANIFEST)/$$i; \
+	done
+
+conf_distrib:
+	@@for i in Makefile template.mak bin/id* bin/devadm bin/cohtune\
+		  bin/ndptype bin/bports bin/kbdselect; do \
+		echo $(MANIFEST)/$$i; \
+	done
+
+@

@@ -1,0 +1,227 @@
+.TH "virtual console" "" "" "Technical Information"
+.PC "\*(CO system of multiple virtual consoles"
+.PP
+.II "console^virtual"
+.II "terminal^virtual"
+The ``virtual consoles'' feature of \*(CO allows you to run multiple
+sessions from the system console.
+You can switch between sessions on the console screen using
+the appropriate keystrokes.
+If your computer has both monochrome and color video adapters and monitors,
+you can run multiple sessions on both screens simultaneously.
+.PP
+For this feature to be available, 
+your system must be configured for virtual consoles.
+Normally, this configuration is done during
+installation.
+In addition, virtual console sessions must be
+.I enabled
+for logins prior to use.
+Virtual terminals are most useful when your system is running in multiuser mode.
+.PP
+\*(CO allows up to ten sessions at a given time.
+All you need to do to access multiple sessions is to hold down the
+.B <Ctrl>
+key on the system keyboard and press the digit on the numeric keypad
+corresponding to the desired active session number.
+Simultaneously pressing keys
+.B <Ctrl>
+and
+.B <.>
+(located on the numeric keypad) will take you to
+the next
+.I open
+virtual terminal session.
+Another means of switching sessions is to hold down the
+.B <Alt>
+key and press one of the ``function keys''.
+By default, function key
+.B <F10>
+takes you to the next
+.I open
+virtual terminal session,
+.B <F11>
+takes you to the previous
+.I open
+virtual terminal session,
+and
+.B <F12>
+toggles between the current and previously selected sessions.
+.SH "Technical Features"
+It is not essential to know the following in order to use virtual terminals.
+We provide this information for advanced users, as well as persons
+wishing to customize their systems in ways not available under the
+default scheme used by the \*(CO installation procedure.
+.PP
+Different sessions are accessed by using different device names in
+directory
+.BR /dev.
+Like any
+.I "character special"
+device, each virtual terminal screen has a
+.I major
+and
+.I minor
+number associated with it.
+The major number for all
+virtual terminal screens is 2.
+The device with minor number 0 is initially the console device \(em this
+is where output appears during startup
+and at other times when the system is in single-user mode.
+Virtual terminals are assigned successive minor numbers.
+When there are both color and monochrome display adapters on the system,
+the color sessions are given the lower minor numbers.
+For example, in a system configured for four color and four monochrome sessions,
+.I logical
+devices might be numbered as follows:
+.II /dev/console
+.II /dev/vcolor
+.II /dev/vmono
+.DM
+crwxr-xr-x 1 root   root     2   0 Mon Jun 15 14:51 /dev/console
+crwxr-xr-x 1 root   root     2   1 Mon Jun 15 14:51 /dev/vcolor0
+crwxr-xr-x 1 root   root     2   2 Mon Jun 15 14:51 /dev/vcolor1
+crwxr-xr-x 1 root   root     2   3 Mon Jun 15 14:51 /dev/vcolor2
+crwxr-xr-x 1 root   root     2   4 Mon Jun 15 14:51 /dev/vcolor3
+crwxr-xr-x 1 root   root     2   5 Mon Jun 15 14:50 /dev/vmono0
+crwxr-xr-x 1 root   root     2   6 Mon Jun 15 14:50 /dev/vmono1
+crwxr-xr-x 1 root   root     2   7 Mon Jun 15 14:50 /dev/vmono2
+crwxr-xr-x 1 root   root     2   8 Mon Jun 15 14:50 /dev/vmono3
+.DE
+.PP
+Alternatively, using
+.I physical
+device numbering, successive color-only sessions can be accessed by using
+minor numbers 64-79, while successive monochrome-only sessions are
+selected with minor numbers 80-95.
+The configuration of four color plus
+four monochrome sessions described above could also be represented as:
+.II /dev/mono
+.II /dev/color
+.DM
+crwxr-xr-x 1 root   root     2  64 Mon Jun 15 14:51 /dev/color0
+crwxr-xr-x 1 root   root     2  65 Mon Jun 15 14:51 /dev/color1
+crwxr-xr-x 1 root   root     2  66 Mon Jun 15 14:51 /dev/color2
+crwxr-xr-x 1 root   root     2  67 Mon Jun 15 14:51 /dev/color3
+crwxr-xr-x 1 root   root     2  80 Mon Jun 15 14:50 /dev/mono0
+crwxr-xr-x 1 root   root     2  81 Mon Jun 15 14:50 /dev/mono1
+crwxr-xr-x 1 root   root     2  82 Mon Jun 15 14:50 /dev/mono2
+crwxr-xr-x 1 root   root     2  83 Mon Jun 15 14:50 /dev/mono3
+.DE
+.PP
+The following diagram summarizes bit assignments in the virtual
+terminal minor number:
+.DS
+	7654  3210
+	 |		1=physical device, 0=logical device
+	  ||		00=color, 01=mono, 1x=reserved
+	      ||||	terminal's index number
+.DE
+.PP
+The system initially defaults to a maximum of four color and four monochrome
+sessions. 
+.II VTVGA
+.II VTMONO
+This may be altered by patching
+.I character
+variables
+.B VTVGA
+and
+.BR VTMONO .
+For example, to allow for six color and three monochrome sessions,
+enter the following command while running as root
+(note that this will not take effect until after the system has been rebooted):
+.DM
+	/conf/patch -v /coherent VTVGA=6:c VTMONO=3:c
+.DE
+.PP
+Running multiple sessions on different virtual consoles requires that
+logins be enabled for each of the virtual consoles.
+.II /etc/ttys
+Each session must have a corresponding entry in file
+.BR /etc/ttys .
+For example, a system allowing four color and four monochrome
+sessions would have entries in
+.B /etc/ttys
+as follows:
+.DM
+	0lPconsole
+	1lPcolor0
+	1lPcolor1
+	1lPcolor2
+	1lPcolor3
+	1lPmono0
+	1lPmono1
+	1lPmono2
+	1lPmono3
+.DE
+.PP
+\fIDevice \fB/dev/console\fR
+must not be enabled when using virtual consoles!\fR
+Additional lines would be present if logins are enabled for other
+devices such as serial ports.
+Commands
+.B enable
+and
+.B disable
+may be used, as usual, to allow or disallow
+logins on individual virtual consoles.
+.PP
+When virtual terminals are enabled, kernel output, such as messages about
+.I "user traps"
+or
+.IR "system panics" ,
+goes to the currently active session
+(i.e., the session with the cursor showing).
+.SH "Altering Virtual Consoles"
+To add, delete, or alter the configuration of virtual consoles,
+log in as the superuser
+.B root
+and type the following commands:
+.DM
+	cd /etc/conf
+	console/mkdev
+	bin/idmkcoh -o /\fIkernel_name\fR
+.DE
+.PP
+where
+.I kernel_name
+is what you wish to name the newly built kernel.
+When you reboot, invoke
+.I kernel_name
+in the usual manner and your new configuration will have been implemented.
+.\".SH Limitations
+.\"To run virtual consoles, your keyboard must be
+.\".I fully
+.\"IBM compatible.
+.\"A small percentage of cheap clone keyboards are not,
+.\"even though they may appear to work with selected software.
+.\"If your keyboard does not work with the \*(CO loadable keyboard tables,
+.\"you will not be able to run virtual consoles.
+.\"See the Lexicon articles
+.\".B nkb
+.\"and
+.\".B "keyboard tables"
+.\"for further details on loadable keyboard tables.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "console," console
+.Xr "device drivers," device_dr
+.Xr "enable," enable
+.Xr "kb.h" kb.h
+.SH Notes
+Some confusion can arise when you attempt to install \*(CO to use both
+color and monochrome consoles.
+.PP
+At installation time, you are asked if you want to install both color and
+monochrome screens.
+If you reply ``yes,'' you must select only four multiscreens for each.
+Otherwise, you will find it difficult to address virtual consoles on
+both consoles:
+\*(CO uses the lower function keys for virtual consoles on the color
+monitor, and the upper function keys for those on the monochrome monitor.
+.PP
+If you have requested two consoles, \*(CO uses the color terminal by default.
+If you really have only a monochrome monitor plugged into your system,
+you must invoke the appropriate monochrome virtual console; otherwise,
+you will nothing on your monitor.

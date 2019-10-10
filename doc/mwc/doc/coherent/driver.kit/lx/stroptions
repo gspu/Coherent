@@ -1,0 +1,169 @@
+.TH stroptions "" "" "DDI/DKI Data Structure"
+.PC "Stream-head options"
+.B "#include <sys/stream.h>"
+.B "#include <sys/stropts.h>"
+.PP
+A driver can send a message of type
+.B M_SETOPTS
+or
+.B M_PCSETOPTS
+upstream to the stream head to set options within the stream head.
+These messages contain the structure
+.BR stroptions ,
+which encodes the options to be set within the stream head.
+.PP
+The following fields within
+.B stroptions
+are available to a driver or module:
+.IP "\fBshort so_readopt;\fR"
+This field sets the options in the stream head that affect how the stream
+handles the system call
+.BR read() .
+It holds two sets of flags; you can set only one flag within each set.
+.IP
+The first set determines how
+.B read()
+handles data messages:
+.RS
+.IP \fBRNORM\fR 1.25i
+Normal mode.
+This is the default.
+The system call
+.B read()
+returns the number of bytes requested or the number of bytes available,
+whichever is less.
+If a message's data are only partially read,
+.B read()
+returns that message to the beginning of the stream head's read queue.
+.IP \fBRMSGD\fR
+Message-discard mode.
+.B read()
+returns the numer of bytes requested or the number of bytes within the
+first message on the stream, whichever is less.
+It discards a message if its data are read only partially.
+.IP \fBRMSGN\fR
+Message non-discard mode.
+.B read()
+returns the number of bytes requested and the number of bytes
+in the first message on the stream head's read queue, whichever is
+less.
+It returns a message to the beginning of the stream head's read queue
+if its data are only partially read.
+.RE
+.IP
+The second set of flags determines how
+.B read()
+handles the protocol messages
+.B M_PROTO
+and
+.BR M_PCPROTO :
+.RS
+.IP \fBRPROTNORM\fR 1.25i
+Normal mode.
+If a protocol message is at the beginning of the stream head's read queue,
+.B read()
+fails with the error code
+.BR EBADMSG .
+.IP \fBRPROTDIS\fR
+Discard mode.
+.B read()
+discards the
+.B M_PROTO
+or
+.B M_PCPROTO
+portions of the message and returns any
+.B M_DATA
+portions that may be present.
+In this mode,
+.B read()
+also discards messages of type
+.BR M_PASSFP .
+.IP \fBRPROTDAT\fR
+Data mode.
+.B read()
+delivers to the user the
+.B M_PROTO
+or
+.B M_PCPROTO
+portions of a message, just as if they were normal data.
+.RE
+.IP "\fBushort_t so_wroff;\fR"
+The offset, in bytes,
+to be included in the first message block of each message of type
+.B M_DATA
+that system call
+.B write()
+creates.
+.IP "\fBlong so_minpsz;\fR"
+.IS "\fBlong so_maxpsz;\fR"
+Respectively, the minimum and maximum sizes of
+packets for the stream head's read queue.
+.IP "\fBulong_t so_hiwat;\fR"
+.IS "\fBulong_t so_lowat;\fR"
+Respectively, the ``high-water'' and ``low-water''
+marks for the stream head's read queue.
+.IP "\fBuchar_t so_band;\fR"
+The priority band of messages to which the fields
+.B so_hiwat
+and
+.B so_lowat
+should be applied.
+.IP "\fBulong_t so_flags;\fR"
+This is a bitmask that encodes the options to set.
+It can contain any combination of the following values:
+.RS
+.IP \fBSO_READOPT\fR 1.25i
+Set the read option to that given in
+.BR so_readopt .
+.IS \fBSO_WROFF\fR
+Set the write offset to that given in
+.BR so_wroff .
+.IS \fBSO_MINPSZ\fR
+Set the minimum packet size to that given in
+.BR so_minpsz .
+.IS \fBSO_MAXPSZ\fR
+Set the maximum packet size to that given in
+.BR so_maxpsz.
+.IS \fBSO_HIWAT\fR
+Set the high-water mark to that given in
+.BR so_hiwat .
+.IS \fBSO_LOWAT\fR
+Set the low-water mark to that given in
+.BR so_lowat .
+.IS \fBSO_ALL\fR
+Set all of the above options.
+.IS \fBSO_MREADON\fR
+Permit the stream head to generate messages of type
+.BR M_READ .
+.IS \fBSO_MREADOFF\fR
+Forbid the stream head to generate messages of type
+.BR M_READ .
+.IS \fBSO_NDELON\fR
+For no-delay reads and writes, use TTY semantics.
+.IS \fBSO_NDELOFF\fR
+For no-delay reads and writes, use \*(ST semantics.
+.IS \fBSO_ISTTY\fR
+The stream acts as a terminal.
+.IS \fBSO_ISNTTY\fR
+The stream does not act as a terminal.
+.IS \fBSO_TOSTOP\fR
+Stop processes that are writing to this stream in the background.
+.IS \fBSO_TONSTOP\fR
+Do not stop processes that are writing to this stream in the background.
+.IS \fBSO_BAND\fR
+Set the priority band affected by the high- and low-water marks
+to that given in field
+.BR so_band .
+.RE
+.SH "See Also"
+.B
+datab,
+DDI/DKI data structures,
+msgb
+.R
+.br
+\*(CO Lexicon:
+.B
+read(),
+write()
+.R

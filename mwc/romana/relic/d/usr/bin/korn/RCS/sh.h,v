@@ -1,0 +1,280 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.12.15.51.38;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver pulled from Norm's cpu
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Public Domain Bourne/Korn shell
+ */
+/* allow for non-Unix linkers. main.c has a "#define Extern " */
+#ifndef Extern
+#define	Extern	extern
+#endif
+
+typedef int bool_t;
+#define	FALSE	0
+#define	TRUE	1
+
+#ifndef SHELL
+#define	SHELL	"/bin/sh"	/* shell to exec scripts */
+#endif
+
+#if __STDC__
+#define	ARGS(args)	args	/* prototype declaration */
+#define	Void	void		/* generic pointer */
+#define	Const	const		/* constant data */
+#define	Volatile volatile	/* you know */
+#else
+#define	ARGS(args)	()	/* K&R declaration */
+#define	Void	char
+#define	Const	
+#define	Volatile 
+#endif
+
+#define	sizeofN(type, n) (sizeof(type) * (n))
+#define	BIT(i)	(1<<(i))	/* define bit in flag */
+
+#define	NUFILE	10		/* Number of user-accessible files */
+#define	FDBASE	10		/* First file usable by Shell */
+
+/* you're not going to run setuid shell scripts, are you? */
+
+#define	MAGIC	(char)0x80	/* prefix for ~*?[ during expand */
+
+#define	LINE	256		/* input line size */
+#define	PATH	256		/* pathname size */
+
+Extern	int	exstat;		/* exit status */
+Extern	int	async;		/* $!, last &'d pid */
+
+/*
+ * Area-based allocation built on malloc/free
+ */
+
+typedef struct Area {
+	struct Block *free;	/* free list */
+} Area;
+
+extern	Area	aperm;		/* permanent object space */
+#define	APERM	&aperm
+#define	ATEMP	&e.area
+
+Area   *ainit ARGS((Area *ap));		/* initialize Area */
+void	afreeall ARGS((Area *ap));	/* free Area's contents */
+void	ashrink ARGS((Area *ap));	/* unimplimented */
+void	aerror ARGS((Area *ap, const char *msg)); /* error handler */
+
+Void   *alloc ARGS((size_t size, Area *ap)); /* alloc object from Area */
+Void   *aresize ARGS((Void *ptr, size_t size, Area *ap)); /* shrink object */
+void	afree ARGS((Void *ptr, Area *ap)); /* free ojbect in Area */
+
+/*
+ * parsing & execution environment
+ */
+Extern	struct	env {
+	int	type;			/* enviroment type - see below */
+	Area	area;			/* temporary allocation area */
+	struct	block *loc;		/* local variables and functions */
+	short  *savefd;			/* original redirected fd's */
+	struct	env *oenv;		/* link to previous enviroment */
+	jmp_buf	jbuf;			/* long jump back to env creator */
+	int	interactive;		/* fd's 0,1,2 are tty */
+	struct temp *temps;		/* temp files */
+} e;
+
+#define	E_NONE	0		/* dummy enviroment */
+#define	E_PARSE	1		/* parsing command # */
+#define	E_EXEC	2		/* executing command tree */
+#define	E_LOOP	3		/* executing for/while # */
+#define	E_TCOM	5		/* executing simple command */
+#define	E_FUNC	6		/* executing function */
+#define	E_ERRH	7		/* general error handler # */
+/* # indicates env has valid jbuf */
+
+/*
+ * flags
+ */
+#define	FEXPORT	FLAG('a')	/* -a: allexport */
+#define	FERREXIT FLAG('e')	/* -e: errexit (quit on error) */
+#define	FBGNICE	29		/* bgnice */
+#define	FEMACS 30		/* emacs */
+#define	FIGNEOF	27		/* ignoreeof (eof does not exit) */
+#define	FHASHALL FLAG('h')	/* -h: trackall, hashall */
+#define	FTALKING FLAG('i')	/* -i: interactive (talking type wireless) */
+#define	FKEYWORD FLAG('k')	/* -k: keyword (name=value anywhere) */
+#define	FMARKDIRS 28		/* markdirs */
+#define	FMONITOR FLAG('m')	/* -m: monitor */
+#define	FNOEXEC	FLAG('n')	/* -n: noexec */
+#define	FNOGLOB	FLAG('f')	/* -f: noglob */
+#define	FPRIVILEGED FLAG('p')	/* -p: privileged */
+#define	FSTDIN	FLAG('s')	/* -s (invocation): parse stdin */
+#define	FNOUNSET FLAG('u')	/* -u: nounset (unset vars is error) */
+#define	FVERBOSE FLAG('v')	/* -v: verbose (echo input) */
+#define	FXTRACE	FLAG('x')	/* -x: (execute) xtrace */
+
+#define	FLAG(c)	(1 + c - 'a')	/* map char to flags index */
+#define	FLAGS	32
+Extern	char flag [FLAGS];
+int	option ARGS((Const char *name));
+char   *getoptions ARGS((void));
+void	printoptions ARGS((void));
+void	mail ARGS((void));
+
+extern	char	null [];	/* null value for variable */
+
+/*
+ * other functions
+ */
+char   *search();
+struct tbl *findcom();
+char   *strsave ARGS((char *, Area *));
+char   *ulton ARGS((unsigned long n, int base));
+int	xstrcmp();
+void	qsortp ARGS((void **base, size_t n, int (*compare)(void *, void *)));
+long	evaluate ARGS((Const char *expr));
+void	resetopts();
+void	histsave();
+void	histlist();
+
+#if EDIT
+void	x_init();
+void	x_bind();
+int	x_read();
+#endif
+
+void	j_init ARGS((void));
+void	j_exit ARGS((void));
+void	j_notify ARGS((void));
+void	j_kill ARGS((int job, int sig));
+#ifdef JOBS
+void	j_change ARGS((void));
+int	j_resume ARGS((int job, int bg));
+#endif
+
+/*
+ * error handling
+ */
+void	leave();	/* abort shell (or fail in subshell) */
+
+/*
+ * library functions
+ */
+typedef	void (*handler_t)();	/* signal handler */
+
+/* temp/here files. the file is removed when the struct is freed */
+struct	temp {
+	struct	temp * next;
+	char   *name;
+};
+struct temp *maketemp ARGS((Area *ap));
+
+/*
+ * stdio and our IO routines
+ */
+
+#ifdef	BUFSIZ			/* <stdio.h> included? */
+extern	FILE *	shf [NUFILE];	/* map shell fd to FILE */
+#endif
+void	fopenshf();
+void	flushshf();
+
+#undef	stdin
+#undef	stdout
+
+#define	stdin	shf[0]		/* standard input */
+#define	stdout	shf[1]		/* standard output */
+#define	shlout	shf[2]		/* shell output */
+
+int	shellf ARGS((Const char *fmt, ...)); /* fprintf(shlout, ); */
+int	errorf ARGS((Const char *fmt, ...)); /* fprintf(shlout, ); error(); */
+
+/*
+ * IO control
+ */
+extern	int ttyfd;		/* tty fd (original fd 0) */
+
+int	savefd ARGS((int fd));	/* save user fd */
+void	restfd ARGS((int fd, int ofd));
+void	openpipe ARGS((int [2]));
+void	closepipe ARGS((int [2]));;
+
+/*
+ * trap handlers
+ */
+typedef struct trap {
+	int	signal;		/* signal number */
+	char   *name;		/* short name */
+	char   *mess;		/* descriptive name */
+	char   *trap;		/* trap command */
+	short	Volatile set;	/* trap pending */
+	char	ourtrap;	/* not ignored (?) */
+	char	sig_dfl;	/* originally SIG_DFL */
+} Trap;
+
+#define	SIGNALS	32
+
+Extern	int Volatile trap;	/* traps pending? */
+extern	Trap	sigtraps[SIGNALS];
+Trap    *gettrap ARGS((char *)); /* search for struct trap by number or name */
+void	trapsig ARGS((int sig)); /* trap signal handler */
+
+/*
+ * fast character classes
+ */
+#define	C_ALPHA	0x01		/* a-z_A-Z */
+#define	C_DIGIT	0x02		/* 0-9 */
+#define	C_LEX1	0x04		/* \0 \t\n|&;<>() */
+#define	C_VAR1	0x08		/* *@@#!$-? */
+#define	C_SUBOP	0x40		/* "=-+?#%" */
+#define	C_IFS	0x80		/* $IFS */
+
+extern	char ctypes [];
+void	initctypes ARGS((void));
+void	setctypes ARGS((Const char*, int type));
+
+#define	ctype(c, t)	!!(ctypes[(unsigned char)(c)]&(t))
+#define	letter(c)	ctype(c, C_ALPHA)
+#define	digit(c)	ctype(c, C_DIGIT)
+#define	letnum(c)	ctype(c, C_ALPHA|C_DIGIT)
+
+#ifndef _IOFBF
+#define	_IOFBF	000000
+#endif
+
+/*
+ * Compatibility constants and declarations
+ */
+#if COHERENT
+#define	tms		tbuffer		/* for calls to times() */
+#define	tms_utime	tb_utime
+#define	tms_stime	tb_stime
+#define	tms_cutime	tb_cutime
+#define	tms_cstime	tb_cstime
+#define	setvbuf(fp,buf,type,size)	/* ignore for now */
+typedef	long		clock_t;
+#define	remove(fn)	unlink(fn)
+#endif
+
+#ifndef	MAILINTERVAL
+#define	MAILINTERVAL	60		/* interval between MAIL checks */
+#endif
+@

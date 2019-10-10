@@ -1,0 +1,480 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4;
+comment  @ * @;
+
+
+1.4
+date     91.07.24.07.52.41;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.07.15.14.34.20;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.06.20.14.31.54;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.06.10.14.37.53;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version prov by hal
+@
+
+
+1.4
+log
+@update prov by hal
+
+@
+text
+@/* $Header: /usr/src/sys/coh/RCS/sys3.c,v 1.3 89/02/07 18:50:27 src Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Coherent.
+ * System calls (more filesystem related calls).
+ *
+ * $Log:	/usr/src/sys/coh/RCS/sys3.c,v $
+ * Revision 1.3	89/02/07  18:50:27	src
+ * Bug:	Console driver did not validate user addresses before initiating a
+ * 	transfer.  This resulted in a system trap in protected mode if a write
+ * 	outside of user data space was attempted.
+ * Fix:	Reads and writes now validate user addresses via 'useracc' prior to
+ * 	calling drivers. (ABC)
+ * 
+ * Revision 1.2	88/08/02  15:01:04	src
+ * O_APPEND flag now supported on open/fcntl system calls.
+ * 
+ * Revision 1.1	88/03/24  16:14:35	src
+ * Initial revision
+ * 
+ * 88/01/22	Allan Cornish		/usr/src/sys/coh/sys3.c
+ * sysio() inode lock extended to cover getting/modifying file seek offset.
+ *
+ * 86/11/19	Allan Cornish		/usr/src/sys/coh/sys3.c
+ * uopen() now checks mode for O_NDELAY and sets IPNDLY bit in fdp->f_flag.
+ * sysio() now checks fdp->f_flag for IPNDLY and sets IONDLY bit in io_flag.
+ */
+#include <sys/coherent.h>
+#include <sys/buf.h>
+#include <errno.h>
+#include <sys/fcntl.h>
+#include <sys/fd.h>
+#include <sys/filsys.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <sys/io.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/uproc.h>
+
+/*
+ * Open the file `np' with the mode `mode'.
+ */
+uopen(np, mode)
+char *np;
+{
+	register int f;
+	register INODE *ip;
+	register int fd;
+
+	switch (mode & 3) {
+	case O_RDONLY:
+		f = IPR;
+		break;
+	case O_WRONLY:
+		f = IPW;
+		break;
+	case O_RDWR:
+		f = IPR|IPW;
+		break;
+	default:
+		u.u_error = EINVAL;
+		return;
+	}
+	if (ftoi(np, 'r') != 0)
+		return;
+	ip = u.u_cdiri;
+	if (iaccess(ip, f) == 0) {
+		idetach(ip);
+		return;
+	}
+	if ( mode & O_NDELAY )
+		f |= IPNDLY;
+	if ( mode & O_APPEND )
+		f |= IPAPPEND;
+	if ((fd=fdopen(ip, f)) < 0) {
+		idetach(ip);
+		return;
+	}
+	iunlock(ip);
+	return (fd);
+}
+
+/*
+ * Create a pipe.
+ */
+upipe(fdp)
+int fdp[2];
+{
+	register INODE *ip;
+	register int fd1;
+	register int fd2;
+
+	if ((ip=pmake(0)) == NULL)
+		return;
+	if ((fd1=fdopen(ip, IPR)) >= 0) {
+		ip->i_refc++;
+		if ((fd2=fdopen(ip, IPW)) >= 0) {
+			putuwd(&fdp[0], fd1);
+			putuwd(&fdp[1], fd2);
+			iunlock(ip);
+			return (0);
+		}
+		--ip->i_refc;
+		iunlock(ip);
+		fdclose(fd1);
+		return (0);
+	}
+	idetach(ip);
+	return (0);
+}
+
+/*
+ * Read `n' bytes into the buffer `bp' from file number `fd'.
+ */
+uread(fd, bp, n)
+char *bp;
+unsigned n;
+{
+	return (sysio(fd, bp, n, 0));
+}
+
+/*
+ * Read or write `n' bytes from the file number `fd' using the buffer
+ * `bp'.  If `f' is 0, we read, else write.
+ */
+sysio(fd, bp, n, f)
+char *bp;
+unsigned n;
+{
+	register FD *fdp;
+	register INODE *ip;
+	register int type;
+
+	if ((fdp=fdget(fd)) == NULL)
+		return (0);
+	if ((fdp->f_flag&(f?IPW:IPR)) == 0) {
+		u.u_error = EBADF;
+		return (0);
+	}
+	if ( ! useracc( bp, n ) ) {
+		u.u_error = EFAULT;
+		return(0);
+	}
+
+	ip = fdp->f_ip;
+	type = ip->i_mode&IFMT;
+	if (type != IFCHR)
+		ilock(ip);
+	if ( fdp->f_flag & IPAPPEND )
+		fdp->f_seek = ip->i_size;
+	u.u_io.io_seek = fdp->f_seek;
+	u.u_io.io_base = bp;
+	u.u_io.io_ioc  = n;
+	u.u_io.io_flag = (fdp->f_flag & IPNDLY) ? IONDLY : 0;
+	if (f == 0) {
+		iread(ip, &u.u_io);
+		iacc(ip);		/* read - atime */
+	} else {
+		iwrite(ip, &u.u_io);
+	}
+	n -= u.u_io.io_ioc;
+	fdp->f_seek += n;
+	if (type != IFCHR)
+		iunlock(ip);
+	return (n);
+}
+
+/*
+ * Return a status structure for the given file name.
+ */
+ustat(np, stp)
+char *np;
+struct stat *stp;
+{
+	register INODE *ip;
+	struct stat stat;
+
+	if (ftoi(np, 'r') != 0)
+		return;
+	ip = u.u_cdiri;
+	istat(ip, &stat);
+	idetach(ip);
+	kucopy(&stat, stp, sizeof(stat));
+	return (0);
+}
+
+/*
+ * Write out all modified buffers, inodes and super blocks to disk.
+ */
+usync()
+{
+	register MOUNT *mp;
+	static GATE syngate;
+
+	lock(syngate);
+	for (mp=mountp; mp!=NULL; mp=mp->m_next)
+		msync(mp);
+	bsync();
+	unlock(syngate);
+	return (0);
+}
+
+/*
+ * Set the mask for file access.
+ */
+uumask(mask)
+{
+	register int omask;
+
+	omask = u.u_umask;
+	u.u_umask = mask & 0777;
+	return (omask);
+}
+
+/*
+ * Unmount the given device.
+ */
+uumount(sp)
+char *sp;
+{
+	register INODE *ip;
+	register MOUNT *mp;
+	register MOUNT **mpp;
+	register dev_t rdev;
+	register int mode;
+
+	if (ftoi(sp, 'r') != 0)
+		return;
+	ip = u.u_cdiri;
+	if (iaccess(ip, IPR|IPW) == 0) {
+		idetach(ip);
+		return;
+	}
+	rdev = ip->i_a.i_rdev;
+	mode = ip->i_mode;
+	idetach(ip);
+	if ((mode&IFMT) != IFBLK) {
+		u.u_error = ENOTBLK;
+		return;
+	}
+	for (mpp=&mountp; (mp=*mpp)!=NULL; mpp=&mp->m_next)
+		if (mp->m_dev == rdev)
+			break;
+	if (mp == NULL) {
+		u.u_error = EINVAL;
+		return;
+	}
+	msync(mp);
+	for (ip=&inodep[NINODE-1]; ip>=inodep; --ip) {
+		if (ip->i_refc>0 && ip->i_dev==rdev) {
+			u.u_error = EBUSY;
+			return;
+		}
+	}
+	for (ip=&inodep[NINODE-1]; ip>=inodep; --ip) {
+		if (ip->i_dev == rdev)
+			ip->i_ino = 0;
+	}
+	bflush(rdev);
+	dclose(rdev);
+	*mpp = mp->m_next;
+	mp->m_ip->i_flag &= ~IFMNT;
+	ldetach(mp->m_ip);
+	kfree(mp);
+	return (0);
+}
+
+/*
+ * Return an unique number.
+ */
+long
+uunique()
+{
+	register MOUNT *mp;
+	register struct filsys *fsp;
+
+	if ((mp=getment(rootdev, 1)) == NULL)
+		return;
+	fsp = &mp->m_super;
+	fsp->s_fmod = 1;
+	return (++fsp->s_unique);
+}
+
+/*
+ * Unlink the given file.
+ */
+uunlink(np)
+char *np;
+{
+	register INODE *ip;
+	register dev_t dev;
+
+	if (ftoi(np, 'u') != 0)
+		return;
+	ip = u.u_pdiri;
+	if (iaccess(ip, IPW) == 0) {
+		u.u_error = EACCES;
+		goto err;
+	}
+	dev = ip->i_dev;
+	if (iucheck(dev, u.u_cdirn) == 0)
+		goto err;
+	idirent(0);
+	idetach(ip);
+	if ((ip=iattach(dev, u.u_cdirn)) == NULL)
+		return;
+	if (ip->i_nlink > 0)
+		--ip->i_nlink;
+	icrt(ip);	/* unlink - ctime */
+	if ((ip->i_mode&IFMT)==IFPIPE && ip->i_nlink==0 && ip->i_refc==2)
+		pevent(ip);
+err:
+	idetach(ip);
+	return (0);
+}
+
+/*
+ * Set file times.
+ */
+uutime(np, utime)
+char *np;
+time_t utime[2];
+{
+	register INODE *ip;
+	time_t stime[2];
+
+	if (ftoi(np, 'r') != 0)
+		return;
+	ip = u.u_cdiri;
+	if (owner(ip->i_uid)) {
+		iamc(ip);	/* utime - atime/mtime/ctime */
+		if (utime != NULL) {
+			ukcopy(utime, stime, sizeof(time_t[2]));
+			ip->i_atime = stime[0];
+			ip->i_mtime = stime[1];
+		}
+	}
+	idetach(ip);
+	return (0);
+}
+
+/*
+ * Write `n' bytes from buffer `bp' on file number `fd'.
+ */
+uwrite(fd, bp, n)
+char *bp;
+unsigned n;
+{
+	return (sysio(fd, bp, n, 1));
+}
+
+/**
+ *
+ * int
+ * useracc( base, count, mode )	-- determine user accessibility
+ * caddr_t base;
+ * int count;
+ * int mode;
+ *
+ *	Input:	base  = offset in user data space of the region to be accessed.
+ *		count = size of access region in bytes.
+ *		mode  = access mode desired [B_READ or B_WRITE].
+ *
+ *	Action:	Verify user has desired access mode into specified region.
+ *
+ *	Return:	0 = permission denied.
+ *		1 = access allowed.
+ *
+ *	Notes:	Mode is ignored for now, but is required for compatibility
+ *		with System V, and future protected mode extensions.
+ */
+
+int
+useracc( base, count, mode )
+register char * base;
+int count;
+int mode;
+{
+	register char * end;
+	extern char * udl;
+
+	if ( (count == 0) && (base <= udl) )
+		return( 1 );
+
+	/*
+	 * Compute address of last byte to be accessed.
+	 */
+	end = base + count - 1;
+
+	/*
+	 * Address has wrapped, or is past legal limit.
+	 */
+	if ( (end < base) || (end > udl) )
+		return( 0 );
+
+	return( 1 );
+}
+
+
+@
+
+
+1.3
+log
+@update by hal
+@
+text
+@@
+
+
+1.2
+log
+@update provided by hal
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d40 1
+a40 1
+#include <coherent.h>
+@

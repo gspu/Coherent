@@ -1,0 +1,192 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5;
+comment  @ * @;
+
+
+1.5
+date     93.02.10.16.57.29;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.22.09.55.42;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.02.14.21.00.35;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.23.23.02.12;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.23.22.55.54;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.5
+log
+@*** empty log message ***
+@
+text
+@/*
+ * libc/stdio/_fputc.c
+ * ANSI-compliant C standard i/o library internals.
+ * _fputc(), _fputca()
+ * Write character, unbuffered.
+ * Conditional for _FASCII and errno == EINTR code.
+ */
+
+#include <stdio.h>
+#if	COHERENT || GEMDOS
+#include <errno.h>
+#endif
+
+int
+_fputc(c, fp) register int c; register FILE *fp;
+{
+	unsigned char s;
+
+	if (fp->_ff1 & _FERR)
+		return EOF;
+	s = c;
+	if (write(fileno(fp), &s, 1) == 1)
+		return s;
+#if	COHERENT || GEMDOS
+	if (errno == EINTR)
+		errno = 0;
+	else
+#endif
+	fp->_ff1 |= _FERR;
+	return EOF;
+}
+
+#if	_ASCII
+
+/* ASCII: prepend '\r' before '\n'. */
+int
+_fputca(c, fp) register int c; register FILE *fp;
+{
+ 	if ((unsigned char)c == '\n' && _fputc('\r', fp) == EOF)
+		return EOF;
+	return (_fputc(c, fp));
+}
+
+#endif
+
+/* end of libc/stdio/_fputc.c */
+@
+
+
+1.4
+log
+@steve handed updated 1/21/92
+@
+text
+@d3 4
+a6 2
+ * C Standard I/O Library internals.
+ * Unbuffered output.
+d10 1
+d12 1
+d15 1
+a15 1
+_fputc(c, fp) register unsigned int c; register FILE *fp;
+d17 1
+a17 2
+	register int n, oerrno;
+	char s[1] = c;
+d19 12
+a30 14
+	fp->_cc = 0;
+	oerrno = errno;
+	errno = 0;
+	n = (unsigned char)c;
+	if (fp->_ff&_FERR || _fpseek(fp))
+		n = EOF;
+	else if (write(fileno(fp), s, 1) != 1) {
+		if (errno != EINTR)
+			fp->_ff |= _FERR;
+		n = EOF;
+	}
+	if (errno == 0)
+		errno = oerrno;
+	return n;
+d33 13
+@
+
+
+1.3
+log
+@steve 2/14/92
+Preserve errno if write succeeds.
+@
+text
+@d32 1
+a32 1
+/* libc/stdio/_fputc.c */
+@
+
+
+1.2
+log
+@steve 4/23/90
+Added MSDOS source fixes to COHERENT source:
+changed parameter type unsigned char c -> unsigned int c,
+added (unsigned char) cast to success return to avoid
+inadvertant sign-extension of 255 to EOF.
+@
+text
+@d2 3
+a4 2
+ * Standard I/O Library Internals
+ * Unbuffered output
+d11 1
+a11 3
+_fputc(c, fp)
+register unsigned int	c;
+register FILE	*fp;
+d13 2
+a14 1
+	char	s[1] = c;
+d17 1
+d19 4
+a22 5
+	if (fp->_ff&_FERR || _fpseek(fp)) {
+		return (EOF);
+	} else if (write(fileno(fp), s, 1) == 1) {
+		return ((unsigned char)c);
+	} else {
+d25 1
+a25 1
+		return (EOF);
+d27 3
+d31 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d11 1
+a11 1
+register unsigned char	c;
+d21 1
+a21 1
+		return (c);
+@

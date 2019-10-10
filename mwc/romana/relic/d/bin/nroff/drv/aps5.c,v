@@ -1,0 +1,235 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.45.30;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+/*
+ * Nroff/Troff.
+ * Driver for the APS-5.
+ */
+#include <stdio.h>
+#include <ctype.h>
+#include "roff.h"
+#include "code.h"
+#include "env.h"
+#include "font.h"
+
+/*
+ * Commands to the APS-5.
+ */
+
+/*
+ * Device parameters.
+ */
+int	ntroff	=	TROFF;		/* Programme is TROFF type */
+long	sinmul	=	720;		/* Multiplier for inch */
+long	sindiv	=	1;		/* Divisor for inch */
+long	semmul	=	1;		/* Multiplier for em space */
+long	semdiv	=	1;		/* Divisor for em space */
+long	senmul	=	1;		/* Multiplier for en space */
+long	sendiv	=	2;		/* Divisor for en space */
+long	snrmul	=	1;		/* Narrow space (mul) */
+long	snrdiv	=	6;		/* Narrow space (div) */
+long	sdwmul	=	1;		/* Digit width (mul) */
+long	sdwdiv	=	2;		/* Digit width (div) */
+long	swdmul	=	1;		/* Multiplier for width tables */
+long	swddiv	=	36;		/* Divisor for width tables */
+long	shrmul	=	1;		/* Horizontal resolution (mul) */
+long	shrdiv	=	1;		/* Horizontal resolution (div) */
+long	svrmul	=	1;		/* Vertical resolution (mul) */
+long	svrdiv	=	1;		/* Vertical resolution (div) */
+
+/*
+ * For mapping user fonts to real fonts.
+ */
+FTB fontab[] ={
+	'R',  '\0', TTTY, 0, 0,
+	'I',  '\0', TTTY, 0, 1,
+	'B',  '\0', TTTY, 1, 0,
+	'\0'
+};
+
+/*
+ * To convert from internal character set to the on required by
+ * the APS-5.
+ */
+char intaps[] ={
+	0000, 0076, 0065, 0066, 0067, 0070, 0071, 0072, 0073, 0074,
+	0075, 0001, 0002, 0003, 0004, 0005, 0006, 0007, 0010, 0011,
+	0012, 0013, 0014, 0015, 0016, 0017, 0020, 0021, 0022, 0023,
+	0024, 0025, 0026, 0027, 0030, 0031, 0032, 0033, 0034, 0035,
+	0036, 0037, 0040, 0041, 0042, 0043, 0044, 0045, 0046, 0047,
+	0050, 0051, 0052, 0053, 0054, 0055, 0056, 0057, 0060, 0061,
+	0062, 0063, 0064, 0073, 0000, 0000, 0077, 0112, 0101, 0114,
+	0115, 0000, 0000, 0105, 0117, 0104, 0116, 0102, 0103, 0000,
+	0000, 0000, 0110, 0000, 0000, 0000, 0000, 0000, 0120, 0000,
+	0000, 0000, 0000, 0106, 0107, 0000, 0000, 0000
+};
+
+/*
+ * Width table.
+ */
+char widtab[] ={
+	  0,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12,   12,   12,   12,   12,   12,
+	 12,   12,   12,   12,   12
+};
+
+/*
+ * Set up the non constant parameters that are dependent on a
+ * particular device.  Namely pointsize and font.
+ */
+devparm()
+{
+}
+
+/*
+ * Given a font, consisting of the font number and flags indicating
+ * whether the font will be in bold or italics, set the current font
+ * to the one given.
+ */
+devfont(font, bold, ital)
+{
+	fonwidt = widtab;
+	fontype = TTTY;
+	bolmode = bold;
+	itlmode = ital;
+}
+
+/*
+ * Change the pointsize to the one specified.
+ */
+devpsze(n)
+{
+	psz = n;
+}
+
+/*
+ * Change the vertical spacing.
+ */
+devvlsp(n)
+{
+	vls = n;
+}
+
+/*
+ * Given a pointer to a buffer containing stream directives
+ * and a pointer to the end of the buffer, print the buffer
+ * out.
+ */
+flushl(buffer, bufend)
+CODE *buffer;
+CODE *bufend;
+{
+	static int hres, vres, font, bold, ital;
+	register CODE *cp;
+	register int n;
+
+	for (cp=buffer; cp<bufend; cp++) {
+		switch (cp->c_code) {
+		case DNULL:
+			continue;
+		case DHMOV:
+			hres += cp->c_iarg;
+			continue;
+		case DVMOV:
+			vres += cp->c_iarg;
+			continue;
+		case DTYPE:
+			bold = cp->c_car1;
+			ital = cp->c_car2;
+			continue;
+		case DFONT:
+			font = cp->c_iarg;
+			continue;
+		case DPSZE:
+			continue;
+		case DSPAR:
+			hres = 0;
+			vres += cp->c_iarg;
+			if (vres >= 0) {
+				n = (vres+10) / 20;
+				vres -= n*20;
+				while (n--)
+					putchar('\n');
+			} else {
+				n = (-vres+9)/20;
+				vres += n*20;
+				while (n--)
+					printf("\033-");
+			}
+			continue;
+		default:
+			if (vres >= 0) {
+				n = (vres+10) / 20;
+				while (n--)
+					putchar('\n');
+			} else {
+				n = (-vres+9)/20;
+				while (n--)
+					printf("\033-");
+			}
+			vres = 0;
+			if (hres >= 0) {
+				n = (hres+6) / 12;
+				hres -= n*12;
+				while (n--)
+					putchar(' ');
+			} else {
+				n = (-hres+5)/12;
+				hres += n*12;
+				while (n--)
+					putchar('\b');
+			}
+			n = cp->c_code;
+			if (n<=0 || n>=sizeof intasc)
+				panic("Bad directive %d", n);
+			n = intasc[n];
+			if (ital || bold)
+				if (isascii(n) && (isupper(n) || islower(n)))
+					printf("_\b");
+			putchar(n);
+			hres += cp->c_move-12;
+		}
+	}
+}
+@

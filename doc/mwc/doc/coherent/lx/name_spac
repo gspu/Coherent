@@ -1,0 +1,246 @@
+.TH "name space" "" "" "C Language"
+.PP
+.II "label names"
+.II "tags"
+.II "structure members"
+.II "members, structure"
+.II "ordinary identifiers"
+.PC "C name-space rules"
+The term
+.I "name space"
+refers to the ``list'' where the translator records an identifier.
+Each name space holds a different set of identifiers.
+If two identifiers are spelled exactly the same and appear within
+the same scope but are not in the same name space,
+they are \fInot\fR considered to be identical.
+.PP
+The five varieties of name space, as follows:
+.IP "\fBMacro Names\fR"
+Macro names introduced with
+.B #define
+are special.
+Because macro replacement happens before the program text
+is scanned for the other classes of names,
+macro names exist in a global name space
+that pays no heed to the rules below.
+See the description of name-space pollution, below, for more on this.
+.IP "\fBLabel Names\fR"
+The translator treats every identifier followed by a colon `:'
+or that follows a
+.B goto
+statement as a label.
+.IP "\fBTags\fR"
+A tag is the name that follows the keywords
+.BR struct ,
+.BR union ,
+or
+.BR enum .
+It names the type of object so declared.
+.IP "\fBMembers\fR"
+A member names a field within a structure or a
+.BR union .
+A member can be accessed via the operators `.' or `->'.
+Each structure or
+.B union
+type has a separate name space for its members.
+.IP "\fBOrdinary identifiers\fR"
+These name ordinary functions and variables.
+For example, the expression
+.DM
+	int example;
+.DE
+.IP
+declares the ordinary identifier
+.B example
+to name an object of type
+.BR int .
+.SH "Name-Space Pollution"
+The \*(AS and the \*(PX recognize special problems that relate to
+the above classes of name space and to the names supplied to the user by
+the translator or the
+.B #include
+mechanism.
+They provide special rules that govern what names
+a program and an implementation can define.
+.PP
+Although the above rules are good at resolving conflict, in the
+context of a large programming project (which the standard C library is,
+effectively) they are not always sufficient.
+First, there is the possibility that definitions
+in library header files may conflict with
+each other, or with user definitions.
+Second, an internal definition in the standard library may conflict with a
+user definition that happens to have the same name.
+.PP
+The \*(AS defines rules that set aside some names for the implementation.
+The implementation can use only these names, and user applications
+cannot use them.
+When implementations and applications both obey these rules,
+a user program cannot conflict with a definition in a system header file.
+The rules are as follows:
+.IP \(bu 0.3i
+Any name that begins with an underscore followed by a capital
+letter or underscore
+is reserved for use by the implementation.
+Applications should not use any symbols of this form except to
+define feature-test macros (e.g.,
+.BR _POSIX_SOURCE ,
+see below).
+.IP \(bu
+Any name that begins with an underscore followed by a lower-case
+letter is reserved for use by the application if the name is
+internal (such as a static symbol or a tag- or member-name).
+Macro names of this form are forbidden, because they do not obey the
+other name-space rules above:
+a user-level macro definition could cause a conflict
+with a private structure-member defined in a system header.
+.IP \(bu
+C++ reserves for the implementation all names that contain two underscores.
+.IP \(bu
+The Standard forbids external identifiers
+(i.e., non-static functions and variables) that
+match any of the function or variable defined in the C standard.
+.IP \(bu
+If a program
+.BR #include s
+a standard library header file,
+it cannot use a macro definition that matches
+the name of any function or variable defined in any standard library header.
+.PP
+These rules are supplemented with rules that govern the use of
+names that are defined in any library header described
+in the \*(AS or the \*(PX.
+The following gives the rules that apply to individual header files:
+.IP \fB<errno.h>\fR
+The implementation can define extra macros that begin with the letter `E'.
+.IP \fB<signal.h>\fR
+The implementation can define extra macros that begin with
+.BR SIG_ .
+.PP
+If an application needs to use any function that the \*(PX defines,
+it should contain the following line before any
+.B #include
+directives:
+.DM
+	#define _POSIX_SOURCE 1
+.DE
+.PP
+This sets the
+.B _POSIX_SOURCE
+feature-test macro.
+If this is done, the \*(PX reserves symbols for some header files.
+If an application includes one of the following header files, it must
+.I not
+use any of symbols reserved for that header:
+.IP \fB<dirent.h>\fR
+Reserved prefix:
+.BR d_ .
+.IP \fB<fcntl.h>\fR
+Reserved prefixes:
+.BR l_ ,
+.BR F_ ,
+.BR O_ ,
+and
+.BR S_ .
+Reserved symbols:
+.BR SEEK_CUR ,
+.BR SEEK_END ,
+and
+.BR SEEK_SET .
+.IP \fB<grp.h>\fR
+Reserved prefix:
+.BR gr_ .
+.IP \fB<limits.h>\fR
+Reserved suffix:
+.BR _MAX .
+.IP \fB<pwd.h>\fR
+Reserved prefix:
+.BR pw_ .
+.IP \fB<signal.h>\fR
+Reserved prefixes:
+.BR sa_ ,
+.BR SIG_ ,
+and
+.BR SA_ .
+.IP \fB<sys/stat.h>\fR
+Reserved prefixes:
+.BR st_
+and
+.BR S_ .
+.IP \fB<sys/times.h>\fR
+Reserved prefix:
+.BR tms_ .
+.PP
+If an application
+.BR #include s
+any header described in the \*(PX,
+all symbols with the suffix
+.B _t
+are reserved.
+.PP
+Note that the symbols defined above that begin with an upper-case
+letter may be used by an application after the
+.B #include
+directive if the application uses an
+.B #undef
+directive to cancel any conflicting definition supplied by the header.
+.SH Example
+The following program illustrates the concept of name space.
+It shows how the identifier
+.B foo
+can be used numerous times within the same scope yet still be distinguished.
+This is extremely poor programming style.
+Please do not write programs like this.
+.DM
+#include <stdio.h>
+#include <stdlib.h>
+.DE
+.DM
+/* structure tag */
+struct foo {
+	/* structure member */
+	struct foo *foo;
+	int bar;
+};
+.DE
+.DM
+main()
+{
+	/* ordinary identifier */
+	struct foo *foo;
+	int i = 0;
+.DE
+.DM
+	foo = (struct foo *)malloc(sizeof(*foo));
+	foo->bar = ++i;
+	foo->foo = NULL;
+.DE
+.DM
+/* label */
+foo:	printf("What kind of \e"foo\e" am I?\en");
+	if (foo->foo == NULL) {
+		foo->foo = (struct foo *)malloc(sizeof(*foo));
+		foo->foo->foo = NULL;
+		foo->foo->bar = ++i;
+		goto foo;
+	}
+.DE
+.DM
+	printf("The foo loop executed %d times\en", foo->foo->bar);
+	return(EXIT_SUCCESS);
+}
+.DE
+.SH "See Also"
+.Xr "C language" c_languag
+.br
+\*(AS, \(sc3.1.2.3
+.SH Notes
+Pre-ANSI implementations disagree on the
+name spaces of structure/\fBunion\fR members.
+The Standard adopted the \*(QLBerkeley\*(QR rules, which state
+that every unique structure/\fBunion\fR type
+has its own name space for its members.
+It rejected the rules
+of the first edition of \fIThe C Programming Language\fR, which
+state that the members of all structures and \fBunion\fRs
+reside in a common name space.

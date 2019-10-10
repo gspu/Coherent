@@ -1,0 +1,616 @@
+/* (-lgl
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * Polled Serial Port Device Driver.
+ * - supports version 7 compatible ioctl
+ */
+
+#include <sys/coherent.h>
+#include <sys/ins8250.h>
+#include <sys/stat.h>
+#include <sys/proc.h>
+#include <sys/tty.h>		/* indirectly includes sgtty.h */
+#include <sys/con.h>
+#include <sys/devices.h>
+#include <errno.h>
+#include <sys/sched.h>		/* CVTTOUT, IVTTOUT, SVTTOUT */
+#include <sys/poll_clk.h>
+
+#ifdef _I386
+#define	EEBUSY	EBUSY
+#else
+#define	EEBUSY	EDBUSY
+#endif
+
+/*
+ * Definitions.
+ *
+ * HSBAUD is the highest baud rate supported by this driver
+ * HS_HZ is the polling rate, i.e. the number of times per second
+ *   at which all open ports are checked for input, output, and
+ *   line status changes
+ * MAX_HSNUM is the maximum number of devices that can be polled
+ *   using this driver and can be revised up or down
+ * PORT is a convenience macro for the base address of a port
+ * port_config is the structure of the initial configuration for each
+ *   polled port;  note that "speed" is NOT the actual baud rate, but
+ *   the value of the symbol for that baud rate as defined in
+ *   /usr/include/sgtty.h
+ */
+#define	HSBAUD	9600
+#define	HS_HZ	(HSBAUD/6)
+#define MAX_HSNUM	8
+#define	PORT	((int)(tp->t_ddp))
+struct port_config {
+	int	addr;	/* base address of the 8250-family UART */
+	int	speed;	/* B0..B19200 */
+};
+
+/*
+ * Export Variables - these can be patched without recompiling and linking
+ *
+ * HSNUM is the actual number of polled serial ports, and should be
+ *   less than or equal to MAX_HSNUM
+ * HS_PORTS is an array of address/speed pairs, one for each port
+ */
+int	HSNUM = 4;
+struct port_config HS_PORTS[MAX_HSNUM] = {
+	{ 0x3F8, B9600 },
+	{ 0x2F8, B9600 },
+	{ 0x3E8, B9600 },
+	{ 0x2E8, B9600 }
+};
+
+/*
+ * Export Functions.
+ */
+int	hsload();
+int	hsopen();
+int	hsclose();
+int	hsread();
+int	hswrite();
+int	hsunload();
+int	hspoll();
+
+static void hsioctl();
+
+int	hscycle();
+int	hsintr();
+int	hsparam();
+int	hsstart();
+int	hsclk();
+int	set_poll_rate();
+
+/*
+ * Import Functions
+ */
+int	nulldev();
+int	nonedev();
+
+/*
+ * Configuration table.
+ */
+CON hscon ={
+	DFCHR|DFPOL,			/* Flags */
+	HS_MAJOR,			/* Major index */
+	hsopen,				/* Open */
+	hsclose,			/* Close */
+	nulldev,			/* Block */
+	hsread,				/* Read */
+	hswrite,			/* Write */
+	hsioctl,			/* Ioctl */
+	nulldev,			/* Powerfail */
+	nulldev,			/* Timeout */
+	hsload,				/* Load */
+	hsunload,			/* Unload */
+	hspoll				/* Poll */
+};
+
+/*
+ * Local variables.
+ */
+static TTY *hstty;
+static silo_t *out_silos, *in_silos;
+static TTY *hslimtty;
+static TIM hstim;
+static int poll_divisor;	/* used in hsclk() and set_poll_rate() */
+static int iocbaud[MAX_HSNUM];
+static char ioclcr[MAX_HSNUM];
+
+/*
+ * Time constant table.
+ * Indexed by ioctl baud rate.
+ */
+extern int albaud[], alp_rate[];
+
+/*
+ * Load Routine.
+ */
+static hsload()
+{
+	register TTY * tp;
+	register int port;
+	int i, b;
+
+	if ((in_silos = (silo_t *)kalloc(HSNUM*sizeof(silo_t))) == 0) {
+		printf("hsload: can't allocate in_silos\n");
+		return;
+	}
+	kclear(in_silos, HSNUM*sizeof(silo_t));
+
+	if ((out_silos = (silo_t *)kalloc(HSNUM*sizeof(silo_t))) == 0) {
+		printf("hsload: can't allocate out_silos\n");
+		return;
+	}
+	kclear(out_silos, HSNUM*sizeof(silo_t));
+
+	if ((hstty = (TTY *)kalloc(HSNUM*sizeof(TTY))) == 0) {
+		printf("hsload: can't allocate tty's\n");
+		return;
+	}
+	kclear(hstty, HSNUM*sizeof(TTY));
+
+	for (i = 0; i < HSNUM; i++) {
+		port = HS_PORTS[i].addr;
+		tp = hstty + i;
+
+		outb(port+MCR, 0);
+		outb(port+IER, 0);
+
+		tp->t_cs_sel  = cs_sel();
+		tp->t_start   = hsstart;
+		tp->t_param   = hsparam;
+		tp->t_sgttyb.sg_ospeed = tp->t_sgttyb.sg_ispeed = 
+		tp->t_dispeed = tp->t_dospeed = HS_PORTS[i].speed;
+		tp->t_ddp     = port;
+
+		b = albaud[ tp->t_sgttyb.sg_ospeed ];
+		outb(port+LCR, LC_DLAB);
+		outb(port+DLL, b);
+		outb(port+DLH, b >> 8);
+		outb(port+LCR, LC_CS8);
+
+	}
+	hslimtty = hstty + HSNUM;
+}
+
+static hsunload()
+{
+	if (hstty != (TTY *)0)
+		kfree(hstty);
+}
+
+/*
+ * Open Routine.
+ */
+hsopen(dev, mode)
+dev_t dev;
+{
+	register TTY * tp = &hstty[ dev & 15 ];
+	register int b;
+	int s;
+
+	/*
+	 * Verify hardware exists.
+	 */
+	if ((PORT == 0) || (inb(PORT+IER) & ~IE_TxI)) {
+		u.u_error = ENXIO;
+		return;
+	}
+
+	/*
+	 * Can't open if another driver is using polling
+	 */
+	if (poll_owner & ~ POLL_HS) {
+		u.u_error = EEBUSY;
+		return;
+	}
+
+	/*
+	 * Initialize if not already open.
+	 */
+	if (++tp->t_open == 1) {
+		ttopen(tp);
+
+		if (dev & 0x80) {
+			s = sphi();
+			b = inb(PORT+MSR);
+			tp->t_flags |= T_MODC + T_STOP;
+			if (b & MS_CTS)
+				tp->t_flags &= ~T_STOP;
+			if (b & MS_DSR)
+				tp->t_flags |=  T_CARR;
+			spl(s);
+		} else  {
+			tp->t_flags &= ~T_MODC;
+			tp->t_flags |=  T_CARR;
+		}
+		hscycle(tp);
+	}
+	ttsetgrp(tp, dev, mode);
+	set_poll_rate();
+}
+
+/*
+ * Close Routine.
+ */
+hsclose(dev)
+dev_t dev;
+{
+	short chan = dev & 15;
+	register TTY * tp = hstty + chan;
+	silo_t * out_silo = out_silos + chan;
+
+	/*
+	 * Reset if last close.
+	 */
+	if (tp->t_open == 1) {
+		int state;
+
+		ttclose(tp);
+		/*
+		 * ttclose() only emptied the output queue tp->t_oq;
+		 * now wait 0.1 sec for the silo to empty
+		 * and allow a delay for the UART on-chip xmit buffer to empty
+		 *
+		 * state 2: waiting for silo to empty
+		 * state 1: stalling so UART can empty xmit buffer
+		 * state 0: done!
+		 */
+		state = 2;
+		while (state) {
+			timeout(&hstim, 10, wakeup, (int)&hstim);
+#ifdef _I386
+			x_sleep((char *)&hstim,
+			  pritty, slpriNoSig, "hsopen");
+#else
+			v_sleep((char *)&hstim,
+			  CVTTOUT, IVTTOUT, SVTTOUT, "hsopen");
+#endif
+			if (out_silo->si_ix == out_silo->si_ox  && state)
+				state--;
+		}
+	}
+
+	--tp->t_open;
+	set_poll_rate();
+}
+
+/*
+ * Read Routine.
+ */
+hsread(dev, iop)
+dev_t dev;
+register IO * iop;
+{
+	ttread(&hstty[ dev & 15 ], iop);
+}
+
+/*
+ * Write Routine.
+ */
+hswrite(dev, iop)
+dev_t dev;
+register IO * iop;
+{
+	ttwrite(&hstty[ dev & 15 ], iop);
+}
+
+/*
+ * Ioctl Routine.
+ */
+static void
+hsioctl(dev, com, vec)
+dev_t	dev;
+int	com;
+struct sgttyb *vec;
+{
+	ttioctl(&hstty[ dev & 15 ], com, vec);
+}
+
+/*
+ * Polling Routine.
+ */
+hspoll(dev, ev, msec)
+dev_t dev;
+int ev;
+int msec;
+{
+	return ttpoll(&hstty[ dev & 15 ], ev, msec);
+}
+
+/*
+ * Cyclic routine - invoked every clock tick to perform raw input/output.
+ *
+ *	Notes:	Invoked 10 times per second.
+ */
+hscycle(tp)
+register TTY * tp;
+{
+	register int resid;
+	register int c;
+	int chan = tp - hstty;
+	silo_t * out_silo = out_silos + chan;
+	silo_t * in_silo = in_silos + chan;
+
+	/*
+	 * Process rawin buf.
+	 */
+	while (in_silo->si_ix != in_silo->si_ox) {
+
+		ttin(tp, in_silo->si_buf[ in_silo->si_ox ]);
+
+		if (in_silo->si_ox >= sizeof(in_silo->si_buf) - 1)
+			in_silo->si_ox = 0;
+		else
+			in_silo->si_ox++;
+	}
+
+	/*
+	 * Calculate free output slot count.
+	 */
+	resid  = sizeof(out_silo->si_buf) - 1;
+	resid += out_silo->si_ox - out_silo->si_ix;
+	resid %= sizeof(out_silo->si_buf);
+
+	/*
+	 * Fill raw output buffer.
+	 */
+	while ((--resid >= 0) && ((c = ttout(tp)) >= 0)) {
+
+		out_silo->si_buf[ out_silo->si_ix ] = c;
+
+		if (out_silo->si_ix >= sizeof(out_silo->si_buf) - 1)
+			out_silo->si_ix = 0;
+		else
+			out_silo->si_ix++;
+	}
+
+	/*
+	 * (Re)start output, waking processes waiting to output, etc.
+	 */
+	ttstart(tp);
+
+	/*
+	 * Schedule next cycle.
+	 */
+	if (tp->t_open != 0)
+		timeout(&tp->t_rawtim, HZ/10, hscycle, tp);
+}
+
+/*
+ * Clock Interrupt driven Polling routine.
+ */
+hsintr()
+{
+	register TTY * tp = hstty;
+	register int b;
+	silo_t * out_silo = out_silos;
+	silo_t * in_silo = in_silos;
+
+	for (tp = hstty, in_silo = in_silos, out_silo = out_silos;
+	  tp < hslimtty; tp++, in_silo++, out_silo++) {
+		if (tp->t_open == 0)
+			continue;
+
+		/*
+		 * Check modem status if modem control is enabled.
+		 */
+		if (tp->t_flags & T_MODC) {
+
+			b = inb(PORT+MSR);
+
+			if (b & (MS_DCTS|MS_DDSR)) {
+
+				if (b & MS_DCTS) {
+					if (b & MS_CTS)
+						tp->t_flags &= ~T_STOP;
+					else
+						tp->t_flags |=  T_STOP;
+				}
+				if (b & MS_DDSR) {
+					if (b & MS_DSR)
+						tp->t_flags |=  T_CARR;
+					else {
+						tp->t_flags &= ~T_CARR;
+						tthup(tp);
+					}
+				}
+			}
+		}
+
+		b = inb(PORT+LSR);
+
+		if ((b & LS_BREAK) && (tp->t_flags & T_CARR))
+			ttsignal(tp, SIGINT);
+
+		/*
+		 * Receive ready.
+		 */
+		if (b & LS_RxRDY) {
+
+			in_silo->si_buf[in_silo->si_ix] = inb(PORT+DREG);
+
+			if (tp->t_flags & T_CARR) {
+
+				if (++(in_silo->si_ix) >=
+						sizeof(in_silo->si_buf))
+					in_silo->si_ix = 0;
+			}
+		}
+
+		/*
+		 * Transmit ready and raw output data exists.
+		 */
+		if ((b & LS_TxRDY) && ((tp->t_flags & T_STOP) == 0)
+		  && (out_silo->si_ix != out_silo->si_ox)) {
+
+			outb(	PORT+DREG,
+				out_silo->si_buf[ out_silo->si_ox ]);
+
+			if (++(out_silo->si_ox) >=
+					sizeof(out_silo->si_buf))
+				out_silo->si_ox = 0;
+		}
+
+	}
+}
+
+/*
+ * Set hardware parameters.
+ */
+hsparam(tp)
+register TTY * tp;
+{
+	int s;
+	int hnum;
+	int newbaud;
+	char newlcr;
+	int write_baud = 1, write_lcr = 1;
+
+	newbaud = albaud[tp->t_sgttyb.sg_ospeed];
+
+	switch (tp->t_sgttyb.sg_flags & (EVENP|ODDP|RAW)) {
+	case ODDP:
+		newlcr = LC_CS7|LC_PARENB;
+		break;
+	case EVENP:
+		newlcr = LC_CS7|LC_PARENB|LC_PAREVEN;
+		break;
+	default:
+		newlcr = LC_CS8;
+		break;
+	}
+	
+	hnum = tp - hstty;
+	if (hnum >= 0 && hnum < HSNUM) {
+		if (newbaud == iocbaud[hnum]) {
+			write_baud = 0;
+			if (newlcr == ioclcr[hnum]) {
+				write_lcr = 0;
+			}
+		}
+		iocbaud[hnum] = newbaud;
+		ioclcr[hnum] = newlcr;
+	}
+
+	s = sphi();
+	/*
+	 * Assert required modem control lines (DTR, RTS).
+	 */
+	if (tp->t_sgttyb.sg_ospeed == B0) {
+		outb(PORT+MCR, 0);
+	} else {
+		outb(PORT+MCR, MC_DTR | MC_RTS);
+	}
+
+	/*
+	 * Program baud rate.
+	 */
+	if (write_baud) {
+		outb(PORT+LCR, LC_DLAB);
+		outb(PORT+DLL, newbaud);
+		outb(PORT+DLH, newbaud >> 8);
+	}
+
+	/*
+	 * Program character size, parity.
+	 */
+	if (write_lcr)
+		outb(PORT+LCR, newlcr);
+
+	/*
+	 * Enable Transmit Buffer Empty Interrupts.
+	 */
+	outb(PORT+IER, IE_TxI);
+
+	spl(s);
+	set_poll_rate();
+}
+
+/*
+ * Start Routine.
+ */
+hsstart(tp)
+register TTY * tp;
+{
+	register int s;
+	int chan = tp - hstty;
+	silo_t * out_silo = out_silos + chan;
+
+	/*
+	 * Transmit buffer is empty, and raw output buffer is not.
+	 */
+	s = sphi();
+	if ((inb(PORT+LSR) & LS_TxRDY)
+	  && (out_silo->si_ix != out_silo->si_ox)) {
+
+		/*
+		 * Send next char from raw output buffer.
+		 */
+		outb(PORT+DREG, out_silo->si_buf[ out_silo->si_ox ]);
+
+		if (++out_silo->si_ox >= sizeof(out_silo->si_buf))
+			out_silo->si_ox = 0;
+	}
+	spl(s);
+}
+
+/*
+ * hsclk will be called every time T0 interrupts - if it returns 0,
+ * the usual system timer interrupt stuff is done
+ */
+static int hsclk()
+{
+	static int count;
+
+	hsintr();
+	count++;
+	if (count >= poll_divisor)
+		count = 0;
+	return count;
+}
+
+/*
+ * set_poll_rate is called when a port is opened or closed or changes speed
+ * it sets the polling rate only as fast as needed, and shuts off polling
+ * whenever possible
+ */
+static set_poll_rate()
+{
+	int port_num, max_rate, port_rate;
+
+	/*
+	 * If another driver has the polling clock, do nothing.
+	 */
+	if (poll_owner & ~ POLL_HS)
+		return;
+
+	/*
+	 * find highest valid polling rate in units of HZ/10
+	 */
+	max_rate = 0;
+	for (port_num = 0; port_num < HSNUM; port_num++) {
+		if (hstty[port_num].t_open) {
+		  port_rate = alp_rate[hstty[port_num].t_sgttyb.sg_ispeed];
+		  if (max_rate < port_rate)
+			max_rate = port_rate;
+		}
+	}
+	/*
+	 * if max_rate is not current rate, adjust the system clock
+	 */
+	if (max_rate != poll_rate) {
+		poll_rate = max_rate;
+		poll_divisor = poll_rate/HZ;  /* used in hsclk() */
+		altclk_out();		/* stop previous polling */
+		poll_owner &= ~POLL_HS;
+		if (max_rate) {	/* resume polling at new rate if needed */
+			altclk_in(poll_rate, hsclk);
+			poll_owner |= POLL_HS;
+		}
+	}
+}

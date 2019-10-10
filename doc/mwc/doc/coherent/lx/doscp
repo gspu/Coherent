@@ -1,0 +1,265 @@
+.TH doscp "" "" Command
+.PC "Copy files to/from an \*(MD file system"
+\fBdoscp [\-abkmrv] \fIsrc dest\fR
+.PP
+.HS
+.SH Options
+.IC \fBa\fR
+ASCII.
+When copying from \*(MD to \*(CO, convert the carriage-return/newline
+combination to newline characters; when copying from \*(CO to \*(MD,
+do the opposite.
+.IC \fBb\fR
+Binary.
+Do not convert newline conversion.
+.IC \fBk\fR
+Keep the time stamp on copied files.
+.IC \fBm\fR
+Move.
+Same as \fBa\fR, described above.
+.IC \fBr\fR
+Same as \fBb\fR, described above.
+.IC \fBv\fR
+Verbose.
+Describe each action as it is executed.
+.HE
+.II "MS-DOS^copy files"
+.B doscp
+copies files between \*(MD and \*(CO file systems.
+The \*(MD file system can reside either on a floppy disk, or on
+an \*(MD partition of a hard disk.
+.PP
+.I src
+names the file being copied and the file system where it resides;
+.I dest
+names the file system and directory into which the file is copied.
+The operating system that owns the
+.I src
+file is implied by the name of the file system on which it resides.
+An \*(MD file system must be named using
+the device that holds it,
+such as floppy-disk drive
+.B /dev/fha0
+or hard-disk partition
+.BR /dev/at0a .
+You can also build a file of aliases so that
+you can access the drives as
+.BR a ,
+.BR b ,
+etc.
+For details, see the section entitled \fIConfiguring the dos Commands\fR,
+below.
+.PP
+.B doscp
+converts a file's name from one operating system's conventions
+to the other's.
+An \*(MD file argument may be specified in
+lower or upper case, using `/' as the path-name separator.
+When transferring files from \*(MD to \*(CO,
+.B doscp
+converts an \*(MD file name to a \*(CO file name in lower case only.
+If the \*(MD file name contains no extension, the \*(CO file name
+contains no `.'.
+When transferring files from \*(CO to \*(MD,
+.B doscp
+converts all alphabetic characters in a \*(CO file
+name to upper case; if a period `.' appears at the beginning or
+end of a file name,
+.B doscp
+converts it to `_'.
+.B doscp
+truncates the
+portion of the file name to the left of the `.' to a maximum of eight
+characters and portion to the right of the `.' to a maximum of three characters.
+.PP
+.B doscp
+recognizes the following options:
+.IP \fBa\fR 0.3i
+Perform ASCII newline conversion on file transfer.
+When moving files from \*(CO to \*(MD, this option converts
+each \*(CO newline character `\en' (ASCII LF) to an \*(MD
+end-of-line (ASCII CR and LF).
+When moving files from \*(MD
+to \*(CO, it does the opposite.
+By default,
+.B doscp
+performs ASCII conversion on files that have an ASCII extention.
+See \fBSetup\fR, below.
+.IP \fBb\fR
+Do not perform any newline conversion on file transfers.
+.IP \fBk\fR
+Keep:
+give the copied file the same time stamp as its original.
+By default,
+.B doscp
+gives copied files the current time.
+.IP \fBm\fR
+Same as \fBa\fR, described above
+.IP \fBr\fR
+Same as \fBb\fR, described above.
+.IP \fBv\fR
+Verbose.
+Provide additional information about each action performed.
+.SH "Configuring the dos Commands"
+The
+.B dos
+family commands read the file
+.B /etc/default/msdos
+before they begin to interpret arguments.
+By modifying this file, you can establish defaults that let \*(CO's
+.B dos
+commands resemble their counterparts under \*(MD.
+You can set up two classes of defaults:
+.I device
+defaults
+and
+.I file
+defaults.
+.PP
+A device default lets you declare an alias for a device that holds an \*(MD
+file system.
+This device can be a floppy-disk drive, a partition on a hard disk, or an
+extended partition on a hard disk.
+The alias must consist of one or two letters.
+No letter can serve as an alias for more than one device.
+For example, the following declaration:
+.DM
+	c=/dev/at0a
+.DE
+.PP
+specifies that the hard-disk partition accessed via device
+.B /dev/at0a
+is a ``Primary \*(MD'' partition, and that its alias is \fBc\fR.
+Hereafter, the
+.B dos
+commands will interpret
+.B c
+as being equivalent to
+.BR /dev/at0a .
+.PP
+The declaration
+.DM
+	d=/dev/at0b;1
+.DE
+.PP
+specifies the first ``Extended \*(MD'' partition on the partition accessed via
+device
+.BR /dev/at0b .
+Bumping the number from 1 to 2 would specify
+the second extended \*(MD partition within partition
+.BR /dev/at0b ,
+as in:
+.DM
+	e=/dev/at0b;2
+.DE
+.PP
+Notice how the device names (c, d, and e) can correspond to the
+same drive names as under \*(MD, whether or not they are primary or
+extended partitions.
+.PP
+File declarations, on the other hand,
+simply declare that all files with a given
+suffix are text files and should always have their newline characters converted
+from \*(CO to \*(MD format (or vice versa).
+For example, placing the line
+.DM
+	.c
+.DE
+.PP
+in
+.B /etc/default/msdos
+tells all of the
+.B dos
+commands that all files with the suffix \fB.c\fR are text files and should
+have their newline characters converted by default.
+You can have any number of file defaults in
+.BR /etc/default/msdos .
+.SH Examples
+The first example copies all C source files
+from floppy drive \fB/dev/fva1\fR to correspondingly named files
+in the current \*(CO directory,
+preserves the time stamp, and performs newline conversion upon them:
+.DM
+	doscp -akv /dev/fva1:source/\e*.c .
+.DE
+.PP
+Note that you must quote wildcard characters with a backslash to keep the shell
+from interpreting them.
+Also note that \fB/dev/fva1\fR
+is a high-density, 3.5-inch floppy disk in floppy-disk
+drive 1.
+So, if your \fBdefault\fR file contained the entry
+.DM
+	b=/dev/fva1
+	.c
+.DE
+.sp \n(pDu
+you could also have typed:
+.DM
+	doscp -kv b:source/\e*.c .
+.DE
+.PP
+The next example copies a file from an \*(MD partition on your
+hard disk to a \*(CO file system.
+Suppose that C is the primary \*(MD partition on
+your first hard drive.
+The following command copies file
+.B C:\eAUTOEXEC.BAT
+to
+.B /tmp/autoexec.bat
+in your \*(CO partition:
+.DM
+	doscp /dev/at0a:autoexec.bat /tmp
+.DE
+.PP
+If your
+.B /etc/default
+file contains the entry
+.DM
+	c=/dev/at0a
+.DE
+.PP
+then you can also type:
+.DM
+	doscp c:autoexec.bat /tmp
+.DE
+.SH Files
+\fB/etc/default/msdos\fR \(em Setup file
+.SH "See Also"
+.Xr "commands," commands
+.Xr "cp," cp
+.Xr "dos" dos
+.SH Notes
+For a discussion of the error message
+.DM
+	Probably not a DOS disk
+.DE
+.PP
+see the notes to the Lexicon entry for
+.BR doscp .
+.B doscp
+does not check for unusual characters in a \*(CO file name
+or for file names that differ from other file names only in case.
+.PP
+Beware of using
+.B doscp
+to create impossible files, e.g.,
+.BR com1 .
+Such files create serious problems; for example, if you try to
+.B TYPE
+or otherwise perform \*(MD operations on
+.BR com1 ,
+you will attack the \*(MD device driver instead of the file.
+Be sure to rename all such files when you copy them from a \*(CO
+to an \*(MD file system.
+.PP
+.B doscp
+does not understand compressed \*(MD file systems created by programs such as
+.B Stacker
+or \*(MD 6.0
+.BR dblspace .
+If you are running \*(MD with file compression,
+you must copy files to an uncompressed file system
+(for example, to an uncompressed floppy disk or to the uncompressed
+host for a compressed file system) to make them accessible to the
+.BR doscp .

@@ -1,0 +1,281 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3; strict;
+comment  @ * @;
+
+
+1.3
+date     93.05.18.07.32.31;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.09.09.09.05.04;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.28.56;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*
+ * File:	coffpatch.c
+ *
+ * Purpose:	write into a coff file
+ *
+ * $Log$
+ */
+
+/*
+ * ----------------------------------------------------------------------
+ * Includes.
+ */
+#include <stdio.h>
+#include <errno.h>
+#include <coff.h>
+#include <sys/types.h>
+
+/*
+ * ----------------------------------------------------------------------
+ * Definitions.
+ *	Constants.
+ *	Macros with argument lists.
+ *	Typedefs.
+ *	Enums.
+ */
+
+/*
+ * ----------------------------------------------------------------------
+ * Functions.
+ *	Import Functions.
+ *	Export Functions.
+ *	Local Functions.
+ */
+int coffpatch();
+
+/*
+ * ----------------------------------------------------------------------
+ * Global Data.
+ *	Import Variables.
+ *	Export Variables.
+ *	Local Variables.
+ */
+extern char xflag;
+
+/*
+ * ----------------------------------------------------------------------
+ * Code.
+ *
+ * Perform peeks/patches as formatted by coffp0() in asypatch.c
+ *
+ * Return nonzero if success; zero if failure.
+ */
+
+int
+coffpatch(fname, sym, stbl, buf, len, do_read)
+char *fname;
+SYMENT *sym;
+char *stbl, *buf;
+int len, do_read;
+{
+	int	ret = 0;
+	int	fd;
+	int	rwct, i;
+	static FILEHDR mainhdr;
+	static AOUTHDR opthdr;
+	static SCNHDR sh;
+	long	seek, sought;
+
+	long	text_size;	/* Size of text section in bytes.  */
+	vaddr_t	text_addr;	/* Virtual memory base address for text.  */
+	short	text_scnum;	/* Section number of text section.  */
+	fsize_t text_base;	/* File offset of start of text section.  */
+
+	long	data_size;	/* Size of data section in bytes.  */
+	vaddr_t	data_addr;	/* Virtual memory base address for data.  */
+	short	data_scnum;	/* Section number of data section.  */
+	fsize_t data_base;	/* File offset of start of data section.  */
+
+	/*
+	 * Open the file to be patched.
+	 */
+	if ((fd=open(fname, 2)) < 0) {
+		fprintf(stderr, "Cannot open %s\n", fname);
+		goto no_close_fd;
+	}
+	lseek(fd, 0, 0);
+
+	/*
+	 * Read filehdr.
+	 */
+	if (-1 == read(fd, &mainhdr, sizeof(FILEHDR))) {
+		perror(fname);
+		fprintf(stderr, "Cannot read executable header.\n");
+		goto close_fd;
+	}
+
+	/*
+	 * Check for valid magic and length of optional header.
+	 */
+	if (mainhdr.f_magic != C_386_MAGIC || (mainhdr.f_opthdr < sizeof(opthdr))) {
+		fprintf(stderr, "Bad magic (not COFF) in %s.\n", fname);
+		goto close_fd;
+	}
+
+	/*
+	 *Read the optional header.
+	 */
+	if (-1 == read(fd, &opthdr, sizeof(AOUTHDR))) {
+		perror(fname);
+		fprintf(stderr, "Cannot read optional header.\n");
+		goto close_fd;
+	}
+	
+	/*
+	 * Fill in the parameters we can get from the opthdr.
+	 */
+	text_size = opthdr.tsize;
+	text_addr = opthdr.text_start;
+
+	data_size = opthdr.dsize;
+	data_addr = opthdr.data_start;
+
+	/*
+	 * Read section headers for offsets.
+	 */
+	text_scnum = -1;	/* Mark as not found.  */
+	data_scnum = -1;	/* Mark as not found.  */
+	for (i = 1; i <= mainhdr.f_nscns; ++i) {
+		if (-1 == read(fd, &sh, sizeof(SCNHDR))) {
+			perror(fname);
+			fprintf(stderr, "Cannot read section header.\n");
+			goto close_fd;
+		}
+
+		if (STYP_TEXT == sh.s_flags) {
+			text_scnum = i;
+			text_base = sh.s_scnptr;
+		} else if (STYP_DATA == sh.s_flags) {
+			data_scnum = i;
+			data_base = sh.s_scnptr;
+		} /* else ignore this section header.  */
+	}
+
+	/*
+	 * Did we find both sections?
+	 */
+	if (-1 == text_scnum) {
+		fprintf(stderr, "No text section in %s.\n", fname);
+	}
+
+	if (-1 == data_scnum) {
+		fprintf(stderr, "No data section in %s.\n", fname);
+	}
+
+	/*
+	 * Range check the patch address.
+	 */
+	if (sym->n_scnum == text_scnum) {
+		if ((sym->n_value < text_addr) ||
+		    (sym->n_value + len > text_addr + text_size) ) {
+
+		    fprintf(stderr, "Symbol out of range for text section.\n");
+		    fprintf(stderr, "%s: %x\n",
+			stbl + sym->n_offset - sizeof(long),
+			   sym->n_value);
+		    goto close_fd;
+		}
+	} else if (sym->n_scnum == data_scnum) {
+		if ((sym->n_value < data_addr) ||
+		    (sym->n_value + len > data_addr + data_size) ) {
+
+		    fprintf(stderr, "Symbol out of range for data section.\n");
+		    fprintf(stderr, "%s: %x\n",
+			   stbl + sym->n_offset - sizeof(long),
+			   sym->n_value);
+		    goto close_fd;
+		}
+	} else {
+		fprintf(stderr,
+			"Illegal section number %d for symbol %s.\n",
+			sym->n_scnum,
+			   stbl + sym->n_offset - sizeof(long));
+		goto close_fd;
+	}
+
+	/*
+	 * Seek and patch.
+	 */
+	seek = sym->n_value;
+	/*
+	 * Adjust the file offset for the symbol based on which
+	 * segment it resides in.
+	 */
+	if (sym->n_scnum == text_scnum) {
+		seek = (seek - text_addr) + text_base;
+	} else if (sym->n_scnum == data_scnum) {
+		seek = (seek - data_addr) + data_base;
+	} else {
+		fprintf(stderr, "Bad section number!!.\n");
+		goto close_fd;
+	}
+
+	sought = lseek(fd, seek, 0);
+	if (sought == -1) {
+		fprintf(stderr, "asypatch: lseek to %x failed\n", seek);
+	}
+
+	if (xflag)
+		printf("write(%d, [%x]=%x, %d)->%x\n",
+		  fd, buf, *(int*)buf, len, sought);
+
+	if (do_read) {
+		if ((rwct = read(fd, buf, len)) != len) {
+			fprintf(stderr, "asypatch %s: read %d bytes of %d\n",
+			  stbl, rwct, len);
+			goto close_fd;
+		}
+	} else {
+		if ((rwct = write(fd, buf, len)) != len) {
+			fprintf(stderr, "asypatch %s: wrote %d bytes of %d\n",
+			  stbl, rwct, len);
+			goto close_fd;
+		}
+	}
+	ret = 1;
+
+close_fd:
+	close(fd);
+no_close_fd:
+	return ret;
+}
+@
+
+
+1.2
+log
+@kernel 62 source
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

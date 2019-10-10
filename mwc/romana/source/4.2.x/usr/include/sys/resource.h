@@ -1,0 +1,52 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__SYS_RESOURCE_H__
+#define	__SYS_RESOURCE_H__
+
+/*
+ * This header defines constants and structures related to the BSD-
+ * derived getrlimit () and setrlimit (), which are supported in System V,
+ * Release 4. The BSD function getrusage () is not part of SVR4.
+ *
+ * The mere presence of this header should satisfy BSD-derived code that
+ * includes it.  We define the SVR4 ABI-specified contents for this header
+ * below, but guarded by a feature-test as some configuration code may test
+ * for the presence of symbols defined in this header as a way of identifying
+ * support for getrlimit ().
+ *
+ * Note that getrlimit () is not part of iBCS2, and is therefore not supported
+ * in COHERENT 4.x.
+ */
+
+#include <common/feature.h>
+
+#if	_SVSV4
+
+#define	RLIMIT_CPU	0		/* CPU seconds permitted */
+#define	RLIMIT_FSIZE	1		/* Maximum file size */
+#define	RLIMIT_DATA	2		/* Maximum process heap size */
+#define	RLIMIT_STACK	3		/* Maximum process stack size */
+#define	RLIMIT_CORE	4		/* Maximum core-file size */
+#define	RLIMIT_NOFILE	5		/* Number of open files */
+#define	RLIMIT_VMEM	6		/* Maximum mapped address space */
+#define	RLIMIT_NLIMITS	7
+
+#define	RLIMIT_AS	RLIMIT_VMEM
+#define	RLIMIT_INFINITY	0x7FFFFFFUL
+
+typedef	unsigned long	rlim_t;
+
+struct rlimit {
+	rlim_t		rlim_curr;	/* current resource setting */
+	rlim_t		rlim_max;	/* maximum resource setting */
+};
+
+#endif	/* _SYSV4 */
+
+#endif	/* ! defined (__SYS_RESOURCE_H__) */
+

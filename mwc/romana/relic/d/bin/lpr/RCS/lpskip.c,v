@@ -1,0 +1,94 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     90.11.13.19.29.42;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     90.11.13.19.27.47;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@steve 11/13/90
+Initial MWC RCS revision.
+This source is unchanged since 10/18/82...
+@
+
+
+1.2
+log
+@steve 11/13/90
+Integrated the hp/lpskip.c source with lpr/lpskip.c source.
+The changes are benign: different spool directory if -DLASER,
+usage message using passed argv0 instead of explicit "lpskip".
+@
+text
+@/*
+ * Cause the line printer daemon to
+ * skip the current listing.
+ * With `-r' option, make it restart the
+ * current listing.
+ * SIGTRAP is used for skipping; SIGREST for restarting.
+ * (NOTE: this should be setuid to daemon).
+ */
+
+#include <stdio.h>
+#include <signal.h>
+
+#ifdef LASER
+char	lockfile[] = "/usr/spool/hpd/dpid";
+#else
+char	lockfile[] = "/usr/spool/lpd/dpid";
+#endif
+char *argv0;
+
+main(argc, argv)
+char *argv[];
+{
+	int pid;
+	register int fd;
+	register int sig = SIGTRAP;
+
+	argv0 = argv[0];
+	if (argc>1 && *argv[1]=='-') {
+		if (argv[1][1]=='r' && argv[1][2]=='\0')
+			sig = SIGREST;
+		else
+			usage();
+	}
+	if ((fd = open(lockfile, 0)) < 0
+	 || read(fd, &pid, sizeof pid) != sizeof (pid)
+	 || kill(pid, sig) < 0) {
+		fprintf(stderr, "Line printer daemon not active\n");
+		exit(1);
+	}
+}
+
+usage()
+{
+	fprintf(stderr, "Usage: %s [-r]\n", argv0);
+	exit(1);
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d13 3
+d17 2
+d27 1
+d44 1
+a44 1
+	fprintf(stderr, "Usage: lpskip [-r]\n");
+@

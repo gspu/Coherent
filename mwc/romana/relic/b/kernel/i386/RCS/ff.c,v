@@ -1,0 +1,337 @@
+head     1.6;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.6; strict;
+comment  @ * @;
+
+
+1.6
+date     93.04.09.08.36.18;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     93.03.02.08.29.34;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.18.16.25.01;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.08.20.12.55.33;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.04.12.43.56;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.22.29;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.6
+log
+@hal: kernel 75 update
+@
+text
+@/*
+ * fakeff.c
+ * Simulate all the calls for far memory access from COH 286.
+ * Far pointers are simulated with virtual addresses.
+ */
+#include <sys/coherent.h>
+#include <sys/seg.h>
+#include <sys/fakeff.h>
+
+extern SR allocp;
+
+/*
+ * Initialize a virtual address to access physical memory at location
+ * 'paddr', of size 'len' bytes.  It provides read and write (but not
+ * execute) access.  When no longer required, a virtual address should be
+ * released by vrelse.
+ */
+faddr_t
+map_pv(paddr, len)
+__paddr_t paddr;
+fsize_t len;
+{
+	int s;			/* Return value of sphi().  */
+	int npage;		/* Number of pages we must allocate.  */
+	faddr_t	chunk_start;	/* Start of allocated segment in vmem.  */
+	faddr_t retval;		/* Address of desired physical memory in vmem.  */
+	int base1;		/* Offset into ptable1_v[].  */
+	cseg_t	pte;		/* Build page table entries here.  */
+
+	/* Figure out how many clicks we need to map.
+	 *	   [		    ]		What we want.
+	 *	[	|	|	]	What we get.
+	 * Total number of clicks is:
+	 *	(click up from (paddr+len)) - (click down from paddr)
+	 */
+		
+	npage = btoc(paddr+len) - btocrd(paddr);
+
+	/* Note that sysmem.vaddre is ALWAYS click aligned.  */
+	
+	/*
+	 * Allocate the required chunk of virtual memory space.
+	 * This could be a lot more sophisticated.  For expedience,
+	 * there is no way to free this after it has been allocated,
+	 * and there are no checks to see if we ran out of virtual space.
+	 */
+	s = sphi();
+	chunk_start = sysmem.vaddre;
+	sysmem.vaddre += ctob(npage);
+	spl(s);
+
+	/*
+	 * Figure out where the desired physical address ends up in vmem.
+	 */
+	retval = chunk_start + (paddr - ctob(btoc(paddr)));
+	
+	/*
+	 * Load the page table.
+	 */
+	base1 = btocrd(chunk_start);
+	pte = ctob(btocrd(paddr));
+	do {
+		ptable1_v[base1] = pte | SEG_SRW;
+		base1++;
+		pte += ctob(1);	/* Bump up to next physical click.  */
+	} while (--npage > 0);
+	mmuupd();	/* Tell the mmu about the new map.  */
+
+	return(retval);
+} /* map_pv() */
+
+/*
+ * Release a virtual address that we previously obtained with function
+ * map_pv().
+ */
+void
+unmap_pv(faddr)
+faddr_t faddr;
+{
+	/* For the moment, this function does nothing.  */
+}		
+
+/*
+ * Translate virtual address to physical address.
+ * Returns the current physical address associated with virtual address 'vaddr'.
+ * Returns 0 if that portion of virtual address space is not associated with
+ * any physical memory.
+ */
+paddr_t
+vtop(vaddr)
+caddr_t vaddr;
+{
+	paddr_t	retval;
+	unsigned int ptable_idx;	/* Index into ptable1_v[].  */
+
+	ptable_idx = btocrd(vaddr);
+
+	/*
+	 * There is a 4Mbyte virtual page table ptable1_v[] which is
+	 * all the bottom level page tables appended into a big array.
+	 * Note that there are huge holes in this data structure, for
+	 * unmapped virtual address space.
+	 *
+	 * We are going to look up 'vaddr' in the virtual page table
+	 * ptable1_v[].
+	 *
+	 * But first, we have to see if the portion of page table we are
+	 * going to look at exists.  We do this by looking at the one click
+	 * long page table that maps the virtual page table, PPTABLE1_V[].
+	 */
+	retval = 0;	/* Assume entry not found.  */
+
+	if (ptable0_v[btosrd(vaddr)] & SEG_SRO) {
+		/*
+		 * ASSERTION:  The portion of ptable1_v[] we want is valid.
+		 */
+		if (ptable1_v[ptable_idx] & SEG_SRO) {
+
+			/*
+			 * ASSERTION:  'vaddr' corresponds to some
+			 * physical memory.
+			 *
+			 * Note that the address of a physical click is
+			 * all above bit 11 in the PTE.
+			 */
+			retval = (ptable1_v[ptable_idx] & ~(NBPC - 1));
+			retval += ((long) vaddr & (NBPC - 1));
+		}
+	}
+
+	T_PIGGY( 0x10, printf("vtop(%x)=%x, ", vaddr, retval); );
+
+	return(retval);
+} /* vtop() */	
+
+/*
+ * Translate system global address 'vpaddr' to physical address.
+ *
+ * May cause a panic if 'vpaddr' does not correspond to a real physical
+ * address.
+ */
+paddr_t
+vptop(vpaddr)
+paddr_t vpaddr;
+{
+	paddr_t	retval;
+	cseg_t pte;	/* Page table entry from sysmem.u.pbase[].  */
+
+	T_PIGGY( 0x10, printf("vptop(%x)=", vpaddr); );
+
+	pte = sysmem.u.pbase[btocrd(vpaddr)];
+	pte &= ~(NBPC - 1);	/* Strip off the non-address information.  */
+
+	retval = pte | (vpaddr & (NBPC - 1));
+
+	T_PIGGY( 0x10, printf("%x,", retval); );
+
+	return(retval);
+} /* vptop() */
+
+/*
+ * Convert from virtual address to system global address.  Similar to MAPIO(),
+ * but does not require separate segment and offset.
+ *
+ * Only works for Kernel Space virtual addresses.
+ */
+paddr_t
+vtovp(vaddr)
+caddr_t vaddr;
+{
+	paddr_t	retval;
+
+	T_PIGGY( 0x10, printf("vtopvp(%x)=", vaddr); );
+
+	retval = MAPIO((allocp.sr_segp->s_vmem), (vaddr - allocp.sr_base));
+
+	T_PIGGY( 0x10, printf("%x, ", retval); );
+
+	return( retval );
+}
+@
+
+
+1.5
+log
+@kernel 73 update
+@
+text
+@d20 1
+a20 1
+paddr_t paddr;
+@
+
+
+1.4
+log
+@hal: kernel 72
+@
+text
+@d91 1
+a91 1
+vaddr_t vaddr;
+d127 1
+a127 1
+			retval += (vaddr & (NBPC - 1));
+d169 1
+a169 1
+vaddr_t vaddr;
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d20 2
+a21 2
+	paddr_t paddr;
+	fsize_t len;
+d74 1
+a74 5
+ * map_pv().  It is a fatal error to release a virtual address
+ * more than once.  Only 8,192 virtual addresses can be allocated at any
+ * one time.
+ *
+ * The last two sentences are lies.
+d78 1
+a78 1
+	faddr_t faddr;
+d80 1
+a80 2
+	faddr = faddr;	/* lint food.  */
+	return;	/* For the moment, this function does nothing.  */
+d91 1
+a91 1
+	vaddr_t vaddr;
+d113 1
+a113 2
+
+	if (0 != (ptable0_v[btosrd(vaddr)] & SEG_SRO)) {
+d117 1
+a117 1
+		if (0 != (ptable1_v[ptable_idx] & SEG_SRO)) {
+a135 1
+
+d137 1
+a137 1
+ * Translate virtual-physical address 'vpaddr' to physical address.
+a140 7
+ *
+ * Virtual-physical space is a system of simulated physical addresses with
+ * two important properties:  addresses are constant w.r.t. physical memory
+ * no matter what process is running (unlike true virtual addresses), and
+ * they are completely contigious wrt virtual addresses (unlike true
+ * physical addresses--two adjacent physical addresses may correspond to
+ * wildly different virtual addresses.)
+d144 1
+a144 1
+	paddr_t vpaddr;
+d162 1
+a162 1
+ * Convert from virtual address to virtual-physical.  Similar to MAPIO(),
+d169 1
+a169 1
+	vaddr_t vaddr;
+@
+
+
+1.2
+log
+@upd for kernel 59
+@
+text
+@d16 1
+a16 1
+ * releaseed by vrelse.
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d177 1
+a177 1
+ * but does not require separte segment and offset.
+@

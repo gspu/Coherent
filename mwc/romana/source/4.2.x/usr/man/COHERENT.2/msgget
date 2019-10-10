@@ -1,0 +1,234 @@
+mmssggggeett() -- General Function (libc)
+
+Create or get a message queue
+#iinncclluuddee <ssyyss/ttyyppeess.hh>
+#iinncclluuddee <ssyyss/iippcc.hh>
+#iinncclluuddee <ssyyss/mmssgg.hh>
+mmssggggeett(_k_e_y, _f_l_a_g)
+kkeeyy_tt _k_e_y; iinntt _f_l_a_g;
+
+The function  mmssggggeett() gets or  creates a message queue.   If necessary, it
+can create a message queue and  its control structure, and link them to the
+identifier _k_e_y.
+
+_k_e_y  is  an identifier  that  your application  generates  to identify  its
+message queues.  To  guarantee that each key is unique,  you should use the
+function call ffttookk() to generate keys.
+
+When it creates a message queue,  mmssggggeett() also creates a copy of structure
+mmssqqiidd_ddss, which the header file <ssyyss/mmssgg.hh> defines as follows:
+
+struct msqid_ds {
+     struct ipc_perm msg_perm;/* operation permission struct */
+     struct msg *msg_first; /* ptr to first message on queue */
+     struct msg *msg_last;  /* ptr to last message on queue */
+     unsigned short msg_cbytes;/* current # bytes on queue */
+     unsigned short msg_qnum;/* # of messages on queue */
+     unsigned short msg_qbytes;/* max # of bytes on queue */
+     unsigned short msg_lspid;/* pid of last msgsnd() */
+     unsigned short msg_lrpid;/* pid of last msgrcv() */
+     time_t msg_stime;      /* last msgsnd() time */
+     time_t msg_rtime;      /* last msgrcv() time */
+     time_t msg_ctime;      /* last change() time */
+};
+
+The messages themselves consist of a linked list of structures of type mmssgg.
+Fields mmssgg_ffiirrsstt  and mmssgg_llaasstt point  to, respectively, the  first and last
+messages in  the list.   Header file  <ssyyss/mmssgg.hh> defines structure  mmssgg as
+follows:
+
+struct msg {
+     struct msg *msg_next;  /* pointer to next message on queue */
+     long msg_type;         /* message type */
+     short msg_ts;          /* message text size */
+     short msg_spot;        /* message text map address */
+};
+
+Field  mmssgg_ppeerrmm  is  a  structure  of  type  iippcc_ppeerrmm,  which  header  file
+<ssyyss/iippcc.hh> defines as follows:
+
+struct ipc_perm {
+     unsigned short uid;    /* owner's user id */
+     unsigned short gid;    /* owner's group id */
+     unsigned short cuid;   /* creator's user id */
+     unsigned short cgid;   /* creator's group id */
+     unsigned short mode;   /* access modes */
+     unsigned short seq;    /* slot usage sequence number */
+     key_t key;             /* key */
+};
+
+mmssggggeett() initializes mmssqqiidd_ddss as follows:
+
+-> It  sets  the  fields  mmssgg_ppeerrmm.ccuuiidd, mmssgg_ppeerrmm.uuiidd,  mmssgg_ppeerrmm.ccggiidd,  and
+   mmssgg_ppeerrmm.ggiidd to, respectively, the effective user ID and effective group
+   ID of the calling process.
+
+-> It sets  the low-order nine bits of mmssgg_ppeerrmm.mmooddee  to the low-order nine
+   bits of  _f_l_a_g. These nine bits define access  permissions: the top three
+   bits  give the  owner's access permissions  (read, write,  execute), the
+   middle three  bits the  owning group's  access permissions, and  the low
+   three bits access permissions for others.
+
+-> It sets mmssgg_ccttiimmee is set to the current time.
+
+-> It sets mmssgg_qqbbyytteess to the value of kernel variable NNMMSSQQBB, which sets the
+   maximum number of bytes available to the message queue.
+
+If any of  the following error conditions is true,  mmssggggeett() returns -1 and
+sets eerrrrnnoo to the value within parentheses:
+
+-> _k_e_y  already has  a message  queue, but  the owner  of the  process that
+   called mmssggggeett() does not have permission to read it (EEAACCCCEESS).
+
+-> _k_e_y does not  have a message queue associated with  it, but _f_l_a_g is does
+   not  request that  one  be created  (i.e.,  _f_l_a_g &  IIPPCC_CCRREEAATT is  false)
+   (EENNOOEENNTT).
+
+-> _f_l_a_g requests  that mmssggggeett()  create a  message queue, but  the system's
+   maximum number of message queues  (as set by the kernel variable NNMMSSQQIIDD)
+   already exists (EENNOOSSPPCC).
+
+-> _k_e_y  already has  a message  queue, but  _f_l_a_g requests  that a  queue be
+   created exclusively  (i.e., (_f_l_a_g &  IIPPCC_CCRREEAATT) && (_f_l_a_g  & IIPPCC_EEXXCCLL) is
+   true) (EEEEXXIISSTT).
+
+If all  goes well mmssggggeett()  returns the message-queue  identifier, which is
+always a non-negative integer.  Otherwise,  it returns -1 and sets eerrrrnnoo to
+an appropriate value.
+
+_E_x_a_m_p_l_e
+The  following  program,  ssaammpplleemmssgg.cc, gives  an  example  of the  COHERENT
+message  facility.  One  server process  accepts  user keyboard  input, and
+sends it  client 1 if  the first character  is an upper-case  letter, or to
+client 2 if the first character is not an upper-case letter.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+/* Maximum size of messages in this example.
+ * The default maximum size is 2048. */
+#define MAX_MSG_SIZE 80
+
+/* template for a message */
+struct my_msg {
+    long mtype;
+    unsigned char mtext[MAX_MSG_SIZE];
+};
+
+struct my_msg sndmsg; /* message we will send */
+struct my_msg rcvmsg; /* message we will receive */
+
+key_t key;     /* key for getting our message queue */
+int id;        /* message queue id returned by msgget() */
+long msgtype;  /* type of the message */
+
+main()
+{
+               /* Generate unigue key */
+               key = ftok("./samplemsg", 'A');
+
+               /* get our message queue, abort on error */
+               if( -1 == (id = msgget(key, IPC_CREAT|0660))){
+               printf("Error obtaining message queue\n");
+               exit(EXIT_FAILURE);
+               }
+
+               printf("To end this demonstration, type 'end'.\n"
+               "Enter the message -> ");
+               fflush(stdout);
+               msgtype = 1;/* 1st client receives messages of type 1 */
+
+               /* fork() to produce our 1st client processes. */
+               if (fork()) { /* we are parent process (server) */
+               msgtype = 2; /* 2nd client receives messages of type 2 */
+               /* fork() again to produce our 2nd client processes. */
+               if (fork()) { /* we are parent process (server) */
+                send_messages(); /* server */
+               } else
+                receive_messages(); /* second client */
+               } else
+               receive_messages(); /* 1st client */
+               exit(EXIT_SUCCESS);
+}
+
+/* Get a message from user and send it to client or child processes */
+send_messages()
+{
+               for (;;) {
+               /* get our message to send */
+               gets(sndmsg.mtext);
+
+               /* if 'end' was entered, send message to BOTH clients,
+                * as this is a flag for them to terminate themselves.
+                * Otherwise, just send the message.
+                */
+               if (!strcmp(sndmsg.mtext,"end")) {
+                sndmsg.mtype = 1;
+                msgsnd(id, &sndmsg, strlen(sndmsg.mtext)+1, 0);
+                sndmsg.mtype = 2;
+                msgsnd(id, &sndmsg, strlen(sndmsg.mtext)+1, 0);
+                printf("Thank you. Bye.\n");
+                break;
+               }
+
+               /* Determine the type of message this will be.
+                * if the first character is upper case letter,
+                * then this is a type-1 message; otherwise,
+                * this is a type-2 message.
+                */
+               if (isupper(sndmsg.mtext[0]))
+                sndmsg.mtype = 1L;
+               else
+                sndmsg.mtype = 2L;
+
+               if (msgsnd(id, &sndmsg, strlen(sndmsg.mtext)+1, 0) < 0) {
+                perror("send");
+                break;
+               }
+               }
+
+               while (wait(NULL) > 0)/* Wait for the children */
+               ;
+               msgctl(id, IPC_RMID,0); /* remove message queue */
+               return;
+}
+
+/* receive_messages(). */
+receive_messages()
+{
+               char clntbuf[20];
+
+               sprintf(clntbuf, "Client %ld", msgtype);
+
+               for (;;) {
+               if (msgrcv(id, &rcvmsg, MAX_MSG_SIZE, msgtype, 0) < 0) {
+                perror(clntbuf);
+                exit(1);
+               }
+
+               printf("%s received: '%s'\n", clntbuf, rcvmsg.mtext);
+               if (!strcmp(rcvmsg.mtext,"end"))
+                break;
+               printf("Enter next message -> ");
+               fflush(stdout);
+               }
+               exit(EXIT_SUCCESS);
+}
+
+_F_i_l_e_s
+/uussrr/iinncclluuddee/ssyyss/iippcc.hh
+/uussrr/iinncclluuddee/ssyyss/mmssgg.hh
+
+_S_e_e _A_l_s_o
+ffttookk(), iippccrrmm, iippccss, lliibbcc, lliibbssoocckkeett, mmssggccttll(), mmssggrrccvv(), mmssggssnndd()
+
+_N_o_t_e_s
+Prior to  release 4.2, COHERENT  implemented semaphores through  the driver
+mmssgg.  In release  4.2, and  subsequent  releases, COHERENT  has implemented
+semaphores as  a set of  functions that conform  in large part  to the UNIX
+System-V standard.

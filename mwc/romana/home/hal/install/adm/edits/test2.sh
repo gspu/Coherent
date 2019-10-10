@@ -1,0 +1,256 @@
+# mkdist
+# Mon May  2 09:10:12 1994 CDT
+
+# Usage: mkdist {fha|fva} distrib_dir target_dir ker_file
+
+# Make a 3.5 or 5.25 diskette distribution kit.
+# Run me as root.
+
+##########################################
+#
+# Functions
+#
+##########################################
+
+# Confirm whether a value is set to a yes
+
+isyes () {
+	[ $1 = y -o $1 = Y ]
+	return $?
+}
+
+# Call with the $0 of the script as a parameter; this commands writes the
+# name of the directory containing the script to standard output.
+# Example:
+#	cmd_path $0
+
+cmd_path () {
+
+	# if arg passed contains a slash 
+	#   strip smallest suffix
+	# else if "which" finds a path to it with a slash
+	#   strip suffix from result of "which"
+	# else use current directory
+
+	case $1 in
+	*/*) echo "${1%/*}"
+		;;
+	*)   WHICH=`which $1 2>/dev/null`
+		case $WHICH in
+		*/*) echo "${WHICH%/*}"
+			;;
+		*)   echo .
+			;;
+		esac
+		;;
+	esac
+
+	return 0
+}
+
+##########################################
+#
+# Main Script
+#
+##########################################
+
+# UAD is usually /usr/adm/distrib
+
+export UAD=`cmd_path $0`
+cd $UAD
+UAD=$(pwd)
+echo UAD is $UAD
+
+EDITOR=${EDITOR-vi}
+
+if [ $# -ne 4 ] ; then
+	/bin/echo 'Usage: mkdist {fha|fva} distrib_dir target_dir ker_file'
+	exit 1
+fi
+
+FORMAT=$1
+DISTRIB=$2
+TARGET=$3
+KERNEL=$4
+
+# Initial argument processing.
+
+if [ "$FORMAT" = fqa ] ; then
+	MAJOR=4
+	MINOR=13
+	BLOCKS=1440
+	UBLOCKS=1440
+	DEV=/dev/fqa1
+	BOOT=boot.fqa
+	MNT=/f1
+elif [ "$FORMAT" = fha ] ; then
+	MAJOR=4
+	MINOR=14
+	BLOCKS=2400	# actual device size
+	UBLOCKS=2370	# forget about using last 2 tracks
+	DEV=/dev/fha1
+	BOOT=boot.fha
+	MNT=/f1
+elif [ "$FORMAT" = fva ] ; then
+	MAJOR=4
+	MINOR=15
+	BLOCKS=2880	# actual device size
+	UBLOCKS=2844	# forget about using last 2 tracks
+	DEV=/dev/fva0
+	BOOT=boot.fva
+	MNT=/f0
+else
+	/bin/echo 'Usage: mkdist {fha|fva} distrib_dir target_dir ker_file'
+	exit 1
+fi
+
+if [ ! -d "$DISTRIB" ]; then
+	/bin/echo "Can't open distrib directory \"$DISTRIB\""
+	exit 1
+fi
+
+if [ ! -d "$TARGET" ]; then
+	/bin/echo "Can't open target directory \"$TARGET\""
+	exit 1
+fi
+
+if [ ! -f "$KERNEL" ]; then
+	/bin/echo "Can't open kernel file \"$KERNEL\""
+	exit 1
+fi
+
+###
+
+/bin/echo "Make a new split of $DISTRIB into $TARGET?"
+/bin/echo -n "Answering no will use the old split: "
+SPLIT=n
+read ANS
+if isyes $ANS; then
+	SPLIT=y
+fi
+
+# Get a version id.
+
+/bin/echo -n 'Enter the version id for this release [Coh_420]: '
+
+read id
+if [ -z $id ]; then
+	id=Coh_420
+fi
+
+/bin/echo "Disks will be numbered $id.1, $id.2, etc."
+
+# Split distribution_directory to boot disk in $TARGET/distrib1,
+# remainder in $TARGET/distrib2.
+
+if [ "$SPLIT" = "y" ] ;then
+
+if isyes NO; then
+
+	# Split distribution between distrib1 and distrib2.
+	set $(ls -s $KERNEL)
+	KER_BLOCKS=$1
+	$UAD/splitdist $FORMAT $DISTRIB $TARGET $UBLOCKS $KER_BLOCKS || exit 1
+
+	# Compress directories, putting into $TARGET/distrib2/compressed.
+	$UAD/squashdirs $FORMAT $DISTRIB $TARGET || exit 1
+
+	# Allocate files in distrib2 among as many floppies as needed.
+	$UAD/divvy.sh $TARGET/distrib2 $UBLOCKS $FORMAT
+
+fi
+	# How many disks in the distribution?
+
+	ndisks=`ls divvy/$FORMAT* | wc -l`
+	ndisks=`expr $ndisks + 1`
+	echo "There are $ndisks disks in the distribution."
+
+	# Now do edits to files that differ for 5-1/4" vs. 3-1/2" distribs.
+
+	/bin/echo "Fix /etc/brc.install:"
+	do_edit.sh "__PRODUCT=$id" "__BOOT_DEV=/dev/${FORMAT}0" "__NDISKS=$ndisks" \
+	  $TARGET/distrib1/etc/brc.install /etc/brc.install
+
+	/bin/echo "Fix /etc/brc.update:"
+	do_edit.sh "__PRODUCT=$id" "__BOOT_DEV=/dev/${FORMAT}0" "__NDISKS=$ndisks" \
+	  $TARGET/distrib1/etc/brc.update /etc/brc.update
+
+	case ${FORMAT} in
+	fva)
+		BDRIVE=/dev/fha1
+		FHAV=#
+		FVAV=
+		;;
+	fha)
+		BDRIVE=/dev/fva1
+		FHAV=
+		FVAV=#
+		;;
+	*)
+		echo "$0: Unrecognized name ${FORMAT} for boot floppy!" >&2
+		exit 1
+		;;
+	esac
+
+	/bin/echo -n "Edit /bin/mount and set alias f0 to be /dev/${FORMAT}0"
+	do_edit.sh "__BOOT_DEV=/dev/${FORMAT}0" "__SECOND_FLOPPY=$BDRIVE" \
+	  $TARGET/distrib1/bin/mount /bin/mount
+
+	/bin/echo -n "Edit /etc/default/msdos and uncomment appropriate A:/B"
+	do_edit.sh "__FHA_VERSION=$FHAV" "__FVA_VERSION=$FVAV" \
+	  $TARGET/distrib1/etc/default/msdos /etc/default/msdos
+
+else
+
+	# How many disks in the distribution?
+
+	ndisks=`ls divvy/$FORMAT* | wc -l`
+	ndisks=`expr $ndisks + 1`
+	echo "There are $ndisks disks in the distribution."
+
+fi
+
+# Build a boot disk.
+/bin/echo -n 'Insert a floppy for the boot disk and hit enter... '
+read x
+$UAD/mkboot $TARGET $DISTRIB/conf/$BOOT $DEV $BLOCKS $KERNEL || exit 1
+/etc/mount $DEV $MNT
+touch $MNT/$id.1
+
+/etc/umount $DEV
+/bin/sync
+/bin/echo 'Done with boot floppy.'
+
+# Build remainder of kit.
+n=1
+for FLIST in divvy/$FORMAT*
+do
+	# Prompt for a diskette.
+	n=`expr $n + 1`
+	/bin/echo -n "Insert disk $n of $ndisks and hit enter... "
+	read x
+
+	# Figure how many inodes to allocate - # of files + 20.
+	INODES=$(expr $(wc -l < $FLIST) + 20)
+
+	# Make file system.
+	/etc/mkfs -i $INODES $DEV $BLOCKS
+
+	# Mount the floppy on /f0 (3-1/2" or 5-1/4")
+	/etc/mount $DEV $MNT
+
+	# Copy files per divvy listing for this disk.
+	HERE=$(pwd)
+	cd $TARGET/distrib2
+	cpio -pudvm $MNT < $HERE/$FLIST || exit 1
+	cd $HERE
+
+	# Add volume label.
+	touch $MNT/$id.$n
+
+	/etc/umount $DEV
+	/bin/echo "\007Done with disk $id.$n...."
+done
+
+/bin/echo 'Done building the distribution!'
+exit 0

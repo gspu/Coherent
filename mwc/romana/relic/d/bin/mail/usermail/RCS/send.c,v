@@ -1,0 +1,501 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    piggy:1.2;
+comment  @ * @;
+
+
+1.2
+date     91.02.18.17.18.07;  author piggy;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.15.16.52.54;  author piggy;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Routines for actually sending a message into rmail.
+@
+ = NULL;
+
+char	mysite[SITENAMELEN];	/* this host's uucpname */
+
+extern	char	*temp;
+extern	int	myuid;		/* User-id of mail user */
+extern	int	mygid;		/* Group-id of mail user */
+extern	char	cmdname[];	/* Command for x{en,de}code filter */
+				/* and for tail recursion to uumail */
+				/* and for editor recursion */
+extern	char	*editname;	/* name of editor	   */
+extern	char	*askcc;		/* Ask for CC: list? (YES/NO) */
+extern	int	callmexmail;	/* Xmail modifier present */
+extern	char	wrerr[];
+extern	char	myname[];	/* User name */
+extern	char	myfullname[];	/* full user name */
+extern	int	mflag;		/* `You have mail.' message to recipient */
+extern	int	verbflag;	/* verbose flag */
+extern	char	templ[];	/* Temp file name template */
+extern	char	mydead[];	/* $HOME/dead.letter */
+extern	char	mysig[];
+extern	char	nosave[];
+extern	int	callmermail;
+
+static	int	eflag;		/* Edit this mail */
+static	int	senderr;
+struct	tm	*tp;
+char	toerr[] = "Cannot create temporary file\n";
+char	header[BUFSIZ];		/* Message header */
+char	boxname[256];		/* Destination mailbox */
+char	remotefrom [32];	/* "remote from uucp" */
+
+char	nosend[] = "Can't send mail to '%s'\n";
+char	nopubk[] = "Can't send xmail to '%s'\n";
+static	int fromtty;
+
+/*
+ * Send the message found on
+ * the file pointer to the list
+ * of people (argv style) with
+ * a NULL pointer at the end.
+ * The message is copied to a temp-file
+ * from position `start' to `end' (or EOF).
+ */
+send2(fp, users, start, end, asksubj)
+FILE *fp;
+register char **users;
+fsize_t start, end;
+int	asksubj;
+{
+	char	**getcc(), **listpp;
+	FILE 	*xfp, *tfp, *sigfp;
+	time_t	curtime;
+
+	uucpname();
+	domainname();
+	senderr = 0;
+	temp = templ;
+
+	fromtty = isatty(fileno(stdin));
+	if ((tfp = fopen(temp, "w")) != NULL) {
+		fclose(tfp);
+		if ((tfp = fopen(temp, "r+w")) == NULL)
+			merr(toerr);
+	} else
+		merr(toerr);
+	chown(temp, myuid, mygid);
+	unlink(temp);
+	temp = NULL;
+	fseek(fp, start, 0);
+	end -= start;
+
+	eflag = 0;
+	if (fromtty && asksubj && !callmermail) {
+		fprintf(stdout, "Subject: ");
+		fflush(stdout);
+		if (fgets(msgline, NLINE, fp) != NULL) {
+			if (strlen(msgline) > 1)
+				fprintf(tfp, "Subject: %s", msgline);
+		}
+	}
+
+	if (intcheck()) {
+		fclose(tfp);
+		return(1);
+	}
+
+	for (;;) {
+		if (fgets(msgline, NLINE, fp) == NULL)
+			break;
+		if (fp == stdin)
+			if ((strcmp(".\n", msgline)==0))
+				break;
+			else if ((strcmp("?\n", msgline)==0)) {
+				eflag = 1;
+				break;
+			}
+		fputs(msgline, tfp);
+		if ( (end-=strlen(msgline)) <= 0 )
+			break;
+	}
+
+	if (intcheck()) {
+		fclose(tfp);
+		return(1);
+	}
+
+	if (!callmermail && (sigfp = fopen(mysig, "r")) != NULL) {
+		fputs("\n", tfp);
+		while (fgets(msgline, NLINE, sigfp) != NULL)
+			fputs(msgline, tfp);
+		fclose(sigfp);
+	}
+
+	/*
+	 * Now, see if user wants to edit the message
+	 */
+
+	if (eflag) {
+		xfp = tfp;
+		temp = templ;
+		if ((tfp = fopen(temp, "wr")) == NULL)
+			merr(toerr);
+		chown(temp, myuid, mygid);
+		mcopy(xfp, tfp, (fsize_t)0, (fsize_t)MAXLONG, 0);
+		fclose(xfp);
+		sprintf(cmdname, "%s %s", editname, templ);
+		system(cmdname);
+		unlink(temp);
+		temp = NULL;
+	}
+
+	/*
+	 * if empty message, bug out.
+	 */
+
+	if (ftell(tfp) == 0) {
+		fclose(tfp);
+		return(1);
+	}
+
+	/*
+	 * Now see if a copy list is requested.
+	 */
+
+	tolist = users;
+	cclist = (askcc && fromtty && !callmermail) ? getcc(): NULL;
+	allist = listcat(tolist, cclist);
+	
+	if ( verbflag ) {
+		mmsg(
+	"Recipient List:\n\n");
+		for (listpp=allist; *listpp != NULL; listpp++)
+			mmsg("\t%s\n", *listpp);
+	}
+
+	/*
+	 * Now send the message.
+	 */
+
+	time(&curtime);
+	tp = localtime(&curtime);
+
+	if (callmexmail)
+		xsend(allist, tfp);
+	else
+		usend(allist, tfp);
+
+	return( senderr );
+}
+
+usend(users, tfp)
+char **users;
+FILE *tfp;
+{
+	FILE *xfp;
+	char *name;
+	char **ulist, **listpp;
+	char command[CMDLINE];
+	char *arpadate();
+	FILE *popen();
+
+	logdump("Date: %s  From: %s!%s (%s)\n",
+			arpadate(tp), mysite, myname, myfullname);
+	for (ulist = users; (name=*ulist) != NULL; ulist++)
+		logdump("To: \"%s\"\n", name);
+
+	/* Build the command line to the delivery program.  */
+	if ( callmexmail ) {
+		strcpy(command, XDELIVER); /* usually "/bin/rxmail" */
+	} else {
+		strcpy(command, DELIVER); /* usually "/bin/rmail" */
+	} /* if ( callmexmail ) */
+
+	/* Add the list of recipients to the command line.  */
+	for (listpp = users; *listpp != NULL; listpp++) {
+		strcat(command, " ");
+		strcat(command, *listpp);
+	}
+	
+	/* NB:  I think there may be a security problem
+	   here, since popen ought to exec $SHELL.  Check this.  */
+	/* Now actually call the mail delivery agent.  */
+	if ( (xfp = popen(command, "w")) == NULL ) {
+		/* Report a send error and return.  */
+	}
+
+	/* Pump the headers into the delivery agent. */
+	build_header(xfp);
+
+	/* Pump the message into the delivery agent.  */
+	rewind(tfp);
+	mcopy(tfp, xfp, (fsize_t)0, (fsize_t)MAXLONG, 0);
+
+	pclose(xfp);
+	fclose(tfp);
+}
+
+xsend(users, tfp) char **users; FILE *tfp;
+{
+	register char **ulist;
+	register char *cp;
+	register struct passwd *pwp;
+	FILE *xfp;
+
+	for (ulist = users; *ulist!=NULL; ulist++) {
+		rewind(tfp);
+		sprintf(boxname, "%s%s", SPOOLDIR, *ulist);
+		sprintf(cmdname, "xencode %s >> %s", *ulist, boxname);
+		if (index(*ulist, '!') != NULL
+		 || (pwp = getpwnam(*ulist)) == NULL) {
+			mmsg(nosend, *ulist);
+			continue;
+		}
+		if (xaccess(*ulist) == 0) {
+			mmsg(nopubk, *ulist);
+			continue;
+		}
+		mlock(pwp->pw_uid);
+		if ((xfp = fopen(boxname, "a")) == NULL) {
+			mmsg(nosend, *ulist);
+			munlock();
+			continue;
+		}
+		chown(boxname, pwp->pw_uid, pwp->pw_gid);
+		fprintf(xfp, "From xmail %s %s\n", cp,
+			tzname[tp->tm_isdst ? 1 : 0]);
+		fclose(xfp);
+		if ((xfp = popen(cmdname, "w")) == NULL) {
+			mmsg("Can't pipe to xencode\n");
+			continue;
+		}
+		if (fwrite(header, strlen(header), 1, xfp) != 1
+		 || mcopy(tfp, xfp, (fsize_t)0, (fsize_t)MAXLONG, 0)) {
+			merr(wrerr, cmdname);
+		}
+		pclose(xfp);
+		munlock();
+	}
+	fclose(tfp);
+}
+
+uucpname()
+{
+	FILE *uufile;
+
+	if (NULL == (uufile = fopen(NODENAME, "r"))) {
+		strcpy(mysite, "<unknown>");
+		return;
+	}
+	fgets(mysite, sizeof mysite, uufile);
+	mysite[strlen(mysite) - 1] = '\0';	/* remove '\n' */
+	fclose(uufile);
+	return;
+}
+
+domainname()
+{
+	FILE *domfile;
+	if((domfile = fopen(DOMAINNAME, "r")) == NULL) {
+		strcpy(domain, ".UNKNOWN");
+		return;
+	}
+	fgets(domain, sizeof domain, domfile);
+	domain [strlen(domain) - 1] = '\0';
+	fclose (domfile);
+	return;
+}
+
+char *
+arpadate(tp)
+struct	tm	*tp;
+{
+	static	char arpabuf [64];
+	static	char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+	sprintf(arpabuf, "%d %c%c%c %d %02d:%02d:%02d",
+		tp->tm_mday,
+		months[tp->tm_mon * 3],
+		months[tp->tm_mon * 3 + 1],
+		months[tp->tm_mon * 3 + 2],
+		tp->tm_year,
+		tp->tm_hour, tp->tm_min, tp->tm_sec);
+	return arpabuf;
+}
+
+char *
+msgid(tp)
+struct	tm	*tp;
+{
+	static	char	msgidbuf [32];
+	sprintf(msgidbuf, "%02d%02d%02d%02d%02d",
+	tp->tm_year, tp->tm_mon + 1, tp->tm_mday, tp->tm_hour, tp->tm_min);
+	return msgidbuf;
+}
+
+build_header(xfp)
+FILE	*xfp;
+{
+	char	**ulist;
+	int	processid;
+
+	/* Generate a Message-Id.  */
+	processid = getpid();
+	sprintf(header, "Message-Id: <%s.AA%d.V%s@@%s.%s>\n",
+		msgid(tp), processid, revnop(), mysite, domain);
+	if (fwrite(header, strlen(header), 1, xfp) != 1)
+		return 0;
+
+	/* generate Date: and From: lines.  */
+	sprintf(header, "Date: %s\nFrom: %s@@%s.%s (%s)\n",
+		arpadate(tp), myname, mysite, domain, myfullname);
+	if (fwrite(header, strlen(header), 1, xfp) != 1)
+		return 0;
+
+	/* Generate the full To: lines.  We just spit addresses out
+	   verbatum, with no cleanup.  */
+	strcpy(header, "To:");
+	for (ulist=tolist; *ulist != NULL; ulist++) {
+		strcat(header, " ");
+		strcat(header, *ulist);
+	}
+	strcat(header, "\n");
+	if (fwrite(header, strlen(header), 1, xfp) != 1)
+		return 0;
+
+	/* Generate a Cc: line if needed.  */
+	if (cclist[0] != NULL) {
+		strcpy(header, "Cc:");
+		for (ulist=cclist; *ulist != NULL; ulist++) {
+			strcat(header, " ");
+			strcat(header, *ulist);
+		}
+		strcat(header, "\n");
+		if (fwrite(header, strlen(header), 1, xfp) != 1)
+			return 0;
+	}
+	return 1;
+}
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d8 3
+d12 1
+d17 2
+d28 1
+d30 1
+d41 1
+d43 3
+d65 1
+a65 1
+	char	**getcc();
+d67 1
+d69 3
+a69 1
+	senderr = 0;	/* Start with no errors.  */
+d164 7
+d175 2
+a175 1
+	usend(allist, tfp);
+d178 5
+d190 3
+a190 1
+	register char **listpp;
+d194 8
+a194 2
+	FILE *fp, *popen();
+	
+d218 1
+a218 1
+	if ( (fp = popen(command, "w")) == NULL ) {
+d222 3
+d227 1
+a227 1
+	mcopy(tfp, fp, (fsize_t)0, (fsize_t)MAXLONG, 0);
+d229 1
+d231 1
+a231 1
+	fclose(fp);
+d233 40
+a233 5
+	/* If the `-m' option is specified, advise
+	 * all local recipients of the presence of mail.
+	 */
+	for (listpp = users; *listpp != NULL; listpp++) {
+		advise(listpp);
+d274 1
+d277 1
+a277 6
+/*
+ * If the `-m' option is specified, advise
+ * the recipient of the presence of mail.
+ */
+advise(recipient)
+char *recipient;
+d279 1
+a279 5
+	register FILE *fp;
+	register FILE *tfp;
+	struct utmp ut;
+	char tty[30];
+	struct stat sb;
+d281 2
+a281 1
+	if (!mflag)
+d284 12
+a284 1
+	if ((fp = fopen("/etc/utmp", "r")) == NULL)
+d297 5
+a297 11
+	while (fread(&ut, sizeof ut, 1, fp) == 1)
+		if (strncmp(ut.ut_name, recipient, DIRSIZ) == 0) {
+			sprintf(tty, "/dev/%s", ut.ut_line);
+			if (stat(tty, &sb)<0 || (sb.st_mode&S_IEXEC)==0)
+				continue;
+			if ((tfp = fopen(tty, "w")) != NULL) {
+				fprintf(tfp, "\7%s: you have mail.\n", myname);
+				fclose(tfp);
+			}
+		}
+	fclose(fp);
+d304 15
+a304 5
+/*
+ *	This function takes the two argv-style lists of mail targets,
+ *	the "To:"-list and the "CC:"-list, and returns a total
+ *	combined list of all target to whom the mail message will be sent.
+ */
+d320 3
+a320 3
+char **
+listcat(tolist, cclist)
+char **tolist, **cclist;
+d324 5
+d330 5
+a330 3
+	static char	*recips[MAXRECIP];
+	int	numrecip = 0;
+	register char **listpp;
+d336 19
+a336 2
+	for (listpp=tolist; *listpp != NULL; listpp++) {
+		recips[numrecip++] = *listpp;
+d356 14
+a356 2
+	for (listpp=cclist; *listpp != NULL; listpp++) {
+		recips[numrecip++] = *listpp;
+d371 2
+a371 1
+	recips[numrecip] = NULL;
+a373 3
+	return(recips);
+}
+
+@

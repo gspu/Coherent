@@ -1,0 +1,141 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @# @;
+
+
+1.1
+date     93.01.18.16.23.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@hal: kernel 72
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@# Floppy - script to make a bootable COHERENT diskette
+#
+# Usage:  see below
+#
+
+# process command arguments
+RONFLAG=n
+if [ "x$1" = "x-r" ]
+then
+	RONFLAG=y
+	shift
+fi
+
+DRVNUM=0
+
+case "$1" in
+fha)
+	DRVDEV=$1
+	BOOT="/conf/boot."${1}
+	ROOTPATCH="rootdev=makedev(4,14)"
+	PRPATCH="pipedev=makedev(4,14) ronflag=0"
+	shift
+	;;
+fva)
+	DRVDEV=$1
+	BOOT="/conf/boot."${1}
+	ROOTPATCH="rootdev=makedev(4,15)"
+	PRPATCH="pipedev=makedev(4,15) ronflag=0"
+	shift
+	;;
+*)
+	echo "Usage: Floppy [-r] {fha|fva} {0|1} kernel-name"
+	exit 1
+esac
+
+case "$1" in
+0)
+	DRVNUM=0
+	shift
+	;;
+1)
+	DRVNUM=1
+	shift
+	;;
+esac
+
+F=/f${DRVNUM}
+DRV="/dev/"${DRVDEV}${DRVNUM}
+RDRV="/dev/r"${DRVDEV}${DRVNUM}
+
+if [ $# -ne 1 ]
+then
+	echo "Usage: Floppy [-r] {fha|fva} {0|1} kernel-name"
+	exit 1
+fi
+
+if [ $RONFLAG = "y" ]
+then
+	PRPATCH="pipedev=makedev(8,131) ronflag=1"
+fi
+KER=$1
+/bin/mount
+echo
+echo "There must be a floppy disk in drive $DRV, mounted to $F."
+echo
+echo -n "Press Enter to continue, Ctrl-C to exit. "
+read junk
+
+# copy kernel to floppy
+# copy master boot block to floppy
+# patch rootdev, pipedev, and ronflag on floppy kernel
+# copy some key files to floppy
+echo "Copying files ..."
+cpio -pdm $F << EOF
+/bin/echo
+/bin/ls
+/bin/mount
+/bin/sh
+/bin/sync
+/bin/umount
+/conf/kbd/us
+/etc/init
+/etc/mkfs
+/etc/mount
+/etc/umount
+/mnt
+/tboot
+/tmp
+EOF
+
+>$F/etc/brc
+
+if [ $RONFLAG = "y" ]
+then
+cat >> $F/etc/brc << EOF2
+/etc/mkfs /dev/ram1 384
+/etc/mount /dev/ram1 /tmp
+EOF2
+fi
+
+cat >> $F/etc/brc << EOF3
+echo "/etc/brc from floppy"
+/conf/kbd/us > /dev/null
+exit 1
+EOF3
+
+ls /dev/at* /dev/co* /dev/f* /dev/mono* /dev/null /dev/ram* /dev/sd* \
+  2> /dev/null | cpio -pdm $F
+cp $KER $F/coherent
+cp $BOOT $DRV
+/conf/patch $F/coherent $ROOTPATCH $PRPATCH
+chmog 400 sys sys $F/coherent
+echo "System files copied to disk and patched."
+echo
+echo "The diskette is still mounted"
+@

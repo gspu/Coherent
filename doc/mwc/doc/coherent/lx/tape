@@ -1,0 +1,301 @@
+.TH tape "" "" "Technical Information"
+.PC "Magnetic-tape devices"
+.PP
+.II "floppy tape"
+.II "SCSI tape"
+The \*(CO system supports two classes of magnetic-tape devices:
+.IR "floppy tape" ,
+in which the tape device is plugged into your system's floppy-disk controller;
+and
+.IR "SCSI tape" ,
+in which the tape device is plugged into your system's SCSI controller
+(should it have one).
+The following gives general remarks on tape devices, then briefly
+discusses the drivers for tape devices and the block-special files by
+which you can access them.
+.SH "Tape Devices"
+A tape consists of one or more files.
+Each file, in turn, consists of one or more records and is
+terminated by a tape mark.
+Two tape marks terminate the last file.
+Tape records may vary in length, but cannot
+exceed 32 kilobytes (16 kilobytes is more practical).
+.PP
+.II "device^cooked interface"
+.II "device^raw interface"
+.II "cooked interface"
+.II "raw interface"
+Like other block-oriented devices, tape units can be accessed through
+a system's
+.I cooked
+interface or its
+.I raw
+interface.
+On a cooked device, seeking to any byte offset and
+reading in any number of bytes is possible.
+You cannot read beyond the tape mark at the end of the current file.
+For block-I/O requests, every record in the file must be 512 bytes long.
+Write requests must be made in increments of 512 bytes.
+.\"A cooked tape may be mounted like a disk,
+.\"but only as a read-only file system.
+.PP
+A raw device bypasses the buffer cache,
+so that data are written directly to or from your buffer.
+One write request generates one tape record,
+and one read request returns exactly one record.
+The number of bytes read may be fewer than expected.
+If the tape mark is read, a count of zero is returned,
+but the system positions the tape at the start of the next tape file.
+Seeking on a raw device is ignored, and mounting is not allowed.
+Raw (or character) requests are usually performed in units much larger
+than 512 bytes.
+.PP
+A unit cannot be opened if it is off-line or already in use.
+If tape cartridge within the tape drive is write protected,
+you cannot open the tape device for writing.
+Closing the device has varying effects,
+depending on the device's minor-device number and whether
+the device was opened for reading or writing.
+If the tape had been read, the tape is rewound;
+if the no-rewind device was specified, the tape advances to the next file.
+In the case of writing,
+two tape marks are written at the current position and the tape is rewound;
+if the no-rewind device was specified,
+two tape marks are written and the tape is positioned between them.
+When you close a device that had been opened for writing,
+the tape volume ends at the current position;
+data beyond this point are undefined.
+.\".PP
+.\"The following device options exist,
+.\"selected by prefixes to the device name:
+.\".IP \fBh\fP
+.\"Read or write data at high density.
+.\"The exact density depends on the drive model,
+.\"but 1600 BPI (high) and 800 BPI (low) are typical.
+.\".IP \fBn\fP
+.\"Do not rewind on close.
+.\".IP \fBr\fP
+.\"The device is raw.
+.PP
+Hard errors may occur during tape operation.
+They include detecting the end-of-tape (EOT) reflector,
+reading an unexpectedly long record,
+or seeking a cooked tape into a tape mark.
+After an error, no further operations can be performed on the unit
+until the program closes the device and you rewind the tape.
+Soft parity errors may arise due to dirt on the tape, a bad tape,
+or misaligned heads.
+If an error occurs on a write,
+the device may attempt to place the record further along the tape.
+If the error occurs on a read, the driver simply rescans the record.
+After several failures, the driver announces a hard error.
+.SH "Drivers"
+\*(CO includes two drivers for tape backups:
+.IP \fBft\fR
+This driver has major number 4, the same as the floppy-disk drive.
+It works with QIC-40 and QIC-80 drives
+from Colorado, Archive, Mountain, Summit, and IBM.
+.IP \fBhai\fR
+This is a host adapter-independent SCSI driver, which supports SCSI
+hard disks as well as tape.
+This has major device number 13.
+.B hai
+works with hard disks from Adaptec, Seagate, and Future Domain.
+It has been tested with the Archive Viper 60, 150, 250, and 525 SCSI tape
+devices, and is known to work with them.
+.PP
+Each driver has a number of default behaviors, depending upon how you
+access it.
+For details, see the driver's entry in the Lexicon.
+.SH "Devices"
+.\"Berkeley \*(UN and System-V \*(UN use different sets of block-special files
+.\"to access magnetic-tape devices.
+.\"As a convenience for our users, \*(CO supports both conventions.
+.\".PP
+.\"The following gives the Berkeley device names:
+The following names the devices used to access tape drives.
+For SCSI tape devices,
+.I N
+is the SCSI identifier of your tape unit, as set when you installed \*(CO.
+(To change your suite of SCSI identifiers, you must reconfigure your kernel.
+For directions on how to do this, see the Lexicon entry for
+.BR hai .)
+.IP \fB/dev/rStp\fIN\fR 1.75i
+SCSI tape unit \fIN\fR, raw device, rewind.
+.IS \fB/dev/nrStp\fIN\fR
+SCSI tape unit \fIN\fR, raw device, no rewind.
+.IS \fB/dev/xStp\fIN\fR
+SCSI tape unit \fIN\fR, control device.
+.IS \fB/dev/rct\fIN\fR
+QIC-24 tape unit \fIN\fR, raw device, rewind.
+.IS \fB/dev/nrct\fIN\fR
+QIC-24 tape unit \fIN\fR, raw device, no rewind.
+.IS \fB/dev/xct\fIN\fR
+QIC-24 tape unit \fIN\fR, control device.
+.IS \fB/dev/ft\fIN\fR
+QIC-40/80 (floppy tape), rewind.
+.IS \fB/dev/nft\fIN\fR
+QIC-40/80 (floppy tape), no rewind.
+.\".IS \fB/dev/xft\fIN\fR
+.\"QIC-40/80 (floppy tape), control device.
+.IS \fB/dev/ctmini\fR
+Default mini-cartridge device, retensioning.
+.IS \fB/dev/rctmini\fR
+Default mini-cartridge device, no retensioning.
+.IS \fB/dev/xctmini\fR
+Default mini-cartridge device, control device.
+.IS \fB/dev/mc\fIN\fR
+Irwin floppy tape, retensioning
+.IS \fB/dev/rmc\fIN\fR
+Irwin floppy tape, no retensioning.
+.IS \fB/dev/xmc\fIN\fR
+Irwin floppy tape, control device.
+.\".PP
+.\"The following gives \*(UN System V devices:
+.\".IP \fB/dev/rmt/c0s\fR 1.75i
+.\"QIC-24 tape unit, rewind, retension.
+.\".IS \fB/dev/rmt/c0sn\fR
+.\"QIC-24 tape unit, no rewind, retension.
+.\".IS \fB/dev/rmt/c0sr\fR
+.\"QIC-24 tape unit, rewind, no retension.
+.\".IS \fB/dev/rmt/c0snr\fR
+.\"QIC-24 tape unit, no rewind, no retension.
+.\".IS \fB/dev/rmt/c0s01\fR
+.\"QIC-24 tape unit, rewind, retension.
+.\".IS \fB/dev/rmt/c0s01n\fR
+.\"QIC-24 tape unit, no rewind, retension.
+.\".IS \fB/dev/rmt/c0s01r\fR
+.\"QIC-24 tape unit, rewind, no retension.
+.\".IS \fB/dev/rmt/c0s01nr\fR
+.\"QIC-24 tape unit, no rewind, no retension.
+.\".IS \fB/dev/rmt/ft0\fR
+.\"QIC-40/80 (floppy tape), rewind, retension.
+.\".IS \fB/dev/rmt/ft0n\fR
+.\"QIC-40/80 (floppy tape), no rewind, retension.
+.\".IS \fB/dev/rmt/ft0r\fR
+.\"QIC-40/80 (floppy tape), rewind, no retension.
+.\".IS \fB/dev/rmt/ft0nr\fR
+.\"QIC-40/80 (floppy tape), no rewind, no retension.
+.\".IS \fB/dev/rmt/mc0\fR
+.\"Irwin floppy tape, rewind, retension.
+.\".IS \fB/dev/rmt/mc0n\fR
+.\"Irwin floppy tape, no rewind, retension.
+.\".IS \fB/dev/rmt/mc0r\fR
+.\"Irwin floppy tape, rewind, no retension.
+.\".IS \fB/dev/rmt/mc0nr\fR
+.\"Irwin floppy tape, no rewind, no retension.
+.\".IS \fB/dev/rmt/ctmini\fR
+.\"Default mini-cartridge device, rewind, retension.
+.\".IS \fB/dev/rmt/ctminin\fR
+.\"Default mini-cartridge device, no rewind, retension.
+.\".IS \fB/dev/rmt/ctminir\fR
+.\"Default mini-cartridge device, rewind, no retension.
+.\".IS \fB/dev/rmt/ctmininr\fR
+.\"Default mini-cartridge device, no rewind, no retension.
+.SH "Installing Tape Devices"
+To install a SCSI tape device onto your system, do the following:
+.IP \(bu 0.3i
+Power down your system; then plug the SCSI device into your SCSI board.
+Do
+.I not
+plug the tape device into your SCSI board while your system is powered up,
+or you will damage your hardware.
+.IP \(bu
+After you have rebooted your system, log in as the superuser
+.BR root .
+.IP \(bu
+.B cd
+to directory
+.BR /etc/conf .
+.IP \(bu
+Invoke the command
+.B "cohtune hai"
+and set the variable
+.B HAI_TAPE
+to the SCSI ID of the tape drive \(em usually two.
+.IP \(bu
+Invoke the command
+.B idmkcoh
+to build a new kernel.
+.IP \(bu
+Reboot your system and invoke the newly built kernel.
+.PP
+To install a floppy-tape device onto your system, do the following:
+.IP \(bu 0.3i
+If you have not already done so, make sure that the you have updated
+\*(CO to a version that supports floppy tape, that is, release 4.2.12
+or later.
+.IP \(bu
+Power down your system and install the floppy-tape device as described in
+its manual.
+Do not attempt to install your device while your system is powered up,
+or you can damage or destroy your system.
+Be very careful that DIP switches and jumpers are set correctly.
+Also, make sure that all cables are seated firmly \(em it is easy to
+loosen a connected while installing a tape device.
+.IP \(bu
+Reboot your system into single-user mode.
+You can do so by typing
+.B <ctrl-C>
+while your file system is being checked during the reboot process, or
+invoke the command
+.DM
+	/etc/shutdown single 0
+.DE
+.IP
+after the system has checked its file system and rebooted.
+.IP \(bu
+Running from single-user mode, run the script
+.BR /etc/conf/ft/mkdev .
+If you know that your tape drive uses soft select
+and know the manufacturer, you can specify these features explicitly.
+If you know that your tape drive uses hard select and know the
+unit number (for example, a tape drive that takes the place of a second
+floppy-disk drive is unit 1), you can specify these features explicitly.
+If you are not sure of the above, select automatic configuration.
+The device driver
+.B ft
+will try to sense which type of drive you are using.
+.IP \(bu
+Unless you have other tape drives installed, we recommend that you
+link the no-rewind-on-close floppy-tape device to the default tape
+device
+.BR /dev/tape .
+.IP \(bu
+While still in single-user mode,
+run the script
+.BR /etc/conf/bin/idmkcoh .
+This generates a new kernel that can access the tape drive.
+.IP \(bu
+Reboot your system and invoke the newly built kernel.
+.SH "Manipulating Tape Devices"
+The command
+.B tape
+manipulates tape devices.
+With this command, you can rewind a tape, check the status of a tape device,
+or perform other useful tasks.
+For details, see its entry in the Lexicon.
+.PP
+Command
+.B ftbad
+lets you view and edit the list of bad blocks on a floppy-tape cartridge.
+For details on how to use this command, use see its entry in the Lexicon.
+.PP
+For details on how to build backups onto tape devices, see the Lexicon entry
+.BR backups .
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "backups," backups
+.Xr "ft," ft
+.Xr "ftbad," ftbad
+.Xr "hai," hai
+.Xr "tape [command]" tape.c
+.SH Notes
+Systems with a very slow CPU (e.g., a 16-megahertz 80386SX) may have
+trouble running the floppy-tape driver
+.B ft
+in multi-user mode.
+The reason is that floppy-tape hardware does not have much intelligence
+built into it, so the driver must consume many CPU cycles.
+In such instances, we suggest that you back up your system while in
+single-user mode (which is a good idea in any case).

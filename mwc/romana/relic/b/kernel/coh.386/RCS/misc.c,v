@@ -1,0 +1,447 @@
+head     1.8;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.8; strict;
+comment  @ * @;
+
+
+1.8
+date     93.06.14.13.34.48;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.11.23.09.37.18;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.11.13.11.02.58;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.09.29.09.40.04;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.09.09.08.39.02;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.08.28.08.56.26;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.04.12.33.36;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.19.38;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.8
+log
+@Hal: kernel 78 update
+@
+text
+@/* $Header: /y/coh.386/RCS/misc.c,v 1.4 93/04/14 10:06:36 root Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Coherent.
+ * Miscellaneous routines.
+ *
+ * $Log:	misc.c,v $
+ * Revision 1.4  93/04/14  10:06:36  root
+ * r75
+ * 
+ * Revision 1.3  92/11/09  17:10:53  root
+ * Just before adding vio segs.
+ * 
+ * Revision 1.2  92/01/06  11:59:45  hal
+ * Compile with cc.mwc.
+ * 
+ * Revision 1.1	88/03/24  16:14:01	src
+ * Initial revision
+ * 
+ * 87/05/08	Allan Cornish		/usr/src/sys/coh/misc.c
+ * System code and data segments no longer reported in panic messages.
+ *
+ * 87/02/17	Allan Cornish		/usr/src/sys/coh/misc.c
+ * Panic message now includes system code and data segments.
+ */
+#include <sys/coherent.h>
+#include <sys/acct.h>
+#include <errno.h>
+#include <sys/ino.h>
+#include <sys/stat.h>
+
+#ifdef TRACER
+extern unsigned t_piggy;
+#endif
+
+/*
+ * Make sure we are the super user.
+ */
+super()
+{
+	if (u.u_uid) {
+		u.u_error = EPERM;
+		return (0);
+	}
+	u.u_flag |= ASU;
+	return (1);
+}
+
+/*
+ * Make sure we are the gived `uid' or the super user.
+ */
+owner(uid)
+{
+	if (u.u_uid == uid)
+		return (1);
+	if (u.u_uid == 0) {
+		u.u_flag |= ASU;
+		return (1);
+	}
+	u.u_error = EPERM;
+	return (0);
+}
+
+/*
+ * Panic.
+ */
+void
+panic(a1)
+char *a1;
+{
+	static panflag;
+	sphi();
+
+#ifdef TRACER
+	if ( t_piggy & 0x80 ) {
+		if (panflag++ == 0) {
+			printf("Panic: %r", &a1);
+			putchar('\n');
+			usync();
+		}
+		printf("relax! It really isn't so bad.\n");
+	} else {
+		if (panflag++ == 0) {
+			if (paging()) {
+				printf("Panic: %r", &a1);
+				putchar('\n');
+			} else {
+				strchirp("Panic: ");
+				strchirp(a1);
+			}
+			for (;;);
+			usync();
+		}
+		halt();
+	}
+#else
+	if (panflag++ == 0) {
+		printf("Panic: %r", &a1);
+		putchar('\n');
+		for (;;);
+		usync();
+	}
+	halt();
+#endif /* TRACER */
+
+	--panflag;
+}
+
+/*
+ * Print a message from a device driver.
+ */
+devmsg(dev, a1)
+dev_t dev;
+char *a1;
+{
+	printf("(%d,%d): %r", major(dev), minor(dev), &a1);
+	printf("\n");
+}
+
+/*
+ * Wait up to "ticks" clock ticks for an event to occur.
+ * A tick is 1/HZ seconds (10 msec).
+ * Works whether interrupts are enabled or not.
+ * Busy-waits the system.
+ * The event occurs when (*fn)() returns a nonzero value.
+ * If fn is NULL, delay unconditionally.
+ *
+ * Return 0 if timeout occurred, 1 if the desired event occurred.
+ */
+
+#define THRESH (T0_RATE/2)	/* half of 11932 */
+
+int
+busyWait(fn, ticks)
+int (*fn)();
+int ticks;
+{
+	/*
+	 * p0, p1 are 0 if in low half of counting cycle, else 1.
+	 * flips counts the number of changes from low-to-high or vice versa.
+	 * tickCt counts the number of clock ticks at rate HZ.
+	 */
+
+	int tickCt = 0;
+	int flips = 0;
+	int p0 = (read_t0() < THRESH)?0:1;
+	int p1;
+
+	for (;;) {
+		if (fn && (*fn)())
+			return 1;
+
+		/* did we change halves of counter cycle? */
+		p1 = (read_t0() < THRESH)?0:1;
+		if (p0 != p1) {
+			p0 = p1;
+			flips++;
+
+			/* two phase flips make a tick */
+			if (flips >= 2) {
+				flips = 0;
+				tickCt++;
+				if (tickCt > ticks)
+					return 0;
+			}
+		}
+		
+	}
+}
+
+/*
+ * busyWait2() has finer granularity than busyWait().
+ *
+ * Wait up to "counts" clock counts for an event to occur.
+ * A count is 1/(11932*HZ) seconds (about 0.84 usec).
+ * Works whether interrupts are enabled or not.
+ * Busy-waits the system.
+ * The event occurs when (*fn)() returns a nonzero value.
+ * If fn is NULL, delay unconditionally.
+ *
+ * Return 0 if timeout occurred, 1 if the desired event occurred.
+ */
+
+int
+busyWait2(fn, counts)
+int (*fn)();
+unsigned int counts;
+{
+	/*
+	 * ct0 is previous t0 reading, ct1 is current reading.
+	 * We have timer rollover when ct1 < ct0.
+	 */
+
+	unsigned int totCt = 0;
+	unsigned int ct0 = read_t0();
+	unsigned int ct1;
+
+	for (;;) {
+		if (fn && (*fn)())
+			return 1;
+
+		ct1 = read_t0();
+		if (ct1 > ct0) {
+			/* no timer 0 rollover */
+			totCt += ct1 - ct0;
+		} else {
+			/* timer 0 rollover */
+			totCt += ct1 + T0_RATE - ct0;
+		}
+		if (totCt > counts)
+			return 0;
+		ct0 = ct1;
+	}
+}
+@
+
+
+1.7
+log
+@use stchirp() in panic() is paging not enabled.
+@
+text
+@d1 1
+a1 1
+/* $Header: /y/coh.386/RCS/misc.c,v 1.3 92/11/09 17:10:53 root Exp $ */
+d20 3
+d39 1
+a39 1
+#include <acct.h>
+a131 1
+#if 0
+a132 35
+ * Copy 'n' bytes from 'bp1' to 'bp2'.
+ * Return 'n'.
+ */
+kkcopy(bp1, bp2, n)
+register char *bp1;
+register char *bp2;
+unsigned n;
+{
+	register unsigned n1;
+
+	n1 = n;
+	if (n1) {
+		do {
+			*bp2++ = *bp1++;
+		} while (--n1);
+	}
+	return (n);
+}
+
+/*
+ * Clear the next `n' bytes starting at `bp'.
+ */
+kclear(bp, n)
+register char *bp;
+register unsigned n;
+{
+	if (n) {
+		do {
+			*bp++ = 0;
+		} while (--n);
+	}
+}
+#endif
+
+/*
+d134 1
+d138 1
+d143 1
+a143 1
+#define THRESH 5966	/* half of 11932 */
+d162 1
+a162 1
+		if ((*fn)())
+d170 3
+a172 2
+			/* did a full .01 sec tick elapse? */
+			if ((flips >> 1) >= HZ) {
+d182 45
+@
+
+
+1.6
+log
+@atbsyw() and atdrqw() no longer depend on cpu speed
+@
+text
+@d93 7
+a99 2
+			printf("Panic: %r", &a1);
+			putchar('\n');
+@
+
+
+1.5
+log
+@hal: replace kkcopy()/kclear() with macro calls to memcpy and memset
+@
+text
+@d1 1
+a1 1
+/* $Header: /v4a/coh/RCS/misc.c,v 1.2 92/01/06 11:59:45 hal Exp $ */
+d20 3
+d159 48
+@
+
+
+1.4
+log
+@hal update: kernel 62 (60 files)
+@
+text
+@d43 1
+a43 1
+ * Copy `n' bytes from `bp1' to `bp2'.
+a44 33
+kkcopy(bp1, bp2, n)
+register char *bp1;
+register char *bp2;
+unsigned n;
+{
+	register unsigned n1;
+
+	n1 = n;
+	if (n1) {
+		do {
+			*bp2++ = *bp1++;
+		} while (--n1);
+	}
+	return (n);
+}
+
+/*
+ * Clear the next `n' bytes starting at `bp'.
+ */
+kclear(bp, n)
+register char *bp;
+register unsigned n;
+{
+	if (n) {
+		do {
+			*bp++ = 0;
+		} while (--n);
+	}
+}
+
+/*
+ * Make sure we are the super user.
+ */
+d120 36
+@
+
+
+1.3
+log
+@kernel 61 by hal
+@
+text
+@@
+
+
+1.2
+log
+@changed for ker 59
+@
+text
+@d106 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

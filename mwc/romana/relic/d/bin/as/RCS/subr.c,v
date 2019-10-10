@@ -1,0 +1,176 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     91.02.06.20.39.32;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.06.20.27.46;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@steve 2/6/91
+Initial MWC RCS revision.
+@
+
+
+1.2
+log
+@steve 2/6/91
+Fairly extensive changes for descriptive error messages from cef.
+@
+text
+@#include "asm.h"
+
+/*
+ * Note an error.
+ * If the error is a `q' just
+ * give up.
+ */
+err(c, msg)
+char *msg;
+{
+	if (pass == 2) {
+		++nerr;
+		if (ifn != NULL)
+			fprintf(efp, "%d: %s: %s\n", line, ifn, msg);
+		else
+			fprintf(efp, "%d: %s\n", line, msg);
+	}
+	if (c == 'q')
+		longjmp(env, 1);
+}
+
+/*
+ * Note a `u' error.
+ * Tag it with the name if not making
+ * a listing file.
+ */
+uerr(id)
+char *id;
+{
+	char work[40];
+
+	sprintf(work, "undefined symbol '%s'", id);
+	err('u', work);
+}
+
+/*
+ * Note an 'r' error.
+ */
+rerr(msg)
+char *msg;
+{
+	err('r', msg);
+}
+
+/*
+ * Note an 'a' error.
+ */
+aerr(msg)
+char *msg;
+{
+	err('a', msg);
+}
+
+/*
+ * Note a 'q' error.
+ */
+qerr(msg)
+char *msg;
+{
+	err('q', msg);
+}
+
+static int lastline = 0;
+/*
+ * Note Data in bssd
+ */
+serr()
+{
+	if(line != lastline) {
+		err('s', "data in bssd");
+		lastline = line;
+	}
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d8 2
+a9 1
+err(c)
+d13 4
+a16 8
+		if (lflag)
+			stoerr(c);
+		else {
+			printf("%04d %c", line, c);
+			if (ifn != NULL)
+				printf(" %s", ifn);
+			putchar('\n');
+		}
+d30 4
+a33 11
+	if (pass == 2) {
+		++nerr;
+		if (lflag)
+			stoerr('u');
+		else {
+			printf("%04d u %.*s", line, NCPLN, id);
+			if (ifn != NULL)
+				printf(" %s", ifn);
+			putchar('\n');
+		}
+	}
+d39 2
+a40 1
+rerr()
+d42 1
+a42 1
+	err('r');
+d48 2
+a49 1
+aerr()
+d51 1
+a51 1
+	err('a');
+d57 2
+a58 1
+qerr()
+d60 1
+a60 1
+	err('q');
+d63 1
+d65 1
+a65 2
+ * Store an error tag into the
+ * listing error buffer.
+d67 1
+a67 2
+stoerr(c)
+register c;
+d69 3
+a71 9
+	register char *p;
+
+	p = eb;
+	while (p < ep)
+		if (*p++ == c)
+			return;
+	if (p < &eb[NERR]) {
+		*p++ = c;
+		ep = p;
+@

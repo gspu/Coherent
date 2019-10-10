@@ -1,0 +1,257 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__STROPTS_H__
+#define	__STROPTS_H__
+
+/*
+ * User-level information about STREAMS ioctl ()'s and system calls, derived
+ * from the System V manual pages for getmsg (2), putmsg (2) and streamio (7)
+ *
+ * The actual numeric values for pre-R4 constants have been taken from the
+ * iBCS2 specification, pp6-56 through 5-58.
+ *
+ * Values added in the System V Release 4 edition of STREAMS have numeric
+ * values taken from the System V ABI, Intel386 Supplement pp6-70 through
+ * 6-75
+ */
+
+#include <common/ccompat.h>
+#include <common/_uid.h>
+#include <sys/conf.h>
+#include <sys/stropts.h>
+#include <sys/poll.h>
+
+
+/*
+ * Structure used to indicate size and length of data and control buffers
+ * in the getmsg (2) and putmsg (2) system calls.
+ */
+
+struct strbuf {
+	int		maxlen;		/* Maximum buffer length */
+	int		len;		/* Actual data length */
+	__VOID__      *	buf;		/* Points to data buffer */
+};
+
+
+/*
+ * Flags for getmsg (2)/putmsg (2), defines whether data received/put is
+ * in a high-priority or normal-priority STREAMS message.
+ */
+
+#define	RS_HIPRI	0x01
+
+
+/*
+ * Flags for getpmsg (2)/putpmsg (2) that control whether a message received
+ * or sent is high priority, normal priority, or a member of a priority band.
+ */
+
+#define	MSG_HIPRI	0x01
+#define	MSG_ANY		0x02
+#define	MSG_BAND	0x04
+
+
+/*
+ * Return value mask for getmsg (2) and getpmsg (2) that defines whether
+ * there is more control or data information in the current message than
+ * could be retrieved into the supplied buffers.
+ */
+
+#define	MORECTL		1
+#define	MOREDATA	2
+
+
+/*
+ * Function prototypes for system calls.
+ */
+
+__EXTERN_C_BEGIN__
+
+int	getmsg		__PROTO ((int fd, struct strbuf * ctlptr,
+				  struct strbuf * dataptr, int * flagsp));
+int	putmsg		__PROTO ((int fd, __CONST__ struct strbuf * ctlptr,
+				  __CONST__ struct strbuf * dataptr, int flags));
+
+#if	_SYSV4
+
+int	getpmsg		__PROTO ((int fd, struct strbuf * ctlptr,
+				  struct strbuf * dataptr, int * bandp,
+				  int * flagsp));
+int	putpmsg		__PROTO ((int fd, const struct strbuf * ctlptr,
+				  __CONST__ struct strbuf * dataptr, int band,
+				  int flags));
+
+#endif	/* _SYSV4 */
+
+__EXTERN_C_END__
+
+
+/*
+ * Structure used in I_FLUSHBAND to control how priority bands are flushed.
+ */
+
+struct bandinfo {
+	unsigned char	bi_pri;		/* Priority band number */
+	int		bi_flag;
+};
+
+
+/*
+ * structure used in I_PEEK ioctl () to retrieve data waiting at the stream
+ * head without consuming it.
+ */
+
+struct strpeek {
+	struct strbuf	ctlbuf;
+	struct strbuf	databuf;
+	long		flags;
+};
+
+
+/*
+ * structure used in I_STR ioctl () to send an arbitrary other ioctl ()
+ * command downstream to a STREAMS module or driver.
+ */
+
+struct strioctl {
+	int		ic_cmd;		/* ioctl () command to send */
+	int		ic_timeout;	/* seconds to wait for reply */
+	int		ic_len;		/* length of data to send */
+	char	      *	ic_dp;		/* data buffer for send/receive */
+};
+
+
+/*
+ * structure used in the I_RECVFD ioctl () to retrieve supplementary data
+ * about the sent file descriptor.
+ */
+
+struct strrecvfd {
+	int		fd;		/* arriving file descriptor */
+	o_uid_t		uid;		/* uid of sending stream */
+	o_gid_t		gid;		/* gid of sending stream */
+	char		fill [8];	/* reserved */
+};
+
+
+/*
+ * Structure used in the I_FDINSERT ioctl () to do whatever the I_FDINSERT
+ * ioctl does.
+ */
+
+struct strfdinsert {
+	struct strbuf	ctlbuf;
+	struct strbuf	databuf;
+	long		flags;
+	int		fildes;
+	int		offset;
+};
+
+
+/*
+ * information structure used in the I_LIST ioctl () to retrieve the names
+ * of all the modules and drivers on a stream.
+ */
+
+struct str_list {
+	int		sl_nmods;	/* number of entries in sl_modlist */
+	struct str_mlist * sl_modlist;	/* information array */
+};
+
+struct str_mlist {
+	char		l_name [FMNAMESZ + 1];
+};
+
+
+/*
+ * ioctl (2) command values for controlling STREAMS drivers and modules
+ * directly under STREAMS, as opposed to other ioctl ()'s which are passed
+ * to drivers and modules for emulation of old-style device access.
+ */
+
+#define	STREAM_I	('S' << 8)
+#define	I_NREAD		(STREAM_I | 1)	/* get message length, count */
+#define	I_PUSH		(STREAM_I | 2)	/* push named module */
+#define	I_POP		(STREAM_I | 3)	/* pop topmost module */
+#define	I_LOOK		(STREAM_I | 4)	/* get topmost module name */
+#define	I_FLUSH		(STREAM_I | 5)	/* flush read/write side */
+#define	I_SRDOPT	(STREAM_I | 6)	/* set the stream head read mode */
+#define	I_GRDOPT	(STREAM_I | 7)	/* get the stream head read mode */
+#define	I_STR		(STREAM_I | 8)	/* send an ioctl () message downstream */
+#define	I_SETSIG	(STREAM_I | 9)	/* register for SIGPOLL signal */
+#define	I_GETSIG	(STREAM_I | 10)	/* return registered event mask */
+#define	I_FIND		(STREAM_I | 11)	/* locate named module on stream */
+#define	I_LINK		(STREAM_I | 12)	/* link two streams */
+#define	I_UNLINK	(STREAM_I | 13)	/* unlink two streams */
+#define	I_RECVFD	(STREAM_I | 14)	/* receive file descriptor from pipe */
+#define	I_PEEK		(STREAM_I | 15)	/* examine stream head data */
+#define	I_FDINSERT	(STREAM_I | 16)	/* NOT SUPPORTED */
+#define	I_SENDFD	(STREAM_I | 17)	/* send file descriptor to pipe */
+
+/* Subsequent values are not covered by iBCS2 (defined for R4 STREAMS only) */
+
+#define	I_SWROPT	(STREAM_I | 19)	/* set stream write mode */
+#define	I_GWROPT	(STREAM_I | 20)	/* get stream write mode */
+#define	I_LIST		(STREAM_I | 21)	/* get name of all modules/drivers */
+#define	I_PLINK		(STREAM_I | 22)	/* create persistent link */
+#define	I_PUNLINK	(STREAM_I | 23)	/* undo persistent link */
+#define	I_SETEV		(STREAM_I | 24)	/* ??? */
+#define	I_GETEV		(STREAM_I | 25)	/* ??? */
+#define	I_STREV		(STREAM_I | 26)	/* ??? */
+#define	I_UNSTREV	(STREAM_I | 27)	/* ??? */
+#define	I_FLUSHBAND	(STREAM_I | 28)	/* flush priority band */
+#define	I_CKBAND	(STREAM_I | 29)	/* check for existence of priority band */
+#define	I_GETBAND	(STREAM_I | 30)	/* get band of first message */
+#define	I_ATMARK	(STREAM_I | 31)	/* is current message marked */
+#define	I_SETCLTIME	(STREAM_I | 32)	/* set drain timeout for stream */
+#define	I_GETCLTIME	(STREAM_I | 33)	/* get the curret close timeout */
+#define	I_CANPUT	(STREAM_I | 34)	/* check if band is writeable */
+
+
+/*
+ * Events that may be requested for in I_SETSIG that can cause a SIGPOLL
+ * to be sent to a process.
+ */
+
+#define	S_INPUT		__POLL_INPUT	/* any message other than M_PCPROTO */
+#define	S_HIPRI		__POLL_HIPRI	/* a high priority message has arrived */
+#define	S_OUTPUT	__POLL_OUTPUT	/* the write queue is no longer full */
+#define	S_MSG		__POLL_008	/* a SIGPOLL signal message has arrived */
+
+#define	S_ERROR		__POLL_010	/* an M_ERROR message has arrived */
+#define	S_HANGUP	__POLL_020	/* an M_HANGUP message has arrived */
+#define	S_RDNORM	__POLL_RDNORM	/* a non-priority message has arrived */
+#define	S_WRNORM	__POLL_OUTPUT	/* alias for S_OUTPUT */
+#define	S_RDBAND	__POLL_RDBAND	/* a priority band message has arrived */
+#define	S_WRBAND	__POLL_WRBAND	/* a priority band is writeable */
+#define	S_BANDURG	__POLL_BANDURG	/* request SIGURG rather than SIGPOLL */
+
+
+/*
+ * Write mode flags that may be specified by I_SWROPT ioctl ().
+ */
+
+#define	SNDZERO		1		/*
+					 * Send a zero-length message when a
+					 * write of 0 bytes occurs.
+					 */
+#define	SNDPIPE		2		/*
+					 * Send a zero-length message down a
+					 * a STREAMS pipe or FIFO.
+					 */
+
+/*
+ * Flag values used by the I_ATMARK ioctl ()
+ */
+
+#define	ANYMARK		0x01		/* check for a marked message */
+#define	LASTMARK	0x02		/* check for only marked message */
+
+
+#endif	/* ! defined (__STROPTS_H__) */

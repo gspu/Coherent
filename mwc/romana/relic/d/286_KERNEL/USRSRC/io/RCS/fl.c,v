@@ -1,0 +1,1189 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.11.25.11.22.25;  author hal;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Floppy disk device driver.
+@
+
+
+
+1.1
+log
+@From COH 3.2.0
+@
+text
+@/* (-lgl
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * This is a driver for the IBM AT or PC/XT
+ * floppy, using interrupts and DMA on
+ * the NEC 756 floppy chip. Ugh.
+ * Handles single, double and quad
+ * density drives, 8, 9, 15 or 18 sectors per track.
+ * 15 and 18 sectors per track only available on the IBM_AT.
+ *
+ * Minor device assignments: xxuuhkkk
+ *	uu - unit = 0/1/2/3
+ *	kkk - kind, struct fdata infra.
+ *	h - alternating head rather than side by side
+ *
+ */
+
+#include	<sys/coherent.h>
+#include	<sys/i8086.h>
+#include	<sys/buf.h>
+#include	<sys/con.h>
+#include	<sys/stat.h>
+#include	<errno.h>
+#include	<sys/uproc.h>
+#include	<sys/fdioctl.h>
+#include	<sys/sched.h>
+#include	<sys/dmac.h>
+#include	<sys/devices.h>
+
+#define		BIT(n)		(1 << (n))
+
+/*
+ * Patchable parameters (default to IBM PC/XT values).
+ */
+
+int	fl_srt = 0xC;	/* Floppy seek step rate, in unit 2 millisec */
+			/* NOT DIRECTLY ENCODED */
+			/* COMPAQ wants 0xD */
+int	fl_hlt = 1;	/* Floppy head load time, in unit 4 millisec */
+int	fl_hut = 0xF;	/* Floppy head unload time, in unit 32 millisec */
+
+int	flload();
+int	flunload();
+int	flopen();
+int	flblock();
+int	flread();
+int	flwrite();
+int	flioctl();
+int	fldelay();
+int	flintr();
+int	fltimeout();
+int	nulldev();
+int	nonedev();
+
+CON	flcon	= {
+	DFBLK|DFCHR,			/* Flags */
+	FL_MAJOR,				/* Major index */
+	flopen,				/* Open */
+	nulldev,			/* Close */
+	flblock,			/* Block */
+	flread,				/* Read */
+	flwrite,			/* Write */
+	flioctl,			/* Ioctl */
+	nulldev,			/* Powerfail */
+	fltimeout,			/* Timeout */
+	flload,				/* Load */
+	flunload			/* Unload */
+};
+
+#define	MTIMER	5			/* Motor timeout */
+#define	FDCDOR	0x3F2			/* Digital output */
+#define	FDCDAT	0x3F5			/* Data register */
+#define	FDCMSR	0x3F4			/* Main status register */
+#define	FDCRATE	0x3F7			/* Transfer rate (500,300,250 Kbps) */
+
+#define	DORDS	0x03			/* Drive select bits */
+#define	DORNMR	0x04			/* Not master reset */
+#define	DORIEN	0x08			/* Interrupt, DMA enable */
+#define	DORMS	0xF0			/* Motor enables */
+
+#define	MSRDB	0x0F			/* Drive busy */
+#define	MSRCB	0x10			/* Control busy */
+#define	MSRNDMA	0x20			/* Not DMA */
+#define	MSRDIO	0x40			/* Data direction */
+#define	MSRRQM	0x80			/* Request for master */
+
+/*
+ * Status Register 0 - Bit Definitions.
+ */
+#define	ST0_US0	0x01			/* Unit Select 0 */
+#define	ST0_US1	0x02			/* Unit Select 1 */
+#define	ST0_HD	0x04			/* Head Address */
+#define	ST0_NR	0x08			/* Not Ready */
+#define	ST0_EC	0x10			/* Equipment Check */
+#define	ST0_SE	0x20			/* Seek End */
+#define	ST0_IC	0xC0			/* Interrupt code */
+#define	ST0_NT	0x00			/* Normal Termination */
+
+/*
+ * Status Register 1 - Bit Definitions.
+ */
+#define	ST1_MA	0x01			/* Missing Address Mark */
+#define	ST1_NW	0x02			/* Not writeable */
+#define	ST1_ND	0x04			/* No Data */
+	/*	0x08 */			/* Not used - always 0 */
+#define	ST1_OR	0x10			/* Overrun */
+#define	ST1_DE	0x20			/* Data Error */
+	/*	0x40 */			/* Not used - always 0 */
+#define	ST1_EN	0x80			/* End of Cylinder */
+
+/*
+ * Status Register 2 - Bit Definitions.
+ */
+#define	ST2_MD	0x01			/* Missing Address Mark in Data Field */
+#define	ST2_BC	0x02			/* Bad Cylinder */
+#define	ST2_SN	0x04			/* Scan Not Satisfied */
+#define	ST2_SH	0x08			/* Scan Equal Hit */
+#define	ST2_WC	0x10			/* Wrong Cylinder */
+#define	ST2_DD	0x20			/* Data Error in Data Field */
+#define	ST2_CM	0x40			/* Control Mark */
+	/*	0x80 */			/* Not used - always 0 */
+
+/*
+ * Status Register 3 - Bit Definitions.
+ */
+#define	ST3_US0	0x01			/* Unit Select 0 */
+#define	ST3_US1	0x02			/* Unit Select 1 */
+#define	ST3_HD	0x04			/* Head Address */
+#define	ST3_TS	0x08			/* Two Sides */
+#define	ST3_T0	0x10			/* Track 0 */
+#define	ST3_RDY	0x20			/* Ready */
+#define	ST3_WP	0x40			/* Write Protected */
+#define	ST3_FT	0x80			/* Fault */
+
+/*
+ * Controller Commands.
+ */
+#define	CMDSPEC	0x03			/* Specify */
+#define	CMDRCAL	0x07			/* Recal */
+#define	CMDSEEK	0x0F			/* Seek */
+#define	CMDRDAT	0x66			/* Read data */
+#define	CMDWDAT	0x45			/* Write data */
+#define	CMDSINT	0x08			/* Sense status */
+#define	CMDFMT	0x4D			/* Format track */
+
+/*
+ * Driver States.
+ */
+#define	SIDLE	0			/* Idle */
+#define	SSEEK	1			/* Need seek */
+#define	SRDWR	2			/* Need read/write command */
+#define	SENDIO	3			/* Need end I/O processing */
+#define	SDELAY	4			/* Delay before next disk operation */
+#define	SHDLY	5			/* Head settling delay before r/w */
+#define SLOCK	6			/* Got DMA controller lock */
+
+#define funit(x)	(minor(x)>>4)	/* Unit/drive number */
+#define fkind(x)	(minor(x)&0x7)	/* Kind of format */
+#define	fhbyh(x)	(minor(x)&0x8)	/* 0=Side by side, 1=Head by head */
+
+static
+struct	fdata {
+	int	fd_size;	/* Blocks per diskette */
+	int	fd_nhds;	/* Heads per drive */
+	int	fd_trks;	/* Tracks per side */
+	int	fd_offs;	/* Sector base */
+	int	fd_nspt;	/* Sectors per track */
+	char	fd_GPL[4];	/* Controller gap param (indexed by rate) */
+	char	fd_N;		/* Controller size param */
+	char	fd_FGPL;	/* Format gap length */
+} fdata[] = {
+/* 8 sectors per track, surface by surface seek. */
+	{  320,1,40,0, 8, { 0x00,0x23,0x2A }, 2,0x50 }, /* Single sided */
+	{  640,2,40,0, 8, { 0x00,0x23,0x2A }, 2,0x50 }, /* Double sided */
+	{ 1280,2,80,0, 8, { 0x00,0x23,0x2A }, 2,0x50 }, /* Quad density */
+/* 9 sectors per track, surface by surface seek. */
+	{  360,1,40,0, 9, { 0x00,0x23,0x2A }, 2,0x50 }, /* Single sided */
+	{  720,2,40,0, 9, { 0x00,0x23,0x2A }, 2,0x50 }, /* Double sided */
+	{ 1440,2,80,0, 9, { 0x00,0x23,0x2A }, 2,0x50 }, /* Quad density */
+/* 15 sectors per track, surface by surface seek. */
+	{ 2400,2,80,0,15, { 0x1B,0x00,0x00 }, 2,0x54 }, /* High capacity */
+/* 18 sectors per track, surface by surface seek. */
+	{ 2880,2,80,0,18, { 0x1B,0x00,0x00 }, 2,0x54 }	/* 1.44 3.5" */
+};
+
+
+static
+struct	fl	{
+	BUF	*fl_actf;		/* Queue, forward */
+	BUF	*fl_actl;		/* Queue, backward */
+	paddr_t	fl_addr;		/* Address */
+	int	fl_nsec;		/* # of sectors */
+	int	fl_secn;		/* Current sector */
+	struct	fdata fl_fd;		/* Disk kind data */
+	int	fl_fcyl;		/* Floppy cylinder # */
+	char	fl_incal[4];		/* Disk in cal flags */
+	char	fl_ndsk;		/* # of 5 1/4" drives */
+	char	fl_unit;		/* Unit # */
+	char	fl_mask;		/* Handy unit mask */
+	char	fl_hbyh;		/* 0/1 = Side by side/Head by head */
+	char	fl_nerr;		/* Error count */
+	int	fl_ncmdstat;		/* Number of cmd status bytes recvd */
+	char	fl_cmdstat[8];		/* Command Status buffer */
+	int	fl_nintstat;		/* Number of intr status bytes recvd */
+	char	fl_intstat[4];		/* Interrupt Status buffer */
+	int	fl_fsec;		/* Floppy sector # */
+	int	fl_head;		/* Floppy head */
+	char	fl_init;		/* FDC init done flag */
+	char	fl_state;		/* Processing state */
+	char	fl_mstatus;		/* Motor status */
+	char	fl_time[4];		/* Motor timeout */
+	char	fl_rate;		/* Data rate: 500,300,250,?? kbps */
+	char	fl_type[4];		/* Type of drive: 2 = HiCap */
+	int	fl_wflag;		/* Write operation  */
+	int	fl_recov;		/* Recovery initiated */
+}	fl;
+
+static	BUF	flbuf;
+static	TIM	fltim;
+static	TIM	fldmalck;	/* DMA lock deferred function structure.     */
+
+/*
+ * The load routine asks the
+ * switches how many drives are present
+ * in the machine, and sets up the field
+ * in the floppy database. It also grabs
+ * the level 6 interrupt vector.
+ */
+static
+flload()
+{
+	register int	eflag;
+	register int	s;
+
+	/*
+	 * Ensure DMA channel 2 is turned off.
+	 * The Computerland ROM does not disable DMA channel after autoboot
+	 * from hard disk.  The Western Digital controller board appears to
+	 * send a dma burst when the floppy controller chip is reset.
+	 */
+	dmaoff( 2 );
+
+	/*
+	 * Read floppy equipment byte from CMOS ram
+	 *	drive 0 is in high nibble, drive 1 is in low nibble.
+	 */
+	outb( 0x70, 0x10 );
+	/* delay */
+	eflag = inb( 0x71 );
+
+	/*
+	 * Flag hardware as an IBM AT if neither equipment byte nibble is
+	 * greater than 4 (since 5 through 15 are reserved nibble values - see
+	 * IBM AT Technical Reference manual, page 1-50).  Note that this
+	 * relies on the fact that in the XT, this byte will "float" high.
+	 * NOTE: 1.44 Mbyte 3.5 inch drives are type 4
+	 */
+	if ( (eflag & 0x88) == 0 ) {
+
+		/*
+		 * Reinitialize patchable parameters for IBM AT.
+		 */
+		fl_srt = 0xD;	/* Floppy seek step rate, in unit 2 ms */
+				/* NOT DIRECTLY ENCODED */
+		fl_hlt = 25;	/* Floppy head load time, in unit 4 ms */
+
+		/*
+		 * Define AT drive information.
+		 */
+		fl.fl_type[0]	= eflag >> 4;
+		fl.fl_type[1]	= eflag & 15;
+		fl.fl_rate	= 1; /* Must not be 2 */
+
+		/*
+		 * Determine number of AT floppy drives.
+		 */
+		if ( eflag & 0xF0 ) {
+			fl.fl_ndsk++;
+			if ( eflag & 0x0F )
+				fl.fl_ndsk++;
+		}
+	} else {
+		/*
+		 * Define XT drive information.
+		 */
+		eflag		= int11();
+		fl.fl_rate	= 2;
+		if ( eflag & 1 )
+			fl.fl_ndsk = ((eflag >> 6) & 0x03) + 1;
+	}
+
+	if ( fl.fl_ndsk ) {
+
+		s = sphi();
+		outb(FDCDOR, 0);
+		setivec(6, &flintr);
+
+		outb(FDCDOR, 0);
+		outb(FDCDOR, DORNMR);
+
+		if ( fl.fl_rate != 2 )
+			outb(FDCRATE, fl.fl_rate );
+
+		flput(CMDSPEC);
+		flput((fl_srt<<4)|fl_hut);
+		flput(fl_hlt<<1);
+		spl( s );
+	}
+}
+
+/*
+ * Release resources.
+ */
+flunload()
+{
+	/*
+	 * Clear interrupt vector.
+	 */
+	if ( fl.fl_ndsk )
+		clrivec(6);
+
+	/*
+	 * Cancel timed function.
+	 */
+	timeout( &fltim, 0, NULL, NULL );
+
+	/*
+	 * Cancel periodic [1 second] invocation.
+	 */
+	drvl[FL_MAJOR].d_time = 0;
+
+	/*
+	 * Turn motors off.
+	 */
+	outb(FDCDOR, DORNMR | DORIEN );
+}
+
+/*
+ * The open routine screens out
+ * opens of illegal minor devices and
+ * performs the NEC specify command if
+ * this is the very first floppy disk
+ * open call.
+ */
+
+static
+flopen( dev, mode )
+
+dev_t	dev;
+int	mode;
+
+{
+	/*
+	 * Validate existence and data rate [Gap length != 0].
+	 */
+	if ( ( funit(dev) >= fl.fl_ndsk )
+	  || ( fdata[ fkind(dev) ].fd_GPL[ flrate(dev) ] == 0 ) ) {
+
+		u.u_error = ENXIO;
+		return;
+	}
+}
+
+/*
+ * The read routine just calls
+ * off to the common raw I/O processing
+ * code, using a static buffer header in
+ * the driver.
+ */
+
+static
+flread( dev, iop )
+
+dev_t	dev;
+IO	*iop;
+
+{
+	dmareq(&flbuf, iop, dev, BREAD);
+}
+
+/*
+ * The write routine is just like the
+ * read routine, except that the function code
+ * is write instead of read.
+ */
+
+static
+flwrite( dev, iop )
+
+dev_t	dev;
+IO	*iop;
+
+{
+	dmareq(&flbuf, iop, dev, BWRITE);
+}
+
+/*
+ * The ioctl routine simply queues a format request
+ * using flbuf.
+ * The only valid command is to format a track.
+ * The parameter block contains the header records supplied to the controller.
+ */
+
+static
+flioctl( dev, com, par )
+
+dev_t	dev;
+int	com;
+char	*par;
+
+{
+	register unsigned s;
+	register struct fdata *fdp;
+	unsigned hd, cyl;
+
+	if (com != FDFORMAT) {
+		u.u_error = EINVAL;
+		return;
+	}
+
+	fdp = &fdata[ fkind(dev) ];
+	cyl = getubd(par);
+	hd  = getubd(par+1);
+
+	if (hd > 1 || cyl >= fdp->fd_trks) {
+		u.u_error = EINVAL;
+		return;
+	}
+
+	/*
+	 * The following may need some explanation.
+	 * dmareq will:
+	 *	claim the buffer,
+	 *	bounds check the parameter buffer,
+	 *	lock the parameter buffer in memory,
+	 *	convert io_seek to b_bno,
+	 *	dispatch the request,
+	 *	wait for completion,
+	 *	and unlock the parameter buffer.
+	 * The b_bno is reconverted to hd, cyl in flfsm.
+	 */
+
+	s = fhbyh(dev) ? (cyl * fdp->fd_nhds + hd) : (hd * fdp->fd_trks + cyl);
+	s *= fdp->fd_nspt;
+	u.u_io.io_seek = ((long)s) * BSIZE;
+	u.u_io.io_base = par;
+	u.u_io.io_ioc = fdp->fd_nspt * 4;
+	dmareq(&flbuf, &u.u_io, dev, FDFORMAT);
+}
+
+/*
+ * Start up block I/O on a
+ * buffer. Check that the block number
+ * is not out of range, given the style of
+ * the disk. Put the buffer header into the
+ * device queue. Start up the disk if the
+ * device is idle.
+ */
+
+static
+flblock( bp )
+
+register BUF	*bp;
+
+{
+	register int	s;
+	register unsigned bno;
+
+	bno = bp->b_bno + (bp->b_count >> 9) - 1;
+	if ((unsigned)bp->b_bno > fdata[ fkind(bp->b_dev) ].fd_size) {
+		bp->b_flag |= BFERR;
+		bdone(bp);
+		return;
+	}
+	if (bp->b_req != FDFORMAT && bno >= fdata[ fkind(bp->b_dev) ].fd_size) {
+		bp->b_resid = bp->b_count;
+		if (bp->b_flag & BFRAW)
+			bp->b_flag |= BFERR;
+		bdone(bp);		/* return w/ b_resid != 0 */
+		return;
+	}
+
+	if ((bp->b_count&0x1FF) != 0) {
+		if (bp->b_req != FDFORMAT) {
+			bp->b_flag |= BFERR;
+			bdone(bp);
+			return;
+		}
+	}
+
+	bp->b_actf = NULL;
+	s = sphi();	/* s was already == sphi() on at least PC/XT. */
+
+	if (fl.fl_actf == NULL)
+		fl.fl_actf = bp;
+	else
+		fl.fl_actl->b_actf = bp;
+
+	fl.fl_actl = bp;
+
+	if (fl.fl_state == SIDLE)
+		flfsm();
+
+	spl( s );
+}
+
+/*
+ * This finite state machine is
+ * responsible for all sequencing on the disk.
+ * It builds the commands, does the seeks, spins up
+ * the drive motor for 1 second on the first call,
+ * and so on.
+ * Note that the format command is rather obscurely shoehorned into this.
+ */
+
+static
+flfsm()
+{
+	register BUF	*bp;
+	register int	flcmd;
+	register int	i;
+
+again:
+	bp = fl.fl_actf;
+
+	switch (fl.fl_state) {
+
+	case SIDLE:
+		drvl[FL_MAJOR].d_time = 1;
+
+		if ( bp == NULL )
+			break;
+
+		fl.fl_fd   = fdata[ fkind(bp->b_dev) ];
+		fl.fl_unit = funit( bp->b_dev );
+		fl.fl_hbyh = fhbyh( bp->b_dev );
+
+		fl.fl_mask = 0x10 << fl.fl_unit;
+
+		fl.fl_addr = bp->b_paddr;
+		fl.fl_secn = bp->b_bno;
+		fl.fl_time[fl.fl_unit] = 0;
+
+		if ((fl.fl_nsec = bp->b_count>>9) == 0)
+			fl.fl_nsec = 1;
+
+		fl.fl_nerr = 0;
+
+		/*
+		 * Set data rate if changed.
+		 * NOTE: XT never changes data rate.
+		 */
+		if ( (i = flrate(bp->b_dev)) != fl.fl_rate )
+			outb(FDCRATE, fl.fl_rate = i );
+
+		/*
+		 * Motor is turned off - turn it on, wait 1 second.
+		 */
+		if ((fl.fl_mstatus&fl.fl_mask) == 0) {
+
+			fl.fl_mstatus |= fl.fl_mask;
+			outb(FDCDOR, DORNMR|DORIEN|fl.fl_mstatus|fl.fl_unit);
+			flsense();
+
+			timeout( &fltim, HZ, fldelay, SSEEK );
+			fl.fl_time[fl.fl_unit] = 0;
+			fl.fl_state = SDELAY;
+			break;
+		}
+		/* no break */
+
+	case SSEEK:
+		fl.fl_time[fl.fl_unit] = 0;
+		outb(FDCDOR, DORNMR|DORIEN|fl.fl_mstatus|fl.fl_unit);
+		flsense();
+
+		/*
+		 * Drive is not calibrated - seek to track 0.
+		 */
+		if (fl.fl_incal[fl.fl_unit] == 0) {
+			++fl.fl_incal[fl.fl_unit];
+			flput(CMDRCAL);
+			flput(fl.fl_unit);
+			fl.fl_state = SSEEK;
+			break;
+		}
+
+		fl.fl_fsec = (fl.fl_secn % fl.fl_fd.fd_nspt) + 1;
+
+		/*
+		 * Seek cylinder by cylinder (XENIX/DOS compatible).
+		 */
+		if (fl.fl_hbyh) {
+	                fl.fl_head = fl.fl_secn / fl.fl_fd.fd_nspt;
+			fl.fl_fcyl = fl.fl_head / fl.fl_fd.fd_nhds;
+			fl.fl_head = fl.fl_head % fl.fl_fd.fd_nhds;
+		}
+		
+		/*
+		 * Seek surface by surface.
+		 */
+		else {
+			fl.fl_fcyl = fl.fl_secn / fl.fl_fd.fd_nspt;
+			fl.fl_head = fl.fl_fcyl / fl.fl_fd.fd_trks;
+			fl.fl_fcyl = fl.fl_fcyl % fl.fl_fd.fd_trks;
+		}
+
+		flput(CMDSEEK);
+		flput((fl.fl_head<<2) | fl.fl_unit);
+
+		if ( fl.fl_fd.fd_trks == 80 )
+			flput(fl.fl_fcyl);
+		else if ( fl.fl_type[fl.fl_unit] == 2 )
+			flput(fl.fl_fcyl << 1);		/* double step */
+		else if ( fl.fl_type[fl.fl_unit] == 4 )
+			flput(fl.fl_fcyl << 1);		/* double step */
+		else
+			flput(fl.fl_fcyl);
+
+		fl.fl_state = SHDLY;
+		break;
+
+	case SHDLY:
+		/*
+		 * Delay for minimum 15 milliseconds after seek before w/fmt.
+		 * 2 clock ticks would give 10-20 millisecond [100 Hz clock].
+		 * 3 clock ticks gives      20-30 millisecond [100 Hz clock].
+		 */
+		if ( bp->b_req != BREAD ) {
+			timeout( &fltim, 3, fldelay, SRDWR );
+			fl.fl_state = SDELAY;
+			break;
+		}
+		/* no break */
+
+	case SRDWR:
+		/*
+		 * Disable watchdog timer while waiting to lock DMA controller.
+		 */
+		fl.fl_time[fl.fl_unit] = -1;
+
+		/*
+		 * Next state will be DMA locked state.
+		 */
+		fl.fl_state = SLOCK;
+
+		/*
+		 * If DMA controller locked by someone else, exit for now.
+		 */
+		if ( dmalock( &fldmalck, flfsm, 0 ) != 0 )
+			return;
+
+	case SLOCK:
+		/*
+		 * Reset watchdog timer to restart timeout sequence.
+		 */
+		fl.fl_time[fl.fl_unit] = 0;
+
+		flcmd = CMDRDAT;
+		fl.fl_wflag = 0;
+
+		if (bp->b_req == BREAD)
+			;
+
+		else if (bp->b_req == BWRITE) {
+			fl.fl_wflag = 1;
+			flcmd = CMDWDAT;
+		}
+		
+		else {
+			fl.fl_wflag = 1;
+			flcmd = CMDFMT;
+
+			if(dmaon(2, fl.fl_addr, bp->b_count, fl.fl_wflag) == 0)
+				goto straddle;
+
+			else
+				goto command;
+		}
+
+		if (dmaon(2, fl.fl_addr, 512, fl.fl_wflag) == 0) {
+straddle:
+			devmsg(bp->b_dev, "fd: DMA page straddle at %x:%x",
+				fl.fl_addr);
+			dmaunlock( &fldmalck );
+			bp->b_flag |= BFERR;
+			fldone( bp );
+			goto again;
+		}
+command:
+		dmago(2);
+		flput(flcmd);
+		flput((fl.fl_head<<2) | fl.fl_unit);
+
+		if (bp->b_req == FDFORMAT) {
+			flput(fl.fl_fd.fd_N);		/* N */
+			flput(fl.fl_fd.fd_nspt);	/* SC */
+			flput(fl.fl_fd.fd_FGPL);	/* GPL */
+			flput(0xF6);			/* D */
+		}
+		
+		else {
+			flput(fl.fl_fcyl);
+			flput(fl.fl_head);
+			flput(fl.fl_fsec);
+			flput(fl.fl_fd.fd_N);		/* N */
+			flput(fl.fl_fd.fd_nspt);	/* EOT */
+			flput(fl.fl_fd.fd_GPL[fl.fl_rate]); /* GPL */
+			flput(0xFF);			/* DTL */
+		}
+
+		fl.fl_state = SENDIO;
+		break;
+
+	case SENDIO:
+		fl.fl_time[fl.fl_unit] = 0;
+		dmaoff(2);
+		dmaunlock( &fldmalck );
+
+		if ((fl.fl_cmdstat[0]&ST0_IC) != ST0_NT) {
+			if (++fl.fl_nerr < 5) {
+				fl.fl_incal[fl.fl_unit] = 0;
+				fl.fl_state = SSEEK;
+			}
+			
+			else {
+				flstatus();
+				bp->b_flag |= BFERR;
+				fldone(bp);
+			}
+		}
+
+		else if (--fl.fl_nsec == 0) {
+			bp->b_resid = 0;
+			fldone(bp);
+		}
+		
+		else {
+			++fl.fl_secn;
+			fl.fl_addr += 512;	/* 512 == fl.fl_fd.fd_nbps */
+			fl.fl_state = SSEEK;
+		}
+
+		/*
+		 * Delay for minimum 1.5 msecs after writing before seek.
+		 */
+		if ( fl.fl_wflag ) {
+			timeout( &fltim, 2, fldelay, fl.fl_state );
+			fl.fl_state = SDELAY;
+			break;
+		}
+
+		goto again;
+
+	case SDELAY:
+		/*
+		 * Ignore interrupts until timeout occurs.
+		 */
+		break;
+
+	default:
+		panic("fds");
+	}
+}
+
+/*
+ * Delay before initiating next operation.
+ * This allows the floppy motor to turn on,
+ * the head to settle before writing,
+ * the erase head to turn off after writing, etc.
+ */
+static
+fldelay( state )
+int state;
+{
+	int s;
+
+	s = sphi();
+	if ( fl.fl_state == SDELAY ) {
+		fl.fl_state = state;
+		flfsm();
+	}
+	spl( s );
+}
+
+/*
+ * The flrate function returns the data rate for the flopen and flfsm routines.
+ */
+static int
+flrate( dev )
+register dev_t dev;
+{
+	register int rate;
+
+	/*
+	 * Default is 250 Kbps.
+	 */
+	rate = 2;
+
+	/*
+	 * Check for high capacity drive.
+	 */
+	if ( fl.fl_type[ funit(dev) ] == 2 ) {
+
+		/*
+		 * 300 Kbps.
+		 */
+		rate--;
+
+		/*			       
+		 * Check for high capacity media.
+		 */
+		if ( fdata[ fkind(dev) ].fd_nspt == 15 ) {
+
+			/*
+			 * 500 Kbps.
+			 */
+			rate--;
+		}
+	} else if (fl.fl_type[funit(dev)] == 4 && fkind(dev) == 7)
+		rate = 0;
+
+	return( rate );
+}
+
+/*
+ * This routine is called by the
+ * clock handler every second. If the drive
+ * has been idle for a long time it turns off
+ * the motor and shuts off the timeouts.
+ */
+
+static
+fltimeout()
+{
+	register int	unit;
+	register int	mask;
+	register int	s;
+
+	s = sphi();
+
+	/*
+	 * Scan all drives, looking for motor timeouts.
+	 */
+	for ( unit=0, mask=0x10; unit < 4; unit++, mask <<= 1 ) {
+
+		/*
+		 * Ignore drives which aren't spinning.
+		 */
+		if ( (fl.fl_mstatus & mask) == 0 )
+			continue;
+
+		/*
+		 * If timer is disabled (i.e. we are waiting for the DMA
+		 * controller), go on to the next drive.
+		 */
+		if ( fl.fl_time[unit] < 0 )
+			continue;
+
+		/*
+		 * Leave recently accessed (in last 4 seconds) drives spinning.
+		 */
+		if ( ++fl.fl_time[unit] < MTIMER )
+			continue;
+
+		/*
+		 * Timeout drives which have been inactive for 5 seconds.
+		 */
+		fl.fl_mstatus &= ~mask;
+
+		/*
+		 * Not selected drive, or selected drive is idle.
+		 */
+		if ( (unit != fl.fl_unit) || (fl.fl_state == SIDLE) )
+			continue;
+
+		/*
+		 * Active drive did not complete operation within 5 seconds.
+		 * Attempt recovery.
+		 */
+		flrecov();
+
+		/*
+		 * Initiate next block request.
+		 */
+		if ( fl.fl_state == SIDLE )
+			flfsm();
+	}
+
+	/*
+	 * Physically turn off drives which timed out.
+	 */
+	outb(FDCDOR, DORNMR | DORIEN | fl.fl_mstatus | fl.fl_unit);
+
+	/*
+	 * Stop checking once all drives have been stopped.
+	 */
+	if ( fl.fl_mstatus == 0 )
+		drvl[FL_MAJOR].d_time = 0;
+
+	spl(s);
+}
+
+/*
+ * The recovery routine resets and reprograms the floppy controller,
+ * and discards any queued requests on the current drive.
+ * This is required if the floppy door is open, or diskette is missing.
+ */
+
+flrecov()
+{
+	register BUF * bp;
+	register dev_t dev;
+
+	/*
+	 * Disable DMA transfer.
+	 * Reset floppy controller.
+	 */
+	dmaoff( 2 );
+
+	/*
+	 * Unlock the controller if locked by us.
+	 */
+	dmaunlock( &fldmalck );
+
+	outb(FDCDOR, 0);
+	outb(FDCDOR, DORNMR);
+
+	/*
+	 * Program transfer bps.
+	 */
+	if ( fl.fl_rate != 2 )
+		outb( FDCRATE, fl.fl_rate );
+
+	/*
+	 * Program floppy controller.
+	 */
+	flput( CMDSPEC );
+	flput( (fl_srt << 4) | fl_hut );
+	flput( fl_hlt << 1 );
+
+	/*
+	 * Drives are no longer in calibration.
+	 */
+	fl.fl_incal[0] =
+	fl.fl_incal[1] =
+	fl.fl_incal[2] =
+	fl.fl_incal[3] = 0;
+
+	/*
+	 * Abort all block requests on current drive after 1st recov attempt.
+	 */
+	if ( bp = fl.fl_actf ) {
+		printf("fd%d: <Door Open>\n", fl.fl_unit );
+		dev = bp->b_dev;
+		do {
+			bp->b_flag |= BFERR;
+			fldone( bp );
+		} while ( (bp = fl.fl_actf) && (bp->b_dev == dev) );
+	}
+
+	/*
+	 * Delay before setting controller state to idle.
+	 * This gives time for spurious floppy interrupts to occur.
+	 * NOTE: Can't call flfsm(), since it may call us [future revision].
+	 */
+	timeout( &fltim, HZ/4, fldelay, SIDLE );
+	fl.fl_state = SDELAY;
+}
+
+/*
+ * The interrupt routine gets all
+ * the status bytes the controller chip
+ * will give it, then issues a sense interrupt
+ * status command (which is necessary for a seek
+ * to complete!) and throws all of the status
+ * bytes away.
+ */
+
+static
+flintr()
+{
+	register int s;
+
+	s = sphi();
+	flsense();
+
+	if (fl.fl_state != SIDLE)
+		flfsm();
+
+	spl(s);
+}
+
+/*
+ * Fldone() returns current request to operating system.
+ */
+fldone( bp )
+register BUF * bp;
+{
+	fl.fl_actf  = bp->b_actf;
+	fl.fl_state = SIDLE;
+	bdone( bp );
+}
+
+/*
+ * Flsense() issues a sense interrupt status command
+ * to restore the controller to a quiescent state.
+ */
+
+static
+flsense()
+{
+	register int	b;
+	register int	n;
+	register int	i = 0;
+	register int	s;
+
+	s = sphi();
+
+	/*
+	 * Read all the status bytes the controller will give us.
+	 */
+	n = 0;
+
+	for (;;) {
+		while (((b=inb(FDCMSR))&MSRRQM) == 0) {
+			if ( --i == 0 ) {
+				printf("flintr: timeout\n");
+				break;
+			}
+		}
+
+		if ((b&MSRDIO) == 0)
+			break;
+
+		b = inb(FDCDAT);
+		if ( n < sizeof(fl.fl_cmdstat) )
+			fl.fl_cmdstat[n++] = b;
+	}
+
+	fl.fl_ncmdstat = n;
+
+	/*
+	 * Issue a sense interrupt command and discard result.
+	 */
+	outb(FDCDAT, CMDSINT);
+
+	n = 0;
+	for (;;) {
+		while (((b=inb(FDCMSR))&MSRRQM) == 0) {
+			if ( --i == 0 ) {
+				printf("flsense: timeout\n");
+				break;
+			}
+		}
+
+		if ((b&MSRDIO) == 0)
+			break;
+
+		b = inb(FDCDAT);
+		if ( n < sizeof(fl.fl_intstat) )
+			fl.fl_intstat[n++] = b;
+	}
+	fl.fl_nintstat = n;
+
+	spl( s );
+}
+
+/*
+ * Send a command byte to the
+ * NEC chip, first waiting until the chip
+ * says that it is ready. No timeout is
+ * performed; if the chip dies, we do too!
+ */
+
+static
+flput( b )
+
+int	b;
+
+{
+	register int i = 0;
+
+	while ( (inb(FDCMSR) & (MSRRQM|MSRDIO)) != MSRRQM ) {
+		if ( --i == 0 ) {
+			printf("flput: timeout\n");
+			return;
+		}
+	}
+
+	outb(FDCDAT, b);
+}
+
+/*
+ * Dissassemble the floppy error status for user reference.
+ */
+
+static
+flstatus()
+{
+	printf("fd%d: head=%u cyl=%u",
+		fl.fl_cmdstat[0] & 3,
+		fl.fl_head, fl.fl_fcyl );
+
+	/*
+	 * Report on ST0 bits.
+	 */
+	if ( fl.fl_ncmdstat >= 1 ) {
+		if ( fl.fl_cmdstat[0] & ST0_NR )
+			printf(" <Not Ready>");
+
+		if ( fl.fl_cmdstat[0] & ST0_EC )
+			printf(" <Equipment Check>");
+	}
+
+	/*
+	 * Report on ST1 bits.
+	 */
+	if ( fl.fl_ncmdstat >= 2 ) {
+		if ( fl.fl_cmdstat[1] & ST1_MA )
+			printf(" <Missing Address Mark>");
+
+		if ( fl.fl_cmdstat[1] & ST1_NW )
+			printf(" <Write Protected>");
+
+		if ( fl.fl_cmdstat[1] & ST1_ND )
+			printf(" <No Data>");
+
+		if ( fl.fl_cmdstat[1] & ST1_OR )
+			printf(" <Overrun>");
+
+		if ( fl.fl_cmdstat[1] & ST1_DE )
+			printf(" <Data Error>");
+
+		if ( fl.fl_cmdstat[1] & ST1_EN )
+			printf(" <End of Cyl>");
+	}
+
+	/*
+	 * Report on ST2 bits.
+	 */
+	if ( fl.fl_ncmdstat >= 3 ) {
+		if ( fl.fl_cmdstat[2] & ST2_MD )
+			printf(" <Missing Data Address Mark>");
+
+		if ( fl.fl_cmdstat[2] & ST2_BC )
+			printf(" <Bad Cylinder>");
+
+		if ( fl.fl_cmdstat[2] & ST2_WC )
+			printf(" <Wrong Cylinder>");
+
+		if ( fl.fl_cmdstat[2] & ST2_DD )
+			printf(" <Bad Data CRC>");
+
+		if ( fl.fl_cmdstat[2] & ST2_CM )
+			printf(" <Data Deleted>");
+	}
+
+	printf("\n");
+}
+@

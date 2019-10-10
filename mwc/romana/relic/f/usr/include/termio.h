@@ -1,0 +1,211 @@
+/* (-lgl
+ * 	COHERENT Version 4.0
+ *	Copyright 1993 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ *
+ * 91/10/17 - Adapt for 386 COHERENT.
+ *
+ -lgl) */
+/*
+ * /usr/include/termio.h
+ *
+ * Line discipline support.
+ *
+ * Revised Tue Mar 23 14:23:58 1993 CST
+ */
+#ifndef __TERMIO_H__
+#define __TERMIO_H__
+
+#include <common/feature.h>
+
+#if	_I386 || __KERNEL__
+#define _COH_TERMIO	1
+#endif
+
+/*
+ * WARNING:  termio.h command codes are incompatible with device drivers
+ *   shipped with COHERENT 286;  sgtty.h command codes are used instead.  This
+ *   header is for use principally with COHERENT 386.  If you are using custom
+ *   drivers and line discipline with COHERENT 286 and need termio constants
+ *   for these modules, then define _COH_TERMIO before this file is included.
+ */
+#if	_COH_TERMIO
+
+/*
+ *	Terminal Input/Output Parameters
+ */
+
+#define	NCC	8
+
+struct	termio {
+	unsigned short	c_iflag;	/* input modes */
+	unsigned short	c_oflag;	/* output modes */
+	unsigned short	c_cflag;	/* control modes */
+	unsigned short	c_lflag;	/* local modes */
+	         char	c_line;		/* line discipline */
+	unsigned char	c_cc[NCC];	/* control chars */
+};
+
+/*
+ * Basic Terminal Input Control: c_iflag
+ */
+#define	IGNBRK	0x0001 		/* Ignore break condition */
+#define	BRKINT	0x0002		/* Signal interrupt on break */
+#define	IGNPAR	0x0004 		/* Ignore characters with parity errors */
+#define	PARMRK	0x0008		/* Mark parity errors */
+#define	INPCK	0x0010		/* Enable input parity check */
+#define	ISTRIP	0x0020		/* Strip character */
+#define	INLCR	0x0040		/* Map NL to CR on input */
+#define	IGNCR	0x0080		/* Ignore CR */
+#define	ICRNL	0x0100		/* Map CR to NL on input */
+#define	IUCLC	0x0200		/* Map upper-case to lower-case on input */
+#define	IXON	0x0400		/* Enable start/stop output control */
+#define	IXANY	0x0800		/* Enable any character to restart output */
+#define	IXOFF	0x1000		/* Enable start/stop input control */
+
+/*
+ * Basic Terminal Output Control: c_oflag
+ */
+#define	OPOST	0x0001		/* Postprocess output */
+#define	OLCUC	0x0002		/* Map lower case to upper on output */
+#define	ONLCR	0x0004		/* Map NL to CR-NL on output */
+#define	OCRNL	0x0008		/* Map CR to NL on output */
+#define	ONOCR	0x0010		/* No CR output at column 0 */
+#define	ONLRET	0x0020		/* NL performs CR function */
+#define	OFILL	0x0040		/* Use fill characters for delay */
+#define	OFDEL	0x0080		/* Fill is DEL, else NUL */
+#define	NLDLY	0x0100		/* Select new-line delays: */
+#define	NL0	0x0000
+#define	NL1	0x0100
+#define	CRDLY	0x0600		/* Select carriage-return delays: */
+#define	CR0	0x0000
+#define	CR1	0x0200
+#define	CR2	0x0400
+#define	CR3	0x0600
+#define	TABDLY	0x1800		/* Select horizontal-tab delays: */
+#define	TAB0	0x0000
+#define	TAB1	0x0800
+#define	TAB2	0x1000
+#define	TAB3	0x1800		
+#define	BSDLY	0x2000		/* Select backspace delays: */
+#define	BS0	0x0000
+#define	BS1	0x2000
+#define	VTDLY	0x4000		/* Select vertical-tab delays: */
+#define	VT0	0x0000
+#define	VT1	0x4000
+#define	FFDLY	0x8000		/* Select form-feed delays: */
+#define	FF0	0x0000
+#define	FF1	0x8000
+
+/*
+ * Terminal Hardware Control: c_cflag
+ */
+#define	CBAUD	0x000F		/* Baud rate: */
+#define	B0	0		/* Hang up */
+#define	B50	1		/* 50 baud */
+#define	B75	2		/* 75 baud */
+#define	B110	3		/* 110 baud */
+#define	B134	4		/* 134.5 baud */
+#define	B150	5		/* 150 baud */
+#define	B200	6		/* 200 baud */
+#define	B300	7		/* 300 baud */
+#define	B600	8		/* 600 baud */
+#define	B1200	9		/* 1200 baud */
+#define	B1800	10		/* 1800 baud */
+#define	B2400	11		/* 2400 baud */
+#define	B4800	12		/* 4800 baud */
+#define	B9600	13		/* 9600 baud */
+#define	B19200	14		/* 19200 baud */
+#define	B38400	15		/* 38400 baud */
+#define	EXTA	14		/* External A */
+#define	EXTB	15		/* External B */
+#define	CSIZE	0x0030		/* Character size: */
+#define	CS5	0x0000		/* 5 bits */
+#define	CS6	0x0010		/* 6 bits */
+#define	CS7	0x0020		/* 7 bits */
+#define	CS8	0x0030		/* 8 bits */
+#define	CSTOPB	0x0040		/* Send two stop bits, else one */
+#define	CREAD	0x0080		/* Enable receiver */
+#define	PARENB	0x0100		/* Parity enable */
+#define	PARODD	0x0200		/* Odd parity, else even */
+#define	HUPCL	0x0400		/* Hang up on last close */
+#define	CLOCAL	0x0800		/* Local line, else dial-up */
+
+/*
+ * Terminal Functions - c_lflag
+ */
+#define	ISIG	0x0001		/* Enable signals */
+#define	ICANON	0x0002		/* Canonical input (erase and kill) */
+#define	XCASE	0x0004		/* Canonical upper/lower presentation */
+#define	ECHO	0x0008		/* Enable echo */
+#define	ECHOE	0x0010		/* Echo erase character as BS-SP-BS */
+#define	ECHOK	0x0020		/* Echo NL after kill character */
+#define	ECHONL	0x0040		/* Echo NL */
+#define	NOFLSH	0x0080		/* Disable flush after interrupt or quit */
+
+/*
+ * Offsets into Control Characters
+ */
+#define	VINTR	0
+#define	VQUIT	1
+#define	VERASE	2
+#define	VKILL	3
+#define	VEOF	4
+#define	VEOL	5
+#define	VEOL2	6
+#define	VMIN	4
+#define	VTIME	5
+#define	VSWTCH	6
+
+/*
+ * Character Constants
+ */
+#define CEOF	0x04		/* EOT (ctrl-D) */
+#define CERASE	0x08		/* BS (backspace) */
+#define CESC	0x1B		/* ESC (escape) */
+#define CKILL	0x15		/* ACK (ctrl-U) */
+#define CQUIT	0x1C		/* FS (ctrl-\) */
+#define CSTART	0x11		/* DC1 (ctrl-Q) */
+#define CSTOP	0x13		/* DC3 (ctrl-S) */
+#define CSWTCH	0x1A		/* EOT (ctrl-Z) */
+
+/*
+ * Ioctl Commands - ioctl(fno, com, &termio)
+ */
+
+#define	TIOC	('T'<<8)
+#define	TCGETA	(TIOC|1)	/* Get terminal parameters */
+#define	TCSETA	(TIOC|2)	/* Set terminal parameters */
+#define	TCSETAW	(TIOC|3)	/* Wait for drain, then set parameters */
+#define	TCSETAF	(TIOC|4)	/* Wait for drain, flush input, set parms */
+
+/*
+ * Ioctl Commands - ioctl(fno, com, arg)
+ */
+#define	TCSBRK	(TIOC|5)	/* Send 0.25 second break */
+#define	TCXONC	(TIOC|6)	/* Start/stop control
+				   arg=0 -> suspend output
+				   arg=1 -> restart suspended output
+				 */
+#define	TCFLSH	(TIOC|7)	/* arg=0 -> flush input queue
+				   arg=1 -> flush output queue
+				   arg=2 -> flush both input and output queues
+				 */
+
+#if	! _POSIX_SOURCE
+
+#define TIOCGWINSZ	(TIOC | 104)
+#define TIOCSWINSZ	(TIOC | 103)
+
+struct winsize {
+	unsigned short ws_row;		/* characters per row */
+	unsigned short ws_col;		/* characters per column */
+	unsigned short ws_xpixel;	/* pixels per row */
+	unsigned short ws_ypixel;	/* pixels per column */
+};
+
+#endif	/* ! _POSIX_SOURCE */
+
+#endif	/* _COH_TERMIO */
+
+#endif	/* ! defined (__TERMIO_H__) */

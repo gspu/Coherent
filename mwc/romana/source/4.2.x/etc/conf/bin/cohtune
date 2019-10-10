@@ -1,0 +1,89 @@
+# Generated from cohtune.sh on Tue Nov 16 11:42:26 1993 CST
+# (-lgl
+#	Coherent 386 release 4.2-Beta
+#	Copyright (c) 1982, 1993 by Mark Williams Company.
+#	All rights reserved. May not be copied without permission.
+#	For copying permission and licensing info, write licensing@mwc.com
+# -lgl)
+
+# cohtune - change a system initializer.
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Output an error message to standard error, prefixed by the command name.
+
+report_error () {
+	basename $COMMAND_NAME "" "echo " ": $*" 1>&2
+}
+
+
+# Print a usage message to standard error
+
+usage () {
+	report_error Modify Space.c for the given device.
+	cat <<\END 1>&2
+usage:	device [ tag new-text ] ...
+	Replace the line containing tag (not in comments) by new-text.
+	Fail if there is not a unique line matching tag.
+END
+}
+
+
+# "tagline file tag" reports the line number in file which contains tag
+
+tagline () {
+	# LNO is list of matching line numbers
+	LNO=`/bin/cgrep -n $2 < $1 | /bin/sed -e "s/:.*//" \
+		-e "s/^[ 	]*//"`
+
+	# LCOUNT is number of matching line numbers
+	LCOUNT=`/bin/echo $LNO | /bin/wc -w`
+
+	is_equal $LCOUNT 1 || {
+		report_error Found $LCOUNT matches for $TAG, wanted 1.
+		exit 1
+	}
+}
+
+# end of function definitions.
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+
+# Need at least three args.
+
+val $(($# < 3)) && {
+	usage
+	exit 100
+}
+
+
+SPACE_FILE=$CONF_DIR/$1/Space.c
+shift
+
+# Need conf/device/Space.c file.
+
+file_exists $SPACE_FILE || {
+	report_error Cannot find $SPACE_FILE
+	exit 1
+}
+
+while val $(($# >= 2))
+do
+	tagline $SPACE_FILE $1
+
+	# Do replacement.
+
+	/bin/ed - +v $SPACE_FILE > /dev/null <<- _EOF
+	$LNO
+	c
+	$2
+	.
+	p
+	wq
+	_EOF
+
+	shift 2
+done

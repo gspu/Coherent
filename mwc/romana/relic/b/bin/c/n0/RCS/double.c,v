@@ -1,0 +1,317 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.51.55;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * This file contains a (mostly) machine independent
+ * IEEE or DECVAX format floating point reader.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+#if !NATIVEFP
+#if IEEE|DECVAX
+
+#define	NEGNUMB	01			/* # is negative */
+#define	DOTSEEN	02			/* A decimal point has appeared */
+#define	NEGDEXP	04			/* Decimal exp. is negative */
+
+/*
+ * The following values are returned on exponent overflow.
+ * The bits are the same in both formats.
+ * This does not use the special IEEE representation for Infinity.
+ */
+static BIG poshuge = { 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+static BIG neghuge = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
+/*
+ * Transform a number from ASCII to either
+ * IEEE format double precision or
+ * DEC VAX-11 format double precision.
+ * Stash the result in the supplied character array.
+ * The 0'th element gets the exponent end of the number.
+ * The internal representation used here is a BIG,
+ * an array of bytes containing the binary mantissa.
+ */
+dvalread(dvalp, sp)
+char		*dvalp;
+register char	*sp;
+{
+	register int	c;
+	int		binexp, decexp;
+	int		flags, i, n;
+	BIG		num, tmp;
+
+	intclr(num);
+	flags  = 0;
+	decexp = 0;
+	binexp = 64;
+	if (*sp == '+')
+		++sp;
+	else if (*sp == '-') {
+		flags |= NEGNUMB;
+		++sp;
+	}
+	while ((c = *sp++)=='.' || (c>='0' && c<='9')) {
+		if (c == '.') {
+			if ((flags&DOTSEEN) != 0)
+				break;
+			flags |= DOTSEEN;
+		} else {
+			if (t5ne(num))
+				++decexp;
+			else {
+				intshl(num);
+				intcpy(tmp, num);
+				intshl(num);
+				intshl(num);
+				intadd(num, tmp);
+				intclr(tmp);
+				tmp[NBIG-1] = c-'0';
+				intadd(num, tmp);
+			}
+			if ((flags&DOTSEEN) != 0)
+				--decexp;
+		}
+	}
+	/*
+	 * If the delimiter is an 'e' or an 'E',
+	 * read in the exponent and adjust the decimal bias.
+	 */
+	if (c=='e' || c=='E') {
+		if (*sp == '+')
+			++sp;
+		else if (*sp == '-') {
+			flags |= NEGDEXP;
+			++sp;
+		}
+		n = 0;
+		while ((c = *sp++)>='0' && c<='9')
+			n = 10*n + c - '0';
+		if ((flags&NEGDEXP) != 0)
+			n = -n;
+		decexp += n;
+	}
+	/*
+	 * Check for 0.0.
+	 * Double 0.0 is a BIG containing all 0 bytes in both formats.
+	 */
+	for (i=0; i<NBIG && num[i]==0; ++i)
+		;
+	if (i == NBIG) {
+		intclr(dvalp);
+		return;
+	}
+	/*
+	 * Multiply.
+	 * Try to do a *5.
+	 * If ok, add 1 to the binary exponent (2*5=10).
+	 * Otherwise, multiply by 5/4, add 3 to the binary exponent (5/4*8=10).
+	 */
+	if (decexp > 0) {
+		do {
+			intcpy(tmp, num);
+			if (intshl(tmp)==0 && intshl(tmp)==0
+			&&  intadd(tmp, num)==0) {
+				intcpy(num, tmp);
+				++binexp;
+			} else {
+				intcpy(tmp, num);
+				intshr(tmp);
+				intshr(tmp);
+				if (intadd(num, tmp) != 0) {
+					++binexp;
+					intshr(num);
+					num[0] |= MSBBIG;
+				}
+				binexp += 3;
+			}
+		} while (--decexp);
+	/*
+	 * Divide.
+	 * At each iteration, subtract 3 from the exponent
+	 * and multiply by 4/5 (4/5*1/8=1/10).
+	 * 4/5 = 0.1100110011001100....
+	 */
+	} else if (decexp < 0) {
+		do {
+			while ((num[0]&MSBBIG) == 0) {
+				intshl(num);
+				--binexp;
+			}
+			intshr(num);
+			intcpy(tmp, num);
+			for (i=0; i<32; ++i) {
+				if ((i&01) != 0) {
+					intshr(tmp);
+					intshr(tmp);
+				}
+				intshr(tmp);
+				intadd(num, tmp);
+			}
+			binexp -= 3;
+		} while (++decexp);
+	}
+	/*
+	 * Normalize and eat up the hidden bit.
+	 */
+	do {
+		--binexp;
+	} while (intshl(num) == 0);
+	intclr(tmp);
+	tmp[IROUND] = BROUND;
+	if (intadd(num, tmp) != 0) {
+		++binexp;
+		intshr(num);
+	}
+	/*
+	 * Bias the exponent and check its range.
+	 * This does not bother to use the special IEEE representation
+	 * (exponent 0, mantissa nonzero) for a bit more range.
+	 * Overflow returns the biggest value in the normal representation;
+	 * IEEE overflow could return Infinity instead but currently does not.
+	 */
+	binexp += EXPBIAS;
+	if (binexp <= 0) {
+		cwarn("exponent underflow in floating point constant");
+		intclr(dvalp);
+		return;
+	}
+	if (binexp > EXPMAX) {
+		cwarn("exponent overflow in floating point constant");
+		intcpy(dvalp, (flags&NEGNUMB)!=0 ? neghuge : poshuge);
+		return;
+	}
+	/*
+	 * Pack up and return home.
+	 */
+#if IEEE
+	for (i=0; i<12; ++i)
+		intshr(num);
+	num[0]  = (binexp>>4) & 0177;
+	num[1] |= (binexp<<4) & 0360;
+#else
+	for (i=0; i<9;  ++i)
+		intshr(num);
+	num[0]  = (binexp>>1) & 0177;
+	num[1] |= (binexp<<7) & 0200;
+#endif
+	if (flags&NEGNUMB != 0)
+		num[0] |= MSBBIG;
+	intcpy(dvalp, num);
+}
+
+/*
+ * Shift a BIG right by 1 bit.
+ * Shift a 0 into the leftmost position.
+ * Return the bit that gets shot off the end.
+ */
+intshr(num)
+BIG	num;
+{
+	register int	i, ocarry, icarry;
+
+	ocarry = 0;
+	for (i=0; i<NBIG; ++i) {
+		icarry = ocarry;
+		ocarry = num[i]&01;
+		num[i] >>= 1;
+		if (icarry != 0)
+			num[i] |= MSBBIG;
+	}
+	return (ocarry);
+}
+
+/*
+ * Shift a BIG left by 1 bit.
+ * Shift a 0 into the rightmost position.
+ * Return the bit that gets shot off the end.
+ */
+static
+intshl(num)
+BIG	num;
+{
+	register int	i, ocarry, icarry;
+
+	ocarry = 0;
+	for (i=NBIG-1; i>=0; --i) {
+		icarry = ocarry;
+		ocarry = num[i]&MSBBIG;
+		num[i] <<= 1;
+		if (icarry != 0)
+			num[i] |= 1;
+	}
+	return (ocarry);
+}
+
+/*
+ * Add two BIGs.
+ * Return the carry bit.
+ */
+intadd(num, tmp)
+BIG	num;
+BIG	tmp;
+{
+	register int	i, sum;
+
+	sum = 0;
+	for (i=NBIG-1; i>=0; --i) {
+		sum += num[i] + tmp[i];
+		num[i] = sum;
+		sum = cbit(sum);
+	}
+	return (sum);
+}
+
+/*
+ * Copy a BIG.
+ */
+intcpy(tint, fint)
+BIG	tint;
+BIG	fint;
+{
+	register int	i;
+
+	for (i=0; i<NBIG; ++i)
+		tint[i] = fint[i];
+}
+
+/*
+ * Set a BIG to 0.
+ */
+intclr(tint)
+BIG	tint;
+{
+	register int	i;
+
+	for (i=0; i<NBIG; ++i)
+		tint[i] = 0;
+}
+
+#endif
+#endif
+@

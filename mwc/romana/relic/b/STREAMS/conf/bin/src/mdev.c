@@ -1,0 +1,626 @@
+/*
+ *-IMPORT:
+ *	<sys/compat.h>
+ *		CONST
+ *		LOCAL
+ *		USE_PROTO
+ *		ARGS ()
+ *	<stdlib.h>
+ *		NULL
+ *		free ()
+ *		malloc ()
+ *	<string.h>
+ *		strchr ()
+ *	"ehand.h"
+ *		ehand_t
+ *		CHAIN_ERROR ()
+ *		POP_HANDLER ()
+ *		PUSH_HANDLER ()
+ *		throw_error ()
+ *	"symbol.h"
+ *		LEX_WILD
+ *		RANGE
+ *		SIGNED
+ *		SYM_EOF
+ *		UNSIGNED
+ *		read_dev_file ()
+ *		read_number ()
+ *		read_symbol ()
+ */
+
+#include <sys/compat.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "ehand.h"
+#include "symbol.h"
+#include "read.h"
+#include "lex.h"
+#include "input.h"
+
+#include "mdev.h"
+
+
+LOCAL mdev_t  *	_mdevices;
+
+
+/*
+ * Find a device by symbol.
+ */
+
+#if	USE_PROTO
+mdev_t * (find_mdev) (symbol_t * sym)
+#else
+mdev_t *
+find_mdev ARGS ((sym))
+symbol_t      *	sym;
+#endif
+{
+	mdev_t	      *	scan;
+
+	for (scan = _mdevices ; scan != NULL ; scan = scan->md_next) {
+
+		if (scan->md_devname == sym)
+			return scan;
+	}
+
+	return NULL;
+}
+
+
+/*
+ * Write a single number or a range of device major numbers.
+ */
+
+#if	USE_PROTO
+LOCAL int write_range (input_t * input, maj_t major [2])
+#else
+LOCAL int
+write_range (input, major)
+input_t	      *	input;
+maj_t		major [2];
+#endif
+{
+	if (major [0] == major [1])
+		return (* input->in_filter) (input, "%d\t", major [0]);
+
+	return (* input->in_filter) (input, "%d-%d\t", major [0], major [1]);
+}
+
+
+/*
+ * Regenerate an 'mdevice' line from the stored record.
+ */
+
+#define	HYPHEN(x)	((x) == NULL ? (unsigned char *) "-" : (x))
+
+#if	USE_PROTO
+void (write_mdevice) (mdev_t * mdevp, input_t * input)
+#else
+void
+write_mdevice ARGS ((mdevp, input))
+mdev_t	      *	mdevp;
+input_t	      *	input;
+#endif
+{
+	if ((* input->in_filter) (input, "%s<1>%s<2>%s<3>%s<4>",
+				  mdevp->md_devname->s_data,
+				  HYPHEN (mdevp->md_functions->s_data),
+				  HYPHEN (mdevp->md_flags->s_data),
+				  mdevp->md_prefix->s_data) < 0 ||
+	    write_range (input, mdevp->md_blk_maj) < 0 ||
+	    write_range (input, mdevp->md_chr_maj) < 0 ||
+	    (* input->in_filter) (input, "%d<7>%d<8>%d<9>%d\n",
+				  mdevp->md_minor_min, mdevp->md_minor_max,
+				  mdevp->md_dma_chan, mdevp->md_cpu_id) < 0) {
+
+		throw_error ("Output error");
+	}
+}
+
+
+/*
+ * Read lines from an "mdevice" file.
+ *
+ * This code is really messy. My apologies.
+ */
+
+#if	USE_PROTO
+LOCAL mdev_t * (read_mdevice) (input_t * input, lex_t * lexp, int * end_char)
+#else
+LOCAL mdev_t *
+read_mdevice ARGS ((input, lexp, end_char))
+input_t	      *	input;
+lex_t         *	lexp;
+int	      *	end_char;
+#endif
+{
+	VOLATILE int	ch = '\n';
+	mdev_t * VOLATILE mdevp;
+	ehand_t		err;
+	lex_t		functions = { NULL, NULL, "-", MDEV_FUNCS, LEX_WILD };
+	lex_t		flags = { NULL, NULL, "-", MDEV_FLAGS, LEX_WILD };
+
+	functions.l_prev = lexp;
+	flags.l_prev = lexp;
+
+	if ((mdevp = (mdev_t *) malloc (sizeof (* mdevp))) == NULL)
+		throw_error ("out of memory in read_mdevice ()");
+
+	if (PUSH_HANDLER (err) == 0) {
+		/*
+		 * If the first thing on the line works out to be an EOF,
+		 * then bail out without an error.
+		 */
+
+		ch = read_symbol (input, lexp, & mdevp->md_devname);
+
+		if (mdevp->md_devname == NULL) {
+			/*
+			 * We allow an EOF at the beginning of a line and we
+			 * also allow a blank line.
+			 */
+
+			free (mdevp);
+			mdevp = NULL;
+			goto at_eof;
+		}
+		check_not_eol (ch);
+
+		if (mdevp->md_devname->s_size > MAX_DEVNAME)
+			throw_error ("device name must be <= %d characters",
+				     MAX_DEVNAME);
+
+		/*
+		 * We read the functions and characteristics field as symbols,
+		 * even though they are really strings, since it makes no
+		 * difference to the result.
+		 */
+
+		ch = read_symbol (input, & functions, & mdevp->md_functions);
+		if (mdevp->md_functions == NULL && ch != '-')
+			throw_error ("Unable to read functions");
+		check_not_eol (ch);
+
+		ch = read_symbol (input, & flags, & mdevp->md_flags);
+		if (mdevp->md_flags == NULL && ch != '-')
+			throw_error ("Unable to read flags");
+		check_not_eol (ch);
+
+		if ((mdev_flag (mdevp, MDEV_BLOCK) ||
+		     mdev_flag (mdevp, MDEV_CHAR) ||
+		     mdev_flag (mdevp, MDEV_STREAM)) &&
+		    ! mdev_flag (mdevp, MDEV_DDI_DDK)) {
+
+			throw_error ("devices must be DDI/DDK compliant");
+		}
+
+
+		/*
+		 * We don't check for a unique device prefix, since there may
+		 * be a legitimate reason to configure the same prefix twice.
+		 *
+		 * If the user installs multiple devices with the same prefix,
+		 * the linker should catch it. Of course, a registration
+		 * system might help. We only enforce the size limit for
+		 * drivers... other kernel facilities can user longer names.
+		 */
+
+		ch = read_symbol (input, lexp, & mdevp->md_prefix);
+		check_not_eol (ch);
+
+		if ((mdev_flag (mdevp, MDEV_BLOCK) ||
+		     mdev_flag (mdevp, MDEV_CHAR) ||
+		     mdev_flag (mdevp, MDEV_STREAM)) &&
+		    mdevp->md_prefix->s_size > MAX_PREFIX)
+			throw_error ("device prefix must be <= %d characters",
+				     MAX_PREFIX);
+
+
+		ch = read_uints (input, lexp, mdevp->md_blk_maj, RANGE);
+		check_not_eol (ch);
+
+		if (mdev_flag (mdevp, MDEV_BLOCK)) {
+
+			if (mdevp->md_blk_maj [0] > mdevp->md_blk_maj [1])
+				throw_error ("lower range bound higher than upper bound");
+
+			if (mdevp->md_blk_maj [0] < MAJOR_RESERVED)
+				throw_error ("major devices up to %d reserved",
+					     MAJOR_RESERVED - 1);
+
+		} else if (mdev_flag (mdevp, MDEV_COHERENT)) {
+
+			if (mdevp->md_blk_maj [0] != mdevp->md_blk_maj [1])
+				throw_error ("Coherent devices occupy a single major number");
+
+			if (mdevp->md_blk_maj [0] >= MAJOR_RESERVED)
+				throw_error ("Coherent devices only in range 0-%d",
+					     MAJOR_RESERVED - 1);
+		} else
+			mdevp->md_blk_maj [0] = mdevp->md_blk_maj [1] = 0;
+
+
+		ch = read_uints (input, lexp, mdevp->md_chr_maj, RANGE);
+		check_not_eol (ch);
+
+		if (mdev_flag (mdevp, MDEV_CHAR)) {
+
+			if (mdevp->md_chr_maj [0] > mdevp->md_chr_maj [1])
+				throw_error ("lower range bound higher that upper bound");
+
+			if (mdevp->md_chr_maj [0] < MAJOR_RESERVED)
+				throw_error ("major devices 0-%d reserved",
+					     MAJOR_RESERVED - 1);
+		} else if (mdev_flag (mdevp, MDEV_COHERENT)) {
+
+			if (mdevp->md_chr_maj [0] != mdevp->md_blk_maj [0] ||
+			    mdevp->md_blk_maj [0] != mdevp->md_chr_maj [0])
+				throw_error ("Coherent drivers must have same "
+					     "block and character numbers");
+		} else
+			mdevp->md_chr_maj [0] = mdevp->md_chr_maj [1] = 0;
+
+		ch = read_uints (input, lexp, & mdevp->md_minor_min,
+				 NO_RANGE);
+		check_not_eol (ch);
+
+		ch = read_uints (input, lexp, & mdevp->md_minor_max,
+				 NO_RANGE);
+		check_not_eol (ch);
+
+		if (mdevp->md_minor_min > mdevp->md_minor_max)
+			throw_error ("minor minimum higher than maximum");
+
+		ch = read_ints (input, lexp, & mdevp->md_dma_chan, NO_RANGE);
+
+		if (ch != '\n' && ch != SYM_EOF) {
+			/*
+			 * The "cpu_id" field is optional.
+			 */
+
+			ch = read_ints (input, lexp, & mdevp->md_cpu_id,
+					NO_RANGE);
+		} else
+			mdevp->md_cpu_id = -1;
+
+		ch = expect_eol (input, lexp, ch);
+
+
+		/*
+		 * Having passed all the reasonableness checks, we link the
+		 * new entry into the chain.
+		 */
+
+		mdevp->md_sdevices = NULL;
+		mdevp->md_interrupt = 0;
+
+		mdevp->md_configure = MD_INSTALLABLE;
+	} else {
+
+		free (mdevp);
+		CHAIN_ERROR (err);
+	}
+
+at_eof:
+	POP_HANDLER (err);
+
+	* end_char = ch;
+	return mdevp;
+}
+
+
+/*
+ * This function is passed as a parameter to read_dev_string () to read an
+ * 'mtune' entry (usually a program argument) and hook it into a global list.
+ */
+
+#if	USE_PROTO
+LOCAL int _read_mdev_string (input_t * input, lex_t * lexp,
+			      mdev_t ** mdlistp)
+#else
+LOCAL int
+_read_mdev_string (input, lexp, mdlistp)
+input_t	      *	input;
+lex_t	      *	lexp;
+mdev_t	     **	mdlistp;
+#endif
+{
+	mdev_t	      *	mdevp;
+	int		ch;
+
+	if ((mdevp = read_mdevice (input, lexp, & ch)) != NULL) {
+		mdevp->md_next = * mdlistp;
+		* mdlistp = mdevp;
+	}
+
+	return ch;
+}
+
+
+/*
+ * Common code from _read_mdevice_file () to link an entry into the global
+ * 'mdevice' chain.
+ */
+
+#if	USE_PROTO
+LOCAL void (link_mdevice) (mdev_t * mdevp, input_t * input)
+#else
+LOCAL void
+link_mdevice ARGS ((mdevp, input))
+mdev_t	      *	mdevp;
+input_t	      *	input;
+#endif
+{
+	if (find_mdev (mdevp->md_devname) != NULL)
+		throw_error ("device name must be unique");
+
+	mdevp->md_next = _mdevices;
+	_mdevices = mdevp;
+
+	write_mdevice (mdevp, input);
+}
+
+
+/*
+ * This function is passed as a pointer to read_dev_file () to read an
+ * 'mdevice' entry from the input and link it in to the global device list.
+ *
+ * The extra argument is the head of a list of 'mdevice' entries which are to
+ * replace/be added to the existing 'mdevice' entries.
+ */
+
+#if	USE_PROTO
+LOCAL int _read_mdevice_file (input_t * input, lex_t * lexp, 
+			      mdev_t ** changes)
+#else
+LOCAL int
+_read_mdevice_file (input, lexp, changes)
+input_t	      *	input;
+lex_t	      *	lexp;
+mdev_t	     **	changes;
+#endif
+{
+	mdev_t	      *	mdevp;
+	int		ch;
+
+	if ((mdevp = read_mdevice (input, lexp, & ch)) == NULL) {
+		if (ch == READ_EOF) {
+			/*
+			 * Blow the remaining changes out as new entries.
+			 */
+
+			while ((mdevp = * changes) != NULL) {
+				* changes = mdevp->md_next;
+				link_mdevice (mdevp, input);
+			}
+		}
+		return ch;
+	}
+
+	/*
+	 * Link the newly-allocated mdevice entry into the global
+	 * mdevice chain.
+	 */
+
+	if (changes) {
+		mdev_t	     **	scan;
+
+		for (scan = changes ; * scan != NULL ;
+		     scan = & (* scan)->md_next) {
+
+			if ((* scan)->md_devname == mdevp->md_devname) {
+				/*
+				 * Our current entry is being replaced by a
+				 * new one; unlink the new entry from the
+				 * change list and discard the old entry.
+				 */
+
+				free (mdevp);
+
+				if (report_mode ())
+					return ch;
+
+				mdevp = * scan;
+				* scan = mdevp->md_next;
+				break;
+			}
+		}
+	}
+
+	link_mdevice (mdevp, input);
+	return ch;
+}
+
+
+/*
+ * Test a device for a function code; returns 1 if code is present, or 0 if
+ * code is not specified for device.
+ */
+
+#if	USE_PROTO
+int (mdev_func) (mdev_t * mdevp, char func)
+#else
+int
+mdev_func ARGS ((mdevp, func))
+mdev_t	      *	mdevp;
+char		func;
+#endif
+{
+	if (mdevp->md_functions == NULL)
+		return 0;
+	return strchr (mdevp->md_functions->s_data, func) != NULL;
+}
+
+
+/*
+ * Test device characteristics; returns 1 if characteristic is specified for
+ * device, 0 if it is not.
+ */
+
+#if	USE_PROTO
+int (mdev_flag) (mdev_t * mdevp, char flag)
+#else
+int
+mdev_flag ARGS ((mdevp, flag))
+mdev_t	      *	mdevp;
+char		flag;
+#endif
+{
+	if (mdevp->md_flags == NULL)
+		return 0;
+	return strchr (mdevp->md_flags->s_data, flag) != NULL;
+}
+
+
+/*
+ * Read in an "mtune" entry from a string and add it to a list.
+ */
+
+#if	USE_PROTO
+void read_mdev_string (CONST char * string, VOID * extra)
+#else
+void
+read_mdev_string (string, extra)
+CONST char    *	string;
+VOID	      *	extra;
+#endif
+{
+	read_dev_string (string, (dev_func_p) _read_mdev_string, extra);
+}
+
+
+/*
+ * Suck in a complete 'mdevice' file.
+ */
+
+#if	USE_PROTO
+void (read_mdev_file) (CONST char * inname, CONST char * outname, VOID * extra)
+#else
+void
+read_mdev_file ARGS ((inname, outname, extra))
+CONST char    *	inname;
+CONST char    *	outname;
+VOID	      *	extra;
+#endif
+{
+	read_dev_file (inname, outname, (dev_func_p) _read_mdevice_file,
+		       extra);
+}
+
+
+/*
+ * Iterate over all the mdevices in the system.
+ */
+
+#if	USE_PROTO
+void (for_all_mdevices) (miter_t iter, VOID * extra)
+#else
+void
+for_all_mdevices ARGS ((iter, extra))
+miter_t		iter;
+VOID	      *	extra;
+#endif
+{
+	mdev_t	      *	temp;
+
+	for (temp = _mdevices ; temp != NULL ; temp = temp->md_next)
+		(* iter) (extra, temp);
+}
+
+
+/*
+ * Generic insertion sort algorithm for "mdevice" entries based on a
+ * selection predicate and a comparison predicate.
+ *
+ * So that this can be a reasonably generic function, we pass it the internal
+ * offset of the "mdev_t *" member of the "mdevice" structure which will be
+ * used to link together the sorted entries.
+ *
+ * The return value is the length of the sorted list.
+ */
+
+#define	LINK(mdevp,off)		(* (mdev_t **) ((char *) (mdevp) + off))
+
+#if	USE_PROTO
+int (mdev_sort) (mdev_t ** mdlistp, mdev_t ** mdendp, msel_t selpred,
+		 mcmp_t cmppred, size_t ptroff)
+#else
+int
+mdev_sort ARGS ((mdlistp, mdendp, selpred, cmppred, ptroff))
+mdev_t       **	mdlistp;
+mdev_t	     **	mdendp;
+msel_t		selpred;
+mcmp_t		cmppred;
+size_t		ptroff;
+#endif
+{
+	mdev_t	      *	scan;
+	mdev_t	      *	next;
+	int		count;
+
+	if (mdlistp == NULL || ptroff > sizeof (mdev_t))
+		throw_error ("bogus parameters to mdev_sort ()");
+
+
+	/*
+	 * We'll just insert each selected member of the total list of
+	 * mdevices into the output list in order by running down the output
+	 * list until we compare true.
+	 *
+	 * We fetch "scan" before initializing the output list in case we are
+	 * sorting the master device list.
+	 */
+
+	* mdlistp = NULL;
+	if (mdendp != NULL)
+		* mdendp = NULL;
+
+	for (count = 0, scan = _mdevices ; scan != NULL ; scan = next) {
+		mdev_t	      *	findpos;
+		mdev_t	      *	prev;
+
+		/*
+		 * We get the "next" entry now in case we are sorting the
+		 * master list. We allow a "selpred" of NULL to select all
+		 * the entries.
+		 */
+
+		next = scan->md_next;
+
+		if (selpred != NULL && (* selpred) (scan) == 0)
+			continue;
+
+
+		/*
+		 * Now attempt to find the right place for the new entry and
+		 * insert it there.
+		 */
+
+		prev = NULL;
+
+		for (findpos = * mdlistp ; findpos != NULL ;
+		     findpos = LINK ((prev = findpos), ptroff)) {
+			/*
+			 * A "cmppred" that is NULL means that the order of
+                         * output entries is irrelevant.
+			 */
+
+			if (cmppred == NULL ||
+			    (* cmppred) (findpos, scan) == 0)
+				break;
+		}
+
+		if (prev == NULL)
+			* mdlistp = scan;
+		else
+			LINK (prev, ptroff) = scan;
+
+		if ((LINK (scan, ptroff) = findpos) == NULL && mdendp != NULL)
+			* mdendp = scan;
+
+		count ++;
+	}
+
+	return count;
+}

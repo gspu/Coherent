@@ -1,0 +1,1345 @@
+.TH libcurses "" "" Library
+.PC "Library of screen-handling functions"
+.PP
+.II "library^curses"
+.II curses
+.B libcurses
+is the library that holds the
+.B curses
+screen-handling functions.
+With
+.BR curses ,
+you can perform rudimentary graphics, even on dumb terminals;
+the range of routines includes mapping portions of the screen, drawing
+pop-up windows, creating forms with fields for data entry, and highlighting
+portions of text.
+.SH "Implementations of curses"
+\*(CO uses the Cornell edition of \fBcurses\fR.
+This implementation of \fBcurses\fR reads the \fBterminfo\fR data base.
+It uses eight-bit characters; thus, the \*(CO edition of \fBcurses\fR
+can display characters with accents and diacritical marks.
+Library \fBlibcurses\fR contains the functions
+needed to read \fBterminfo\fR capability codes; thus, to compile the program
+\fBcurses_ex.c\fR, use the following command line:
+.DM
+	cc curses_ex.c -lcurses
+.DE
+.PP
+Programs that wish to use \fBcurses\fR
+\fImust not\fR link in both \fBlibcurses\fR and \fBlibterm\fR;
+doing so will cause collisions among library routines.
+Rather, these programs must link in \fIonly\fR \fBlibcurses\fR.
+On the other hand, if you wish to use the functions that read
+.B terminfo
+descriptions, you must link library
+.B libcurses
+into your program, even if you are not using any
+.B curses
+routines.
+.PP
+If you have special terminal descriptions under \fBtermcap\fR,
+the command \fBcaptoinfo\fR converts a \fBtermcap\fR description into
+its \fBterminfo\fR analogue.
+.PP
+See the Lexicon entries for \fBtermcap\fR and \fBterminfo\fR for more
+information on this rather confusing topic.
+.SH "How curses Works"
+.B curses
+organizes the screen into a two-dimensional array of cells, one cell
+for every character that the device can display.
+It maintains in memory an image of the screen, called the
+.IR curscr .
+A second image, called the
+.IR stdcur ,
+is manipulated by the user;
+when the user has finished a given manipulation,
+.B curses
+copies the changes from the
+.I stdcur
+to the
+.IR curscr ,
+which results in their being displayed on the physical screen.
+This act of copying from the
+.I stdscr
+to the
+.I curscr
+is called
+.I refreshing
+the screen.
+.B curses
+keeps track of where all changes have begun and ended between
+one refresh and the next; this lets it rewrite only the portions of the
+.I curscr
+that the user has changed, and so speed up rewriting of the screen.
+.PP
+.B curses
+records the position of a \*(QLlogical cursor\*(QR, which points to
+the position in the
+.I stdscr
+that is being manipulated by the user, and also records the position
+of the physical cursor.
+Note that the two are not necessarily identical:
+it is possible to manipulate the logical cursor without repositioning
+the physical cursor, and vice versa, depending on the task you wish
+to perform.
+.PP
+Most
+.B curses
+routines work by manipulating a
+.B WINDOW
+object.
+.B WINDOW
+is defined in the header
+.BR curses.h .
+.PP
+.B curses
+defines
+.B WINDOW
+as follows:
+.DM
+.ta 0.5i 1.5i
+#define WINDOW _win_st
+struct _win_st {
+	short	_cury, _curx;
+	short	_maxy, _maxx;
+	short	_begy, _begx;
+	short	_flags;
+	chtype	_attrs;
+	bool	_clear;
+	bool	_leave;
+	bool	_scroll;
+	bool	_idlok;
+	bool	_use_keypad;	/* 0=no, 1=yes, 2=yes/timeout */
+	bool	_use_meta;	/* T=use the meta key */
+	bool	_nodelay;	/* T=don't wait for tty input */
+	chtype	**_line;
+	short	_firstchar;	/* First changed character in the line */
+	short	*_lastchar;	/* Last changed character in the line */
+	short	*_numchngd;	/* Number of changes made in the line */
+	short	_regtop;	/* Top and bottom of scrolling region */
+	short	_regbottom;
+};
+.DE
+.PP
+Type
+.B bool
+is defined in
+.BR curses.h ;
+an object of this type can hold the value of true (nonzero) or false (zero).
+.PP
+The following describes selected
+.B WINDOW
+fields in detail.
+.IP "\fB_cury, _curx\fR" 1.0i
+Give the Y and X positions of the logical cursor.
+The upper left corner of the window is, by definition, position 0,0.
+Note that
+.B curses
+by convention gives positions as Y/X (row/column) rather than X/Y,
+as is usual elsewhere.
+.IP "\fB_maxy, _maxx\fR"
+Width and height of the window.
+.IP "\fB_begy, _begx\fR"
+Position of the upper left corner of the window relative to the
+upper left corner of the physical screen.
+For example, if the window's upper left corner is five rows from the top
+of the screen and ten columns from the left, then
+.B _begy
+and
+.B _begx
+will be set to ten and five, respectively.
+.IP "\fB_flags\fR"
+One or more of the following flags, logically OR'd together:
+.DS
+\fB_SUBWIN\fR \(em Window is a sub-window
+\fB_ENDLINE\fR \(em Right edge of window touches edge of the screen
+\fB_FULLWIN\fR \(em Window fills the physical screen
+\fB_SCROLLWIN\fR \(em Window touches lower right corner of physical screen
+\fB_FULLINE\fR \(em Window extends across entire physical screen
+\fB_STANDOUT\fR \(em Write text in reverse video
+\fB_INSL\fR \(em Line has been inserted into window
+\fB_DELL\fR \(em Line has been deleted from window
+.DE
+.IP "\fB_ch_off\fR"
+Character offset.
+.IP "\fB_clear\fR"
+Clear the physical screen before next refresh of the screen.
+.IP "\fB_leave\fR"
+Do not move the physical cursor after refreshing the screen.
+.IP "\fB_scroll\fR"
+Enable scrolling for this window.
+.IP "\fB_y\fR"
+Pointer to an array of pointers to the character arrays that
+hold the window's text.
+.IP "\fB_firstch\fR"
+Pointer to an array of integers, one for each line in the window,
+whose value is the first character in the line to have been altered
+by the user.
+If a line has not been changed, then its corresponding entry in the array
+is set to \fB_NOCHANGE\fR.
+.IP "\fB_lastch\fR"
+Same as \fB_firstch\fR, except that it indicates the last character
+to have been changed on the line.
+.IP \fB_nextp\fR
+Point to next window.
+.IP \fB_orig\fR
+Point to parent window.
+.PP
+When
+.B curses
+is first invoked, it defines the entire screen as being one large
+window.
+The programmer has the choice of subdividing an existing window or
+creating new windows; when a window is subdivided, it shares the same
+.I curscr
+as its parent window, whereas a new window has
+its own
+.IR stdscr .
+.SH "Multiple Terminals"
+Some applications need to display text on more than one terminal,
+controlled by the same process.
+.B curses
+can handle this, even if the terminals are of different types.
+The following describes how
+.B curses
+output to multiple terminals.
+.PP
+All information about the current terminal is kept in a global
+variable \fBstruct screen *SP\fR.
+Although the screen structure is hidden from the user, the C
+compiler will accept declarations of variables which are pointers.
+The user program should declare one screen pointer variable for
+each terminal it wishes to handle.
+.PP
+The function
+\fBnewterm()\fR
+sets up a new terminal of the given terminal type that is accessed via
+file-descriptor \fIfp\fR.
+To use more than one terminal,
+call \fBnewterm()\fR for each terminal and save
+the value returned as a reference to that terminal.
+.PP
+To switch to a different terminal, call
+\fBset_term()\fR.
+It returns the current contents of
+.BR SP .
+Do not assign directly to
+.B SP
+because certain other global variables must also be changed.
+.PP
+All
+.B curses
+routines always affect the current terminal.
+To handle several terminals, switch to each one in turn with
+\fBset_term()\fR, and then access it.
+Each terminal must first be set up with \fBnewterm()\fR,
+and closed down with \fBendwin()\fR.
+.SH "Video Attributes"
+.B curses
+lets you display any combination of video attributes on any terminal.
+Each character position on the screen has 16 bits of information
+associated with it.
+Seven bits are the character to be displayed,
+leaving bits for nine video attributes.
+These bits are used for the following modes respectively:
+standout, underline, reverse video, blink, dim,
+bold, blank, protect, and alternate-character set.
+Standout
+is whatever highlighting works best on the terminal, and
+should be used by any program that does not need specific or
+combined attributes.
+Underlining, reverse video, blink, dim, and bold are the usual video attributes.
+Blank means that the character is displayed as a space, for security reasons.
+Protected and alternate character set depend on the terminal.
+The use of these last three bits is subject to change and not recommended.
+.PP
+The routines to use these attributes include
+.BR attron() ,
+.BR attroff() ,
+.BR attrset() ,
+.BR standend() ,
+.BR standout() ,
+.BR wattroff() ,
+.BR wattron() ,
+.BR wattrset() ,
+.BR wstandend() ,
+and
+.BR wstandout() .
+All are described below.
+.PP
+Attributes, if given, can be any combination of
+.BR A_STANDOUT ,
+.BR A_UNDERLINE ,
+.BR A_REVERSE ,
+.BR A_BLINK ,
+.BR A_DIM ,
+.BR A_BOLD ,
+.BR A_INVIS ,
+.BR A_PROTECT ,
+and
+.BR A_ALTCHARSET ,
+OR'd together.
+These constants are defined in
+.BR curses.h .
+If the particular terminal does not have the particular attribute
+or combination requested,
+.B curses
+will attempt to use some other attribute in its place.
+If the terminal has no highlighting, all attributes are ignored.
+.SH "Function Keys"
+Many terminals have special keys, such as arrow keys, keys to
+erase the screen, insert or delete text, and keys intended for
+user functions.
+The particular sequences these terminals send
+differs from terminal to terminal.
+.B curses
+lets you handle these keys.
+.PP
+A program using function keys should turn on the keypad by
+calling \fBkeypad()\fR
+at initialization.
+This causes special characters to be
+passed through to the program by the function \fBgetch()\fP.
+These keys have constants that are defined in
+.BR curses.h .
+They have values starting at 0401,
+so they should not be stored in a \fBchar\fR
+variable, as significant bits will be lost.
+.PP
+A program that uses function keys should avoid using the \fB<esc>\fR key:
+most sequences start with \fB<esc>\fR, so an ambiguity will occur.
+.B curses
+sets a one-second alarm to deal with this ambiguity,
+which will cause delayed response to the \fB<esc>\fR key.
+It is a good idea to avoid \fB<esc>\fR in any case, because there is eventually
+pressure for nearly \fIany\fP screen-oriented program to accept arrow-key input.
+.SH "Scrolling Region"
+Most terminals have a user-accessible scrolling region.
+Normally, this is set to the entire window, but the calls
+\fBsetscrreg()\fR and \fBwsetscrreg()\fR
+set the scrolling region for \fIstdscr\fR or the given window to any
+combination of top and bottom margins.
+If scrolling has been
+enabled with \fBscrollok()\fR, scrolling takes place only within that
+window.
+.SH "TTY Mode Functions"
+In addition to the save/restore routines \fBsavetty()\fR and \fBresetty()\fR,
+\fBcurses\fR contains routines for going into and out of normal tty mode.
+.PP
+The normal routines are \fBresetterm()\fR, which puts the
+terminal back in the mode it was in when curses was started,
+and \fBfixterm()\fR,
+which undoes the effects of \fBresetterm()\fR, that is, restores
+the ``current curses mode''.
+\fBendwin()\fR automatically calls \fBresetterm()\fR.
+These routines are also available at the \fIterminfo\fP level.
+.SH "No-Delay Mode"
+\fBcurses\fR offers the call \fBnodelay()\fR, which
+puts the terminal into ``no-delay mode''.
+While in no-delay mode, any call to \fIgetch()\fP returns \-1
+if nothing is waiting to be read.
+This is useful for programs that
+require real-time behavior, where the user watches action on the
+screen and presses a key when he wants something to happen.
+For example, the cursor can be moving across the screen, and the user
+can press an arrow key to change direction.
+This mode is especially useful for games.
+.SH Portability
+\fBcurses\fR contains several routines to improve portability.
+Because these routines do not directly relate to terminal handling,
+their implementation differs from system to system, and the
+differences can be isolated from the user program by including them in
+.BR curses .
+.PP
+Functions \fBerasechar()\fR and \fBkillchar()\fR return the characters that,
+respectively, erase one character and kill the entire input line.
+The function \fBbaudrate()\fR returns the current baud
+rate, as an integer.
+(For example, at 9600 baud,
+.B baudrate()
+returns the integer 9600, not the value B9600 from
+.BR <sgtty.h> .)
+The routine \fBflushinp()\fR throws away all typeahead.
+call \fBresetterm()\fR to restore the tty modes.
+After the shell escape, \fBfixterm()\fR
+can be called to set the tty modes back to their internal settings.
+These calls are now required, because
+they perform system-dependent processing.
+.SH "curses Routines"
+The following table summarizes the functions and macros that comprise the
+.B curses
+library.
+These routines are declared and defined in the header file
+.BR curses.h .
+.IP "\fBaddch(\fIch\^\fB) char \fIch\^\fB;\fR"
+Insert a character into
+.IR stdscr .
+.IP "\fBaddstr(\fIstr\^\fB) char *\fIstr\^\fB;\fR"
+Insert a string into
+.IR stdscr .
+.IP "\fBattroff(\fIat\^\fB) int \fIat\^\fB;\fR"
+Turn off video attributes on \fIstdscr\fR.
+.IP "\fBattron(\fIat\^\fB) int \fIat\^\fB;\fR"
+Turn on video attributes on \fIstdscr\fR.
+.IP "\fBattrset(\fIat\^\fB) int \fIat\^\fB;\fR"
+Set video attributes on \fIstdscr\fR.
+.IP "\fBbaudrate()\fR"
+Return the baud rate of the current terminal.
+.IP \fBbeep()\fR
+Sound the audible bell.
+.IP "\fBbox(\fIwin, vert, hor\^\fB) WINDOW *\fIwin\^\fB; char \fIvert, hor\^\fB;\fR
+Draw a box.
+.I vert
+is the character used to draw the vertical lines, and
+.I hor
+is used to draw the horizontal lines.
+The call
+.DM
+	box(win, 0, 0)
+.DE
+.IP
+draws a box with solid lines.
+The call
+.DM
+	box(win, '|', '-');
+.DE
+.sp \n(pDu
+draws a box around window
+.BR win ,
+using \*(Ql|\*(Qr to draw the vertical lines and \*(Ql-\*(Qr to draw the
+horizontal lines.
+Do not use non-ASCII characters unless you are very sure of the
+output terminal's identity.
+.IP \fBcbreak()\fR
+Turn on cbreak mode.
+.IP "\fBclear()\fR"
+Clear the
+.IR stdscr .
+.IP "\fBclearok(\fIwin,bf\^\fB) WINDOW *\fIwin\^\fB; bool \fIbf\^\fB;\fR"
+Set the clear flag for window
+.IR win .
+This will clear the screen at the next refresh, but not reset the window.
+.IP "\fBclrtobot()\fR"
+Clear from the position of the logical cursor to the bottom
+of the window.
+.IP "\fBclrtoeol()\fR"
+Clear from the logical cursor to the end of the line.
+.IP "\fBcrmode()\fR"
+Turn on control-character mode;
+i.e., force terminal to receive cooked input.
+.IP "\fBdelch()\fR"
+Delete a character from
+.IR stdscr ;
+shift the rest of the characters on the line one position to the left.
+.IP "\fBdeleteln()\fR"
+Delete all of the current line;
+shift up the rest of the lines in the window.
+.IP "\fBdelwin(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Delete window
+.IR win .
+.IP \fBdoupdate()\fR
+Update the physical screen.
+.IP "\fBecho()\fR"
+Turn on both physical and logical echoing;
+i.e., characters are automatically inserted into the current window
+and onto the physical screen.
+.IP \fBendwin()\fR
+Terminate text processing with
+.BR curses .
+.IP "\fBerase()\fR"
+Erase a window; do not clear the screen.
+.IP "\fBchar *erasechar()\fR"
+Return the erase character of the current terminal.
+.IP \fBflash()\fR
+Execute the visual bell.
+.IP \fBflushinp()\fR
+Flush input from the current terminal.
+.IP "\fBgetch()\fR"
+Read a character from the terminal.
+.IP "\fBgetstr(\fIstr\^\fB) char *\fIstr\^\fB;\fR"
+Read a string from the terminal.
+.IP "\fBgetyx(\fIwin,y,x\^\fB) WINDOW *\fIwin\^\fB; short \fIy,x\^\fB;\fR"
+Read the position of the logical cursor in
+.I win
+and store it in
+.IR y,x .
+Note that this is a macro, and due to its construction the variables
+.I y
+and
+.I x
+must be integers, not pointers to integers.
+.IP "\fBidlok(\fIwin\^\fB, \fIflag\^\fB) WINDOW *\fIwin\fB; int \fIflag\^\fB;\fR"
+Enable insert/delete line operations for window \fIwin\fR.
+.I flag
+must contain the OR'd operations you desire.
+.IP "\fBinch()\fR"
+Read the character pointed to by the
+.IR stdscr 's
+logical cursor.
+.IP "\fBWINDOW *initscr()\fR
+Initialize
+.BR curses .
+.II LINES
+.II COLS
+Among other things, this function initializes the global variables
+.B LINES
+and
+.BR COLS ,
+which give, respectively, the number of lines and the number of columns on
+your screen.
+.IP
+.II xterm
+.II xvt
+This is of most use under X Windows.
+When you change the size of an
+.B xterm
+or
+.B xvt
+window, the command
+.DM
+	eval `resize`
+.DE
+.IP
+resets these variables.
+The next time you invoke a
+.BR curses -based
+program, its size will reflect new the dimensions of window.
+.IP "\fBinsch(\fIch\^\fB) char \fIch\^\fB;\fR"
+Insert character
+.I ch
+into the
+.IR stdscr .
+.IP "\fBinsertln()\fR"
+Insert a blank line into
+.IR stdscr ,
+above the current line.
+.IP "\fBkeypad(\fIwin\^\fB,\fIflag\^\fB) WINDOW *\fIwin\^\fB; int \fIflag\^\fB;\fR"
+Enable keypad-sequence mapping.
+.IP "\fBchar *killchar()\fR"
+Return the kill character for the current terminal.
+.IP "\fBleaveok(\fIwin,bf\^\fB) WINDOW *\fIwin\^\fB; bool \fIbf\^\fB;\fR"
+Set \fIwin\fB->_leave\fR to
+.IR bf .
+If set to
+.BR TRUE ,
+refresh will leave the cursor after the last character changed by refresh.
+This makes sense if you want to minimize the commands sent to the screen
+and it does not matter where the cursor is.
+.IP "\fBchar *longname(\fItermbuf, name\^\fB) char *\fItermbuf, \fB*\fIname\^\fB;\fR"
+Copy the long name for the terminal from
+.I termbuf
+into
+.IR name .
+.IP "\fBmeta(\fIwin\^\fB, \fIflag\^\fB) WINDOW *\fIwin\^\fB; int \fIflag\^\fB;\fR"
+Enable use of the \fBmeta\fR key.
+.IP "\fBmove(\fIy,x\^\fB) short \fIy,x\^\fB;\fR"
+Move logical cursor to position
+.I y,x
+in
+.IR stdscr .
+.IP "\fBmvaddbytes(\fIy,x,da,count\^\fB) int \fIy,x\^\fB; char *\fIda\^\fB; int \fIcount\^\fB;\fR"
+Move to position
+.I y,x
+and print
+.I count
+bytes from the string pointed to by
+.IR da .
+.IP "\fBmvaddch(\fIy,x,ch\^\fB) short \fIy,x\^\fB; char \fIch\^\fB;\fR"
+Move the logical cursor to position
+.I y,x
+and insert character
+.IR ch .
+.IP "\fBmvaddstr(\fIy,x,str\^\fB) short \fIy,x\^\fB; char *\fIstr\^\fB;\fR"
+Move the logical cursor to position
+.I y,x
+and insert string
+.IR str .
+.IP "\fBmvcur(\fIy_cur,x_cur,y_new,x_new\^\fB) int \fIy_cur\^\fB, \fIx_cur\^\fB, \fIy_new\^\fB, \fIx_new\^\fB;\fR"
+Move cursor from position
+.I y_cur,x_cur
+to position
+.IR y_new,x_new .
+.IP "\fBmvdelch(\fIy,x\^\fB) short \fIy,x\^\fB;\fR" 
+Move to position
+.I y,x
+and delete the character found there.
+.IP "\fBmvgetch(\fIy,x\^\fB) short \fIy,x\^\fB;\fR"
+Move to position
+.I y,x
+and get a character through
+.IR stdscr .
+.IP "\fBmvgetstr(\fIy,x,str\^\fB) short \fIy,x\^\fB; char *\fIstr\^\fB;\fR"
+Move to position
+.IR y,x ,
+get a string through
+.IR stdscr ,
+and copy it into
+.IR string .
+.IP "\fBmvinch(\fIy,x\^\fB) short \fIy,x\^\fB;\fR"
+Move to position
+.I y,x
+and get the character found there.
+.IP "\fBmvinsch(\fIy,x,ch\^\fB) short \fIy,x\^\fB; char \fIch\^\fB;\fR"
+Move to position
+.I y,x
+and insert a character into
+.IR stdscr .
+.IP "\fBmvwaddbytes(\fIwin,y,x,da,count\^\fB) WINDOW *\fIwin\^\fB; int \fIy,x\^\fB; char *\fIda\^\fB; int \fIcount\^\fB;\fR"
+Move to position
+.I y,x
+and print
+.I count
+bytes from the string pointed to by
+.I da
+into window
+.IR win . 
+.IP "\fBmvwaddch(\fIwin,y,x,ch\^\fB) WINDOW *\fIwin\^\fB; int \fIy,x\^\fB; char \fIch\^\fB;\fR"
+Move to position
+.I y,x
+and insert character
+.I ch
+into window
+.IR win .
+.IP "\fBmvwaddstr(\fIwin,y,x,str\^\fB) WINDOW *\fIwin\^\fB; short \fIy,x\^\fB; char *\fIstr\^\fB;\fR"
+Move to position
+.I y,x
+and insert string
+.IR str .
+.IP "\fBmvwdelch(\fIwin,y,x\^\fB) WINDOW *\fIwin\^\fB; int \fIy,x\^\fB;\fR"
+Move to position
+.I y,x
+and delete character
+.I ch
+from window
+.IR win .
+.IP "\fBmvwgetch(\fIwin,y,x\^\fB) WINDOW *\fIwin\^\fB; short \fIy,x\^\fB;\fR"
+Move to position
+.I y,x
+and get a character.
+.IP "\fBmvwgetstr(\fIwin,y,x,str\^\fB) WINDOW *\fIwin\^\fB; short \fIy,x\^\fB; char *\fIstr\^\fB;\fR
+Move to position
+.IR y,x ,
+get a string, and write it into
+.IR str .
+.IP "\fBmvwin(\fIwin,y,x\^\fB) WINDOW *\fIwin\^\fB; int \fIy,x\^\fB;\fR"
+Move window
+.I win
+to position
+.IR y,x .
+.IP "\fBmvwinch(\fIwin,y,x\^\fB) WINDOW *\fIwin\^\fB; short \fIy,x\^\fB;\fR"
+Move to position
+.I y,x
+and get character found there.
+.IP "\fBmvwinsch(\fIwin,y,x,ch\^\fB) WINDOW *\fIwin\^\fB; short \fIy,x\^\fB; char \fIch\^\fB;\fR"
+Move to position
+.I y,x
+and insert character
+.I ch
+there.
+.IP "\fBstruct screen *newterm(\fItype\^\fB, \fIfd\^\fB) char *\fItype\^\fB; int \fIfd\^\fB;\fR"
+Initialize the new terminal
+.IR type ,
+which is accessed via file-descriptor
+.IR fd .
+.IP "\fBWINDOW *newwin(\fIlines\^\fB, \fIcols\^\fB, \fIy1\^\fB, \fIx1\^\fB)\fR"
+.IS "\fBint \fIlines\^\fB, \fIcols\^\fB, \fIy1\^\fB, \fIx1\^\fB;\fR"
+Create a new window.
+The new window is
+.I lines
+lines high,
+.I cols
+columns wide,
+with the upper-left corner at position
+.IR y1,x1 .
+It returns a pointer to the
+.B WINDOW
+structure that defines the newly created window.
+.IP "\fBnl()\fR"
+Turn on newline mode; i.e.,
+force terminal to output
+.B <newline>
+after
+.BR <linefeed> .
+.IP \fBnocbreak()\fR
+Turn off cbreak mode.
+.IP "\fBnocrmode()\fR"
+Turn off
+control-character mode; i.e., force terminal to accept
+raw input.
+.IP "\fBnodelay(\fIwin\^\fB, \fIflag\^\fB) WINDOW *\fIwin\^\fB; int \fIflag\^\fB;\fR"
+Make \fBgetch()\fR non-blocking.
+.IP "\fBnoecho()\fR"
+Turn off echo mode.
+.IP "\fBnonl()\fR"
+Turn off newline mode.
+.IP "\fBnoraw()\fR"
+Turn off raw mode.
+.IP "\fBoverlay(\fIwin1,win2\^\fB) WINDOW *\fIwin1\^\fB, \fIwin2\^\fB;\fR"
+Copy all characters, except spaces, from their current positions in
+.I win1
+to identical positions in
+.IR win2 .
+.IP "\fBoverwrite(\fIwin1,win2\^\fB) WINDOW *\fIwin1\^\fB, \fIwin2\^\fB;\fR"
+Copy all characters, including spaces, from
+.I win1
+to their identical positions in
+.IR win2 .
+.IP "\fBprintw(\fIformat[,arg1,...argN]\^\fB) char *\fIformat\^\fB; [\fIdata type\^\fB] \fIarg1,..argN\^\fB;\fR"
+Print formatted text on the standard screen.
+.IP "\fBraw()\fR"
+Turn on raw mode;
+i.e., kernel does not process what is typed at the keyboard, but
+passes it directly to
+.BR curses .
+In normal (or \fIcooked\fR) mode, the kernel intercepts and processes
+the control characters
+.IR <ctrl-C> ,
+.IR <ctrl-S> ,
+.IR <ctrl-Q> ,
+and
+.BR <ctrl-Y> .
+See the entry for
+.B stty
+for more information.
+.IP "\fBrefresh()\fR"
+Copy the contents of
+.I stdscr
+to the physical screen.
+.IP "\fBresetty()\fR"
+Reset the terminal flags to values stored by earlier call to
+.BR savetty .
+.IP \fBsaveterm()\fR
+Save the current state of the terminal.
+.IP "\fBsavetty()\fR"
+Save the current terminal settings.
+.IP "\fBscanw(\fIformat[,arg1,...argN]\^\fB) char *\fIformat\^\fB; [\fIdata type\^\fB] \fIarg1,..argN\^\fB;\fR"
+Read the standard input; translate what is read into the appropriate data type.
+.IP "\fBscroll(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Scroll
+.I win
+up by one line.
+.IP "\fBscrollok(\fIwin,bf\^\fB) WINDOW *\fIwin\^\fB; bool \fIbf\^\fB;\fR"
+Permit or forbid scrolling of window
+.IR win ,
+depending upon whether
+.I bf
+is set to true or false.
+.IP "\fBsetscrreg(\fItop\^\fB, \fIbottom\^\fB) int \fItop\^\fB, bottom\^\fB;\fR"
+Set the scrolling region on \fIstdscr\fR.
+.IP "\fBsetterm(\fIname\^\fB) char *\fIname\^\fB;\fR"
+Set term variables for \fIname\fR.
+.IP "\fBstruct screen *set_term(\fInew\^\fB) struct screen *\fInew\^\fB;\fR"
+Switch output to terminal
+.IR new .
+It returns a pointer to the previously used terminal.
+.IP "\fBstandend()\fR"
+Turn off standout mode.
+.IP "\fBstandout()\fR"
+Turn on standout mode for text.
+Usually, this means that text will be displayed in reverse video.
+.IP "\fBWINDOW *subwin(\fIwin\^\fB, \fIlines\^\fB, \fIcols\^\fB, \fIy1\^\fB, \fIx1\^\fB)\fR"
+.IS "\fBint \fIwin,lines,cols,y1,x1\^\fB;\fR"
+Create a sub-window in window
+.IR win .
+The new sub-window is
+.I lines
+lines high,
+.I cols
+columns wide,
+and is fixed at position
+.IR y1,x1 .
+Note that the position is relative to the upper-left corner of
+the physical screen.
+This function returns a pointer to the
+.B WINDOW
+structure that defines the newly created sub-window.
+.IP "\fBtouchwin(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR
+Copy all characters in window
+.I win
+to the screen.
+.IP \fBtraceoff()\fR
+Turn off debugging output.
+.IP \fBtraceon()\fR
+Turn on debugging output
+.IP "\fBunctrl(\fIch\fB) char \fIch\fB;\fR"
+Output a printable version of the control-character \fIch\fR.
+.IP "\fBwaddch(\fIwin,ch\^\fB) WINDOW *\fIwin\^\fB; char \fIch\^\fB;\fR"
+Add character
+.I ch
+to window
+.IR win .
+.IP "\fBwaddstr(\fIwin,str\^\fB) WINDOW *\fIwin\^\fB; char *\fIstr\^\fB;\fR"
+Add the string pointed to by
+.I str
+to window
+.IR win .
+.IP "\fBwattroff(\fIwin\fB,\fIatt\fB) WINDOW *\fIwin\fB; int \fIatt\fB;\fR"
+Turn off video attributes
+.I att
+for the window pointed to by
+.IR win .
+.IP "\fBwattron(\fIwin\fB,\fIatt\fB) WINDOW *\fIwin\fB; int \fIatt\fB;\fR"
+Turn on video attributes
+.I att
+for the window pointed to by
+.IR win .
+.IP "\fBwattrset(\fIwin\fB,\fIat\fB) WINDOW *\fIwin\fB; int \fIatt\fB;\fR"
+Set the video attributes
+.I att
+for the window pointed to by
+.IR win .
+.IP "\fBwclear(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Clear window
+.IR win .
+Move cursor to position 0,0 and set the screen's clear flag.
+.IP "\fBwclrtobot(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR
+Clear window
+.I win
+from current position to the bottom.
+.IP "\fBwclrtoeol(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Clear window
+.I win
+from the current position to the end of the line.
+.IP "\fBwdelch(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Delete the character at the current position in window
+.IR win ;
+shift all remaining characters to the right of the current position one
+position left.
+.IP "\fBwdeleteln(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Delete the current line and shift all lines below it one line up.
+.IP "\fBwerase(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Clear window
+.IR win .
+Move the cursor to position 0,0 but do not set the screen's clear flag.
+.IP "\fBwgetch(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Read one character from the standard input.
+.IP "\fBwgetstr(\fIwin,str\^\fB) WINDOW *\fIwin\^\fB; char *\fIstr\^\fB;\fR"
+Read a string from the standard input; write it in the area pointed to by
+.IR str .
+.IP "\fBwinch(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Force the next call to
+.B refresh()
+to rewrite the entire screen.
+.IP "\fBwinsch(\fIwin,ch\^\fB) WINDOW *\fIwin\^\fB; char \fIch\^\fB;\fR"
+Insert character
+.I ch
+into window
+.I win
+at the current position.
+Shift all existing characters one position to the right.
+.IP "\fBwinsertln(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Insert a blank line into window
+.I win
+at the current position.
+Move all lines down by one position.
+.IP "\fBwmove(\fIwin,y,x\^\fB) WINDOW *\fIwin\^\fB; int \fIy\fB, \fIx\^\fB;\fR"
+Move current position in the window
+.I win
+to position
+.IR y,x .
+.IP "\fBwnoutrefresh(\fIwin\fB) WINDOW *\fIwin\fB;\fR"
+Copy the window pointed to by
+.I win
+to the virtual screen; do not refresh the real screen.
+.IP "\fBwprintw(\fIwin,format[,arg1,...argN]\^\fB)\fR"
+.IS "\fBWINDOW *\fIwin\^\fB; char *\fIformat\^\fB;\fR"
+.IS "\fB[\fIdata type\^\fB] arg1,..argN\^\fB;\fR"
+Format text and print it to the current position in window
+.IR win .
+.IP "\fBwrefresh(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Refresh a window.
+.IP "\fBwscanw(\fIwin,format[,arg1,...argN]\^\fB)\fR"
+.IS "\fBWINDOW *\fIwin\fB; char *\fIformat\^\fB;\fR"
+.IS "\fB[\fIdata type\^\fB] \fIarg1,..argN\^\fB;\fR"
+Read standard input from the current position in window
+.IR win ,
+format it, and store it in the indicated places.
+.IP "\fBwstandend(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Turn off standout (reverse video) mode for window
+.IR win .
+.IP "\fBwstandout(\fIwin\^\fB) WINDOW *\fIwin\^\fB;\fR"
+Turn on standout (reverse video) mode for window
+.IR win .
+.IP "\fBwsetscrreg(\fIwin\fB,\fItop\fB,\fIbottom\fB) WINDOW *\fIwin\fB; int \fItop\fB, \fIbottom\fB;\fR"
+Set the scrolling region on the window pointed to by
+.IR win .
+.SH "Color Support"
+Beginning with release 4.2, \*(CO's implementation of
+.B curses
+supports color.
+.B curses
+defines colors as a video attribute, like any other.
+It actually handles pairs of colors \(em one for the foreground and one for
+the background.
+You must initialize a color pair and given it a unique identifying number;
+then pass the identifier of the color pair to the function
+.B wattron()
+to turn on, like any other video attribute.
+.PP
+The header file
+.B <terminfo.h>
+defines the following colors, which
+.B curses
+recognizes:
+.DS
+.B
+	COLOR_BLACK
+	COLOR_RED
+	COLOR_GREEN
+	COLOR_YELLOW
+	COLOR_BLUE
+	COLOR_MAGENTA
+	COLOR_CYAN
+	COLOR_WHITE
+.DE
+.PP
+Header file
+.B <curses.h>
+defines the variables
+.BR COLORS ,
+which holds the maximum number of colors that your console or
+terminal recognizes; and
+.BR COLOR_PAIRS ,
+which holds the maximum number of color pairs that your console or terminal
+recognizes.
+The function
+.B start_color()
+initializes both variables.
+.PP
+The following gives the functions and macros with which you can manipulate
+colors:
+.IP \fBcan_change_colors()\fR
+This function returns TRUE
+if you can change the definition of a color on your device,
+and FALSE if you cannot.
+You should call this function before you invoke the function
+.BR init_color() ,
+described below.
+.IP "\fBcolor_content(\fIcolor\^\fB,\fIr\^\fB,\fIg\^\fB,\fIb\^\fB); int \fIcolor\^\fB,*\fIr\^\fB,*\fIg\^\fB,*\fIb\^\fB;\fR
+Read the RGB settings for
+.I color
+and write them at the addresses given by
+.IR r ,
+.IR g ,
+and
+.IR b .
+.IP "\fBCOLOR_PAIR(\fIpairnum\^\fB); int \fIpairnum\^\fB;\fR
+Return the definition of the color pair identified by
+.IR pairnum .
+The color pair must have been initialized by a call to
+.BR init_pair() .
+.IP \fBhas_colors()\fR
+Return TRUE if your console or terminal supports color and FALSE if it does not.
+.IP "\fBinit_color(\fIcolor\^\fB,\fIr\^\fB,\fIg\^\fB,\fIb\^\fB); int \fIcolor\^\fB,\fIr\^\fB,\fIg\^\fB,\fIb\^\fB;\fR
+Initialize
+.I color
+to the RGB values
+.IR r ,
+.IR g ,
+and
+.IR b .
+.I color
+must be greater than zero and less than
+.BR COLORS .
+.IR r ,'
+.IR g ,
+and
+.I b
+must each be between zero and 1,000.
+Not every console or terminal permits you to reset its colors.
+Call
+.B can_change_colors()
+to see if you can alter your device's colors.
+.IP "\fBinit_pair(\fIpairnum\^\fB,\fIfc\^\fB,\fIbc\^\fB) int \fIpairnum\^\fB, \fIfc\^\fB, \fIbc\^\fB;\fR
+Initialize the color pair
+.I pairnum
+to the foreground color
+.I fc
+and the background color
+.IR bc .
+.I pairnum
+must be greater than zero and less than
+.BR COLOR_PAIRS .
+.I fc
+and
+.I bc
+must be greater than \-1 and less than
+.BR COLORS .
+.IP "\fBpair_content(\fIpairnum\^\fB,\fIfc\^\fB,\fIbc\^\fB) int \fIpairnum\^\fB,*\fIfc\^\fB,*\fIbc\^\fB;\fR
+Read the foreground and background colors represented by color pair
+.I pairnum
+and write them into the areas pointed to by
+.I fg
+and
+.IR bg .
+.IP \fBstart_color()\fR
+Turn on color processing.
+This function must precede all other color routines; usually, it immediately
+follows the function
+.BR initscr() .
+.PP
+A brief example of how to colors appears in the
+.B Examples
+section, below.
+.SH "terminfo Routines"
+As noted above,
+.B curses
+reads terminal descriptions from
+.B terminfo
+rather than
+.BR termcap .
+The library
+.B libcurses
+also holds the following functions, with which you can read a
+.B terminfo
+description:
+.LB
+\fBfixterm()\fR	Set the terminal into program mode
+\fBputp()\fR	Write a string into \fIstdwin\fR
+\fBresetterm()\fR	Reset the terminal into a saved mode
+\fBsetupterm()\fR	Initialize terminal capabilities
+\fBtparm()\fR	Output a parameterized string
+\fBtputs()\fR	Process a capability string
+\fBvidattr()\fR	Set the terminal's video attributes
+\fBvidputs()\fR	Set video attributes into a function
+.PP
+For more information on these routines, see the Lexicon entry
+.BR terminfo ,
+or see each routine's entry in the Lexicon.
+.PP
+.II TERMINFO
+If you define the environment variable
+.BR TERMINFO ,
+.B curses
+checks for the terminal definition in the directory that
+.B TERMINFO
+names rather than in the standard directory
+.BR /usr/lib/terminfo .
+For example, if you set the environmental variable
+.B TERM
+is set to
+.BR vt100 ,
+then the compiled
+.B terminfo
+definition is kept in directory
+.BR /usr/lib/terminfo/v/vt100 .
+However, if you define
+.B TERMINFO
+to be
+.BR $HOME/testterm ,
+.B curses
+first checks
+.BR $HOME/testterm/v/vt100 ;
+if that fails, it then checks
+.BR /usr/lib/terminfo/v/vt100 .
+This is useful when you are debugging a
+.B terminfo
+entry.
+.SH "Structure of a curses Program"
+To use the
+.B curses
+routines, a program must include the header file
+.BR curses.h ,
+which declares and defines the functions and macros that comprise the
+.B curses
+library.
+.PP
+Before a program can perform any screen operations, it
+must call the function
+.B initscr()
+to initialize the
+.B curses
+environment.
+.PP
+As noted above,
+.B curses
+manipulates text in a copy of the screen that it maintains in memory.
+After a program has manipulated text, it must call
+.B refresh()
+to copy these alterations from memory to the physical screen.
+(This is done because writing to the screen is slow; this scheme
+permits mass alterations to be made to copy in memory, then written
+to the screen in a batch.)
+.PP
+Finally, when the program has finished working with
+.BR curses ,
+it must call the function
+.BR endwin() .
+This frees memory allocated by
+.BR curses ,
+and generally closes down the
+.B curses
+environment gracefully.
+.SH Examples
+The first example shows what modes and characters are visible on your system.
+.DM
+#include <curses.h>
+#define A_ETX 0x03
+.DE
+.DM
+main()
+{
+	int c, y = 0, x = 0, attr = A_NORMAL, mask, state = 0, hibit = 0;
+.DE
+.DM
+	initscr();
+	noecho();
+	raw();
+.DE
+.DM
+	erase();
+	move(y, 0);
+	addstr(
+"+ sets - clears Normal Bold Underline blInk Reverse Standout Altmode");
+	move(++y, 0);
+	refresh();
+.DE
+.DM
+	for (;;) {
+		if (!state) {			
+			switch (c = getch()) {
+			case '+':
+				state = 1;
+				break;
+.DE
+.DM
+			case '-':
+				state = 2;
+				break;
+.DE
+.DM
+			case '\eb':
+				if (!x)
+					break;
+				move(y, --x);
+				addch(' ');
+				move(y, x);
+				refresh();
+				break;
+.DE
+.DM
+			case '\er':
+			case '\en':
+				move(++y, x = 0);
+				refresh();
+				break;
+.DE
+.DM
+			case A_ETX:
+				noraw();
+				echo();
+				endwin();
+				exit(0);
+.DE
+.DM
+			default:
+				x++;
+				addch(c | hibit);
+				refresh();
+			}
+.DE
+.DM
+		} else {
+			switch (c = getch()) {
+			case 'A':	/* turn on high bit of input */
+				hibit = (state & 1) << 7;
+				state = 0;
+				continue;
+.DE
+.DM
+			case 'B':
+				mask = A_BOLD;
+				break;
+.DE
+.DM
+			case 'U':
+				mask = A_UNDERLINE;
+				break;
+.DE
+.DM
+			case 'I':
+				mask = A_BLINK;
+				break;
+.DE
+.DM
+			case 'R':
+				mask = A_REVERSE;
+				break;
+.DE
+.DM
+			case 'S':
+				mask = A_STANDOUT;
+				break;
+.DE
+.DM
+			case 'N':	/* normal is an absence of bits */
+				if (state == 1) {
+					attr = A_NORMAL;
+					hibit = state = 0;
+					continue;
+				}
+.DE
+.DM
+			default:
+				beep();
+				continue;
+			}
+.DE
+.DM
+			if (state == 1)
+				attr |= mask;
+			else
+				attr &= ~mask;
+			attrset(attr);
+			state = 0;
+		}
+	}
+}
+.DE
+.PP
+The next example demonstrates how to use colors in a
+.B curses
+program.
+It selects colors randomly, builds color pairs, and displays a 40-character
+text string to demonstrate the newly build color pair.
+.DM
+#include <curses.h>
+#include <stdlib.h>
+.DE
+.DM
+void goodbye()
+{
+	move(23, 0);
+	noraw();
+	echo();
+	endwin();
+	exit(EXIT_SUCCESS);
+}
+.DE
+.DM
+main()
+{
+	int x, y, i;
+.DE
+.DM
+	initscr();
+	start_color();
+	noecho();
+	raw();
+.DE
+.DM
+	srand(time(NULL));
+	erase();
+	if (!has_colors())
+		goodbye();
+.DE
+.DM
+	for (x = 0, y = 0, i = 1; i < COLOR_PAIRS; i++, y++) {
+		if (y == 23) {
+			x = 40;
+			y = 0;
+		}
+.DE
+.DM
+		move(y, x);
+		init_pair(i, (rand() % COLORS), (rand() % COLORS));
+		attrset(COLOR_PAIR(i));
+		addstr("Pack my box with five dozen liquor jugs.");
+	}
+.DE
+.DM
+	refresh();
+	goodbye();
+}
+.DE
+.PP
+The next example shows how to read function keys under
+.BR curses :
+.DM
+#include <curses.h>
+void text();
+.DE
+.DM
+main()
+{
+	int input;
+.DE
+.DM
+	initscr();
+	raw();
+	noecho();
+	keypad(stdscr, TRUE);
+	refresh();
+.DE
+.DM
+	while (TRUE) {
+		input = wgetch(stdscr);
+		switch (input) {
+		case 'q':
+		case 'Q':
+			endwin();
+			exit(0);
+.DE
+.DM
+		case KEY_UP:
+			text("cursor up");
+			break;
+.DE
+.DM
+		case KEY_DOWN:
+			text("cursor down");
+			break;			
+.DE
+.DM
+		case KEY_LEFT:
+			text("cursor left");
+			break;
+.DE
+.DM
+		case KEY_RIGHT:
+			text("cursor right");
+			break;
+.DE
+.DM
+		case KEY_F(1):
+			text("function key 1");
+			break;
+.DE
+.DM
+		case KEY_F(2):
+			text("function key 2");
+			break;
+.DE
+.DM
+		default:
+			text("some other key");
+			break;
+		}
+	}
+}
+.DE
+.DM
+void text(s)
+register char *s;
+{
+	move(0, 0);
+	clrtoeol();
+	printw("Your input was: %s", s);
+	refresh();
+}
+.DE
+.SH "See Also"
+.Xr "curses.h," curses.h
+.Xr "libraries," libraries
+.Xr "termcap," termcap
+.Xr "terminfo" terminfo
+.br
+Strang J: \fIProgramming with curses.\fR
+Sebastopol, Calif, O'Reilly & Associates Inc., 1986.
+.SH Notes
+.II "Curtis, Pavel"
+.II "Munk, Udo"
+The implementation of
+.B curses
+used by the \*(CO system was written by Pavel Curtis of Cornell University.
+It was ported to \*(CO by Udo Munk.

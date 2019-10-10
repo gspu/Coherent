@@ -1,0 +1,415 @@
+Steve's cc386 compiler change log
+Begun 1/4/93, earlier logs in Changes.1992.
+
+Tue Jan  5 12:14:38 1993 PST
+n0/gdecl.c
+		In gdecl(), s==LPAREN, deleted "aok = 0;" line.
+		nigel complained that e.g.
+			int (f)(arg) int arg; {}
+		confused the parser (because of the parens around the "f").
+		This line looks odd to me, but nigel had a good reason for
+		wanting it to work, and more to the point it is perfectly
+		acceptible syntax for both K&R and ANSI.
+		Also trivial cosmetic changes.
+
+Tue Jan  5 17:35:34 1993 PST
+n1/i386/tables/leaves.t
+		V4.0.N: added PNDP to code table entry to load addressible
+		doubles in argument context, so that e.g. fn(d) generates
+			push	d+4
+			push	d
+		for addressible d rather than
+			fldl	d
+			call	_dp87
+		as before.
+
+Tue Jan  5 21:08:45 1993 PST
+coh/cc.c
+		In runld(), added isvariant(VNDP) code to look for rts
+		in /lib/ndp and pass -L/lib/ndp to ld, as suggested by cef.
+		Before, e.g. "cc -VNDP a.c -f" would execute
+			/bin/ld -X -o a /lib/crts0.o -u _dtefg a.o -lc
+		Now, when -VNDP is specified, it looks for the rts in /lib/ndp
+		and passes -L/lib/ndp to ld, as in:
+			/bin/ld -X -L/lib/ndp -o a /lib/ndp/crts0.o -u _dtefg a.o -lc
+		and you get the right rts and library when you link.
+
+Tue Jan 26 09:50:55 1993 PST
+coh/cc.c
+		Added -L/usr/lib/ndp to ld invocation if -VNDP.
+n1/i386/tables/leaves.t
+		Added "fwait" at beginning of double push entry (cf. 1/5/93
+		change above), to completion of pending NDP operations.
+
+Thu Jan 28 10:27:00 1993 PST
+cpp/cpp.c
+		Added -VCPLUS option for Comeau.  Modified usage() message.
+		Added _addargs() call #if COHERENT to expand CPPHEAD, CPPTAIL.
+
+Tue Feb  9 10:47:51 1993 PST
+coh/cc.c
+common/diag.c
+		V4.1.1: moved diagnostic output from stdout to stderr.
+
+Wed Feb 10 16:19:54 1993 PST
+coh/cc.c
+common/diag.c
+h/var.h
+		V4.1.2: deleted unimplemented VCALLS option, moved VLIB,
+		added VNOWARN option to suppress warning and strict messages.
+
+Thu Feb 11 13:30:40 1993 PST
+coh/Makefile
+		Changed "cc" to "$(CC)" for gcc compilation.
+common/bput.c
+		Changed "char *cp;" to "unsigned char *cp;" because gcc
+		complained about pointer subtraction char * minus uchar *.
+n1/out.c
+		Added cast because of gcc complaint about pointer subtraction,
+		as above.
+n2/i386/outcoff.c
+		In write_sym(), initialize n_type and n_numaux entries
+		appropriately.  The gcc-compiled version was writing garbage
+		in symbol entries because these initializations were missing;
+		the cc-compiled version must have worked by accident.
+
+Fri Feb 26 09:58:09 1993 PST
+h/i386/cppmch.h
+n0/cc0.c
+		V4.1.3: at nigel's request, for ISO compliance, cpp now defines
+		not only COHERENT, MWC, _IEEE and _I386, but also
+		__COHERENT__, __MWC__, __IEEE__, and __I386__.
+
+Mon Mar  1 08:53:08 1993 PST
+n1/i386/tables/div.t
+n1/i386/tables/mul.t
+n1/i386/tables/rem.t
+		V4.1.4: User Alexander Shendi reported that the line
+			cp = (char *)(((int) cp1) % ((int) cp2));
+		gave an internal error, actually a no match on the '%';
+		The code tables expected the result of the '%'
+		to be LONG (int or uint), and the (char *) cast on the '%' node
+		caused the type to mismatch. The same code also failed for '*'
+		and '/'.  The code sucks, but it is legal and there's no
+		reason why it should fatal the compiler.  Changed the node
+		type on appropriate code table entries from "LONG" to "DWORD"
+		and now it works.
+
+Tue Mar  2 17:54:00 1993 PST
+n0/cc0.c
+		V4.1.5: hal complained that
+			typedef foo baz;
+		where foo is not defined gave
+			1: a.c: missing semicolon
+		which is none too clear.  Now it says
+			1: a.c: illegal typedef
+		instead.
+
+Wed Mar  3 17:45:30 1993 PST
+n0/expr.c
+		V4.1.6: hal complained about the strict warning produced by:
+			struct s1 { int s_i; } s1;
+			struct { int s2_i; } s2;
+			f() { s2.s_i = s1.s_i; }
+		which was
+			3: b.c: Strict: structure ".1" does not contain member "s_i"
+		where the ".1" is the compiler-generated tag for the untagged
+		structure.  Now the warning message says
+			3: b.c: Strict: structure does not contain member "s_i"
+		instead.
+
+Wed Mar 24 09:25:43 1993 PST
+n2/i386/outcoff.c
+		V4.1.7: changed the code which constructs derived type info
+		for DT_ARY, DT_PTR and DT_FCN in keeping with <coff.h> change.
+
+Thu Apr  1 15:31:33 1993 PST
+n3/i386/igen.c
+		Write "\t.intelorder\n" near start of assembler output file.
+
+Wed Apr  7 22:02:30 1993 PDT
+n0/gdecl.c
+		V4.1.8: In genum(), changed
+			deflookup(SL_VAR, LL_EXT);
+		to
+			deflookup(SL_VAR, ll);
+		to enter enumeration members in the symbol table
+		at the current lexical level, not at external level.
+		User H. P. Heidinger reported that e.g.
+			f() { enum e { e1 } fe; }
+			g() { enum e { e0, e1 } ge; }
+		gave a bogus redeclaration error, because the local enum
+		members were entered at the wrong lexical level.
+
+Thu Apr  8 14:54:51 1993 PDT
+n0/init.c
+		V4.1.9:  User H. P. Heidinger complained (as many have before)
+		that bitfield initialization was not supported; e.g.
+			struct s {
+				int	s_bit0:1;
+				int	s_bit1:1;
+			} s = { 1, 1 };
+		previously got a "cannot initialize bitfields" error
+		from the parser.  Added "bfinit()", now it works (I hope!).
+
+Mon Apr 12 11:47:33 1993 PDT
+		V4.2.0:  Changed constant folder to fold unsigned constants
+		correctly and to fold double constants.
+h/i386/mch.h
+		Added compilation option FOLD_DOUBLES.
+		This assumes host and target use same fp representation.
+		Added typedefs for uival_t and ulval_t, the unsigned types
+		corresponding to ival_t and lval_t.
+h/cc0.h
+		Recoded opdope table constants from octal to hex.
+		Added new constant FOLD, indicating op can be folded.
+		Separated extern function definitions from variables.
+		Added dval_to_d() and d_to_dval, defined in bind.c.
+n0/i386/bind.c
+		Added #if FOLD_DOUBLES code for dval_to_d() and d_to_dval(),
+		reversing byte order to convert host double to/from DCON.
+n0/dope.c
+		Added FOLD to opdope for operations which support constant
+		folding; this allows fold0() to be much more efficient.
+n0/fold.c
+		Extensive changes to handle typed constant folding (including
+		double constant folding).  Previously, the constant folder
+		understood int and long constants but did not understand
+		unsigned or double constants.  This meant
+		(1) it sometimes folded unsigned constants incorrectly, and
+		(2) it could not compile programs with constant double
+		expressions in initializers.
+		The new double constant folding code uses the host fp
+		arithmetic, but it is conditionalized #if FOLD_DOUBLES so that
+		it can be excluded for cross-compilation if desired.
+
+Mon Apr 12 13:32:45 1993 PDT
+n1/mtree1.c
+		Cleaned up comments and formatting, no substantive changes.
+
+Mon Apr 12 15:36:54 1993 PDT
+n1/mtree1.c
+		Rewrote fold1() for clarity.  The handling of typed constants
+		here needs to be fixed up like n0/fold.c/fold0() above.
+n1/i386/tables/aadd.t
+		V4.2.1: Changed the right argument types for two entries
+		in the += code table from LONG to DWORD to fix a "no match"
+		bug reported by H. P. Heidinger:
+			cp += (int)buf;
+		previously no matched for auto char buf[1].
+		And why, you might ask, should the right type be DWORD
+		rather than LONG, i.e. why should allowing pointers on the
+		right matter in this case, where the right is not pointer?
+		The parser, knowing that T_PTR and T_INT are bit compatible,
+		changes the "&" node type it outputs from PTR to S32
+		because of the cast and then writes the right arg as
+			&@ S32 
+			  Aid S32 at -12
+		(actually with a scaling multiply by 1 around it).
+		The automatic then gets expanded, resulting in
+			&@ S32 
+			  *@ S32 flag=3000
+			    + Ptr flag=800
+			      Reg Ptr flag=400 %ebp
+			      Icon S32 flag=a8 -12
+		and the & * foo gets simplified to foo, leaving		
+			+ S32 flag=800
+			  Reg Ptr flag=400 %ebp
+			  Icon S32 flag=a8 -12
+		So far so good, the type of the add node is still S32.  But
+		then the associative expression folder in n1/mtree1.c/fold1()
+		looks at this and adjusts the top type, as it must for
+		additions involving ints and pointers which have been
+		rearranged; it adjusts the ADD node type to
+			+ Ptr flag=800
+			  Reg Ptr flag=400 %ebp
+			  Icon S32 flag=a8 -12
+		and this results in the "no match" in aadd.t because the
+		right type is inappropriate.  Changing the right types in
+		aadd.t fixes the problem.
+
+Mon Apr 12 17:08:22 1993 PDT
+n1/i386/tables/asub.t
+		V4.2.2: identical change to above for -= instead of +=.
+
+Thu Apr 15 12:06:35 1993 PDT
+coh/cc.c
+		V4.2.3: Jeff Moskow (jeff@rtr.com, 1-508-448-3959)
+		reported a bug which I traced to cc.c.
+			cc -DSTRING="\"\
+			12345678901234567890123456789012345678901234567890\
+			<nine more lines identical to the above>
+			\"" a.c
+		caused odd behavior.  The driver was copying each cpp arg
+		into a static (i.e. in .data) 64-character buffer without
+		bounds checking, eventually overwriting the static data
+		used to initialize the keyword table.  Simplified the way
+		it works (the cpp arg copy was usually unnecessary!)
+		and added appropriate bounds checking.  Finally figured out
+		the hacky code which allows runpp() and runld() to grovel
+		in the args when a single cc arg contains multiple arg types,
+		after looking at it many times before.  Changed the _I386
+		default for "-r" compilation from "l.out" to "a.out".
+		Added usage() as separate routine, mentioning -? option.
+		Added -? option to print verbose usage information.
+		Cleaned up some comments and added some others.
+
+Thu Apr 15 12:53:29 1993 PDT
+coh/cc.c
+		Added a few comments.  Deleted -k from verbose usage message,
+		since neither ld286 nor ld386 understands it.
+
+Fri Apr 16 12:13:08 1993 PDT
+n0/expr.c
+		V4.2.4:	In build(), case QUEST, added code to check if the
+		condition type is computational and insert a conversion node
+		if not. A bug reported by Jeff Moscow included code of the form
+			a = ((short)b) ? c : d;
+		While the noncomputational condition type did not appear to
+		cause any problems, it looks better if the type is correct.
+n1/mtree0.c
+		For case CONVERSION/CAST, after the modtree(lp, ...) call,
+		check to see if the modified lp op is COMMA or QUEST;
+		the code above which distributes the conversion over the
+		COMMA or QUEST needs to be executed again in this case,
+		e.g. for (type1)(type2)((a)?b:c).  At the same time, added
+		a test for (type1)(type2)type1 where type2 is wider,
+		in which case both the conversions are irrelevant.
+		Other minor nonsubstantive changes.
+n1/i386/table0.c
+		Added clarifying comments, no substantive changes.
+n1/i386/tables/leaves.t
+		Added comment about the asm.c kludge below to the appropriate
+		code table entry.  No substantive changes.
+n2/i386/asm.c
+		In assemble(), case OF_MOV, added code to kludge e.g.
+			movw	%ax, %edi
+		to
+			movw	%ax, %di
+		just like the similarly disgraceful kludge for ZMOV[SZ]W.
+		This fixes (after a fashion) a bug reported by Jeff Moscow:
+		for short s and int struct member i, his example was
+			a = (short)((((short)(p->i)) ? ((short)(p->i)) : (2)));
+		after macro expansion, but the much simpler
+			s = (short)(int)(short)i;
+		has the same bug, namely a fatal aerr() on the "movw" above.
+		Spent a lot of time trying to fix it cleanly, but
+		without success.  The fix includes the similar char case (movb),
+		but I could not make that aerr() happen, the difference is
+		somehow related to the PBYTE and bytereg() code.
+n2/i386/outcoff.c
+		In setrefnum(), added ignore flag to allow compilation -VTPROF
+		to work without -S or -g.  The output writer now ignores the
+		table profiling debug items in this case.
+
+Mon Apr 19 14:25:47 1993 PDT
+n2/i386/asm.c
+		V4.2.5: fixed kludge of 4/16/93, the previous implementation
+		was seriously buggy, breaking byte and word mov instructions.
+
+Thu Apr 22 00:26:55 1993 PDT
+coh/cc.c
+		V4.2.6: added global "int monolithic = 1;" #if MONOLITHIC.
+		The -tBNM options reset this and tempsize to 0 to tell the
+		driver to use phases instead of monolithic compilation and
+		to use disk temps instead of memory temps.  Changed
+		#if MONOLITHIC conditionalized code accordingly.
+
+Fri Apr 23 16:30:30 1993 PDT
+n0/sharp.c
+		V4.2.7:	In getfname(), added code to expand ID in filename,
+		so that e.g.
+			#define	FOO	<stdio.h>
+			#include FOO
+		works as expected.
+
+Wed May  5 08:52:24 1993 PDT
+n0/cc0.c
+n0/gdecl.c
+		V4.2.8:  The 1/5/93 change above to allow the parser to
+		understand declarators like "int (f)(arg) int arg; {}"
+		screwed up the offsets assigned to parameters
+		of functions returning pointers to functions,
+		as recently reported by Harry Pulley.
+		For example, in
+			int (*fpfi(a, b))() int a, b; { ... }
+		the compiler generated incorrect code for references
+		to a and b in fpfi.  In cc0.c/xdef(), now set "nargs = 0;"
+		before calling gdecl().  In gdecl(), set argok to 1 only
+		if nargs==0.  After the recursive call to gdecl() for LPAREN,
+		reset argok to 0 if the recursive call set nargs != 0.
+
+Fri May 14 13:20:27 1993 PDT
+n0/expr.c
+		V4.3.0:	In build(), case QUEST, the change of V4.2.4 on 4/16/93
+		for ?: with noncomputational type in the condition was wrong
+		for objects with nonempty DIM lists.
+		This fixes a bug reported today by Jeff Moskow: e.g.
+			localjeff = jeff ? jeff : b;
+		where all the objects are pointers to functions returning int
+		generated a byte rather than long compare.
+
+Thu Jun  3 17:38:09 1993 PDT
+coh/cc.c
+		V4.3.1: Added -VVERSION number to print version number
+		to standard error.
+
+Wed Jul  7 10:58:50 1993 PDT
+n1/i386/mtree2.c
+		User Douglas J. Toltzman <doug@hubert1.hubert1.UUCP> reported a
+		bug with ushort (also char, uchar, short) bitfield assignments.
+		In the field extraction tree modifier modefld():
+		deleted code which made tree top noncomputational,
+		changed the shift widths from assuming byte or word width
+		to always assuming dword,
+		added code to always treat field width 1 as unsigned,
+		added clarifying comments.
+
+Wed Jul  7 13:56:31 1993 PDT
+n2/i386/outcoff.c
+		User Gabor Zahemsky <zgabor@CoDe.hu> reported a bug where -g
+		caused a cbotch() in outdloc(), basically because a #line
+		directive made the label at the start of a function fall at
+		line 0 of the function.  The output writer now distinguishes
+		function vs. line number LNNUM entries by a new flag field
+		rather than by the line number being 0 or nonzero.
+
+Wed Jul  7 20:39:06 1993 PDT
+coh/cc.c
+h/var.h
+		Added -VREADONLY option to recognize "readonly" keyword, after
+		nigel complained about it allowing "readonly" by default.
+		Now it recognizes "readonly" only if -VREADONLY.
+
+Thu Jul  8 12:05:22 1993 PDT
+coh/cc.c
+h/cc0.h
+n0/cc0.c
+n0/cc0key.c
+n0/expand.c
+		Added predefined cpp macro __BASE_FILE__ at nigel's request.
+		__BASE_FILE__ expands to a string giving the name of the
+		original source file being compiled.  This is like the
+		__FILE__ macro, except that within a #included header file
+		__FILE__ expands to the header file name while __BASE_FILE__
+		expands to the original source file name.
+
+Wed Jul 14 14:05:00 1993 PDT
+n0/dope.c
+n0/fold.c
+		nigel complained that e.g.
+			char a[(1,2)];
+		(that's a ','-operator, result of cpp macro expansion,
+		not a multi-dim. array) would not compile, issuing an
+		"array bound must be a constant" message.
+		The parser's constant folder previously ignored COMMA,
+		so it was always nonconstant; now COMMA with constants on both
+		sides returns the RHS, and the above compiles as expected.
+
+Wed Jul 28 13:25:46 1993 PDT
+n0/cpp.c
+		V4.3.4: In attempting to run Intek C++, Jay discovered that
+		"/lib/cpp -C" malfunctioned on comments containing
+		single or double quotes (' or ").  Now cpp in -C mode
+		ignores ' or " within comments; this includes C++-style
+		online //-delimited comments if -VCPLUS is specified.

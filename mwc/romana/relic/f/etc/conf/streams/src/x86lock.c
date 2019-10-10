@@ -1,0 +1,180 @@
+#define	_DDI_DKI	1
+#define	_SYSV4		1
+
+/*
+ * Some simple tests to make sure that whatever is defined in the internal
+ * <sys/x86lock.h> header at least does vaguely what it should, even if it
+ * doesn't do it really atomically.
+ */
+
+#include <kernel/x86lock.h>
+#include <limits.h>
+
+
+#if	__BORLANDC__
+
+/*
+ * The following functions cannot safely be used in-line in Borland C++
+ * due to problems with 32-bit code generation and register pseudovariables.
+ */
+
+#if	defined (__HUGE__) || defined (__COMPACT__) || defined (__LARGE__)
+
+void * ATOMIC_FETCH_AND_STORE_PTR (__atomic_ptr_t lock, void * value) {
+	long		temp;
+	temp = ATOMIC_FETCH_AND_STORE_LONG (lock, (long) value);
+	return (void *) temp;
+}
+
+#if 0
+void * ATOMIC_FETCH_PTR (__atomic_ptr_t lock) {
+	return (void *) ATOMIC_FETCH_LONG (lock);
+}
+#endif
+
+#endif	/* large data model */
+
+#endif	/* __BORLANDC__ */
+
+#ifndef	__LOCAL__
+#error
+#endif
+
+/*
+ * Here we exercise the atomic operations. Note that these tests have revealed
+ * many important subtleties of the way the operations and the compilers work
+ * during the development of the <sys/x86lock.h> header; in particular, the
+ * tests below reveal some important things about the use of the "volatile"
+ * keyword in highly optimizing compilers like GCC, where the compiler was
+ * able to statically (and incorrectly) predict what the result "ought" to
+ * have been.
+ *
+ * Having said that, in systems which are capable of in-line code generation
+ * it also pays to ensure that operations are not being *totally* elided due
+ * to overzealous optimization. This can really only be done by manual
+ * examination of the form of the generated code.
+ */
+
+__LOCAL__	atomic_char_t	achar;
+__LOCAL__	atomic_uchar_t	auchar;
+__LOCAL__	atomic_short_t	ashort;
+__LOCAL__	atomic_ushort_t	aushort;
+__LOCAL__	atomic_int_t	aint;
+__LOCAL__	atomic_uint_t	auint;
+__LOCAL__	atomic_long_t	along;
+__LOCAL__	atomic_ulong_t	aulong;
+__LOCAL__	atomic_ptr_t	aptr;
+
+__EXTERN_C__
+#if	__USE_PROTO__
+int (testX86) (void)
+#else
+int
+testX86 __ARGS (())
+#endif
+{
+	char		achartemp = '1';
+	uchar_t		auchartemp = 'y';
+	short		ashorttemp = -2438;
+	ushort_t	aushorttemp = 12034;
+	int		ainttemp = -12438;
+	uint_t		auinttemp = 21349;
+	long		alongtemp = -1385866L;
+	ulong_t		aulongtemp = 124875656L;
+	_VOID	      *	aptrtemp = & achartemp;
+
+	/*
+	 * Set some sensible initial values.
+	 */
+
+	(void) ATOMIC_FETCH_AND_STORE_CHAR (achar, achartemp);
+	(void) ATOMIC_FETCH_AND_STORE_UCHAR (auchar, auchartemp);
+	(void) ATOMIC_FETCH_AND_STORE_SHORT (ashort, ashorttemp);
+	(void) ATOMIC_FETCH_AND_STORE_USHORT (aushort, aushorttemp);
+	(void) ATOMIC_FETCH_AND_STORE_INT (aint, ainttemp);
+	(void) ATOMIC_FETCH_AND_STORE_UINT (auint, auinttemp);
+	(void) ATOMIC_FETCH_AND_STORE_LONG (along, alongtemp);
+	(void) ATOMIC_FETCH_AND_STORE_ULONG (aulong, aulongtemp);
+	(void) ATOMIC_FETCH_AND_STORE_PTR (aptr, aptrtemp);
+
+
+	if (ATOMIC_FETCH_CHAR (achar) != achartemp ||
+	    ATOMIC_FETCH_UCHAR (auchar) != auchartemp ||
+	    ATOMIC_FETCH_SHORT (ashort) != ashorttemp ||
+	    ATOMIC_FETCH_USHORT (aushort) != aushorttemp ||
+	    ATOMIC_FETCH_INT (aint) != ainttemp ||
+	    ATOMIC_FETCH_UINT (auint) != auinttemp ||
+	    ATOMIC_FETCH_LONG (along) != alongtemp ||
+	    ATOMIC_FETCH_ULONG (aulong) != aulongtemp ||
+	    ATOMIC_FETCH_PTR (aptr) != aptrtemp ||
+
+	    ATOMIC_FETCH_AND_STORE_CHAR (achar, SCHAR_MAX) != achartemp ||
+	    ATOMIC_FETCH_AND_STORE_UCHAR (auchar, UCHAR_MAX) != auchartemp ||
+	    ATOMIC_FETCH_AND_STORE_SHORT (ashort, SHRT_MAX) != ashorttemp ||
+	    ATOMIC_FETCH_AND_STORE_USHORT (aushort, USHRT_MAX) != aushorttemp ||
+	    ATOMIC_FETCH_AND_STORE_INT (aint, INT_MAX) != ainttemp ||
+	    ATOMIC_FETCH_AND_STORE_UINT (auint, UINT_MAX) != auinttemp ||
+	    ATOMIC_FETCH_AND_STORE_LONG (along, LONG_MAX) != alongtemp ||
+	    ATOMIC_FETCH_AND_STORE_ULONG (aulong, ULONG_MAX) != aulongtemp ||
+	    ATOMIC_FETCH_AND_STORE_PTR (aptr, & aulongtemp) != aptrtemp ||
+
+	    ATOMIC_FETCH_CHAR (achar) != SCHAR_MAX ||
+	    ATOMIC_FETCH_UCHAR (auchar) != UCHAR_MAX ||
+	    ATOMIC_FETCH_SHORT (ashort) != SHRT_MAX ||
+	    ATOMIC_FETCH_USHORT (aushort) != USHRT_MAX ||
+	    ATOMIC_FETCH_INT (aint) != INT_MAX ||
+	    ATOMIC_FETCH_UINT (auint) != UINT_MAX ||
+	    ATOMIC_FETCH_LONG (along) != LONG_MAX ||
+	    ATOMIC_FETCH_ULONG (aulong) != ULONG_MAX ||
+	    ATOMIC_FETCH_PTR (aptr) != & aulongtemp ||
+
+	    ATOMIC_FETCH_AND_STORE_CHAR (achar, SCHAR_MIN) != SCHAR_MAX ||
+	    ATOMIC_FETCH_AND_STORE_UCHAR (auchar, 0) != UCHAR_MAX ||
+	    ATOMIC_FETCH_AND_STORE_SHORT (ashort, SHRT_MIN) != SHRT_MAX ||
+	    ATOMIC_FETCH_AND_STORE_USHORT (aushort, 0) != USHRT_MAX ||
+	    ATOMIC_FETCH_AND_STORE_INT (aint, INT_MIN) != INT_MAX ||
+	    ATOMIC_FETCH_AND_STORE_UINT (auint, 0) != UINT_MAX ||
+	    ATOMIC_FETCH_AND_STORE_LONG (along, LONG_MIN) != LONG_MAX ||
+	    ATOMIC_FETCH_AND_STORE_ULONG (aulong, 0) != ULONG_MAX ||
+	    ATOMIC_FETCH_AND_STORE_PTR (aptr, 0) != & aulongtemp ||
+
+	    ATOMIC_FETCH_CHAR (achar) != SCHAR_MIN ||
+	    ATOMIC_FETCH_UCHAR (auchar) != 0 ||
+	    ATOMIC_FETCH_SHORT (ashort) != SHRT_MIN ||
+	    ATOMIC_FETCH_USHORT (aushort) != 0 ||
+	    ATOMIC_FETCH_INT (aint) != INT_MIN ||
+	    ATOMIC_FETCH_UINT (auint) != 0 ||
+	    ATOMIC_FETCH_LONG (along) != LONG_MIN ||
+	    ATOMIC_FETCH_ULONG (aulong) != 0 ||
+	    ATOMIC_FETCH_PTR (aptr) != 0 ||
+
+	    ATOMIC_FETCH_AND_STORE_CHAR (achar, 0) != SCHAR_MIN ||
+	    ATOMIC_FETCH_AND_STORE_UCHAR (auchar, 0) != 0 ||
+	    ATOMIC_FETCH_AND_STORE_SHORT (ashort, 0) != SHRT_MIN ||
+	    ATOMIC_FETCH_AND_STORE_USHORT (aushort, 0) != 0 ||
+	    ATOMIC_FETCH_AND_STORE_INT (aint, 0) != INT_MIN ||
+	    ATOMIC_FETCH_AND_STORE_UINT (auint, 0) != 0 ||
+	    ATOMIC_FETCH_AND_STORE_LONG (along, 0) != LONG_MIN ||
+	    ATOMIC_FETCH_AND_STORE_ULONG (aulong, 0) !=  0 ||
+	    ATOMIC_FETCH_AND_STORE_PTR (aptr, 0) != 0 ||
+
+	    ATOMIC_TEST_AND_SET_UCHAR (auchar) != 0 ||
+	    ATOMIC_FETCH_UCHAR (auchar) != (uchar_t) -1 ||
+	    ATOMIC_TEST_AND_SET_UCHAR (auchar) != (uchar_t) -1 ||
+	    (ATOMIC_CLEAR_UCHAR (auchar),
+	     ATOMIC_FETCH_UCHAR (auchar)) != 0)
+
+		return -1;
+
+	return 0;
+}
+
+
+#ifdef	TEST
+#include <stdio.h>
+
+int main (void) {
+	printf (testX86 () ? "failed\n" : "passed\n");
+	return 0;
+}
+#endif

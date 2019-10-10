@@ -1,0 +1,207 @@
+.TH fcntl() "" "" "System Call (libc)"
+.PC "Control open files"
+.B "#include <fcntl.h>"
+\fBint fcntl(\fIfd\^\fB, \fIcommand\^\fB, \fIarg\fB\^)\fR
+\fBint \fIfd\^\fB, \fIcmd\^\fB, \fIarg\^\fB;\fR
+.PP
+The \*(CO system call
+.B fcntl()
+manipulates an open file.
+.PP
+.I fd
+is the file descriptor;
+this description must have been obtained from a call to
+.BR creat() ,
+.BR dup() ,
+.BR fcntl() ,
+.BR open() ,
+or
+.BR pipe() .
+.PP
+.I command
+identifies the task that you want
+.B fcntl()
+to perform.
+The value
+.B fcntl()
+returns varies, depending on what command you ask it to perform.
+.I arg
+is an argument specific to the given
+.IR command .
+.PP
+.II "locking^file"
+.II "file^locking"
+.II "flock"
+.II "fcntl.h"
+.B fcntl()
+commands
+.BR F_GETLK ,
+.BR F_SETLK ,
+and
+.B F_SETLKW
+(described in detail below)
+implement file-record locking.
+File-record locks use the
+.B flock
+structure, which is defined in header file
+.B <fcntl.h>
+as follows:
+.DM
+.ta 0.5i 1.5i 3.0i
+typedef struct flock {
+	short	l_type;	/* F_RDLCK, F_WRLCK, or F_UNLCK	*/
+	short	l_whence;	/* SEEK_SET, SEEK_CUR, SEEK_END */
+	long	l_start;	/* location */
+	long	l_len;	/* 0 is through EOF */
+	short	l_sysid;	/* system id of lock (for GETLK) */
+	short	l_pid;	/* process id of owner (for GETLK) */
+};
+.DE
+.PP
+You can lock
+a section of a file for reading (excluding subsequent write
+locks) or for writing (excluding all subsequent locks).
+The locked section begins at the specified location
+.B l_start
+and can extend backwards (when
+.B l_len
+is negative)
+or forwards (when it is positive).
+If
+.B l_len
+is zero, the lock extends to the end of the file.
+A lock may extend past the current end of file,
+but may not extend to before the beginning of the file.
+.SH "fcntl() Commands"
+.B fcntl()
+recognizes the following commands:
+.IP \fBF_DUPFD\fR 0.8i
+Duplicate file descriptor
+.I fd
+onto the first available file descriptor greater than or equal to
+.IR arg . 
+.B fcntl()
+returns the new file descriptor.
+.IP \fBF_GETFD\fR
+Get the current value of the close-on-exec flag
+.B FD_CLOEXEC
+for the file.
+If the low-order bit of the return value of
+.B fcntl()
+is zero, the file descriptor remains open
+if the process uses
+.B exec()
+to execute another process,
+If the low-order bit of the return value is one,
+the file descriptor is closed upon
+.BR exec() .
+.IP \fBF_GETFL\fR
+Get the file flags for the file specified by
+.IR fd .
+With this option,
+.B fcntl()
+returns the file flags.
+.IP \fBF_GETLK\fR
+.I arg
+must point to a
+.B "struct flock"
+that describes a section of the file to lock.
+If the system does not have any locks on the specified section,
+.B fcntl()
+sets the lock type of
+.I arg
+to
+.B F_UNLCK
+and leaves the other members unchanged.
+Otherwise, it sets the contents of
+.I arg
+to the first existing lock that blocks the requested lock.
+.IP \fBF_SETFD\fR
+Set the close-on-exec flag of the file to the
+value of the low bit of
+.IR arg .
+.IP \fBF_SETFL\fR
+Set file flags for file descriptor
+.I fd
+to the value specified by
+.IR arg .
+Here,
+.B fcntl()
+returns the new file flags.
+.IP \fBF_SETLK\fR
+Set or clear a file-record lock.
+.I arg
+must point to a
+.BR "struct flock" .
+Set member
+.B l_type
+to
+.B F_RDLCK
+to request a read lock, to
+.B F_WRLCK
+to request a write lock, or to
+.B F_UNLCK
+to unlock a previously locked section.
+If the requested lock cannot be set,
+.B fcntl()
+returns with an error value of -1 and sets
+.B errno
+to
+.BR EACCES .
+.IP \fBF_SETLKW\fR
+is just like
+.B F_SETLK
+unless the requested lock is not available, in which case
+.B F_SETLKW
+causes the current process to sleep until the requested
+lock becomes available.
+If sleeping would cause a deadlock,
+.B fcntl()
+returns -1 and sets
+.B errno
+to
+.BR EDEADLK .
+.PP
+Upon failure, each
+.I cmd
+returns -1 and sets
+.B errno
+to an appropriate value.
+Possible
+.B errno
+values include the following:
+.IP \fBEAGAIN\fR 0.8i
+Section already locked.
+.IP \fBEBADF\fR
+Bad file desciptor.
+.IP \fBEINVAL\fR
+Invalid command.
+.IP \fBEMFILE\fR
+Too many files open.
+.IP \fBENOLCK\fR
+No more locks available.
+.IP \fBEDEADLK\fR
+Deadlock would result.
+.SH "See Also"
+.Xr "close()," close
+.Xr "creat()," creat
+.Xr "dup()," dup
+.Xr "exec()," exec
+.Xr "fcntl.h," fcntl.h
+.Xr "file," file
+.Xr "file descriptor," file_desc
+.Xr "libc," libc
+.Xr "lockf()," lockf
+.Xr "open()," open
+.Xr "pipe()" pipe.d
+.br
+\*(PX \(sc6.5.2
+.SH Notes
+Use
+.B fcntl()
+with the unbuffered I/O routines
+(\fBopen()\fR, \fBwrite()\fR, and so on)
+rather than with standard I/O library routines
+(\fBfopen()\fR, \fBfprintf()\fR, \fBfwrite()\fR, and so on).
+The buffering used by the standard I/O library may
+cause unexpected behavior with file locking.

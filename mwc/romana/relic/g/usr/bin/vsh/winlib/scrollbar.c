@@ -1,0 +1,66 @@
+/*
+ *      Functions for scrollbars
+ *
+ *      Copyright (c) 1992-93 by Udo Munk
+ */
+
+#ifdef AIX
+#define NLS
+#endif
+
+#include <curses.h>
+#include "winfun.h"
+
+extern WINDOW *open_window();
+extern void free();
+
+SCROLLBAR *create_scrollbar(y, x, s)
+int x, y, s;
+{
+	register SCROLLBAR *sp;
+	register int i;
+
+	if ((sp = (SCROLLBAR *) malloc(sizeof(SCROLLBAR))) == NULL)
+		nomem();
+	if ((sp->sc_window = open_window(s, 2, y, x)) == (WINDOW *) 0)
+		nomem();
+	sp->sc_size = s;
+	sp->sc_position = 1;
+	mvwaddch(sp->sc_window, 0, 1, u_arrow);
+	mvwaddch(sp->sc_window, 1, 1, fullboard);
+	for (i = 2; i < s -1; i++)
+		mvwaddch(sp->sc_window, i, 1, checkboard);
+	mvwaddch(sp->sc_window, s-1, 1, d_arrow);
+	wrefresh(sp->sc_window);
+	return (sp);
+}
+
+remove_scrollbar(p)
+SCROLLBAR *p;
+{
+	close_window(p->sc_window);
+	free((char *) p);
+}
+
+update_slider(s, n, p)
+SCROLLBAR *s;
+int n, p;
+{
+	register int np;
+
+	/* compute new position of the slider */
+	if (p == 0)
+		np = 1;
+	else if (p == n-1)
+		np = s->sc_size - 2;
+	else
+		np = (s->sc_size - 2) * p / n + 1;
+
+	/* update position of the slider */
+	if (np != s->sc_position) {
+		mvwaddch(s->sc_window, s->sc_position, 1, checkboard);
+		mvwaddch(s->sc_window, np, 1, fullboard);
+		s->sc_position = np;
+		wrefresh(s->sc_window);
+	}
+}

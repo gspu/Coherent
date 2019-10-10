@@ -1,0 +1,138 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3; strict;
+comment  @@;
+
+
+1.3
+date     92.10.01.11.44.57;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.07.17.09.40.47;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.04.30.14.09.19;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@post 401a update from stevesf
+@
+text
+@////////
+/ libc/crt/i386/scount.s
+/ i386 C runtime library.
+/ Profile call counter.
+////////
+
+	.globl	_scount
+	.globl	_fnclst
+	.globl	_mhdr
+
+////////
+/ Profile count routine.
+/ Called from the entry sequence of every function
+/ compiled with the -VPROF profile option.
+/ On entry:
+/	%ecx	pointer to 12 byte block in BSS
+/ The block looks like this:
+/	.long	?	; vaddr_t pc
+/	.long	?	; long count
+/	.long	?	; struct m_flst * link into _fnclst
+/
+/ C source (roughly; delete prolog and epilog, hack parameters):
+/	#include <mon.h>
+/
+/	void
+/	_scount(pc, flp)
+/	vaddr_t	pc;			/* actually passed in (%esp) */
+/	register struct m_flst	*flp;	/* actually passed in %ecx */
+/	{
+/		++flp->m_data.m_ncalls;
+/		if ((vaddr_t)&pc < _mhdr.m_lowsp)
+/			_mhdr.m_lowsp = (vaddr_t)&pc;
+/		if (flp->m_link == NULL) {
+/			flp->m_link = _fnclst;
+/			_fnclst = flp;
+/			flp->m_data.m_addr = pc;
+/		}
+/	}
+////////
+
+	.text
+
+_scount:
+	incl	4(%ecx)
+	cmpl	%esp, _mhdr+12
+	jae	.L2
+	movl	_mhdr+12, %esp
+.L2:
+	cmpl	8(%ecx), $0
+	jne	.L1
+	movl	%eax, _fnclst
+	movl	8(%ecx), %eax
+	movl	_fnclst, %ecx
+	movl	%eax, (%esp)
+	movl	(%ecx), %eax
+.L1:
+	ret
+
+/ end of libc/crt/i386/scount.s
+@
+
+
+1.2
+log
+@update by stevesf for profiling suppt
+@
+text
+@d45 1
+a45 1
+	cmpl	%esp, _mhdr+16
+d47 1
+a47 1
+	movl	_mhdr+16, %esp
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a6 1
+	.globl	_flst_
+d8 2
+d18 21
+a38 3
+/	.long	?	; count
+/	.long	?	; link into _flst_
+/	.long	?	; pc
+d41 2
+d44 14
+a57 8
+	incl	(%ecx)			/ bump count
+	pop	%edx			/ get ra in EDX
+	cmpl	8(%ecx),$0		/ linked already?
+	jne	?L0			/ yes, done
+	movl	8(%ecx),%edx		/ save function pc
+	movl	%eax,_flst_		/ and link the
+	movl	4(%ecx),%eax		/ block into the
+	movl	_flst_,%ecx		/ chain.
+a58 3
+?L0:
+	ijmp	%edx			/ return
+
+@

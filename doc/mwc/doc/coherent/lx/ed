@@ -1,0 +1,446 @@
+.TH ed "" "" Command
+.PC "Interactive line editor"
+\fBed [\-] [+cmopsv] [\fIfile\^\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-\fR
+Suppress character counts on \fBr, w, e\fR commands
+.IC \fB\-x\fR
+Encrypt \fIfile\fR
+.IC \fB\+c\fR
+Print character counts on \fBr, w, e\fR
+.IC \fB\+m\fR
+Allow multiple commands per line
+.IC \fB\+o\fR
+Print line counts instead of character counts
+.IC \fB\+p\fR
+Prompt for each command with `*'
+.IC \fB\+s\fR
+Lower case matches upper in patterns
+.IC \fB\+v\fR
+Verbose error messages
+.HE
+.B ed
+is the \*(CO system's interactive line
+editor.
+.PP
+.B ed
+is a line-oriented interactive text editor.
+With it, you can locate and replace text patterns,
+move or copy blocks of text, and print parts of the text.
+.B ed
+can read text from input files
+and can write all or part of the edited text to other files.
+.PP
+.B ed
+reads commands from the standard input,
+usually one command per line.
+Normally,
+.B ed
+does not prompt for commands.
+If the optional
+.I file
+argument is given,
+.B ed
+edits the given file, as if the
+.I file
+were read with the
+.B e
+command described below.
+.PP
+.B ed
+manipulates a copy of the text in memory rather than with the
+file itself.
+No changes to a file occur until the user writes
+edited text with the
+.B w
+command.
+Large files can be divided with
+.B split
+or edited with the stream editor
+.BR sed .
+.PP
+.B ed
+remembers some information to simplify its commands.
+The
+.I "current line"
+is typically the line most recently edited or printed.
+When
+.B ed
+reads in a file, the last line read becomes the current line.
+The
+.I "current file name"
+is the last file name specified in an
+.B e
+or
+.B f
+command.
+The
+.I "current search pattern"
+is the last pattern specified in a search specification.
+.PP
+.B ed
+identifies text lines by integer line numbers, beginning with one for
+the first line.
+Several special forms identify a line or a range of lines, as follows:
+.IP "\fIn\fR"
+A decimal number
+.I n
+specifies the
+.IR n th
+line of the text.
+.IP \&\fB.\fR
+A period \*(Ql.\*(Qr specifies the current line.
+.IP \fB$\fR
+A dollar sign \*(Ql$\*(Qr specifies the last line of the text.
+.IP "\fB+,\-\fR"
+Simple arithmetic may be performed on line numbers.
+.IP \fB/\fIpattern\fB/\fR
+Search forward from the current line for the next
+occurrence of the
+.IR pattern .
+If
+.B ed
+finds no occurrence before the end of the text, the search wraps to
+the beginning of the text.
+Patterns, also called 
+.I "regular expressions,"
+are described in detail below.
+.IP \fB?\fIpattern\fB?\fR
+Search backwards from the current line to the previous
+occurrence of the
+.IR pattern .
+If
+.B ed
+finds no occurrence before the beginning of the text,
+the search wraps to the end of the text.
+.IP "\&\fB\&\'\fIx\fR"
+Lines marked with the
+.BI k x
+command described below are identified by
+.IR \&'x .
+The
+.I x
+may be any lower-case letter.
+.IP \fIn\^\fB,\fIm\fR
+Line specifiers separated by a comma \*(Ql,\*(Qr
+specify the range of lines between the two given lines, inclusive.
+.IP \fIn\^\fB;\fIm\fR
+Line specifiers separated by a semicolon \*(Ql;\*(Qr
+specify the range of lines between the two given lines, inclusive.
+Normally,
+.B ed
+updates the current line after it executes each command.
+If a semicolon \*(Ql;\*(Qr rather than a comma separates two line specifiers,
+.B ed
+updates the current line before reading the second.
+.IP \fB*\fR
+An asterisk \*(Ql*\*(Qr specifies all lines; it is equivalent to
+.BR "1,$" .
+.SH Commands
+.B ed
+commands consist of a single letter,
+which may be preceded by one or two specifiers that give
+the line or lines to which the command is to be applied.
+The following command summary uses the notations [\f2n\^\f1] and
+[\f2n\^\f1[,\f2m\^\f1]\^]
+to refer to an optional line specifier and an optional range,
+respectively.
+These default to the current line when omitted, except where
+otherwise noted.
+A semicolon \*(Ql;\*(Qr may be used instead of a comma \*(Ql,\*(Qr
+to separate two line specifiers.
+.IP \fB\&.\fR
+Print the current line.
+Also, a line containing only a period \*(Ql.\*(Qr marks the end of
+.BR a ppended,
+.BR c hanged,
+or
+.BR i nserted
+text.
+.IP \fB[\fIn\^\fB]\fR
+Print given line.
+If no line number is given (i.e., the command line consists only of 
+a newline character), print the line that follows the current line.
+.IP \fB[\fIn\^\fB]\fB=\fR
+Print the specified line number (default: last line number).
+.IP \fB[\fIn\^\fB]&\fR
+Print a screen of 23 lines; equivalent to
+\f2n\^\f3,\f2n\^\f3+22p\f1.
+.IP "\fB! \fIline\fR"
+Pass the given
+.I line
+to the shell
+.B sh
+for execution.
+.B ed
+prompts with an exclamation point \*(Ql!\*(Qr when execution is completed.
+.IP \fB?\fR
+Print a brief description of the most recent error.
+.IP \fB[\fIn\^\fB]a\fR
+Append new text after line
+.IR n .
+Terminate new text with line that contains only a period \*(Ql.\*(Qr.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]]c\f1
+Change specified lines to new text.
+Terminate new text with a line that contains only a period \*(Ql.\*(Qr.
+.IP "\fB[\fIn\^\fB[,\fIm\^\fB]]d[p]\fR"
+Delete specified lines.
+If
+.B p
+follows, print new current line.
+.IP "\fBe [\fIfile\^\fB]\fR"
+Edit the specified
+.I file
+(default: current file name).
+An error occurs if there are unsaved changes.
+Reissuing the command after the error message forces
+.B ed
+to edit the
+.IR file .
+.IP "\fBE [\fIfile\^\fB]\fR"
+Edit the specified
+.I file
+(default: current file name).
+No error occurs
+if there are unsaved changes.
+.IP "\fBf [\fIfile\^\fB]\fR"
+Change the current file name to
+.I file
+and print it.
+If
+.I file
+is omitted, print the current file name.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]g/[\fIpattern\^\fB]/\fIcommands\fR
+Globally execute
+.I commands
+for each line in the specified range (default: all lines) that contains the
+.I pattern
+(default: current search pattern).
+The
+.I commands
+may extend over several lines, with all but the last terminated by \*(Ql\e\*(Qr.
+.IP \fB[\fIn\^\fB]i\fR
+Insert text before line
+.IR n .
+Terminate new text with a line that contains only a period \*(Ql.\*(Qr.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]j\^[\fBp\^]\fR
+Join specified lines
+into one line.
+If
+.I m
+is not specified, use range
+.IR n , n +1.
+If no range is specified, join the current line with the next line.
+With
+optional
+.BR p ,
+print resulting line.
+.IP \fB[\fIn\^\fB]k\fIx\fR
+Mark given line with lower-case letter
+.IR x .
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]l\fR
+List selected lines, interpreting non-graphic characters.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]m[\fId\^\fB]\fR
+Move selected lines to follow line
+.I d
+(default: current line).
+.IP "\fBo \fIoptions\fR"
+Change the given
+.IR options .
+The
+.I options
+may consist of an optional sign \*(Ql+\*(Qr or \*(Ql\-\*(Qr,
+followed by one or more of the letters \*(Ql\f3cmopsv\fP\*(Qr.
+Options are explained below.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]\^[p]\fR
+Print selected lines.
+The
+.B p
+is optional.
+.IP \fBq\fR
+Quit editing and exit.
+An error occurs
+if there are unsaved changes.
+Reissuing the command after the error message forces
+.B ed
+to exit.
+.IP \fBQ\fR
+Quit editing and exit.
+Throw away all changes that you have not yet saved to disk.
+.IP "\fB[\fIn\^\fB]r [\fIfile\^\fB]\fR"
+Read
+.I file
+into current text after given line (default: last line).
+.IP \fB[\f2n\^\fB[,\fIm\^\fB]\^]s[\fIk\^\fB]/[\fIpattern1\^\fB]/\fIpattern2\^\fB/[g]\^[p]\fR
+Search for
+.I pattern1
+(default, remembered search pattern) and substitute
+.I pattern2
+for
+.IR k th
+occurrence (default, first)
+on each line of the given range.
+If
+.B g
+follows, substitute every occurrence on each line.
+If
+.B p
+follows, print the resulting current line.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]t[\fId\^\fB]\fR
+Transfer (copy) selected lines to follow line
+.I d
+(default, current line).
+.IP \fB[\fIn\^\fB]u\fB[p]\fR
+Undo effect of last substitute command.
+If optional
+.B p
+specified, print undone line.
+The specified line must be the last substituted line.
+.IP \fB[\fIn\^\fB[,\fIm\^\fB]\^]v/[\fIpattern\^\fB]/\fIcommands\fR
+Globally execute
+.I commands
+for each line in the specified range (default: all lines)
+.I not
+containing the
+.I pattern
+(default: current search pattern).
+The
+.I commands
+may extend over several lines, with all but the last terminated by \*(Ql\e\*(Qr.
+The
+.B v
+command is like the
+.B g
+command, except the sense of the search is reversed.
+.IP "\fB[\fIn\^\fB[,\fIm\^\fB]\^]w [\fIfile\^\fB]\fR"
+Write selected lines (default, all lines) to
+.I file
+(default, current file name).
+The previous contents of
+.IR file ,
+if any, are lost.
+.IP "\fB[\fIn\^\fB[,\fIm\^\fB]\^]W [\fIfile\^\fB]\fR
+Write specified lines (default, all lines) to the end of
+.I file
+(default, current file name).
+Like
+.BR w ,
+but appends to
+.I file
+instead of truncating it.
+.SH Patterns
+Substitution commands and search specifications may include
+.IR patterns ,
+also called
+.IR "regular expressions" .
+A non-special character in a pattern matches itself.
+Special characters include the following.
+.IP \fB\^^\^\fR
+Match beginning of line, unless it appears immediately after \*(Ql[\*(Qr
+(see below).
+.IP \fB$\fR
+Match end of line.
+.IP \fB*\fR
+Matches zero or more repetitions of preceding character.
+.IP \fB\&.\fR
+Matches any character except newline.
+.IP \fB[\fIchars\^\fB]\fR
+Matches any one of the enclosed
+.IR chars .
+Ranges
+of letters or digits may be indicated using \*(Ql\-\*(Qr.
+.IP \fB[\^^\^\fIchars\^\fB]\fR
+Matches any character
+.I except
+one of the enclosed
+.IR chars .
+Ranges
+of letters or digits may be indicated using \*(Ql\-\*(Qr.
+.IP \fB\e\fIc\fR
+Disregard special meaning of character
+.IR c .
+.IP \fB\e(\fIpattern\^\fB\e)\fR
+Delimit substring
+.I pattern
+for use with
+\e\f2d\f1,
+described below.
+.PP
+The replacement part
+.I pattern2
+of the substitute command may also use the following:
+.IP \fB&\fR
+Insert characters matched by
+.IR pattern1 .
+.IP \f3\e\f2d\f1
+Insert substring delimited by
+.IR d th
+occurrence of delimiters \*(Ql\e(\*(Qr and \*(Ql\e)\*(Qr, where
+.I d
+is a digit.
+.SH Options
+The user may specify
+.B ed
+options on the command line, in the environment, or with the
+.B o
+command.
+The available options are as follows:
+.IP \fBc\fR
+Print character counts on
+.BR e ,
+.BR r ,
+and
+.B w
+commands.
+.IP \fBm\fR
+Allow multiple commands per line.
+.IP \fBo\fR
+Print line counts instead of character counts on
+.BR e ,
+.BR r ,
+and
+.B w
+commands.
+.IP \fBp\fR
+Prompt with an \*(Ql*\*(Qr for each command.
+.IP \fBs\fR
+Match lower-case letters in a
+.I pattern
+to both upper-case and lower-case text characters.
+.IP \fBv\fR
+Print verbose versions of error messages.
+.PP
+The
+.B c
+option is normally set, and all others are normally reset.
+Options may be set on the command
+line with a leading \*(Ql+\*(Qr sign.
+The \*(Ql\-\*(Qr command line option resets the
+.B c
+option.
+.PP
+Options may be set in the environment with an assignment, such as
+.DM
+	export ED=+cv
+.DE
+.PP
+Options may be set with the \*(Ql+\*(Qr prefix or 
+reset with the \*(Ql\-\*(Qr prefix.
+.SH "See Also"
+.Xr "commands," commands
+.Xr "elvis," elvis
+.Xr "ex," ex
+.Xr "me," me
+.Xr "sed," sed
+.Xr "vi" vi
+.br
+\fIIntroduction to the ed Line Editor\fR
+.SH Diagnostics
+.B ed
+usually prints only the diagnostic \*(Ql?\*(Qr on any error.
+When the verbose option
+.B v
+is specified, the \*(Ql?\*(Qr is followed by a brief description of
+the nature of the error.

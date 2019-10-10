@@ -1,0 +1,326 @@
+# config.mwc
+#	configure a Coherent kernel for the AT
+#
+# usage: config [help]
+#	 config [stand=fha0]
+#	 config [stand=fva0]
+#	 config [stand=fha0] [standard] [root=DRV] [DRV ...]
+#	 config [stand=fva0] [standard] [root=DRV] [DRV ...]
+#
+# $Log:	config.mwc,v $
+# Revision 1.3  92/01/16  15:53:10  root
+# update by hal for 321 kernels
+# 
+
+#	initialize variables
+#
+ATSTANDARD=" fl lp mm "
+ATKERNEL=atkernel.o
+
+#
+# 	set default keyboard layout for nkb driver
+#
+KEYBOARD=/conf/kbd/us
+
+STANDARD="${ATSTANDARD}"
+KERNEL="${ATKERNEL}"
+LIBS="lib/tty.a lib/support.a"
+BUILD=0
+DEV=/tmp/dev
+PASS1=""
+PASS2=""
+UNDEF=""
+PATCH=""
+ROOTDEV=""
+INSTALL=""
+
+case "$#" in
+0)	/bin/echo
+	/bin/echo	"The following can be used as arguments to config:"
+	/bin/echo
+	/bin/cat doc/*
+	exit 0
+	;;
+esac
+
+# Pass 1 - "help", "ibm-at"
+for ARG in $*
+do
+	case "${ARG}" in
+	help)
+		/bin/echo
+		/bin/echo "The following can be used as arguments to config:"
+		/bin/echo
+		/bin/cat doc/*
+		exit 0
+		;;
+	ibm-at)
+		STANDARD="${ATSTANDARD}"
+		KERNEL="${ATKERNEL}"
+		;;
+	*)
+		PASS1="${PASS1} ${ARG}"
+		;;
+	esac
+done
+
+# Pass 2 - "standard", "stand=...", "DEV=..."
+for ARG in ${PASS1}
+do
+	case "${ARG}" in
+	standard)
+		PASS2="${STANDARD} ${PASS2}"
+		;;
+	stand\=fha0)
+		/etc/umount /dev/fha0 2> /dev/null
+		echo -n "Insert 5.25 high capacity floppy into drive 0, press return [y to format]: "
+		read x
+		case "x$x" in
+		xy)	echo Formatting/verifying floppy:
+			/etc/fdformat -a -i 6 -v /dev/fha0 || exit 1 ;;
+		esac
+		/etc/mkfs  /dev/fha0 2400		|| exit 1
+		/bin/cp /conf/boot.fha /dev/fha0	|| exit 1
+		/etc/mount /dev/fha0 /f0		|| exit 1
+		/bin/mkdir /f0/bin /f0/dev /f0/etc /f0/mnt /f0/tmp || exit 1
+		umask 011
+		/etc/mknod /f0/dev/null c 0 0		|| exit 1
+		/bin/ln -f /f0/dev/null /f0/dev/swap	|| exit 1
+		umask 077
+		/etc/mknod /f0/dev/mem  c 0 1		|| exit 1
+		/etc/mknod /f0/dev/kmem c 0 2		|| exit 1
+		/bin/chmod 777 /f0/tmp			|| exit 1
+		umask 022
+
+		echo Copying files to floppy:
+		/bin/cp /bin/bad /bin/cat /bin/cp /bin/cpdir \
+			/bin/db /bin/dd /bin/df /bin/du \
+			/bin/echo /bin/kill \
+			/bin/ls /bin/mkdir /bin/mv /bin/ncheck \
+			/bin/rm /bin/sh /bin/stty /bin/sync \
+			/bin/time /bin/true /f0/bin || exit 1
+		/bin/cp /etc/fsck /etc/init /etc/badscan /etc/clri \
+			/etc/fdisk /etc/mkfs \
+			/etc/mknod /etc/mount /etc/umount /f0/etc || exit 1
+
+		DEV=/f0/dev
+		:
+		: Place a Coherent image out on drive 0.
+		: Add a floppy root patched version as a file called 'stand'.
+		:
+		INSTALL="umask 022; set -e ; /bin/cp coherent /f0 ; \
+			/conf/patch coherent 'rootdev_=makedev(4,14)' ; \
+			/conf/patch coherent 'pipedev_=makedev(4,14)' ; \
+			/bin/cp coherent /f0/stand ; \
+			/etc/umount /dev/fha0 ; /bin/df /dev/fha0"
+
+		case "$#" in
+		1) eval ${INSTALL} ; exit 0 ;;
+		esac
+		;;
+
+	stand\=fva0)
+		/etc/umount /dev/fva0 2> /dev/null
+		echo -n "Insert high density 3.5 floppy into drive 0, press return [y to format]: "
+		read x
+		case "x$x" in
+		xy)	echo Formatting/verifying floppy:
+			/etc/fdformat -a -i 6 -v /dev/fva0 || exit 1 ;;
+		esac
+		/etc/mkfs  /dev/fva0 2880		|| exit 1
+		/bin/cp /conf/boot.fva /dev/fva0	|| exit 1
+		/etc/mount /dev/fva0 /f0		|| exit 1
+		/bin/mkdir /f0/bin /f0/dev /f0/etc /f0/mnt /f0/tmp || exit 1
+		umask 011
+		/etc/mknod /f0/dev/null c 0 0		|| exit 1
+		/bin/ln -f /f0/dev/null /f0/dev/swap	|| exit 1
+		umask 077
+		/etc/mknod /f0/dev/mem  c 0 1		|| exit 1
+		/etc/mknod /f0/dev/kmem c 0 2		|| exit 1
+		/bin/chmod 777 /f0/tmp			|| exit 1
+		umask 022
+
+		echo Copying files to floppy:
+		/bin/cp /bin/bad /bin/cat /bin/cp /bin/cpdir \
+			/bin/db /bin/dd /bin/df /bin/du \
+			/bin/echo /bin/kill \
+			/bin/ls /bin/mkdir /bin/mv /bin/ncheck \
+			/bin/rm /bin/sh /bin/stty /bin/sync \
+			/bin/time /bin/true /f0/bin || exit 1
+		/bin/cp /etc/fsck /etc/init /etc/badscan /etc/clri \
+			/etc/fdisk /etc/mkfs \
+			/etc/mknod /etc/mount /etc/umount /f0/etc || exit 1
+
+		case ${KB-kb} in
+		nkb)
+			echo Adding keyboard support files to floppy
+			/bin/mkdir /f0/conf /f0/conf/kbd	|| exit 1
+			/bin/cp -d $KEYBOARD /f0/conf/kbd	|| exit 1
+			echo $KEYBOARD >/f0/etc/brc		|| exit 1
+			echo "exit 1" >>/f0/etc/brc		|| exit 1
+			chmod 555 /f0/etc/brc			|| exit 1
+			;;
+		esac
+
+		DEV=/f0/dev
+		:
+		: Place a Coherent image out on drive 0.
+		: Add a floppy root patched version as a file called 'stand'.
+		:
+		INSTALL="umask 022; set -e ; /bin/cp coherent /f0 ; \
+			/conf/patch coherent 'rootdev_=makedev(4,15)' ; \
+			/conf/patch coherent 'pipedev_=makedev(4,15)' ; \
+			/bin/cp coherent /f0/stand ; \
+			/etc/umount /dev/fva0 ; /bin/df /dev/fva0"
+
+		case "$#" in
+		1) eval ${INSTALL} ; exit 0 ;;
+		esac
+		;;
+
+	DEV\=*)
+		DEV=`/bin/echo "${ARG}" | /bin/sed -e 's/^....//'`
+		;;
+	*)
+		PASS2="${PASS2} ${ARG}"
+		;;
+	esac
+done
+
+#	get the proper driver information
+#
+
+for ARG in ${PASS2}
+do
+	case "$ARG" in
+
+	root\=fva0)
+		ROOTDEV="makedev(4,15)"
+		. confdrv/fl
+		;;
+	root\=fha0)
+		ROOTDEV="makedev(4,14)"
+		. confdrv/fl
+		;;
+	root\=None)
+		ROOTDEV="makedev(0,0)"
+		;;
+	root\=*)
+		ARG=`/bin/echo "${ARG}" | /bin/sed -e 's/^.....//'`
+
+		case "${ARG}" in
+		*[0123][abcdx])
+			FILE=`/bin/echo "${ARG}" | /bin/sed -e 's/..$//'`
+			if [ $FILE = "sd" ]
+			then
+				FILE=${HD?Environment variable HD not set}
+			fi
+			;;
+		*)
+			FILE="${ARG}"
+			;;
+		esac
+
+		if /bin/test -r confdrv/${FILE}
+		then
+			. confdrv/${FILE}
+			ROOTDEV="${MAKEDEV}"
+/bin/echo "'confdrv/${FILE}' executing"
+		else
+			/bin/echo "'confdrv/${FILE}' does not exist"
+			exit 1
+		fi
+		;;
+
+	swap)
+		;;
+
+	swap\=*)
+		ARG=`/bin/echo "${ARG}" | /bin/sed -e 's/^.....//'`
+
+		case "${ARG}" in
+		*[0123][abcdx])
+			FILE=`/bin/echo "${ARG}" | /bin/sed -e 's/..$//'`
+			if [ $FILE = "sd" ]
+			then
+				FILE=${HD?Environment variable HD not set}
+			fi
+			if [ -d "${DEV-/dev}" ]
+			then
+				/bin/ln -f ${DEV-/dev}/${ARG} ${DEV-/dev}/swap
+			fi
+			;;
+		*)
+			FILE="${ARG}"
+			;;
+		esac
+
+		if /bin/test -r confdrv/${FILE}
+		then
+			. confdrv/${FILE}
+			PATCH="${PATCH} swapdev_=${MAKEDEV}"
+			/bin/echo "Swap device will be ${DEV-/dev}/${ARG}"
+			/bin/echo "See documentation before enabling"
+		else
+			/bin/echo "'confdrv/${FILE}' does not exist"
+			exit 1
+		fi
+		;;
+
+	*\=*)
+		PATCH="${PATCH} ${ARG}"
+		;;
+
+	*)
+		case "${ARG}" in
+		*[0123][abcdx])
+			FILE=`/bin/echo "${ARG}" | /bin/sed -e 's/..$//'`
+			if [ $FILE = "sd" ]
+			then
+				FILE=${HD?Environment variable HD not set}
+			fi
+			;;
+		*)
+			FILE="${ARG}"
+			;;
+		esac
+
+		if /bin/test -r confdrv/${FILE}
+		then
+			. confdrv/${FILE}
+			case "${ROOTDEV}" in
+			?*)	;;
+			*)	ROOTDEV="${MAKEDEV}" ;;
+			esac
+		else
+			/bin/echo "'confdrv/${FILE}' does not exist"
+			exit 1
+		fi
+		;;
+	esac
+done
+ROOTDEV="${ROOTDEV-makedev(0,0)}"
+
+#	include stub drivers
+#
+UNDEF="${UNDEF} ${LIBS}"
+
+#	make the proper root and pipe devices
+#
+PATCH="${PATCH} rootdev_=${ROOTDEV} pipedev_=${ROOTDEV}"
+
+set -ex
+#
+#	create a kernel with the desired device drivers
+#
+/bin/ld -i -x -o coherent ${KERNEL} ${UNDEF} -lc
+#
+#	enable the desired device drivers
+#
+/conf/patch coherent ALLSIZE_=16384 NBUF_=32 NCLIST_=24 ${PATCH}
+/bin/chmod 644 coherent
+/bin/chown sys coherent
+/bin/chgrp sys coherent
+/bin/sync
+#
+eval ${INSTALL}

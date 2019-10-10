@@ -1,0 +1,116 @@
+head	4.2;
+access
+	hal
+	ljg
+	fred
+	udo
+	nigel;
+symbols
+	r12:4.2;
+locks; strict;
+comment	@# @;
+
+
+4.2
+date	94.05.02.20.54.09;	author rcsadmin;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+4.2
+log
+@This is the baseline version
+@
+text
+@# Default actions for 'make' suffix rules.
+
+.c.o .c.obj .m.o .m.obj:
+	$(CC) $(CFLAGS) -o $@@ -c $<
+
+.s.o .s.obj:
+	$(AS) $(ASFLAGS) -o $@@ $<
+
+.y.o:
+	$(YACC) $(YFLAGS) $<
+	$(CC) $(CFLAGS) -o $@@ -c y.tab.c
+	rm y.tab.c
+
+.y.c:
+	$(YACC) $(YFLAGS) $< && mv y.tab.c $@@
+	rm y.tab.c
+
+.l.o:
+	$(LEX) $(LFLAGS) $<
+	$(CC) $(CFLAGS) -o $@@ -c lex.yy.c
+	rm lex.yy.c
+
+.l.c:
+	$(LEX) $(LFLAGS) $<
+	mv lex.yy.c $@@
+
+.1.man:
+	$(NROFF) $(NRFLAGS) -man $< >$@@
+
+.spc.c:
+	{ chmod a+w $@@ 2>/dev/null; \
+	  echo "/* Generated from $< on $$(date) */" > $@@ ; } && \
+		cat $< >> $@@ && chmod a-w $@@
+
+.c.a:
+	$(CC) -c $(CFLAGS) $<
+	$(AR) $(ARFLAGS) $@@ $%
+	rm -f $%
+
+.s.a:
+	$(AS) $(ASFLAGS) $<
+	$(AR) $(ARFLAGS) $@@ $%
+	rm -f $%
+
+# Single-suffix rules require 'make' from Coherent 4.2
+
+.c:
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@@ $< $(LIBFLAGS); rm -f $(<:.c=.o)
+
+.o .obj:
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@@ $< $(LIBFLAGS)
+
+# The following uses a two-step process, since by default Coherent 'cc'
+# assembles source code with the .intelorder directive in effect rather than
+# .unixorder. To avoid problems, especially for people using 'gcc', we use
+# two steps.
+
+.s:
+	$(AS) $(ASFLAGS) -o $@@.o $<
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@@ $@@.o $(LIBFLAGS)
+
+.sh:
+	{ chmod a+w $@@ 2>/dev/null; \
+	  echo "# Generated from $< on $$(date)" > $@@ ; } && \
+		cat $< >> $@@ && chmod a+x,a-w $@@
+
+.spc:
+	{ chmod a+w $@@ 2>/dev/null; \
+	  echo "/* Generated from $< on $$(date) */" > $@@ ; } && \
+		cat $< >> $@@ && chmod a-w $@@
+
+
+.y:
+	$(YACC) $(YFLAGS) $<
+	$(CC) $(LDFLAGS) $(CFLAGS) -o $@@ y.tab.c $(LIBFLAGS) -ly
+	rm -f y.tab.c y.tab.o
+
+.l:
+	$(LEX) $(LFLAGS) $<
+	$(CC) $(LDFLAGS) $(CFLAGS) -o $@@ lex.yy.c $(LIBFLAGS) -ll
+	rm -f lex.yy.c lex.yy.o
+
+# This won't actually generate any output file, but it is a handy way of
+# asking to view nroff source for a .man page.
+
+.1:
+	nroff -man $< | more
+@

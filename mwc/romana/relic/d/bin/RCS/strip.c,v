@@ -1,0 +1,457 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.15.09.14;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver. provided by stevesf.
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Object file services.
+ * This section is similar to that in nm and size.
+ */
+
+#include <stdio.h>
+#include <canon.h>
+
+#if COHERENT
+#include <n.out.h>
+#include <signal.h>
+#endif
+#if MSDOS
+#include <nout.h>
+#define	DOEXE	1
+#endif
+#if GEMDOS
+#include <nout.h>
+#define	DOPRG	1
+#endif
+
+char	*argv0;			/* Command name */
+char	*fn;			/* File name */
+FILE	*ifp;			/* Input File Pointer */
+FILE	*ofp;			/* Output File Pointer */
+struct	ldheader	ldh;	/* The l.out.h header */
+long	loadsize;		/* Amount of input to copy to output */
+
+/*
+ *	Read in the l.out header.
+ */
+gethdr()
+{
+	register int i;
+	fread((char *)&ldh, 1, sizeof(ldh), ifp);
+	canshort(ldh.l_magic);
+	canshort(ldh.l_flag);
+	canshort(ldh.l_machine);
+	if (ldh.l_magic != L_MAGIC)
+		return 1;
+	if ((ldh.l_flag&LF_32) == 0) {
+		canshort(ldh.l_tbase);
+		ldh.l_entry = ldh.l_tbase;
+		ldh.l_tbase = sizeof(ldh) - 2*sizeof(short);
+	} else {
+		canshort(ldh.l_tbase);
+		canlong(ldh.l_entry);
+	}
+	loadsize = 0;
+	for (i=0; i<NLSEG; i++) {
+		canlong(ldh.l_ssize[i]);
+		if (i < L_DEBUG && i != L_BSSI && i != L_BSSD)
+			loadsize += ldh.l_ssize[i];
+	}
+	return (0);
+}
+
+/*
+ * Read the exe header.
+ */
+#ifndef DOEXE
+getexe() { return 1; }
+#else
+#include "exe.h"
+
+
+execani(ip)	/* convert from MSDOS exe header byte order to host */
+register short *ip;
+{
+	/* First convert to standard pdp-11 byte order */
+	/* Notice, nothing to do to accomplish this    */
+
+	/* Now convert from pdp-11 byte order to host */
+
+	canshort(*ip);
+}
+
+getexe()
+{
+	long daddr;
+	exehdr_t exehdr;
+
+	fseek(ifp, 0L, 0);
+	fread((char *)&exehdr, 1, sizeof(exehdr), ifp);
+	execani(&exehdr.x_magic);
+	if (exehdr.x_magic != EXEMAGIC)
+		return (1);
+	execani(&exehdr.x_sectors);
+	execani(&exehdr.x_bytes);
+	daddr = (long) exehdr.x_sectors * 512;
+	if ( exehdr.x_bytes != 0 )
+		daddr += exehdr.x_bytes - 512;
+	fseek(ifp, daddr, 0);
+	if (gethdr() != 0)
+		return 1;
+	loadsize = daddr;
+	return 0;
+}
+#endif
+
+/*
+ *	Read a gemdos .prg header.
+ */
+#ifndef DOPRG
+getprg() { return 1; }
+#else
+#include "gemout.h"
+/* convert 68000 byte order to pdp11 byte order and vice versa */
+#if PDP11
+gemcani(ip) register unsigned char *ip;
+{
+	register t;
+	t = ip[0]; ip[0] = ip[1]; ip[1] = t;
+}
+gemcanl(lp) register unsigned char *lp;
+{
+	register t;
+	t = lp[0]; lp[0] = lp[1]; lp[1] = t;
+	t = lp[2]; lp[2] = lp[3]; lp[3] = t;
+}
+#endif
+#if M68000
+#define gemcani(i)	/* Nil */
+#define gemcanl(l)	/* Nil */
+#endif
+
+getprg()
+{
+	struct gemohdr ghd;
+	register long daddr;
+	register int c;
+	fseek(ifp, 0L, 0);
+	fread((char *)&ghd, 1, sizeof(ghd), ifp);
+	gemcani(&ghd.g_magic);
+	if (ghd.g_magic != GEMOMAGIC)
+		return 1;
+	gemcanl(&ghd.g_ssize[0]);
+	gemcanl(&ghd.g_ssize[1]);
+	gemcanl(&ghd.g_ssize[2]);
+	gemcanl(&ghd.g_ssize[3]);
+	daddr = sizeof(ghd) + ghd.g_ssize[0] + ghd.g_ssize[1] + ghd.g_ssize[3];
+	fseek(ifp, daddr, 0);
+	if (getw(ifp) | getw(ifp)) {
+		while (c = getc(ifp))
+			if (c == EOF)
+				return 1;
+	}
+	daddr = ftell(ifp);
+	if (gethdr() != 0)
+		return 1;
+	loadsize = daddr;
+	return 0;
+}
+#endif
+
+/*
+ * Strip specific code.
+ * Strip the debug table, the symbol
+ * table and the relocation information from a
+ * object file.
+ * Optionally keep any combination of the three.
+ */
+
+char	*tmp;
+char	werror[] = "write error";
+char	rerror[] = "cannot reopen";
+char	xerror[] = "unexpected end of file";
+char	oerror[] = "not an object file";
+char	usemsg[] = "Usage: %s [-drs] file [ ... ]\n";
+
+int dkeep;
+int rkeep;
+int skeep;
+
+int notcoh = 1;	/* flag indicative of what object type the file is */
+int notexe = 1;
+int notprg = 1;
+
+struct	ldheader olh;	/* output file l.out.h header */
+
+int	cleanup();
+
+main(argc, argv)
+char *argv[];
+{
+	register estat, i;
+	register char *cp;
+	register c;
+	extern char *tempnam();
+
+	argv0 = argv[0];
+	if (argc < 2)
+		usage();
+	tmp = tempnam(NULL, "s");
+#if COHERENT
+	if (signal(SIGINT, SIG_IGN) != SIG_IGN)
+		signal(SIGINT, cleanup);
+#endif
+	estat = 0;
+	for (i=1; i<argc; i++) {
+		cp = argv[i];
+		if (cp[0] == '-') {
+			while ((c = *++cp) != 0)
+				if (c == 'd') ++dkeep;
+				else if (c == 'r') ++rkeep;
+				else if (c == 's') ++skeep;
+				else usage();
+			continue;
+		}
+		fn = argv[i];
+		estat |= strip();
+		if (ifp != NULL) {
+			fclose(ifp);
+			ifp = NULL;
+		}
+		if (ofp != NULL) {
+			fclose(ofp);
+			ofp = NULL;
+		}
+	}
+	cleanup(estat);
+}
+
+/*
+ * Do all the work.
+ * The external variables 'ifp' and 'ofp'
+ * will be closed by the mainline. This makes the
+ * many error conditions a little easier to
+ * deal with.
+ */
+strip()
+{
+	int i;
+	register long nsize;
+
+	if ((ifp = fopen(fn, "rb")) == NULL) {
+		diag("cannot open", fn);
+		return(1);
+	}
+	if ((ofp = fopen(tmp, "wb")) == NULL) {
+		diag("cannot create", tmp);
+		return(1);
+	}
+	if ( (notcoh=gethdr()) != 0
+	 &&  (notexe=getexe()) != 0
+	 &&  (notprg=getprg()) != 0) {
+		diag("not an object file", fn);
+		return(1);
+	}
+	olh = ldh;
+	if ( ! dkeep) {
+		olh.l_ssize[L_DEBUG] = 0;
+		olh.l_flag &= ~LF_DEBUG;
+	}
+	if ( ! rkeep) {
+		olh.l_flag |= LF_NRB;
+		olh.l_ssize[L_REL] = 0;
+	}
+	if ( ! skeep)
+		olh.l_ssize[L_SYM] = 0;
+	if (ldh.l_flag == olh.l_flag
+	 && ldh.l_ssize[L_DEBUG] == olh.l_ssize[L_DEBUG]
+	 && ldh.l_ssize[L_SYM] == olh.l_ssize[L_SYM]
+	 && ldh.l_ssize[L_REL] == olh.l_ssize[L_REL])
+		return(0);
+
+	if (writehead() != 0		/* header of output file */
+	 || copy(loadsize) != 0		/* all loadable segments */
+	 || writelout() != 0) 		/* l.out.h header in exe and prg */
+		return(1);
+
+	for (i = L_DEBUG; i < NLSEG; i += 1) {
+		nsize = ldh.l_ssize[i];
+		if (olh.l_ssize[i] == nsize)
+			copy(nsize);
+		else
+			fseek(ifp, nsize, 1);
+	}
+	fflush(ofp);
+	if (ferror(ofp)) {
+		diag(werror, tmp);
+		return (1);
+	}
+	if (ferror(ifp)) {
+		diag("read error", fn);
+		return 1;
+	} else if (feof(ifp)) {
+		diag(xerror, fn);
+		return 1;
+	}
+	fclose(ifp);
+	ifp = NULL;
+	loadsize = ftell(ofp);
+	fclose(ofp);
+	ofp = NULL;
+	if ((ifp = fopen(tmp, "rb")) == NULL) {
+		diag(rerror, tmp);
+		return (1);
+	}
+	if ((ofp = fopen(fn, "wb")) == NULL) {
+		diag(rerror, fn);
+		return (1);
+	}
+	copy(loadsize);
+	fflush(ofp);
+	if (ferror(ofp)) {
+		diag(werror, fn);
+		fprintf(stderr, "%s: file saved in %s\n", argv0, tmp);
+		exit(1);
+	}
+	return (0);
+}
+
+/*
+ * Convert the l.out header structure
+ * in the buffer 'lh' to and from standard
+ * ordering.
+ */
+canlh(ldhp)
+register struct ldheader *ldhp;
+{
+	register i;
+
+	canshort(ldhp->l_magic);
+	canshort(ldhp->l_flag);
+	canshort(ldhp->l_machine);
+	canshort(ldhp->l_tbase);
+	for (i=0; i<NLSEG; ++i)
+		canlong(ldhp->l_ssize[i]);
+	canlong(ldhp->l_entry);
+}
+
+/*
+ *	Writes the header at the beginning of the output file
+ *	References flags: notcoh, notexe, and notprg.
+ */
+writehead()
+{
+	if ( !notcoh ) {
+		register int size;
+		if ((size = olh.l_tbase) < sizeof olh)
+			olh.l_tbase = olh.l_entry;
+		canlh(&olh);
+		if (fwrite(&olh, size, 1, ofp) != 1) {
+			diag(werror, tmp);
+			return (1);
+		}
+		canlh(&olh);
+		if (size < sizeof olh) {
+			olh.l_entry = olh.l_tbase;	
+			olh.l_tbase = size;
+			fseek(ifp, (long)-2*sizeof(short), 1);
+		}
+	} else
+		fseek(ifp, 0l, 0);
+	return(0);
+}
+
+/*
+ * Copy nbytes from ifp to ofp.
+ */
+copy(nbytes) long nbytes;
+{
+	register int n;
+	static char buff[16*1024];
+
+	while (nbytes > 0) {
+		n = nbytes > sizeof buff ? sizeof buff : nbytes;
+		if (fread(buff, 1, n, ifp) != n)
+			return 1;
+		if (fwrite(buff, 1, n, ofp) != n)
+			return 1;
+		nbytes -= n;
+	}
+	return 0;
+}
+
+/*
+ *	Write the l.out.h header in the middle of the file for
+ *	MS-DOS .exe and GEMDOS .prg
+ *	Leave ifp at the beginning of L_DEBUG.
+ */
+writelout()
+{
+	if ( !notcoh )
+		return(0);
+
+	canlh(&olh);
+	if (fwrite(&olh, sizeof(olh), 1, ofp) != 1) {
+		diag(werror, tmp);
+		return(1);
+	}
+	canlh(&olh);
+	fseek(ifp, (long)sizeof(ldh), 1);
+	return(0);
+}
+
+	
+/*
+ * Print diagnostics.
+ */
+diag(s, fn)
+char *s;
+char *fn;
+{
+	fprintf(stderr, "%s: ", argv0);
+	if (fn != NULL)
+		fprintf(stderr, "%s: ", fn);
+	fprintf(stderr, "%s\n", s);
+}
+
+/*
+ * Cleanup tempfile and exit.
+ * The status is the exit status.
+ * When a signal occurs, it is the signal
+ * number which is non-zero so
+ * this will be an acceptable exit status.
+ */
+cleanup(s)
+{
+	unlink(tmp);
+	exit(s);
+}
+
+/*
+ * Print usage message.
+ */
+usage()
+{
+	fprintf(stderr, usemsg, argv0);
+	exit(1);
+}
+@

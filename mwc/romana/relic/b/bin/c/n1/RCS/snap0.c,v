@@ -1,0 +1,346 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.55.32;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Routines to print out the
+ * internal data structures in a
+ * human being readable form.
+ * All machines.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+/*
+ * None of this applies in TINY mode.
+ */
+#if !TINY
+#define	WIDTH	72
+
+extern	char	*milnames[];
+extern	char	*mionames[];
+extern	char	*mdlnames[];
+extern	char	*mdonames[];
+extern	char	*segnames[];
+extern	char	*regnames[];
+extern	char	*tynames[];
+static	char	*cxnames[] = {
+	"Effect",
+	"Lvalue",
+	"Rvalue",
+	"Fnarg",
+	"Laddr",
+	"Raddr",
+	"Return",
+	"Switch",
+	"Init",
+	"Flow",
+	"Passed",
+	"Junk",
+	"Hard",
+	"Eq",	"Ne",
+	"Gt",	"Ge",	"Le",	"Lt",
+	"Ugt",	"Uge",	"Ule", "Ult"
+};
+
+/*
+ * Snap a format string, the usual sort of mapping:
+ *	%P - print a pointer.
+ *	%R - print a register string.
+ *	%M - print a register mask.
+ *	%C - print a context string.
+ *	%W - snap a wall with embedded string.
+ *	%A - snap an operator name.
+ *	%E - snap an entire tree.
+ *	%d - decimal integer.
+ *	%D - long decimal integer.
+ *	%I - Identify a pattern by file and linenumber
+ */
+snapf(fp, ap)
+register char *fp;
+int ap;
+{
+	register int *app;
+	register int c;
+	static	char *string = "%s";
+	PREGSET m;
+	char *p;
+	PAT *patp;
+
+	app = &ap;
+	while (c = *fp++) {
+		if (c != '%') {
+			putchar(c);
+			continue;
+		}
+		switch (c = *fp++) {
+		case 'A':
+			c = *app++;
+			if (c < MDLBASE)
+				p = milnames[c];
+			else if (c < MIOBASE)
+				p = mdlnames[c-MDLBASE];
+			else if (c < MDOBASE)
+				p = mionames[c-MIOBASE];
+			else
+				p = mdonames[c-MDOBASE];
+			printf(string, p);
+			continue;
+		case 'C':
+			printf(string, cxnames[*app++]);
+			continue;
+		case 'd':
+			printf("%d", *app++);
+			continue;
+		case 'D':
+			printf("%ld", *((long *)app)++);
+			continue;
+		case 'E':
+			snaptree(*((TREE **)app)++, 0);
+			continue;
+		case 'P':
+			psnap(*((char **)app)++);
+			continue;
+		case 'I':
+			patp = *((PAT **)app)++;
+			if (patp != NULL)
+				printf("%8s:%3d", namecache[patp->p_fname],
+					patp->p_fline);
+			else
+				printf("------------");
+			continue;
+		case 'R':
+			if ((c = *app++) >= 0 && c < NREG) {
+				p = regnames[c];
+				printf(string, p);
+			} else
+				printf("Reg %d", c);
+			continue;
+		case 'M':
+			m = *((PREGSET *)app)++;
+			m &= ~NOFREE;	/* Forget the default busy set */
+			printf("(");
+			for (c = 0; c < NRREG; c += 1) {
+				if ((reg[c].r_phys&m) == 0)
+					continue;
+				m &= ~reg[c].r_phys;
+				printf("%s", regnames[c]);
+				if (m != 0)
+					putchar('|');
+				else
+					break;
+			}
+			printf(")");
+			continue;
+		case 'W':
+			snapwall(*((char **)app)++);
+			continue;
+		default:
+			cbotch("unknown snapf %c", c);
+			continue;
+		}
+	}
+}
+
+/*
+ * Snap a tree.
+ * The argument 'n' is the
+ * number of spaces to put out
+ * before the node; it is used
+ * to help format the tree in
+ * a tasteful fashon.
+ * Trees are printed in the same format
+ * used in the codetables and the intermediate file printer::
+ *	NODE
+ *		LEFT
+ *		RIGHT
+ */
+snaptree(tp, n)
+register TREE *tp;
+{
+	register i, op;
+
+	if (tp == NULL)
+		return;
+	op = tp->t_op;
+	snapf("%P %I ", tp, tp->t_patp);
+	i = n;
+	while (i--)
+		putchar(' ');
+	snapnode(tp);
+	if (!isleaf(op)) {
+		snaptree(tp->t_lp, n+2);
+		if (op!=FIELD)
+			snaptree(tp->t_rp, n+2);
+	}
+}
+
+/*
+ * Snap a node.
+ * The required tabbing has
+ * been already put out.
+ */
+snapnode(tp)
+register TREE *tp;
+{
+	register int op;
+	register char *p;
+	register sizeof_t offs;
+
+	op = tp->t_op;
+	if (op < MDLBASE) {
+		snaptype(tp, milnames[op]);
+		switch(op) {
+
+		case ICON:
+			isnap(tp->t_ival);
+			break;
+
+		case LCON:
+			lsnap(tp->t_lval);
+			break;
+
+		case AID:
+		case PID:
+			printf(" at %ld", (long)tp->t_offs);
+			break;
+
+		case LID:
+			printf(" %s L%d", segnames[tp->t_seg], tp->t_label);
+			goto snapoffs;
+
+		case GID:
+			printf(" %s %s", segnames[tp->t_seg], tp->t_sp->s_id);
+		snapoffs:
+			if ((offs=tp->t_offs) != 0) {
+				if (offs >= 0)
+					putchar('+');
+				printf("%ld", (long)offs);
+			}
+			break;
+
+		case DCON:
+			dsnap(tp->t_dval);
+			break;
+
+		case REG:
+			snapf(" %R", tp->t_reg);
+			break;
+
+		}
+	} else if (op < MIOBASE) {
+		snaptype(tp, mdlnames[op-MDLBASE]);
+		mdlsnap(tp);
+	} else if (op < MDOBASE) {
+		snaptype(tp, mionames[op-MIOBASE]);
+		if (op == FIELD)
+			printf(" base=%d width=%d", tp->t_base, tp->t_width);
+	} else if (op < ETCBASE) {
+		snaptype(tp, mdonames[op-MDOBASE]);
+		mdosnap(tp);
+	} else 
+		cbotch("bad tree operator: %d", op);
+	printf("\n");
+}
+
+/*
+ * Put out a name.
+ * Tag it with a type.
+ * Used all over.
+ */
+snaptype(tp, p)
+register TREE *tp;
+char *p;
+{
+	register t;
+
+	t = tp->t_type;
+	printf("%s %s", p, tynames[t]);
+	if (issized(t))
+		printf(" (%d bytes)", tp->t_size);
+	csnap(tp->t_cost);
+	if (tp->t_treg != NONE)
+		snapf(" nr=%R", tp->t_treg);
+	if (tp->t_rreg != NONE)
+		snapf(" rr=%R", tp->t_rreg);
+	if (tp->t_used != 0)
+		snapf(" used=%M", tp->t_used);
+	fsnap(tp->t_flag);
+}
+
+/*
+ * Put out a titled wall.
+ * If the title is NULL there is no title
+ * at all.
+ */
+snapwall(s)
+char *s;
+{
+	register n, u;
+
+	if (s == NULL) {
+		snapdash(WIDTH);
+		putchar('\n');
+		return;
+	}
+	u = strlen(s) + 2;
+	n = (WIDTH - u) / 2;
+	u += n;
+	snapdash(n);
+	printf(" %s ", s);
+	snapdash(WIDTH - u);
+	putchar('\n');
+}
+
+/*
+ * Put out `n' dashes.
+ */
+snapdash(n)
+register n;
+{
+	if (n != 0) {
+		do {
+			putchar('-');
+		} while (--n);
+	}
+}
+
+/*
+ * Fill in automatic nodes so they don't print garbage.
+ */
+snapfix(tp) register TREE *tp;
+{
+	tp->t_patp = tp->t_lp = tp->t_rp = NULL;
+	tp->t_flag = 0;
+	tp->t_cost = 0;
+	tp->t_rreg = NONE;
+	tp->t_treg = NONE;
+	tp->t_used = 0;
+}
+
+#endif
+@

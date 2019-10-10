@@ -1,0 +1,152 @@
+'\"
+'\" Copyright (c) 1992 The Regents of the University of California.
+'\" All rights reserved.
+'\"
+'\" Permission is hereby granted, without written agreement and without
+'\" license or royalty fees, to use, copy, modify, and distribute this
+'\" documentation for any purpose, provided that the above copyright
+'\" notice and the following two paragraphs appear in all copies.
+'\"
+'\" IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY
+'\" FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES
+'\" ARISING OUT OF THE USE OF THIS DOCUMENTATION, EVEN IF THE UNIVERSITY OF
+'\" CALIFORNIA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+'\"
+'\" THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+'\" INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+'\" AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+'\" ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATION TO
+'\" PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+'\" 
+'\" $Header: /user6/ouster/wish/man/RCS/menubar.n,v 1.4 93/09/04 17:03:40 ouster Exp $ SPRITE (Berkeley)
+'/" 
+.so man.macros
+.HS tk_menuBar tk
+.BS
+'\" Note:  do not modify the .SH NAME line immediately below!
+.SH NAME
+tk_menuBar, tk_bindForTraversal \- Support for menu bars
+.SH SYNOPSIS
+\fBtk_menuBar \fIframe \fR?\fImenu menu ...\fR?
+.sp
+\fBtk_bindForTraversal \fIarg arg ... \fR
+.BE
+
+.SH DESCRIPTION
+.PP
+These two commands are Tcl procedures in the Tk script library.
+They provide support for menu bars.
+A menu bar is a frame that contains a collection of menu buttons that
+work together, so that the user can scan from one menu to another with
+the mouse: if the mouse button is pressed over one menubutton (causing it
+to post its menu) and the mouse is moved over another menubutton
+in the same menu bar without releasing the mouse button, then the
+menu of the first menubutton is unposted and the menu of the
+new menubutton is posted instead.
+Menus in a menu bar can also be accessed using keyboard traversal (i.e.
+by typing keystrokes instead of using the mouse).
+In order for an application to use these procedures, it must do three
+things, which are described in the paragraphs below.
+.PP
+First, each application must call \fBtk_menuBar\fR to provide information
+about the menubar.
+The \fIframe\fR argument gives the path name of the frame that contains
+all of the menu buttons, and the \fImenu\fR arguments give path names
+for all of the menu buttons associated with the menu bar.
+Normally \fIframe\fR is the parent of each of the \fImenu\fR's.
+This need not be the case, but \fIframe\fR must be an ancestor of
+each of the \fImenu\fR's in order for grabs to work correctly when
+the mouse is used to pull down menus.
+The order of the \fImenu\fR arguments determines the traversal order
+for the menu buttons.
+If \fBtk_menuBar\fR is called without any \fImenu\fR arguments, it
+returns a list containing the current menu buttons for \fIframe\fR,
+or an empty string if \fIframe\fR isn't currently set up as a menu bar.
+If \fBtk_menuBar\fR is called with a single \fImenu\fR argument
+consisting of an empty string, any menubar information for \fIframe\fR
+is removed;  from now on the menu buttons will function independently
+without keyboard traversal.
+Only one menu bar may be defined at a time within each top-level window.
+.PP
+The second thing an application must do is to identify the traversal
+characters for menu buttons and menu entries.
+This is done by underlining those characters using the
+\fB\-underline\fR options for the widgets.
+The menu traversal system uses this information to traverse the
+menus under keyboard control (see below).
+.PP
+The third thing that an application must do
+is to make sure that the input focus is always in a window that
+has been configured to support menu traversal.
+If the input focus is \fBnone\fR then input characters will
+be discarded and no menu traversal will be possible.
+.VS
+If you have no other place to set the focus, set it to the menubar
+widget:  \fBtk_menuBar\fR creates bindings for its \fIframe\fR argument to
+support menu traversal.
+.PP
+The Tk startup scripts configure all the Tk widget classes with
+bindings to support menu traversal, so menu traversal will be possible
+regardless of which widget has the focus.
+.VE
+If your application defines new classes of widgets that support the
+input focus, then you should call \fBtk_bindForTraversal\fR for
+each of these classes.
+\fBTk_bindForTraversal\fR takes any number of arguments, each of
+which is a widget path name or widget class name.
+It sets up bindings for all the named widgets and
+classes so that the menu traversal system will be invoked when
+appropriate keystrokes are typed in those widgets or classes.
+
+.SH "MENU TRAVERSAL BINDINGS"
+.PP
+Once an application has made the three arrangements described
+above, menu traversal will be available.
+At any given time, the only menus available for traversal
+are those associated with the top-level window containing the
+input focus.
+Menu traversal is initiated by one of the following actions:
+.IP [1]
+If <F10> is typed, then the first menu button in the list for the
+top-level window is posted and the first entry within that
+menu is selected.
+.IP [2]
+If <Alt-\fIkey\fR> is pressed, then the menu button that has \fIkey\fR
+as its underlined character is posted
+and the first entry within that menu is selected.
+The comparison between \fIkey\fR and the underlined characters
+ignores case differences.
+If no menu button matches \fIkey\fR then the keystroke has no
+effect.
+.IP [3]
+Clicking mouse button 1 on a menu button posts that menu and selects
+its first entry.
+.PP
+Once a menu has been posted, the input focus is switched to that
+menu and the following actions are possible:
+.IP [1]
+Typing <ESC> or clicking mouse button 1 outside the menu button or
+its menu will abort the menu traversal.
+.IP [2]
+If <Alt-\fIkey\fR> is pressed, then the entry in the posted menu
+whose underlined character is \fIkey\fR is invoked.
+This causes the menu to be unposted, the entry's action to be
+taken, and the menu traversal to end.
+The comparison between \fIkey\fR and underlined characters ignores
+case differences.
+If no menu entry matches \fIkey\fR then the keystroke is ignored.
+.IP [3]
+The arrow keys may be used to move among entries and menus.
+The left and right arrow keys move circularly among the available
+menus and the up and down arrow keys move circularly among the
+entries in the current menu.
+.IP [4]
+If <Return> is pressed, the selected entry in the posted menu is
+invoked, which causes the menu to be unposted, the entry's action
+to be taken, and the menu traversal to end.
+.PP
+When a menu traversal completes, the input focus reverts to the
+window that contained it when the traversal started.
+
+.SH KEYWORDS
+keyboard traversal, menu, menu bar, post

@@ -1,0 +1,101 @@
+/*
+ * fifo_b.c -- Extra routines for handling typed fifos.
+ * Both fifo_b.c (boot fifo) and fifo_k.c (kernel fifo) are needed by the
+ * boot code.
+ */
+#include <kernel/typed.h>
+
+#ifndef T_NULL
+#define T_NULL ((char *)0)
+#endif
+
+/* How long is an open fifo?  */
+long
+fifo_len(ffp)
+	FIFO *ffp;
+{
+	/* ffp->f_offset points at the terminating NUL space.  */
+	return(sizeof(typed_space) +
+		((char *) ffp->f_offset) - ((char *)ffp->f_space));
+} /* fifo_len() */
+
+/* Write a typed space into a FIFO.  */
+typed_space *
+fifo_write(ffp, space)
+	FIFO *ffp;
+	typed_space *space;
+{
+	return	(fifo_write_untyped(
+			ffp,
+			space->ts_data,
+			(int32) (space->ts_size - sizeof(typed_space)),
+			space->ts_type)
+		);
+} /* fifo_write() */
+
+/* Write a chunk of data into an open fifo as a typed space.
+ * Takes a FIFO to be written to, ffp; a pointer to the data, datum; a
+ * size for the datum, size; and a type for the new space, type.
+ *
+ * Returns a pointer to the newly written space.  Returns NULL if the
+ * new space could not be written.
+ *
+ * Note that while sizes throughout this package refer to TOTAL sizes
+ * including headers, the size argument here is ONLY for the datum.
+ *
+ * Only FIFOs of type T_FIFO_SIC are implimented.
+ */
+typed_space *
+fifo_write_untyped(ffp, datum, size, type)
+	FIFO *ffp;
+	char *datum;
+	long size;
+	space_type type;
+{
+	long needed_space;	/* Total space we need to add.  */
+	typed_space *retval;	/* Return the space we just wrote.  */
+
+	/* Write MUST be set.  */
+	if (F_WRITE != F_WRITE & ffp->f_flags ) {
+		/* Write on closed ffp. */
+		return(T_NULL);  /* This ffp is not open for writing.  */
+	}
+
+	/* From here to end of fifo_write_untyped() is really fifo_write_sic().  */
+
+	/* Check to see that there is enough space for the new datum.
+	 * We need space for another typed_space header, size bytes of
+	 * data, and space for a terminating typed_space header.
+	 */
+	needed_space = sizeof(typed_space) + size + sizeof(typed_space);
+
+	if (ffp->f_space->ts_size <
+	    ((char *)ffp->f_offset - (char *)ffp->f_space) + needed_space) {
+		/* Write on insufficient space. */
+		return(T_NULL);		/* Insufficient space.  */
+	}
+
+	/* ASSERTION:  There is enough space remaining in ffp->f_space for
+	 * two more headers and the datum.
+	 */
+
+	retval = ffp->f_offset;
+
+	/* Create the new header.  */
+	ffp->f_offset->ts_size = sizeof(typed_space) + size;
+	ffp->f_offset->ts_type = type;
+
+	/* Copy the datum in place.  */
+	memcpy(ffp->f_offset->ts_data, datum, size);
+
+	/* Advance the write pointer.  */
+	ffp->f_offset += 1;		/* Skip the header.	*/
+	(char *) ffp->f_offset += size;	/* Skip the data.	*/
+
+	/* Terminate the fifo.  */
+	ffp->f_offset->ts_size = (int32) 0;
+	ffp->f_offset->ts_type = T_UNKNOWN;
+
+	return(retval);
+} /* fifo_write_untyped() */
+

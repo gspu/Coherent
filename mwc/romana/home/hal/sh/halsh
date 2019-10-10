@@ -1,0 +1,113 @@
+# foo.sh
+
+# Save any special files before update just in case the user wants to
+# get the old ones back...
+
+# /etc/build does "/etc/build.u /mnt"
+
+. /usr/lib/shell_lib.sh
+
+MNT=/.
+
+# See if there is already an archive out there.
+
+SKIP_SAVE=n
+
+_ARCHIVE=old_coh.taz
+
+# Make list of files in upd_save which are on the present system.
+
+is_yes $SKIP_SAVE || {
+	cd $MNT
+	TMPLIST=/tmp/upd_save
+	for F in $(cat /conf/upd_save); do
+		if [ -f $F ] ; then
+			echo $F
+		fi
+	done > $TMPLIST
+
+# Use gtar to make the archive.
+
+	cd $MNT
+	echo "Saving files..."
+	echo /usr/bin/gtar -czf $_ARCHIVE $(cat $TMPLIST)
+	echo rm -f $TMPLIST
+	sync
+
+# Sign-off.
+
+	echo "Your system files are saved to $_ARCHIVE.  After updating, you can type
+	echo /usr/bin/gtar -tzf /$_ARCHIVE
+for a listing of saved files.
+Hit <Enter> "
+	read JUNK
+}
+
+# Do conf-related cleanup during update.
+
+# Validation for new directory name entry.
+require_new_mnt () {
+	if [ -d $MNT/$1 -o -f $MNT/$1 ]; then
+		echo "$1 already exists.  Please use a different name."
+		return 1
+	else
+		return 0
+	fi
+}
+
+# Remove old /conf/id-* files - they will just add to the confusion.
+echo /bin/rm -f $MNT/conf/id-cmd $MNT/conf/id-var
+
+# Fix permission problem in 4.0.1A
+echo /bin/chmog 755 bin bin $MNT/usr/include/sys
+
+# Default: rename etc/conf on MNT to OLD_CONF.
+
+SAV_CONF="etc/old_conf"
+
+ETC_CONF=etc/conf
+MNT_ETC_CONF=$MNT/$ETC_CONF
+
+# If etc/conf exists
+#   If want to delete it
+#     Delete old etc/conf
+#   If want to rename it
+#     Do forever
+#       Get new name for etc/conf
+#       If  able to rename etc/conf, exit loop
+#       Else report error
+#     Done
+if [ -d $MNT_ETC_CONF ]; then
+
+	echo "
+WARNING: Directory etc/conf already exists, probably has config
+files from a previous installation.\n"
+	
+	read_input "Delete config directory $ETC_CONF" \
+	yesno "n" require_yes_or_no
+
+	if is_yes $yesno; then
+		/bin/echo "Deleting old config directory."
+		echo /bin/rm -rf $MNT_ETC_CONF
+	else
+		while :; do
+			/bin/echo "Will rename $ETC_CONF"
+
+			read_input "New name" SAV_CONF $SAV_CONF \
+			require_new_mnt
+
+			MNT_SAV_CONF=$MNT/$SAV_CONF
+			if echo /etc/mvdir $MNT_ETC_CONF $MNT_SAV_CONF; then
+				break
+			fi
+		done
+	fi
+fi
+sync
+exit 0
+-- 
+Hal Snyder, M.D.		hal@mwc.com			itis
+Mark Williams Company     	(708)-291-6700 (voice)		foras
+60 Revere Drive, Suite 250	(708)-291-6750 (fax)		rixsatis
+Northbrook, IL 60062
+

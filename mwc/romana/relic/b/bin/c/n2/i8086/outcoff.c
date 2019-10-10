@@ -1,0 +1,488 @@
+/*
+ * n2/i8086/outcoff.c
+ * 8/29/91
+ * C compiler COFF output writer.
+ * The first pass writes to a temp file.
+ * After the first pass, the compiler knows the sizes of the internal segments.
+ * The compiler then maps the internal segments to the actual output segments.
+ * The second pass reads the temp file and writes the actual output bits.
+ */
+
+#include <stdio.h>
+#include <time.h>
+#include <string.h>
+#include "cc2.h"
+#include "coff.h"
+
+#define	NTXT	256			/* Text buffer size		*/
+#define	NREL	256			/* Relocation buffer size	*/
+
+#define	RUP(n)	(((n)+1)&(~1))		/* Round n up to word boundary */
+
+/* Debugging output. */
+#if	DEBUG
+#define	dbprintf(args)	printf args
+#else
+#define	dbprintf(args)
+#endif
+
+/*
+ * COFF output.
+ * The structure of the COFF output file is presently as follows:
+ *	file header
+ *	[optional header: absent]
+ *	section headers 1 through n
+ *	data for sections 1 through n
+ *	relocs for sections 1 through n
+ *	[line numbers: absent]
+ *	symbol table [segment names, then symbols]
+ *	string table
+ * These definitions correspond to the header definitions in scn_hdr[] below.
+ * These are used as array indices and as indices into COFF symbol table.
+ * Add 1 to get the COFF segment number.
+ * They will have to change when full debug info is desired.
+ */
+#define	C_CODE_SEG	0			/* Code segment index	*/
+#define	C_DATA_SEG	1			/* Data segment index	*/
+#define	C_BSS_SEG	2			/* BSS segment index	*/
+#define	C_NSEGS		3			/* Number of segments	*/
+#define	C_UNDEF		0			/* Undefined segment	*/
+
+/*
+ * Scratch file.
+ */
+#define	TTYPE	0x07			/* Type				*/
+#define	TPCR	0x08			/* PC rel flag, or'ed in	*/
+#define	TSYM	0x10			/* Symbol based flag, or'ed in	*/
+
+#define	TEND	0x00			/* End marker			*/
+#define	TENTER	0x01			/* Enter new segment		*/
+#define	TBYTE	0x02			/* Byte data			*/
+#define	TWORD	0x03			/* Word data			*/
+#define	TBASE	0x04			/* External segment base	*/
+
+/*
+ * Output writer globals.
+ */
+FILEHDR	coff_hdr;			/* Header buffer	*/
+int	coff_seg;			/* Current COFF segment	*/
+char	rel[NREL];			/* Relocation buffer	*/
+ADDRESS	reldot[C_NSEGS];		/* Relocation offsets	*/
+char	*relp;				/* Relocation pointer	*/
+SCNHDR	scn_hdr[C_NSEGS] = {		/* Section headers	*/
+	{ ".text", 0L, 0L, 0L, 0L, 0L, 0L, 0, 0, STYP_TEXT },
+	{ ".data", 0L, 0L, 0L, 0L, 0L, 0L, 0, 0, STYP_DATA },
+	{ ".bss",  0L, 0L, 0L, 0L, 0L, 0L, 0, 0, STYP_BSS }
+};
+char	txt[NTXT];			/* Text buffer		*/
+ADDRESS	txtdot;				/* Text offset		*/
+char	*txtp;				/* Text pointer		*/
+
+/*
+ * Map C compiler internal segment into a COFF output segment.
+ * The SSTRN entry gets patched by outinit() if -VROM.
+ */
+char	segindex[] = {
+	C_CODE_SEG,				/* SCODE */
+	C_CODE_SEG,				/* SLINK */
+	C_CODE_SEG,				/* SPURE */
+	C_DATA_SEG,	/* possibly patched */	/* SSTRN */
+	C_DATA_SEG,				/* SDATA */
+	C_BSS_SEG				/* SBSS  */
+};
+
+/* First pass routines. */
+/*
+ * Initialize the code writer.
+ */
+outinit()
+{
+	if (isvariant(VROM))
+		segindex[SSTRN] = C_CODE_SEG;
+}
+
+/*
+ * Output an absolute byte.
+ */
+outab(b) int b;
+{
+	bput(TBYTE);
+	bput(b);
+	++dot;
+}
+
+/*
+ * Output an absolute word.
+ */
+outaw(w) int w;
+{
+	bput(TWORD);
+	iput(w);
+	dot += 2;
+}
+
+/*
+ * Output a 1 word object containing the base address
+ * of the external symbol pointed to by sp.
+ */
+outsb(sp) SYM *sp;
+{
+	bput(TBASE);
+	pput(sp);
+	dot += 2;
+}
+
+/*
+ * Output a full byte.
+ */
+outxb(sp, b, pcrf) register SYM	*sp; int b, pcrf;
+{
+	register int	opcode;
+
+	opcode = TBYTE;
+	if (sp != NULL) {
+		opcode |= TSYM;
+		scn_hdr[coff_seg].s_nreloc++;
+	}
+	if (pcrf)
+		opcode |= TPCR;
+	bput(opcode);
+	bput(b);
+	if (sp != NULL)
+		pput(sp);
+	++dot;
+}
+
+/*
+ * Output a full word.
+ */
+outxw(sp, w, pcrf) register SYM *sp; int w, pcrf;
+{
+	register int	opcode;
+
+	opcode = TWORD;
+	if (sp != NULL) {
+		opcode |= TSYM;
+		scn_hdr[coff_seg].s_nreloc++;
+	}
+	if (pcrf)
+		opcode |= TPCR;
+	bput(opcode);
+	iput(w);
+	if (sp != NULL)
+		pput(sp);
+	dot += 2;
+}
+
+/*
+ * Output a segment switch.
+ */
+outseg(s) register int s;
+{
+	bput(TENTER);
+	bput(s);
+	coff_seg = segindex[s];
+}
+
+/*
+ * Copy a dlabel record from ifp to nowhere.
+ */
+outdlab(i, n)
+int i;		/* Indentation */
+register int n;	/* Class initially */
+{
+	/* Get line number */
+	iget();
+
+	/* Get value */
+	if (n < DC_AUTO)
+		;
+	else if (n < DC_MOS)
+		iget();
+	else {
+		bget();		/* Width */
+		bget();		/* Offset */
+		iget();		/* Value */
+	}
+
+	/* Get name */
+	sget(id, NCSYMB);
+
+	/* Get type */
+	for (;;) {
+		n = bget();
+		if (n < DC_SEX) {
+			if (n < DX_MEMBS)
+				iget();
+			if (n == DX_MEMBS) {
+				++i;
+				n = iget();
+				for ( ; n > 0; n-=1) {
+					outdlab(i, bget());
+				}
+				--i;
+				break;
+			} else if (n == DX_NAME) {
+				iget();
+				sget(id, NCSYMB);
+				break;
+			} else if (n < DT_STRUCT)
+				break;
+		} else
+			cbotch("unrecognized type byte: %d", n);
+	}
+
+	/* Done */
+}
+
+/*
+ * Forget a debug relocation record.
+ */
+outdloc(n) int n;
+{
+}
+
+/*
+ * Finish up.
+ */
+outdone()
+{
+	if (notvariant(VASM))
+		bput(TEND);
+}
+
+/* Second pass. */
+copycode()
+{
+	register int op, i;
+	register SEG *segp;
+	register SYM *sp;
+	register long dseek, sseek, ssize;
+	register ADDRESS mseek, segsize;
+	int symnum, nd, data, len, isbyte, issym, ispcr;
+	SCNHDR *shp;
+	SYMENT sym;
+	RELOC *rp;
+
+	/* Assign segment base addresses. */
+	coff_seg = -1;
+	dseek = sizeof(FILEHDR) + C_NSEGS * sizeof(SCNHDR);
+	mseek = 0;
+	for (i = SCODE, segp = &seg[SCODE]; i <= SBSS; ++i, ++segp) {
+		segsize = RUP(segp->s_dot);
+		segp->s_dot = 0;
+		if (segindex[i] != coff_seg) {
+			/* Begin new COFF segment. */
+			coff_seg = segindex[i];
+			dbprintf(("COFF segment %d\n", coff_seg));
+			shp = &scn_hdr[coff_seg];
+			shp->s_paddr = shp->s_vaddr = mseek;
+			if (i != C_BSS_SEG)
+				shp->s_scnptr = dseek;
+		}
+		dbprintf(("segment %d: size=%d dseek=%ld mseek=%ld\n", i, segsize, dseek, mseek));
+		segp->s_dseek = dseek;		/* set compiler seg disk seek */
+		segp->s_mseek = mseek;		/* and memory seek */
+		scn_hdr[coff_seg].s_size += segsize;	/* bump COFF seg size */
+		dseek += segsize;		/* bump seek pointer */
+		mseek += segsize;		/* bump memory seek */
+	}
+
+	/* Fix reloc offsets. */
+	for (shp = &scn_hdr[C_CODE_SEG]; shp < &scn_hdr[C_NSEGS]; ++shp) {
+		if (shp->s_nreloc != 0) {
+			shp->s_relptr = dseek;
+			dseek += shp->s_nreloc * sizeof(RELOC);
+		}
+	}
+
+	/* Write symbols. */
+	coff_hdr.f_symptr = dseek;		/* symbol secton base */
+	oseek(dseek);				/* seek to symbol section */
+	sym.n_type = 0;				/* ignore type */
+	sym.n_numaux = 0;			/* no aux entries */
+	for (i = C_CODE_SEG, shp = &scn_hdr[i]; i < C_NSEGS; ++i, ++shp) {
+		/* Write segment name symbols. */
+		memset(sym.n_name, 0, sizeof(sym.n_name));
+		strcpy(sym.n_name, shp->s_name);
+		sym.n_value = shp->s_vaddr;
+		sym.n_scnum = i;
+		sym.n_sclass = C_STAT;
+		owrite((char *)&sym, sizeof(sym));
+	}
+	/* Count symbols so symbol section length is known. */
+	symnum = C_NSEGS;
+	for (i=0; i < NSHASH; ++i) {
+		for (sp = hash2[i]; sp != NULL; sp = sp->s_fp) {
+			if ((sp->s_flag&S_GBL)!=0 || (sp->s_flag&S_DEF)==0)
+				sp->s_ref = symnum++;
+		}
+	}
+	coff_hdr.f_nsyms = symnum;		/* symbol count */
+	ssize = sizeof(long);			/* string segment size */
+	sseek = dseek + symnum * sizeof(sym) + ssize;	/* first string seek */
+	symnum = C_NSEGS;
+	for (i=0; i < NSHASH; ++i) {
+		for (sp = hash2[i]; sp != NULL; sp = sp->s_fp) {
+			if ((sp->s_flag&S_DEF) != 0)
+				sp->s_value += seg[sp->s_seg].s_mseek;
+			if ((sp->s_flag&S_GBL)!=0 || (sp->s_flag&S_DEF)==0) {
+				/* Write global or external symbol. */
+				sp->s_ref = symnum++;
+				len = strlen(sp->s_id);
+				if (len <= SYMNMLEN)
+					strncpy(sym.n_name, sp->s_id, SYMNMLEN);
+				else {
+					/* Spill long name to string table. */
+					dseek = ftell(ofp);
+					sym.n_zeroes = 0L;
+					sym.n_offset = ssize;
+					oseek(sseek);
+					sput(sp->s_id);
+					sseek += len + 1;
+					ssize += len + 1;
+					oseek(dseek);
+				}
+				sym.n_value = sp->s_value;
+				if ((sp->s_flag&S_DEF) != 0) {
+					sym.n_scnum = segindex[sp->s_seg] + 1;
+					sym.n_sclass = C_STAT;
+				} else {
+					sym.n_scnum = C_UNDEF;
+					sym.n_sclass = C_EXT;
+				}
+				owrite((char *)&sym, sizeof(sym));
+			}
+		}
+	}
+	/* Write string table size if nonempty. */
+	if (ssize != sizeof(long))
+		owrite((char *)&ssize, sizeof(ssize));	
+
+	/* Copy out code. */
+	dotseg = SCODE;
+	coff_seg = segindex[dotseg];
+	txtdot = dot = 0;
+	txtp = &txt[0];
+	relp = &rel[0];
+	while ((op = bget()) != TEND) {
+		if (op == TENTER) {
+			notenuf();
+			seg[dotseg].s_dot = dot;
+			dotseg = bget();
+			coff_seg = segindex[dotseg];
+			txtdot = dot = seg[dotseg].s_dot;
+			continue;
+		}
+		enuf(2, sizeof(RELOC));		/* leave space for next op */
+		if (isbyte = ((op & TTYPE) == TBYTE)) {
+			nd = 1;
+			data = bget();
+		} else {
+			nd = 2;
+			data = iget();
+		}
+		if (issym = ((op & TSYM) != 0)) {
+			sp = pget();
+			if ((sp->s_flag&S_DEF) != 0)
+				data += sp->s_value;
+		}
+		if (ispcr = ((op & TPCR) != 0))
+			data -= dot + nd;
+
+		/* Write text. */
+		*txtp++ = data;
+		if (nd != 1)
+			*txtp++ = data >> 8;
+
+		if (issym || ispcr) {
+			/* Write relocation item. */
+			rp = (RELOC *)relp;
+			rp->r_vaddr = dot + seg[dotseg].s_mseek;
+			rp->r_symndx = (issym) ? sp->s_ref : coff_seg;
+			if (ispcr)
+				rp->r_type = (isbyte) ? R_PCRBYTE : R_PCRWORD;
+			else
+				rp->r_type = (isbyte) ? R_DIR8 : R_DIR16;
+			relp += sizeof(RELOC);
+		}
+		dot += nd;
+}
+
+	/* Flush buffers. */
+	notenuf();
+
+	/* Write COFF header. */
+	coff_hdr.f_magic = C_386_MAGIC;
+	coff_hdr.f_nscns = C_NSEGS;
+	coff_hdr.f_timdat = time(NULL);
+	coff_hdr.f_opthdr = 0;
+	coff_hdr.f_flags = F_AR32WR | F_LLNO | L_SYMS;
+	oseek(0L);
+	owrite((char *)&coff_hdr, sizeof(coff_hdr));
+
+	/* Write section headers. */
+	for (shp = &scn_hdr[C_CODE_SEG]; shp < &scn_hdr[C_NSEGS]; ++shp)
+		owrite((char *)shp, sizeof(*shp));
+}
+
+/* Buffering and output writing routines. */
+/*
+ * Make sure there is enough room in the text and relocation buffers
+ * for nt bytes of text and nr bytes of relocation.
+ */
+enuf(nt, nr)
+{
+	if (txtp+nt > &txt[NTXT] || relp+nr > &rel[NREL])
+		notenuf();
+}
+
+/*
+ * Flush the text and relocation buffers.
+ * Look at the segment table to figure out the exact location
+ * of the data in the file, and compute the correct seek
+ * address in the image by adding the base address of
+ * the text record "txtdot" to that base.
+ */
+notenuf()
+{
+	register int n;
+
+	if ((n = txtp-txt) != 0) {
+		dbprintf(("notenuf: %d text bytes\n", n));
+		dbprintf(("seek to txtdot=%d + seg[%d].s_dseek=%ld\n", txtdot, dotseg, seg[dotseg].s_dseek));
+		oseek(txtdot + seg[dotseg].s_dseek);
+		owrite(txt, n);
+		if ((n = relp-rel) != 0) {
+			dbprintf(("notenuf: %d reloc bytes\n", n));
+			dbprintf(("seek to reldot[%d]=%d + relptr=%ld\n", coff_seg, reldot[coff_seg], scn_hdr[coff_seg].s_relptr));
+			oseek(reldot[coff_seg] + scn_hdr[coff_seg].s_relptr);
+			owrite(rel, n);
+			reldot[coff_seg] += n;
+			relp = rel;
+		}
+	}
+	txtp = txt;
+	txtdot = dot;
+}
+
+/*
+ * Seek output file, checking for seek error.
+ */
+oseek(l) long l;
+{
+	if (fseek(ofp, l, SEEK_SET) == -1L)
+		cfatal("seek to %ld failed", l);
+}
+
+/*
+ * Write a block of n bytes from p to the output file,
+ * checking for write errors.
+ */
+owrite(p, n) char *p;
+{
+	if (fwrite(p, sizeof(char), n, ofp) != n)
+		cfatal("output write error");
+}
+
+/* end of outcoff.c */

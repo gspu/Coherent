@@ -1,0 +1,519 @@
+.TH "booting" "" "" "Technical Information"
+.PC "How booting works"
+.PP
+.I Booting
+is the method by which \*(CO is loaded from a hard disk or floppy
+disk and set into action.
+The term comes from the old expression about pulling one's self up by
+one's bootstraps.
+.PP
+This article discusses the events that take place while
+booting the \*(CO system.
+You do not need to read this article to know how to boot \*(CO,
+as all booting details are handled by \*(CO automatically.
+However, if you are interested in the details,
+or want to tailor the system to your needs, it will help.
+.PP
+.II device^boot
+.II boot^device
+.II device^root
+.II root^device
+.II bootstrap
+Two I/O devices are involved in booting.
+The first device is called the \fIboot\fR device; it contains the
+program necessary to invoke the \*(CO system and start it running.
+The second device is called the \fIroot\fR device;
+it contains the root file system after the system is running.
+In most cases, these two devices are the same physical device.
+.SH "Initial Startup"
+.II boot^secondary
+.II bootstrap
+.II boot^tertiary
+.II tboot
+When you boot from a hard disk, your computer's BIOS loads the
+master boot from the first sector of your hard disk into memory.
+The master boot
+then loads the secondary boot from the first sector of your boot partition.
+When you boot from a floppy disk, however, the BIOS loads the secondary
+boot directly.
+.PP
+.II "secondary boot"
+.II "tertiary boot"
+This program, called the
+.I bootstrap
+or
+.IR "secondary boot" ,
+is very small (only 512 bytes), so it cannot do very
+much.
+Therefore, 
+its main purpose is to read in a larger, more complex program called the
+.IR "tertiary boot" ,
+or
+.BR /tboot .
+.II /tboot
+It is
+.B /tboot
+that actually performs the work of loading the \*(CO system into memory.
+.PP
+If the secondary boot does not find a file called
+.BR /tboot ,
+it print a `?' to prompt for the boot image you want it to load.
+This indicates a severe error because it
+means that the tertiary boot can not be found.
+.PP
+If the secondary boot finds
+.BR /tboot ,
+it loads it into memory and lets it take over booting.
+.II /autoboot
+The first thing
+.B /tboot
+does is search for a file called
+.B /autoboot
+in the root directory of the device
+being booted.
+If
+.B /tboot
+finds
+.BR /autoboot ,
+it first pauses for five seconds, so you can abort the process
+and boot another kernel if you wish.
+If you do not abort booting within five seconds,
+.B /tboot
+then loads
+.B /autoboot
+into memory and runs it.
+If, however,
+.B /tboot
+cannot find
+.BR /autoboot ,
+it prompts you to type the name of the \*(CO image to boot, usually
+.BR /coherent .
+You can type the commands
+.B dir
+or
+.B ls
+if you do not remember the name of the image you wish to boot.
+.II /coherent
+Note that
+.B /autoboot
+is usually a link to
+.BR /coherent .
+.PP
+.II libmisc
+.II fifo()
+If you need to find the file name of the kernel you are now running
+(usually \fB/coherent\fR), use the program
+.BR fifo() ,
+which is kept in library
+.BR libmisc .
+See the Lexicon entry
+.B libmisc
+for details.
+.PP
+.II idle
+After it loads the system image
+.B /autoboot
+from the root device, the system initializes all devices, as well as
+starting the \fIidle\fP process and program
+.BR /etc/init .
+The idle process uses any leftover computer time.
+.PP
+.II brc
+.II init
+.B init
+controls the operation of the system from this point on.
+It first executes the command
+.B /etc/brc
+(i.e., ``boot run commands''), which can run commands like
+.BR fsck .
+.II "single-user mode"
+.B brc
+can request a reboot, remain in single-user mode,
+or enter multi-user mode automatically.
+.B init
+then calls the \fIshell\fR to handle commands from the system console.
+The shell responds by prompting with \fB#\fR,
+and expects regular commands.
+.II "single-user mode"
+At this point, the system is in
+\fIsingle-user mode\fR, which means
+that no other users can log in to the system.
+The shell is running in superuser mode and only the console's user is logged in.
+.PP
+At this point, you can enter commands to the system in a normal fashion.
+One difference from normal, multi\-user operation is that
+the system is in single-user mode, to allow special processing
+to take place before other users log in.
+Being in single-user mode gives you the opportunity to run
+.B fsck
+to check the file system and
+perform other administrative tasks before other users log into the system.
+.PP
+.II "multiuser mode"
+When administrative activities are finished, you should
+type \fB<ctrl-D>\fR.
+This terminates single-user operation;
+\fBinit\fR then opens the system to other users.
+.PP
+The file
+.II /etc/rc
+.B /etc/rc
+contains shell commands that the system executes
+just before making the system available to other users.
+This file typically includes commands to delete temporary files and
+mount standard devices.
+It also performs any installation-specific commands you require.
+As system administrator, you maintain this file.
+You must be sure that it is properly updated and never removed.
+.II update
+.PP
+.II sync
+.II /etc/update
+One command that must be included in
+\fB/etc/rc\fR is \fB/etc/update\fR, which periodically calls
+.B sync()
+to update buffered data to the disk.
+.PP
+.II /etc/utmp
+.II /etc/wtmp
+.B init
+also maintains the file
+.BR /etc/utmp ,
+which notes users' login and logout.
+.SH "Features of the Master Bootstrap"
+The \*(CO master bootstrap
+allows you to boot different operating systems from different partitions
+of any hard drive.
+It is more powerful than similar programs of other operating systems,
+and we strongly recommend that you use it.
+If you do not use the MWC bootstrap, you
+may have to use floppy disks to boot up \*(MD and \*(CO.
+If you have two hard
+drives and you are placing \*(CO on the second drive, you must use the
+MWC bootstrap.
+.PP
+The bootstrap can be configured in three ways:
+.IP \fB1.\fR 0.3i
+No active partition.
+With this configuration, you have the greatest degree of flexibility.
+When you boot your system, the following prompt appears on the screen:
+.DM
+	Select Partition 0-7
+.DE
+.sp \n(pDu
+This means that you must press the number key
+that corresponds to the partition that holds the root partition of the
+operating system you wish to boot.
+(For example, if you wish to boot \*(CO and its root partition is on
+partition 2, then press the `2' key in response to this prompt.)
+If you have one hard drive, only partitions 0 through 3 are relevant to you.
+The bootstrap waits indefinitely until you tell it what to boot.
+.IP \fB2.\fR
+\*(CO is active partition.
+Under this configuration, the system will
+automatically boot \*(CO unless you press the number key that represents the
+root partition of another operating system (e.g., \*(MD)
+while the A-drive light is on.
+.IP \fB3.\fR
+\*(MD (or another operating system) is active partition.
+Under this configuration, the system automatically boots \*(MD
+unless you hit the number key that represents the root partition
+of another operating system (e.g., \*(CO) while the A-drive light is on.
+.PP
+Under some hardware configurations, particularly faster 80386 machines,
+having an active partition can cause difficulties
+when you try to boot a non-active partition.
+It often is difficult to press the appropriate number key at the right time,
+and the right time itself can vary.
+For this reason, the default setting of the master bootstrap is to have no
+active partition.
+If at any time you wish to reconfigure the bootstrap,
+you need only to run the
+.B fdisk
+utility under \*(CO and access option 1 (Change active partition) of
+the option menu.
+Make the desired change and then save the updated partition table.
+.SH "Files Used During Startup"
+The following files are used when the system is in single-user mode:
+.IP \fB/etc/drvld.all\fR 1.2i
+Device tables to load.
+This usually names the keyboard driver to use, should you be using the
+keyboard driver
+.BR vtnkb .
+.IP \fB/etc/init\fR
+Initiate a process on each terminal line, call login when appropriate.
+.IP \fB/etc/brc\fR
+Shell commands for booting.
+.IP \fB/etc/checklist\fR
+List of partitions for \fBfsck\fR to check.
+.IP \fB/bin/sh\fR
+Bourne shell.
+.IP \fB/bin/ksh\fR
+Korn shell.
+.PP
+The following files are needed after the system has entered multi-user mode:
+.IP \fB/bin/login\fR 1.2i
+This file holds the program that controls logging in.
+.IP \fB/etc/getty\fR
+This file holds the executable program that permits a user to log in on a port.
+.IP \fB/etc/logmsg\fR
+This file holds the text of the login prompt.
+.IP \fB/etc/motd\fR
+This file holds the message of the day.
+.IP \fB/etc/mount.all\fR
+Shell script to mount partitions.
+.IP \fB/etc/rc\fR
+This file holds a series of shell commands that
+.B coherent
+executes when it enters multi-user startup.
+.IP \fB/etc/ttys\fR
+This file is holds information about terminals.
+Its contents are read by
+.B getty
+to ensure that it sets the port to the correct baud rate and terminal type.
+.IP \fB/etc/utmp\fR
+This file holds information about who is logged in right now.
+It is read by the command
+.BR who .
+.SH "Building a Bootable Floppy Disk"
+.II "floppy disk^bootable"
+.II "bootable floppy disk"
+Building a bootable floppy disk for \*(CO requires
+a few more steps than are required to build a bootable floppy for \*(MD.
+The task is not particularly painful, it simply requires a little more
+attention to detail.
+.\".II mkbt3.5
+.\".II mkbt5.25
+.\"Before beginning, please note that the commands
+.\".B mkbt3.5
+.\"and
+.\".B mkbt5.25
+.\"automatically build, respectively, a bootable 3.5-inch or 5.25-inch
+.\"floppy disk.
+.PP
+The following details the steps required to build a version of \*(CO
+that can be booted off a floppy disk.
+Note that the following describes an extremely minimal configuration,
+which can be used only in single-user mode.
+.IP "\fB1.\fR Format the Floppy Disk"
+To begin, format the floppy disk with the command
+.BR /etc/fdformat .
+After you format the floppy disk, use the command
+.B /etc/mkfs
+command to write a blank file system onto it.
+.IP "\fB2.\fR Write a Bootstrap to the Floppy Disk"
+To make the floppy disk bootable, you must copy a special program, or
+.IR "bootstrap" ,
+into the first sector (or \fIboot block\fR) of the floppy disk.
+(This is the same program that is called the \fIsecondary boot\fR in the
+above sections.)
+If a floppy disk is to be bootable, a set of instructions must
+be present in the boot block
+that tell the system the name of the kernel \(em that is, the file on
+the floppy disk to be loaded and executed.
+.IP
+To write the bootstrap to the floppy disk, you must copy it to the
+.I device
+that the floppy disk is in.
+This ensures that the bootstrap is copied to the
+first sector, or boot block, of the floppy disk.
+For example,
+to copy the bootstrap for a 1.2-megabyte floppy disk in floppy drive 0
+(or A), type the command:
+.DM
+	cp /conf/boot.fha /dev/fha0
+.DE
+.IP
+To copy the bootstrap for a 1.44-megabyte floppy disk to floppy drive 0,
+type the command:
+.DM
+	cp /conf/boot.fva /dev/fva0
+.DE
+.IP "\fB3. Write Tertiary Boot\fR"
+After you have copied the boot sector,
+you must mount the floppy device and copy
+.B /tboot
+to it.
+To mount a 1.44-megabyte floppy disk to floppy drive 0, type the command:
+.DM
+	/etc/mount /dev/fva0 /f0
+.DE
+.IP
+Copy
+.B /tboot
+with the following command:
+.DM
+	cp /tboot /f0
+.DE
+.IP
+Warning:
+.I Never
+mount the floppy disk before you copy the bootstrap to it!
+.IP
+See the Lexicon article on \fBfloppy disks\fR for the table of floppy disk
+devices to use with the above commands.
+.IP "\fB4.\fR Copy the Necessary Files"
+Once the bootstrap is properly written to the floppy disk, it is now time to
+copy the essential files to it.
+Type the following commands:
+.DM
+	mkdir /f0/etc
+	mkdir /f0/dev
+	mkdir /f0/bin
+	mkdir /f0/tmp
+	cp /tboot /coherent /coherent.sym /f0
+	cp /etc/init /etc/brc /etc/profile /f0/etc
+	cp /dev/* /f0/dev
+	cp /bin/sh /bin/sync /f0/bin
+.DE
+.IP
+If you are using either of the loadable keyboard drivers
+.B nkt
+or
+.BR vtnkb ,
+also execute the following commands:
+.DM
+	mkdir /f0/drv
+	mkdir /f0/conf
+	mkdir /f0/conf/kbd
+	cp /etc/drvld.all /f0/etc
+	cp /drv/* /f0/drv
+	cp /conf/kbd/* /f0/conf/kbd
+.DE
+.IP
+The above files will let you run \*(CO in single-user mode, which is all
+that you need when you boot \*(CO from a floppy disk.
+.IP
+Note that the files
+.B /etc/brc
+and
+.B /etc/drvld.all
+are scripts that you must modify to suit your needs.
+The file
+.B /etc/brc
+is a key file in the booting process, so be prepared to modify its contents.
+The significance of this will be reviewed in depth in the
+next section.
+.IP
+.I Warning:
+After you have finished copying files to the floppy disk,
+execute the command
+.B umount
+to unmount the floppy disk.
+If you do not, the files will be damaged or lost!
+.IP "\fB5.\fR The Boot Sequence, Modifications To Make the Disk Work"
+When the computer system powers up and accesses the floppy disk, it reads
+the boot sector of the disk, which in turn looks for the file
+.B /tboot
+and executes it.
+.B /tboot
+looks for the kernel named
+.BR /autoboot ,
+reads it, and executes it.
+If
+.B /tboot
+cannot find
+.BR /autoboot ,
+it prompts you to type the name of the kernel to boot.
+.IP
+The kernel loads and invokes
+.B /etc/init
+which, in part, looks for and executes the statements in
+.BR /etc/brc ,
+which, in turn, typically loads loadable drivers and runs
+.B /etc/fsck
+to check the file systems.
+If you wish to run
+.B fsck
+on the floppy disk,
+you must copy it from the hard drive.
+.IP
+What is truly important is the
+.I "exit status"
+of
+.BR /etc/brc .
+If its exit status is not zero, the system remains in single-user mode.
+If its exit status is zero, the system attempts to enter multiuser mode.
+.IP
+The above-listed files are the bare minimum for a single-user floppy
+disk.
+To build a floppy disk with the minimum files needed, your
+.B /etc/brc
+file should look like this:
+.DM
+	/etc/drvld.all
+	exit 1
+.DE
+.IP
+This forces an exit status of one and causes \*(CO to spawn a
+single-user shell,
+.BR /bin/sh .
+.IP
+From the shell prompt, you can do whatever you wish, but you are limited
+to the commands and functions copied to the floppy disk.
+.IP
+.B /etc/brc
+is not the only file that may need modification.
+The kernel (\fB/coherent\fR or \fB/autoboot\fR) must have the values
+.B rootdev
+and
+.B pipedev
+patched for the floppy disk's major and minor device numbers.
+This patching can be done with the commands
+.B /bin/db
+or
+.BR /conf/patch .
+.IP
+To patch the kernel on the floppy disk mounted on
+.B /f0
+for a 5.25-inch, high-density disk as the root and pipe device, type:
+.DM
+	/conf/patch /f0/coherent rootdev=makedev\e(4,14\e)
+	/conf/patch /f0/coherent pipedev=makedev\e(4,14\e)
+.DE
+.IP
+For a 3.5-inch, high-density disk, type:
+.DM
+	/conf/patch /f0/coherent rootdev=makedev\e(4,15\e)
+	/conf/patch /f0/coherent pipedev=makedev\e(4,15\e)
+.DE
+.PP
+Finally, note that when you boot your floppy disk, the disk must
+.I not
+be write protected.
+This is because \*(CO must be able to write temporary files into directory
+.BR /tmp ;
+if it cannot do so, booting will fail.
+.SH "Uses of a Bootable Floppy Disk"
+A bootable floppy disk can be a lifesaver should something occur
+to corrupt the \*(CO file system on the hard drive.
+A properly prepared floppy can be used to recover a damaged file system by
+running
+.BR /etc/fsck .
+You can also use it to copy
+files from the hard drive should you decide to
+re-install \*(CO on the hard drive.
+.PP
+Multiuser-mode floppy disks can also be built for the fun of seeing
+such a system run from a floppy disk.
+The capacity of such a system is limited, of course, but it can be done.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr boot, boot
+.Xr libmisc, libmisc
+.Xr tboot tboot
+.SH Notes
+.II "Norton Utilities"
+.II "partition table^rearranging"
+Some users have attempted to use Norton Utilities or similar tools to
+rearrange the partition table, only to find that \*(CO no longer boots.
+That is because the kernel has embedded within it the name of the partition
+on which it and its root file system live.
+By using Norton Utilities to shuffle the partition table, the kernel
+will no longer be able to find any of the files or utilities it needs to
+boot your system.
+.PP
+If you still wish to shuffle your disk's partition table, be sure to change
+the name of the root device within the kernel
+.I before
+you change the partition table.

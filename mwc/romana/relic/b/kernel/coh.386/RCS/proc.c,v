@@ -1,0 +1,1257 @@
+head     1.11;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.11; strict;
+comment  @ * @;
+
+
+1.11
+date     93.06.14.13.35.00;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     93.04.20.10.03.30;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     93.03.02.08.03.37;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.01.18.16.22.49;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.12.18.14.31.23;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.10.22.14.15.12;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.09.29.09.41.46;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.09.09.08.39.17;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.08.28.08.56.37;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.04.12.34.18;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.19.41;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.11
+log
+@Hal: kernel 78 update
+@
+text
+@/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 3.x, 4.x
+ *	Copyright (c) 1982, 1993.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Process handling and scheduling.
+ */
+#include <sys/coherent.h>
+#include <sys/acct.h>
+#include <errno.h>
+#include <sys/inode.h>
+#include <sys/ptrace.h>
+#include <sys/sched.h>
+#include <signal.h>
+#include <sys/stat.h>
+
+/*
+ * Initialization.
+ * Set up the hash table queues.
+ */
+pcsinit()
+{
+	register PROC *pp;
+	register PLINK *lp;
+
+	/*
+	 * Explicitly initialize everything in the first process.
+	 */
+	pp = &procq;
+	SELF = pp;
+	procq.p_nforw = pp;
+	procq.p_nback = pp;
+	procq.p_lforw = pp;
+	procq.p_lback = pp;
+
+	/* Segments are initialized in mchinit() and eveinit().	*/
+	/* procq is static, so p_shmsr[] initializes to nulls.	*/
+
+	procq.p_uid = 0;		/* Effective uid */
+	procq.p_ruid = 0;		/* Real uid */
+	procq.p_rgid = 0;		/* Real gid */
+	procq.p_state = 0;		/* Scheduling state */
+	procq.p_flags = 0;		/* Flags */
+	procq.p_ssig = (sig_t) 0;	/* Signals which have been set */
+
+	procq.p_dfsig = (sig_t) 0xffffffff;  /* All signals are defaulted.  */
+	procq.p_hsig = (sig_t) 0;	/* Signals which are being held */
+	procq.p_dsig = (sig_t) 0;	/* Signals which are being deferred */
+
+	procq.p_isig = (sig_t) 0;	/* Signals which are being ignored */
+	procq.p_event = NULL;		/* Wakeup event channel */
+	procq.p_alarm = 0;		/* Timer for alarms */
+	procq.p_group = 0;		/* Process group */
+/*
+ * Set ttdev to null so that we do not accidentally set a tty for init.
+ */
+	procq.p_ttdev = makedev(0,0);	/* Controlling terminal */
+	procq.p_nice = 0;		/* Nice value */
+	procq.p_lctim = 0;		/* Last time cval was updated */
+	procq.p_utime = 0L;		/* User time (HZ) */
+	procq.p_stime = 0L;		/* System time */
+	procq.p_cutime = 0L;		/* Sum of childs user time */
+	procq.p_cstime = 0L;		/* Sum of childs system time */
+	procq.p_exit = 0;		/* Exit status */
+	procq.p_polls = NULL;		/* Enabled polls */
+	/* Poll  timer */
+	procq.p_polltim.t_next = NULL;
+	procq.p_polltim.t_last = NULL;
+	procq.p_polltim.t_lbolt = 0L;
+	procq.p_polltim.t_func = NULL;
+	procq.p_polltim.t_farg = NULL;
+
+	/* Alarm timer */
+	procq.p_alrmtim.t_next = NULL;
+	procq.p_alrmtim.t_last = NULL;
+	procq.p_alrmtim.t_lbolt = 0L;
+	procq.p_alrmtim.t_func = NULL;
+	procq.p_alrmtim.t_farg = NULL;
+
+	procq.p_prl = NULL;		/* Pending record lock */
+	procq.p_semu = NULL;		/* Semaphore undo */
+	for (lp=&linkq[0]; lp<&linkq[NHPLINK]; lp++) {
+		lp->p_lforw = lp;
+		lp->p_lback = lp;
+	}
+}
+
+/*
+ * Initiate a process.
+ */
+PROC *
+process()
+{
+	register PROC *pp1;
+	register PROC *pp;
+
+	if ((pp=kalloc(sizeof(PROC))) == NULL)
+		return (NULL);
+
+	pp->p_flags = PFCORE;
+	pp->p_state = PSRUN;
+	pp->p_ttdev = NODEV;
+	pp->p_semu = NULL;		/* Semaphore undo */
+
+	lock(pnxgate);
+next:
+
+	/*
+	 * Pick the next process id.
+	 */
+	if (++cpid >= NPID)
+		cpid = 2;
+	pp->p_pid = cpid;
+
+	/*
+	 * Make sure that process id is not in use.
+	 */
+	pp1 = &procq;
+	while ((pp1=pp1->p_nforw) != &procq) {
+		if (pp1->p_pid < pp->p_pid)
+			break;
+		if (pp1->p_pid == pp->p_pid)
+			goto next;
+	}
+
+	/*
+	 * We've got a valid pid, so let's put this process into
+	 * the process table.
+	 */
+	pp->p_nback = pp1->p_nback;
+	pp1->p_nback->p_nforw = pp;
+	pp->p_nforw = pp1;
+	pp1->p_nback = pp;
+	unlock(pnxgate);
+	return (pp);
+}
+
+/*
+ * Remove a process from the next queue and release and space.
+ */
+relproc(pp)
+register PROC *pp;
+{
+	register SEG * sp;
+
+	/*
+	 * Child process still has a user-area.
+	 */
+	if (sp = pp->p_segp[SIUSERP]) {
+
+		/*
+		 * Detach user-area from child process.
+		 */
+		pp->p_segp[SIUSERP] = NULL;
+
+		/*
+		 * Child process is swapped out.
+		 */
+		if (pp->p_flags & PFSWAP)
+			sp->s_lrefc++;
+
+		/*
+		 * Release child's user-area.
+		 */
+		sfree(sp);
+	}
+
+	/*
+	 * Remove process from doubly-linked list of all processes.
+	 * Release space allocated for proc structure.
+	 */
+	lock(pnxgate);
+	pp->p_nback->p_nforw = pp->p_nforw;
+	pp->p_nforw->p_nback = pp->p_nback;
+	unlock(pnxgate);
+	kfree(pp);
+}
+
+/*
+ * Create a clone of ourselves.
+ *	N.B. - consave(&mcon) returns twice; anything not initialized
+ *	in automatic storage before the call to segadup() will not be
+ *	initialized when the second return from consave() commences.
+ */
+pfork()
+{
+	register PROC *cpp;
+	register PROC *pp;
+	register int s;
+	MCON mcon;
+
+	if ((cpp=process()) == NULL) {
+		SET_U_ERROR( EAGAIN, "no more process table entries" );
+		return -1;
+	}
+
+	pp = SELF;
+	s = sphi();	/* put current interrupt level into s before segadup */
+	spl(s);
+	/*
+	 * As stated above, no auto variable may be changed between calls
+	 * to segadup() and consave().
+	 */
+	if (segadup(cpp) == 0) {
+		SET_U_ERROR( EAGAIN, "can not duplicate segments" );
+		relproc(cpp);
+		return -1;
+	}
+	shmDup(cpp);	/* copy shared memory info & update ref counts */
+	if (u.u_rdir)
+		u.u_rdir->i_refc++;
+	if (u.u_cdir)
+		u.u_cdir->i_refc++;
+	fdadupl();
+	cpp->p_uid   = pp->p_uid;
+	cpp->p_ruid  = pp->p_ruid;
+	cpp->p_rgid  = pp->p_rgid;
+	cpp->p_ppid  = pp->p_pid;
+	cpp->p_ttdev = pp->p_ttdev;
+	cpp->p_group = pp->p_group;
+	cpp->p_ssig  = pp->p_ssig;
+
+	cpp->p_dfsig  = pp->p_dfsig;
+	cpp->p_dsig  = pp->p_dsig;
+	cpp->p_hsig  = pp->p_hsig;
+	cpp->p_prl = NULL;
+
+	cpp->p_isig  = pp->p_isig;
+
+	sphi();		/* s = sphi() was done before segadup() */
+	consave(&mcon);
+	spl(s);
+
+	/*
+	 * Parent process.
+	 */
+	if ((pp = SELF) != cpp) {
+		segfinm(cpp->p_segp[SIUSERP]);
+		dmaout(sizeof(mcon), 
+		  MAPIO(cpp->p_segp[SIUSERP]->s_vmem,
+		  U_OFFSET + offset(uproc,u_syscon)),
+		  (char *)&mcon);
+		s = sphi();
+		setrun(cpp);
+		spl(s);
+
+		u.u_rval2 = 0;
+		return(cpp->p_pid);
+	}
+
+	/*
+	 * Child process.
+	 */
+	else {
+		u.u_btime = timer.t_time;
+		u.u_flag = AFORK;
+
+#ifdef UPROC_VERSION
+		u.u_version = UPROC_VERSION;
+#endif /* UPROC_VERSION */
+		u.u_sleep[0] = '\0'; /* We are not sleeping to start with.  */
+		sproto(0);
+		segload();
+		u.u_rval2 = SELF->p_ppid;
+		return 0;
+	}
+}
+
+/*
+ * Die.
+ */
+pexit(s)
+{
+	register PROC *pp1;
+	register PROC *pp;
+	register SEG  *sp;
+	register int n;
+	PROC *parent;
+
+	pp = SELF;
+	T_PIGGY( 0x1, printf("%s:pexit(%x)", u.u_comm, s); );
+
+	ndpEndProc();
+
+	/*
+	 * Cancel alarm and poll timers [if any].
+	 */
+	timeout(&pp->p_alrmtim, 0, NULL, 0);
+	timeout(&pp->p_polltim, 0, NULL, 0);
+
+	/*
+	 * Write out accounting directory and close all files associated with
+	 * this process.
+	 */
+	setacct();
+	if (u.u_rdir)
+		ldetach(u.u_rdir);
+	if (u.u_cdir)
+		ldetach(u.u_cdir);
+	fdaclose();
+
+	/*
+	 * Free all segments in reverse order, except for user-area.
+	 */
+	for (n = NUSEG; --n > 0;) {
+		if (sp = pp->p_segp[n]) {
+			pp->p_segp[n] = NULL;
+			sfree(sp);
+		}
+	}
+
+	/* Detach remaining shared memory segments. */
+	shmAllDt();
+
+	/* Adjust(undo) all semaphores. */
+	semAllAdjust(pp);
+
+	/*
+	 * Wakeup our parent.  If we have any children, init will become the
+	 * new parent.  If there are any children we are tracing who are
+	 * waiting for us, we wake them up.
+	 */
+	pp1 = &procq;
+
+	/* pp1 runs through the list of all processes */
+	while ((pp1=pp1->p_nforw) != &procq) {
+
+		/* if pp1 points to parent of the current process...*/
+		if (pp1->p_pid == pp->p_ppid) {
+			parent = pp1;	/* Remember our parent.  */
+			if (ASLEEP(pp1) && pp1->p_event==(char *)pp1)
+				wakeup((char *)pp1);
+		}
+
+		/* if pp1 points to child of the current process...*/
+		if (pp1->p_ppid == pp->p_pid) {
+			pp1->p_ppid = 1;
+			if (pp1->p_state == PSDEAD)
+				wakeup((char *)eprocp);
+			if (pp1->p_flags&PFTRAC)
+				wakeup((char *)&pts.pt_req);
+		}
+	}
+
+	/*
+	 * Mark us as dead and give up the processor forever.
+	 */
+	pp->p_exit = s;
+	pp->p_state = PSDEAD;
+
+	/*
+	 * If this is a process group leader, inform all members of the group
+	 * of the recent death with a HUP signal.
+	 */
+	if (pp->p_group == pp->p_pid) {
+		ukill(-pp->p_pid, SIGHUP);
+	}
+
+	/*
+	 * If the parent is ignoring SIGCLD, 
+	 * remove the zombie right away.
+	 */
+	if (SIG_BIT(SIGCLD) & parent->p_isig) {
+		parent->p_cutime += pp->p_utime + pp->p_cutime;
+		parent->p_cstime += pp->p_stime + pp->p_cstime;
+		relproc(pp);
+	} else {
+		/*
+		 * If SIGCLD is not defaulted, notify our parent
+		 * of our demise.
+		 */
+		if (!(SIG_BIT(SIGCLD) & parent->p_dfsig)) {
+			sendsig(SIGCLD, parent );
+		}
+	}
+
+	dispatch();
+}
+
+/*
+ * x_sleep()
+ *
+ * Surrender CPU while awaiting some event or resource.
+ *
+ * Arguments:
+ *	event:		key value; so wakeup() can find this sleep
+ *	schedPri:	prilo/primed/prihi/pritape/pritty/pridisk/prinet
+ *			just copied into proc struct for scheduler to use.
+ *			(see sys/v_types.h)
+ *	sleepPri:	slpriNoSig	- signals may not interrupt sleep
+ *			slpriSigLjmp	- signals cause longjmp (EINTR)
+ *			slpriSigCatch	- signals are caught
+ *			(see sys/sched.h)
+ *	reason:		up to 10 chars of text for ps command "event"
+ *
+ * Return values:
+ *	0		wakeup received
+ *	1		signal (other than SIGSTOP/SIGCONT) received
+ *	2		SIGSTOP/SIGCONT (unimplemented now)
+ *
+ * If longjmp occurs, won't return from x_sleep!
+ */
+int
+x_sleep(event, schedPri, sleepPri, reason)
+char * event;
+int schedPri;
+int sleepPri;
+char * reason;
+{
+	int i;
+	register PROC *bp;
+	register PROC *fp;
+	register PROC *pp;
+	register int s;
+
+	/*
+	 * The descriptive string may be at most 10 characters long.
+	 * It will only be NUL terminated if it has 9 or fewer characters.
+	 */
+	for (i = 0; i < U_SLEEP_LEN; ++i) {
+		if ('\0' == (u.u_sleep[i] = reason[i])) {
+			break;
+		}
+	}
+
+	pp = SELF;
+
+	/*
+	 * Get ready to go to sleep and do so.
+	 */
+	s = sphi();
+	pp->p_state = (sleepPri == slpriNoSig) ? PSSLEEP : PSSLSIG;
+	pp->p_schedPri = schedPri;
+	pp->p_event = event;
+	pp->p_lctim = utimer;
+	fp = &linkq[hash(event)];
+	bp = fp->p_lback;
+	pp->p_lforw = fp;
+	fp->p_lback = pp;
+	pp->p_lback = bp;
+	bp->p_lforw = pp;
+	spl(s);
+
+	/* Here is sleep if signals may *not* interrupt. */
+	if (sleepPri == slpriNoSig) {
+		dispatch();
+		u.u_sleep[0] = '\0';
+		return 0;
+	}
+
+	/* Here is sleep if signals *may* interrupt. */
+	/* Don't sleep at all if there is already a signal pending. */
+	if (!nondsig()) {
+		dispatch();
+		u.u_sleep[0] = '\0';
+		if (!nondsig()) {
+			return 0;
+		}
+	}
+
+	/* The process has been interrupted from sleep by a signal. */
+
+	if (sleepPri == slpriSigCatch) {
+		return 1;
+	}
+
+	/* Do longjmp to beginning of system call. */
+	T_HAL(8, printf("[%d]Ljmps ", SELF->p_pid));
+	sphi();
+	envrest(&u.u_sigenv);
+}
+
+/*
+ * Defer function to wake up all processes sleeping on the event `e'.
+ */
+wakeup(e)
+char *e;
+{
+	void dwakeup();
+
+#ifdef TRACER
+	/*
+	 * In diagnostic kernel, keep return addr on queue as well.
+	 */
+	int *r=(int*)(&e);
+	defer0(dwakeup, e, *(r-1));
+#else
+	defer(dwakeup, e);
+#endif
+}
+
+/*
+ * Wake up all processes sleeping on "event".
+ */
+void
+dwakeup(event)
+char *event;
+{
+	register PROC *pp;
+	register PROC *pp1;
+	register int s;
+
+	/*
+	 * Identify event queue to check.
+	 * Disable interrupts.
+	 */
+	pp1 = &linkq[hash(event)];
+	pp = pp1;
+	s = sphi();
+
+	/*
+	 * Traverse doubly-linked circular event-queue.
+	 */
+	while ((pp = pp->p_lforw) != pp1) {
+
+		/*
+		 * Process is waiting on event 'event'.
+		 */
+		if (pp->p_event == event) {
+			/*
+			 * Remove process from event queue.
+			 * Update process priority.
+			 * Insert process into run queue.
+			 */
+			pp->p_lback->p_lforw = pp->p_lforw;
+			pp->p_lforw->p_lback = pp->p_lback;
+			setrun(pp);
+
+			/*
+			 * Enable interrupts.
+			 * Restart search at start of event queue.
+			 * Disable interrupts.
+			 */
+			spl(s);
+			pp = pp1;
+			s = sphi();
+		}
+	}
+	spl(s);
+}
+
+/*
+ * Select next process for execution, working backward from iprocp.
+ * If it is not the idle process, delete it from the run queue.
+ * If it is not the current process, consave the current process and
+ * conrest the selected process.
+ */
+dispatch()
+{
+	register PROC *pp;
+	register int s;
+
+	s = sphi();
+	pp = iprocp->p_lback;
+	if (pp != iprocp) {
+		pp->p_lforw->p_lback = pp->p_lback;
+		pp->p_lback->p_lforw = pp->p_lforw;
+	}
+	spl(s);
+
+	quantum = NCRTICK;
+	disflag = 0;
+	if (pp != SELF) {
+		/*
+		 * Consave() returns twice.
+		 * 1st time is after our context is saved in u.u_syscon,
+		 *	whereupon we should restore other proc's context.
+		 * 2nd time is after our context is restored by another proc.
+		 * Conrest() forces a context switch to a new process.
+		 */
+		s = sphi();
+		SELF = pp;
+		if (consave(&u.u_syscon) == 0) {
+			conrest(*pp->p_segp[SIUSERP]->s_vmem, &u.u_syscon);
+		}
+
+		if (SELF->p_pid) {	/* init is special! */
+			ndpConRest();
+			segload();
+		}
+		spl(s);
+	}
+}
+
+/*
+ * Add a process to the run queue, just forward of iprocp.
+ * This routine must be called at high priority.
+ */
+setrun(pp)
+register PROC *pp;
+{
+	pp->p_lback = iprocp;
+	pp->p_lforw = iprocp->p_lforw;
+	pp->p_lback->p_lforw = pp;
+	pp->p_lforw->p_lback = pp;
+	pp->p_state = PSRUN;
+}
+
+/*
+ * Wait for the gate `g' to unlock, and then lock it.
+ */
+lock(g)
+register GATE g;
+{
+	register int s;
+
+	s = sphi();
+	while (g[0]) {
+		g[1] = 1;
+		x_sleep((char *)g, primed, slpriNoSig, "lock");
+		/* Waiting for a gate to unlock.  */
+	}
+	g[0] = 1;
+	spl(s);
+}
+
+/*
+ * Unlock the gate `g'.
+ */
+unlock(g)
+register GATE g;
+{
+	g[0] = 0;
+	if (g[1]) {
+		g[1] = 0;
+		disflag = 1;
+		wakeup((char *)g);
+	}
+}
+@
+
+
+1.10
+log
+@semaphore changes (kernel 77) for vlad
+@
+text
+@d18 1
+a18 1
+#include <acct.h>
+d372 1
+a372 2
+#	define CHLDBIT (((sig_t) 1) << (SIGCLD - 1))
+	if (CHLDBIT & parent->p_isig) {
+d381 1
+a381 1
+		if (!(CHLDBIT & parent->p_dfsig)) {
+d462 1
+a462 1
+	if (!(pp->p_ssig && nondsig())) {
+d465 1
+a465 1
+		if (!(pp->p_ssig && nondsig())) {
+d477 1
+@
+
+
+1.9
+log
+@kernel 73: numerous fixes to sleep/wakeup/wait()
+@
+text
+@d90 1
+a90 1
+
+d112 2
+d324 3
+@
+
+
+1.8
+log
+@hal: kernel 72
+@
+text
+@d9 2
+a10 2
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+a14 1
+ * Coherent.
+a15 7
+ *
+ * $Log:	proc.c,v $
+ * Revision 1.5  92/04/03  14:35:36  hal
+ * Kernel #49: piggy trace variable.
+ * 
+ * Revision 1.4  92/02/03  17:00:09  piggy
+ * Send SIGHUP to all group members on death of group leader.
+a44 1
+#ifdef _I386
+d54 1
+a54 1
+#ifdef _I386
+d58 1
+a58 1
+#endif
+a67 4
+	procq.p_cval = 0;		/* Cpu schedule value */
+	procq.p_sval = 0;		/* Swap schedule value */
+	procq.p_ival = 0;		/* Importance value */
+	procq.p_rval = 0;		/* Response value */
+a80 3
+#ifndef _I386
+	procq.p_polltim.t_ldrv = 0;
+#endif /* _I386 */
+a87 3
+#ifndef _I386
+	procq.p_alrmtim.t_ldrv = 0;
+#endif /* _I386 */
+a89 1
+#endif /* _I386 */
+a100 1
+#ifdef _I386
+a101 4
+#else
+process(f)
+int (*f)();
+#endif
+a104 4
+#ifndef _I386
+	register SEG *sp;
+	MCON mcon;
+#endif
+a111 18
+#ifndef _I386
+	/*
+	 * What is this, and why is it 286 only?
+	 */
+	if (f) {
+		pp->p_flags |= PFKERN;
+		sp = salloc((fsize_t)UPASIZE, SFSYST|SFHIGH|SFNSWP);
+		if (sp == NULL) {
+			kfree(pp);
+			return (NULL);
+		}
+		pp->p_segp[SIUSERP] = sp;
+		msetsys(&mcon, f, FP_SEL(sp->s_faddr));
+		kfcopy(	(char *)&mcon,
+			sp->s_faddr + offset(uproc, u_syscon),
+			sizeof(mcon));
+	}
+#endif
+a117 3
+	/* DO NOT MESS WITH THE FOLLOWING CONDITIONAL UNLESS YOU
+	   TEST THE RESULTS ON BOTH 286 AND 386 */
+#ifdef _I386
+a120 5
+#else
+	pp->p_pid = cpid++;
+	if (cpid >= NPID)
+		cpid = 2;
+#endif
+a198 1
+#ifdef _I386
+a199 3
+#else
+	if ((cpp=process(NULL)) == NULL) {
+#endif
+a203 6
+#ifndef _I386
+	s = sphi();
+	usave();	/* Put the current copy of uarea into its segment */
+	spl(s);
+#endif
+
+d229 1
+a229 1
+#ifdef _I386
+a232 7
+#endif /* _I386 */
+	cpp->p_isig  = pp->p_isig;
+	cpp->p_cval  = CVCHILD;
+	cpp->p_ival  = IVCHILD;
+	cpp->p_sval  = SVCHILD;
+	cpp->p_rval  = RVCHILD;
+#ifdef _I386
+a233 1
+#endif
+d235 2
+a245 1
+#ifdef _I386
+a249 5
+#else
+		kfcopy((char *)&mcon,
+			cpp->p_segp[SIUSERP]->s_faddr + offset(uproc,u_syscon),
+			sizeof(mcon));
+#endif
+d253 1
+a253 1
+#ifdef _I386
+a254 1
+#endif
+d264 1
+a264 1
+#ifdef _I386
+a269 3
+#else
+		sproto();
+#endif
+a270 1
+#ifdef _I386
+a271 1
+#endif
+d328 2
+d331 2
+d335 1
+a335 1
+			if (pp1->p_state==PSSLEEP && pp1->p_event==(char *)pp1)
+d338 2
+d350 1
+a350 1
+	 * Wake up swapper if swap timer is active.
+a351 6
+	if (stimer.t_last)
+		wakeup((char *) &stimer);
+
+	/*
+	 * Mark us as dead and give up the processor forever.
+	 */
+a354 1
+#ifdef _I386
+a361 3
+#else
+	uasa = 0;
+#endif
+a362 4
+#ifdef _I386
+	T_PIGGY( 0x100, printf("<CHLD pid: %d ppid: %d>",
+				pp->p_pid, parent->p_pid); );
+
+d364 1
+a364 1
+	 * If the parent is ignoring SIGCHLD, 
+d367 1
+a367 1
+#	define CHLDBIT (((sig_t) 1) << (SIGCHLD - 1))
+d374 1
+a374 1
+		 * If SIGCHLD is not defaulted, notify our parent
+d378 1
+a378 1
+			sendsig(SIGCHLD, parent );
+a380 1
+#endif /* _I386 */
+a384 1
+#ifdef _I386
+d386 21
+a406 2
+ * Sleep verbosely.  Put a short string describing our reason for sleeping
+ * into our U area, and then go to sleep.
+d408 6
+a413 4
+v_sleep(e, cl, sl, sr, msg)
+	char *e;
+	int cl, sl, sr;
+	char *msg;
+d416 4
+d425 2
+a426 2
+	for (i = 0; i < 10; ++i) {
+		if ('\0' == (u.u_sleep[i] = msg[i])) {
+d431 1
+a431 3
+	sleep(e, cl, sl, sr);
+} /* v_sleep() */
+#endif
+a432 20
+/*
+ * Sleep on the event `e'.  This gives up the processor until someone
+ * wakes us up.  Since it is possible for many people to sleep on the
+ * same event, the caller when awakened should make sure that what he
+ * was waiting for has completed and if not, go to sleep again.  `cl'
+ * is the cpu value we get to get the cpu as soon as we are woken up.
+ * `sl' is the swap value we get to keep us in memory for the duration
+ * of the sleep.  `sr' is the swap value that allows us to get swapped
+ * in if we have been swapped out.
+ */
+sleep(e, cl, sl, sr)
+char *e;
+{
+	register PROC *bp;
+	register PROC *fp;
+	register PROC *pp;
+	register int s;
+
+	pp = SELF;
+
+d434 1
+a434 1
+	 * See if we have a signal awaiting.
+a435 8
+	if (cl<CVNOSIG && pp->p_ssig && nondsig()) {
+		sphi();
+		envrest(&u.u_sigenv);
+	}
+
+	/*
+	 * Get ready to go to sleep and do so.
+	 */
+d437 3
+a439 2
+	pp->p_state = PSSLEEP;
+	pp->p_event = e;
+d441 1
+a441 4
+	addu(pp->p_cval, cl);
+	pp->p_ival = sl;
+	pp->p_rval = sr;
+	fp = &linkq[hash(e)];
+a447 1
+	dispatch();
+d449 6
+a454 6
+	/*
+	 * We have just woken up.  Get ready to return.
+	 */
+	subu(pp->p_cval, cl);
+	pp->p_ival = 0;
+	pp->p_rval = 0;
+d456 9
+a464 7
+#ifdef _I386
+	/*
+	 * Since we are no longer asleep, we no longer need 
+	 * to publish a reason for sleeping.
+	 */
+	u.u_sleep[0] = '\0';
+#endif
+d466 4
+a469 6
+	/*
+	 * Check for an interrupted system call.
+	 */
+	if (cl<CVNOSIG && pp->p_ssig && nondsig()) {
+		sphi();
+		envrest(&u.u_sigenv);
+d471 4
+d497 1
+a497 1
+ * Wake up all processes sleeping on the event `e'.
+d500 2
+a501 2
+dwakeup(e)
+char *e;
+d511 1
+a511 1
+	pp1 = &linkq[hash(e)];
+d521 1
+a521 1
+		 * Process is waiting on event 'e'.
+d523 1
+a523 1
+		if (pp->p_event == e) {
+a530 1
+			addu(pp->p_cval, (utimer-pp->p_lctim)*CVCLOCK);
+d547 4
+a550 1
+ * Reschedule the processor.
+d554 1
+a554 3
+	register PROC *pp1;
+	register PROC *pp2;
+	register unsigned v;
+d558 4
+a561 14
+	pp1 = iprocp;
+	pp2 = &procq;
+	v = 0;
+	while ((pp2=pp2->p_lforw) != &procq) {
+		v -= pp2->p_cval;
+		if ((pp2->p_flags&PFCORE) == 0)
+			continue;
+		pp1 = pp2->p_lforw;
+		pp1->p_cval += pp2->p_cval;
+		pp2->p_cval = v;
+		pp1->p_lback = pp2->p_lback;
+		pp1->p_lback->p_lforw = pp1;
+		pp1 = pp2;
+		break;
+d567 1
+a567 1
+	if (pp1 != SELF) {
+d576 1
+a576 1
+		SELF = pp1;
+d578 1
+a578 6
+#ifdef _I386
+			conrest(*pp1->p_segp[SIUSERP]->s_vmem, &u.u_syscon);
+#else
+			conrest(
+			  FP_SEL(pp1->p_u->s_faddr), offset(uproc,u_syscon));
+#endif
+a581 1
+#ifdef _I386
+a582 1
+#endif
+d590 1
+a590 1
+ * Add a process to the run queue.
+d593 2
+a594 2
+setrun(pp1)
+register PROC *pp1;
+d596 6
+a601 2
+	register PROC *pp2;
+	register unsigned v;
+a602 19
+	v = 0;
+	pp2 = &procq;
+	for (;;) {
+		pp2 = pp2->p_lback;
+		if ((v+=pp2->p_lforw->p_cval) >= pp1->p_cval)
+			break;
+		if (pp2 == &procq)
+			break;
+	}
+	pp2->p_lforw->p_lback = pp1;
+	pp1->p_lforw = pp2->p_lforw;
+	pp2->p_lforw = pp1;
+	pp1->p_lback = pp2;
+	v -= pp1->p_cval;
+	pp1->p_cval = v;
+	pp1->p_lforw->p_cval -= v;
+	pp1->p_state = PSRUN;
+}
+
+d614 1
+a614 1
+		v_sleep((char *)g, CVGATE, IVGATE, SVGATE, "lock");
+@
+
+
+1.7
+log
+@hal: kernel 71
+@
+text
+@@
+
+
+1.6
+log
+@kernel 66: floating point context switching, exceptions and signal handlers
+@
+text
+@a28 1
+#include <sys/proc.h>
+a30 1
+#include <sys/seg.h>
+d54 2
+a55 1
+	/* Segments are initialized in mchinit() and eveinit().  */
+d281 1
+d402 3
+@
+
+
+1.5
+log
+@
+@
+text
+@d318 1
+a318 3
+#if 0
+		printf("dmaout(%d,0x%x,0x%x) ", 
+		  sizeof(mcon), 
+a321 6
+		printf("mc_sp=%x ", mcon.mc_sp);
+#endif
+		dmaout(sizeof(mcon), 
+		  MAPIO(cpp->p_segp[SIUSERP]->s_vmem,
+		  U_OFFSET + offset(uproc,u_syscon)),
+		  (char *)&mcon);
+d371 1
+d373 2
+a374 1
+	T_PIGGY( 0x1, printf("%s:pexit(%x)", u.u_comm, s); );
+d554 1
+a558 1
+#ifdef _I386
+a682 19
+#if 0
+printf("after consave proc %d mc_sp=%x\n", pp1->p_pid, u.u_syscon.mc_sp);
+printf("before conrest(%x,%x)\n", *pp1->p_segp[SIUSERP]->s_vmem, &u.u_syscon);
+{
+	int sg_addr;
+	MCON mcon;
+
+	sg_addr = MAPIO(pp1->p_segp[SIUSERP]->s_vmem,
+	  U_OFFSET + offset(uproc,u_syscon));
+	printf("sg_addr = %x = MAPIO(%x,%x)\n", sg_addr,
+	  pp1->p_segp[SIUSERP]->s_vmem,
+	  U_OFFSET + offset(uproc,u_syscon));
+	printf("before pxcopy(0x%x, 0x%x, %d)\n",
+	  sg_addr, &mcon, sizeof(mcon));
+	pxcopy(sg_addr, &mcon, sizeof(mcon), SEG_386_KD|SEG_VIRT);
+	printf("after pxcopy(0x%x, 0x%x, %d) mc_sp=%x\n",
+	  sg_addr, &mcon, sizeof(mcon), mcon.mc_sp);
+}
+#endif
+d689 5
+a693 1
+		if (SELF->p_pid) {
+@
+
+
+1.4
+log
+@hal update: kernel 62 (60 files)
+@
+text
+@@
+
+
+1.3
+log
+@kernel 61 by hal
+@
+text
+@@
+
+
+1.2
+log
+@changed for ker 59
+@
+text
+@d131 1
+d134 1
+d146 1
+a146 1
+	if (f != NULL) {
+d212 1
+a212 1
+	if ((sp = pp->p_segp[SIUSERP]) != NULL) {
+d282 1
+a282 1
+	if (u.u_rdir != NULL)
+d284 1
+a284 1
+	if (u.u_cdir != NULL)
+d318 8
+d327 3
+a329 2
+		   MAPIO(cpp->p_segp[SIUSERP]->s_vmem,offset(uproc,u_syscon)),
+			(char *)&mcon);
+a334 1
+		mfixcon(cpp);
+d402 1
+a402 1
+		if ((sp = pp->p_segp[n]) != NULL) {
+d424 1
+a424 1
+			if ((pp1->p_flags&PFTRAC) != 0)
+d432 1
+a432 1
+	if (stimer.t_last != 0)
+d689 19
+d714 1
+a714 1
+		if (SELF->p_pid != 0)
+d716 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

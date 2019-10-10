@@ -1,0 +1,367 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    ; strict;
+comment  @ * @;
+
+
+1.3
+date     91.12.06.18.00.31;  author piggy;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.11.07.10.37.09;  author piggy;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.11.06.15.18.52;  author piggy;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Support for COFF executables.
+@
+
+
+1.3
+log
+@Everything (including int and void functions) is now declared in tboot.h.
+Include files are sought in their final homes (<sys/*>).
+@
+text
+@/* coff.c -- rutines for manipulating coff executable files.  */
+
+#include <a_out.h>
+#include "tboot.h"
+
+/* Convert COFF to load table.
+ * Used to generate loading instructions for use by tboot main().
+ * Returns true on successful translation.
+ */
+
+int
+coff2load(ip, table, data_seg)
+	struct inode *ip;		/* input: File to read.		*/
+	struct load_segment table[];	/* output: How to read it.	*/
+	uint16 *data_seg;	/* output: Where to point es.	*/
+{
+	FILHDR	fh;	/* COFF file header.		*/
+	AOUTHDR oh;	/* COFF optional header.	*/
+	SCNHDR	sh;	/* COFF section header.		*/
+
+	int i, j;	/* Loop counters.  */
+	fsize_t section_seek;	/* Seek counter for section headers.  */
+
+	/* Read the file header.  */
+	iread(ip, &fh, (fsize_t) 0, (uint16) sizeof (fh));
+
+
+	/* Check for the 5000 possible failures...  */
+	/* Is this really a i386 COFF file?  */
+	if (I386MAGIC != fh.f_magic) {
+		puts("COFF COFF!  File header bad magic.\r\n");
+		puts("This is not an i386 COFF file.\r\n");
+		return (1==2);
+	}
+
+	/* Is this an executable COFF file?  */
+	if (!(fh.f_flags & F_EXEC)) {
+		puts("Non-executable COFF file.\r\n");
+		return (1==2);
+	}
+
+	/* Does it have the information we need to execute it?  */
+	if (sizeof(oh) != fh.f_opthdr) {
+		puts("COFF optional header is wrong size.\r\n");
+		return (1==2);
+	}
+
+	/* Pointless witticism:  */
+	if (fh.f_timdat < 0x1000) {
+		puts(
+	 "Wow!  An executable from the first few thousand seconds of time!\r\n"
+	 	);
+	}
+
+	/* ASSERTION:  We know this to be an executable i386 COFF file.  */
+
+	/* Read the optional header.  */
+	/* This is the one with the data we really want.  */
+	iread(ip, &oh, (fsize_t) sizeof(fh), (uint16) sizeof (oh));
+
+	/* Validate the optional header.  */
+	
+	if (NORMAL_MAGIC != oh.magic) {
+		puts("COFF COFF!  Optional header bad magic.\r\n");
+		puts("This isn't a normal executable file.\r\n");
+		return(1==2);
+	}
+
+	/* Read through the section headers,
+	 * looking for text and data segments, and
+	 * turning them into little toads.  Or something like that.
+	 */
+
+#define TEXT table[0]
+#define DATA table[1]
+
+	/* Loop until we have both the sections we want, at most twice.  */
+	for (TEXT.valid = (1==2), DATA.valid = (1==2), j = 0;
+	    !(TEXT.valid && DATA.valid) && j < 2;
+	    ++j) {
+
+	     for (section_seek = sizeof(FILHDR)+sizeof(AOUTHDR), i = 0;
+	     i < fh.f_nscns;	/* i < number of sections  */
+	     section_seek += SCNHSZ, ++i) {
+
+		iread(ip, &sh, section_seek, SCNHSZ);
+		switch ((int) sh.s_flags) {
+		case STYP_TEXT:
+			TEXT.valid = (1==1);
+			TEXT.message = "\r\nLoading COFF text.\r\n";
+			TEXT.load_toseg = sys_base;
+			TEXT.load_tooffset = 0;
+			TEXT.load_offset = sh.s_scnptr;
+			TEXT.load_length = sh.s_size;
+			break;
+
+		case STYP_DATA:
+			/* The text header must already have been read to
+			 * put meaningful numbers here.
+			 */
+			if (TEXT.valid) {
+				DATA.valid = (1==1);
+				DATA.message = "\r\nLoading COFF data.\r\n";
+				/* Round up to next paragraph beyond end
+				 * of text.
+				 */
+				DATA.load_toseg = (sys_base +
+					(TEXT.load_length + 15) / 16);
+				DATA.load_tooffset = 0;
+				DATA.load_offset = sh.s_scnptr;
+				DATA.load_length = sh.s_size;
+				*data_seg = (sys_base +
+					(TEXT.load_length + 15) / 16);
+			}
+			break;
+		case STYP_BSS:
+			break;
+		default:
+			puts("Warning.  Unrecognized COFF section.\r\n");
+			break;
+		} /* switch (sh.s_flags) */
+
+	     } /* for walk through headers  */
+
+	} /* while haven't got both, at most twice  */
+	
+	if (!TEXT.valid) {
+		puts("Failed to find COFF text section.\r\n");
+		return (1==2);
+	}
+
+	if (!DATA.valid) {
+		puts("Failed to find COFF data section.\r\n");
+		return (1==2);
+	}
+
+	table[2].valid = (1==2);	/* Terminate the list.  */
+
+	return(1==1);
+}
+
+
+/*
+ * Symbol name.
+ */
+static char *
+symName(sym, str_tab, work)
+SYMENT *sym;
+char *str_tab, *work;
+{
+	if (!sym->_n._n_n._n_zeroes)
+		return (str_tab + sym->_n._n_n._n_offset - 4);
+
+	memcpy(work, sym->_n._n_name, SYMNMLEN);
+	work[SYMNMLEN] = '\0';
+	return (work);
+}
+
+/*
+ * Look up the value of a single data symbol in a coff file,
+ * relative to the start of the data segment.
+ *
+ * We use the symbol "sdata" to find the start of the data segment--
+ * this works for 386 COHERENT kernels but will not work in general.
+ * It should really fetch the address of the start of the data segment
+ * from the data section header.
+ */
+uint32
+wrap_coffnlist(fn, symbol)
+	char *fn;	/* file name */
+	char *symbol;	/* symbol to look up */
+{
+	/* Something goes wrong with looking up symbol if
+	 * nlp is automatic rather than static, even with a huge stack.
+	 */
+	static SYMENT nlp[2];
+	uint32 retval;
+
+	/* Start of the data segment.  */
+	strcpy(nlp[0]._n._n_name, "sdata");
+	nlp[0].n_type = -1;
+
+	nlp[1]._n._n_n._n_zeroes = 0;
+	nlp[1]._n._n_n._n_offset = sizeof(int32);
+	nlp[1].n_type = -1;
+
+	coffnlist(fn, nlp, symbol, 2);
+
+	retval = ((uint32)nlp[1].n_value) - ((uint32)nlp[0].n_value);
+
+	if (0L == nlp[1].n_value) {
+		return(0L);
+	} else {
+		return(retval);
+	}
+	puts("Unreachable code in wrap_coffnlist().\r\n");
+	return(0L);
+} /* wrap_coffnlist() */
+
+int
+coffnlist(fn, nlp, names, count)
+char *fn;	/* file name */
+SYMENT *nlp;	/* names to look up */
+char *names;	/* long names */
+int count;	/* size of passed table */
+{
+	FILHDR head;
+	int fp;
+	/* str_tab should be malloc'd.  Blows up silently if longer than 2k.  */
+#define STR_TAB_SIZE 2048
+	char str_tab[STR_TAB_SIZE];
+	long str_length;
+	int aux, i;
+
+	if (-1 == (fp = open(fn, 0)))
+		return(0);
+
+	if (FILHSZ != read(fp, &head, FILHSZ) || head.f_magic != I386MAGIC) {
+		close (fp);
+		return (0);
+	}
+
+	lseek(fp, head.f_symptr + (SYMESZ * head.f_nsyms), 0);
+
+	if (sizeof(str_length) != read(fp, &str_length, sizeof(str_length)))
+		str_length = 0;
+	if (str_length) {
+		uint16 len;
+
+		len = str_length -= 4;
+		if (len != str_length || len > STR_TAB_SIZE) {
+			close (fp);
+			return (0);
+		}
+
+		if (len != read(fp, str_tab, len)) {
+			close (fp);
+			return (0);
+		}
+	}
+
+	lseek(fp, head.f_symptr, 0);
+	for (i = aux = 0; i < head.f_nsyms; i++) {
+		SYMENT sym;	/* symbol read in */
+		int taux, j;
+
+		if (SYMESZ != read(fp, &sym, SYMESZ)) {
+			close (fp);
+			return (0);
+		}
+
+		if (aux) {
+			aux--;
+			continue;
+		}
+		aux = sym.n_numaux;
+		for (j = taux = 0; j < count; j++) {
+			static char n1[SYMNMLEN + 1], n2[SYMNMLEN + 1];
+			register SYMENT *np;
+
+			if (taux) {
+				taux--;
+				continue;
+			}
+			np = nlp + j;
+			taux = np->n_numaux;
+			if (np->n_type != -1 ||
+			    strcmp(symName(np, names, n1),
+			    	   symName(&sym, str_tab, n2)))
+				continue;
+			np->n_value  = sym.n_value;
+			np->n_scnum  = sym.n_scnum;
+			np->n_type   = sym.n_type;
+			np->n_sclass = sym.n_sclass;
+			break;
+		}
+	}
+	close (fp);
+	return (1);
+}
+
+#ifdef TEST
+#include <stdio.h>
+
+main()
+{
+	int i;
+	static SYMENT sym[3];
+	static char ptr[]="rootdev";
+
+	strcpy(sym[0]._n._n_name, "NCLIST");
+	sym[0].n_type = -1;
+
+	strcpy(sym[1]._n._n_name, "sdata");
+	sym[1].n_type = -1;
+
+	sym[2]._n._n_n._n_zeroes = 0;
+	sym[2]._n._n_n._n_offset = sizeof(int32);
+	sym[2].n_type = -1;
+
+	coffnlist("/at386", sym, ptr, 3);
+
+	for (i = 0; i < 3; ++i) {
+		printf("sym[%d]._n._n_name: %s\n", i, sym[i]._n._n_name);
+		printf("sym[%d].n_value: %lx\n\n", i, sym[i].n_value);
+	}
+
+	printf("\nrootdev as offset: %lx\n", 
+		wrap_coffnlist("/at386", "rootdev"));
+}
+#endif
+@
+
+
+1.2
+log
+@Spelling corrected.
+@
+text
+@d200 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d163 1
+a163 1
+ * We use the symbol "sdata" to find the start of the data segement--
+@

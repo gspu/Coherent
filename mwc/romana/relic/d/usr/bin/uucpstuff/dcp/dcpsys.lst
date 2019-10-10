@@ -1,0 +1,1678 @@
+				/	module name dcpsys
+					.alignoff
+					.comm	getpkt,	4
+					.comm	sendpkt,	4
+					.comm	openpk,	4
+					.comm	closepk,	4
+				
+					.text
+					.globl getsystem
+				getsystem:
+0000 55					push	%ebp
+0001 8BEC				movl	%ebp, %esp
+0003 E8F8 FFFF FF			call	lsys_next
+0008 0BC0				orl	%eax, %eax
+000A 750A				jne	.L3
+000C B841 0000 00			movl	%eax, $65
+0011 E9DE 0000 00			jmp	.L2
+				.L3:
+0016 6A00				push	$0
+0018 E8E3 FFFF FF			call	lsys_value
+001D 59					pop	%ecx
+001E A300 0000 00			movl	rmtname, %eax
+0023 FF35 0000 0000			push	sysname
+0029 50					push	%eax
+002A E8D1 FFFF FF			call	strcmp
+002F 83C4 08				addl	%esp, $8
+0032 0BC0				orl	%eax, %eax
+0034 7442				je	.L4
+0036 6800 1000 00			push	$.L5
+003B FF35 0000 0000			push	sysname
+0041 E8BA FFFF FF			call	strcmp
+0046 83C4 08				addl	%esp, $8
+0049 0BC0				orl	%eax, %eax
+004B 7421				je	.L7
+004D 6804 1000 00			push	$.L6
+0052 FF35 0000 0000			push	sysname
+0058 E8A3 FFFF FF			call	strcmp
+005D 83C4 08				addl	%esp, $8
+0060 0BC0				orl	%eax, %eax
+0062 740A				je	.L7
+				.L20003:
+0064 B849 0000 00			movl	%eax, $73
+0069 E986 0000 00			jmp	.L2
+				.L7:
+006E E839 0E00 00			call	scandir
+0073 83F8 53				cmpl	%eax, $83
+0076 75EC				jne	.L20003
+				.L4:
+0078 FF35 0000 0000			push	rmtname
+007E 6808 1000 00			push	$.L9
+0083 6A01				push	$1
+0085 E876 FFFF FF			call	printmsg
+008A 83C4 0C				addl	%esp, $12
+008D 6A01				push	$1
+008F E86C FFFF FF			call	lsys_value
+0094 59					pop	%ecx
+0095 50					push	%eax
+0096 E865 FFFF FF			call	checktime
+009B 59					pop	%ecx
+009C 0BC0				orl	%eax, %eax
+009E 74C4				je	.L20003
+00A0 6827 1000 00			push	$.L11
+00A5 E856 FFFF FF			call	open_the_logfile
+00AA 59					pop	%ecx
+00AB 833D 0000 0000 00			cmpl	cfp, $0
+00B2 740C				je	.L12
+00B4 FF35 0000 0000			push	cfp
+00BA E841 FFFF FF			call	fclose
+00BF 59					pop	%ecx
+				.L12:
+00C0 FF35 0000 0000			push	rmtname
+00C6 E835 FFFF FF			call	lockit
+00CB 59					pop	%ecx
+00CC 0BC0				orl	%eax, %eax
+00CE 7D1F				jge	.L13
+00D0 FF35 0000 0000			push	rmtname
+00D6 682E 1000 00			push	$.L14
+00DB 6A01				push	$1
+00DD E81E FFFF FF			call	plog
+00E2 83C4 0C				addl	%esp, $12
+00E5 E816 FFFF FF			call	close_logfile
+00EA E975 FFFF FF			jmp	.L20003
+				.L13:
+00EF B853 0000 00			movl	%eax, $83
+				.L2:
+00F4 C9					leave
+00F5 C3					ret
+00F6 9090				.align	4
+					.globl checkrmt
+				checkrmt:
+00F8 55					push	%ebp
+00F9 8BEC				movl	%ebp, %esp
+00FB E800 FFFF FF			call	lsys_open
+				.L17:
+0100 E8FB FEFF FF			call	lsys_next
+0105 0BC0				orl	%eax, %eax
+0107 7422				je	.L16
+0109 6A00				push	$0
+010B E8F0 FEFF FF			call	lsys_value
+0110 59					pop	%ecx
+0111 50					push	%eax
+0112 FF35 0000 0000			push	rmtname
+0118 E8E3 FEFF FF			call	strcmp
+011D 83C4 08				addl	%esp, $8
+0120 0BC0				orl	%eax, %eax
+0122 75DC				jne	.L17
+0124 B801 0000 00			movl	%eax, $1
+0129 EB07				jmp	.L15
+				.L16:
+012B E8D0 FEFF FF			call	lsys_close
+0130 2BC0				subl	%eax, %eax
+				.L15:
+0132 C9					leave
+0133 C3					ret
+					.align	4
+					.globl rmsg
+				rmsg:
+0134 C808 0000				enter	$8, $0
+0138 57					push	%edi
+0139 53					push	%ebx
+013A C745 F800 0000 00			movl	-8(%ebp), $0
+				.L22:
+0141 8B45 F8				movl	%eax, -8(%ebp)
+0144 3D00 0800 00			cmpl	%eax, $2048
+0149 7D24				jge	.L20
+014B 6A28				push	$40
+014D 6A01				push	$1
+014F 8D45 FC				lea	%eax, -4(%ebp)
+0152 50					push	%eax
+0153 E8A8 FEFF FF			call	sread
+0158 83C4 0C				addl	%esp, $12
+015B 83F8 01				cmpl	%eax, $1
+015E 0F85 8200 0000			jne	.L24
+0164 807D FC10				cmpb	-4(%ebp), $16
+0168 7405				je	.L20
+016A FF45 F8				incl	-8(%ebp)
+016D EBD2				jmp	.L22
+				.L20:
+016F 807D FC10				cmpb	-4(%ebp), $16
+0173 0F85 8B00 0000			jne	.L27
+0179 8B5D 08				movl	%ebx, 8(%ebp)
+017C C745 F801 0000 00			movl	-8(%ebp), $1
+				.L30:
+0183 8B45 F8				movl	%eax, -8(%ebp)
+0186 3B45 0C				cmpl	%eax, 12(%ebp)
+0189 7D34				jge	.L28
+018B 6A28				push	$40
+018D 6A01				push	$1
+018F 8D45 FC				lea	%eax, -4(%ebp)
+0192 50					push	%eax
+0193 E868 FEFF FF			call	sread
+0198 83C4 0C				addl	%esp, $12
+019B 83F8 01				cmpl	%eax, $1
+019E 7546				jne	.L24
+01A0 807D FC00				cmpb	-4(%ebp), $0
+01A4 7419				je	.L28
+01A6 807D FC0D				cmpb	-4(%ebp), $13
+01AA 7413				je	.L28
+01AC 807D FC0A				cmpb	-4(%ebp), $10
+01B0 740D				je	.L28
+01B2 8BFB				movl	%edi, %ebx
+01B4 43					incl	%ebx
+01B5 8A45 FC				movb	%al, -4(%ebp)
+01B8 8807				movb	(%edi), %al
+01BA FF45 F8				incl	-8(%ebp)
+01BD EBC4				jmp	.L30
+				.L28:
+01BF C603 00				movb	(%ebx), $0
+01C2 FF75 08				push	8(%ebp)
+01C5 E836 FEFF FF			call	visib
+01CA 59					pop	%ecx
+01CB 50					push	%eax
+01CC 683E 1000 00			push	$.L33
+01D1 6A64				push	$100
+01D3 E828 FEFF FF			call	printmsg
+01D8 83C4 0C				addl	%esp, $12
+01DB FF75 08				push	8(%ebp)
+01DE E81D FEFF FF			call	strlen
+01E3 59					pop	%ecx
+01E4 EB35				jmp	.L19
+				.L24:
+01E6 C603 00				movb	(%ebx), $0
+01E9 FF75 08				push	8(%ebp)
+01EC E80F FEFF FF			call	visib
+01F1 59					pop	%ecx
+01F2 50					push	%eax
+01F3 6848 1000 00			push	$.L34
+01F8 6A01				push	$1
+01FA E801 FEFF FF			call	printmsg
+01FF 83C4 0C				addl	%esp, $12
+0202 EB12				jmp	.L20004
+				.L27:
+0204 C603 00				movb	(%ebx), $0
+0207 6862 1000 00			push	$.L35
+020C 6A01				push	$1
+020E E8ED FDFF FF			call	printmsg
+0213 83C4 08				addl	%esp, $8
+				.L20004:
+0216 B8FF FFFF FF			movl	%eax, $-1
+				.L19:
+021B 5B					pop	%ebx
+021C 5F					pop	%edi
+021D C9					leave
+021E C3					ret
+021F 90					.align	4
+					.globl wmsg
+				wmsg:
+0220 C804 0000				enter	$4, $0
+0224 C645 FC00				movb	-4(%ebp), $0
+0228 C645 FD10				movb	-3(%ebp), $16
+022C FF75 08				push	8(%ebp)
+022F E8CC FDFF FF			call	visib
+0234 59					pop	%ecx
+0235 50					push	%eax
+0236 6892 1000 00			push	$.L37
+023B 6A64				push	$100
+023D E8BE FDFF FF			call	printmsg
+0242 83C4 0C				addl	%esp, $12
+0245 6A02				push	$2
+0247 8D45 FC				lea	%eax, -4(%ebp)
+024A 50					push	%eax
+024B E8B0 FDFF FF			call	swrite
+0250 83C4 08				addl	%esp, $8
+0253 FF75 08				push	8(%ebp)
+0256 E8A5 FDFF FF			call	strlen
+025B 59					pop	%ecx
+025C 50					push	%eax
+025D FF75 08				push	8(%ebp)
+0260 E89B FDFF FF			call	swrite
+0265 83C4 08				addl	%esp, $8
+0268 6A01				push	$1
+026A 8D45 FC				lea	%eax, -4(%ebp)
+026D 50					push	%eax
+026E E88D FDFF FF			call	swrite
+0273 83C4 08				addl	%esp, $8
+0276 C9					leave
+0277 C3					ret
+					.align	4
+					.globl startup
+				startup:
+0278 C810 0200				enter	$528, $0
+027C 57					push	%edi
+027D C705 0000 0000 0000 0000		movl	sysended, $0
+0287 C705 2C17 0000 0000 0000		movl	leavelock, $0
+0291 A100 0000 00			movl	%eax, role
+0296 83F8 01				cmpl	%eax, $1
+0299 0F85 D802 0000			jne	.L42
+029F 6800 0200 00			push	$512
+02A4 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+02AA 50					push	%eax
+02AB E884 FEFF FF			call	rmsg
+02B0 83C4 08				addl	%esp, $8
+02B3 0BC0				orl	%eax, %eax
+02B5 7D3A				jge	.L43
+02B7 C785 FCFD FFFF B310 0000		movl	-516(%ebp), $.L44
+				.L20016:
+02C1 C785 F8FD FFFF 0000 0000		movl	-520(%ebp), $0
+				.L45:
+02CB FFB5 F8FD FFFF			push	-520(%ebp)
+02D1 FFB5 FCFD FFFF			push	-516(%ebp)
+02D7 6A01				push	$1
+02D9 E822 FDFF FF			call	plog
+02DE 83C4 0C				addl	%esp, $12
+02E1 FF05 0000 0000			incl	terminatelevel
+02E7 B859 0000 00			movl	%eax, $89
+02EC E97C 0500 00			jmp	.L38
+				.L43:
+02F1 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+02F7 50					push	%eax
+02F8 E803 FDFF FF			call	visib
+02FD 59					pop	%ecx
+02FE 50					push	%eax
+02FF 68E1 1000 00			push	$.L46
+0304 6A02				push	$2
+0306 E8F5 FCFF FF			call	printmsg
+030B 83C4 0C				addl	%esp, $12
+030E 6A05				push	$5
+0310 68F0 1000 00			push	$.L47
+0315 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+031B 50					push	%eax
+031C E8DF FCFF FF			call	strncmp
+0321 83C4 0C				addl	%esp, $12
+0324 0BC0				orl	%eax, %eax
+0326 740C				je	.L48
+0328 C785 FCFD FFFF F610 0000		movl	-516(%ebp), $.L49
+0332 EB8D				jmp	.L20016
+				.L48:
+0334 80BD 05FE FFFF 00			cmpb	-507(%ebp), $0
+033B 741B				je	.L10002
+033D 80BD 05FE FFFF 0A			cmpb	-507(%ebp), $10
+0344 7412				je	.L10002
+0346 80BD 06FE FFFF 00			cmpb	-506(%ebp), $0
+034D 7409				je	.L10002
+034F 80BD 06FE FFFF 0A			cmpb	-506(%ebp), $10
+0356 7511				jne	.L50
+				.L10002:
+0358 680D 1100 00			push	$.L51
+035D 6A01				push	$1
+035F E89C FCFF FF			call	plog
+0364 83C4 08				addl	%esp, $8
+0367 EB36				jmp	.L52
+				.L50:
+0369 6A07				push	$7
+036B FF35 0000 0000			push	rmtname
+0371 8D85 06FE FFFF			lea	%eax, -506(%ebp)
+0377 50					push	%eax
+0378 E883 FCFF FF			call	strncmp
+037D 83C4 0C				addl	%esp, $12
+0380 0BC0				orl	%eax, %eax
+0382 741B				je	.L52
+0384 C785 FCFD FFFF 2E11 0000		movl	-516(%ebp), $.L54
+038E 8D85 06FE FFFF			lea	%eax, -506(%ebp)
+				.L20019:
+0394 8985 F8FD FFFF			movl	-520(%ebp), %eax
+039A E92C FFFF FF			jmp	.L45
+				.L52:
+039F FF35 0000 0000			push	debuglevel
+03A5 FF35 0000 0000			push	nodename
+03AB 6A07				push	$7
+03AD 684F 1100 00			push	$.L55
+03B2 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+03B8 50					push	%eax
+03B9 E842 FCFF FF			call	sprintf
+03BE 83C4 14				addl	%esp, $20
+03C1 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+03C7 50					push	%eax
+03C8 685E 1100 00			push	$.L56
+03CD 6A02				push	$2
+03CF E82C FCFF FF			call	printmsg
+03D4 83C4 0C				addl	%esp, $12
+03D7 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+03DD 50					push	%eax
+03DE E83D FEFF FF			call	wmsg
+03E3 59					pop	%ecx
+03E4 6800 0200 00			push	$512
+03E9 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+03EF 50					push	%eax
+03F0 E83F FDFF FF			call	rmsg
+03F5 83C4 08				addl	%esp, $8
+03F8 0BC0				orl	%eax, %eax
+03FA 7D0F				jge	.L57
+03FC C785 FCFD FFFF 7611 0000		movl	-516(%ebp), $.L58
+0406 E9B6 FEFF FF			jmp	.L20016
+				.L57:
+040B 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0411 50					push	%eax
+0412 E8E9 FBFF FF			call	visib
+0417 59					pop	%ecx
+0418 50					push	%eax
+0419 68A5 1100 00			push	$.L59
+041E 6A02				push	$2
+0420 E8DB FBFF FF			call	printmsg
+0425 83C4 0C				addl	%esp, $12
+0428 6A02				push	$2
+042A 68B4 1100 00			push	$.L60
+042F 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0435 50					push	%eax
+0436 E8C5 FBFF FF			call	strncmp
+043B 83C4 0C				addl	%esp, $12
+043E 0BC0				orl	%eax, %eax
+0440 740F				je	.L61
+0442 C785 FCFD FFFF B811 0000		movl	-516(%ebp), $.L62
+044C E970 FEFF FF			jmp	.L20016
+				.L61:
+0451 6800 0200 00			push	$512
+0456 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+045C 50					push	%eax
+045D E8D2 FCFF FF			call	rmsg
+0462 83C4 08				addl	%esp, $8
+0465 0BC0				orl	%eax, %eax
+0467 7D0F				jge	.L63
+0469 C785 FCFD FFFF CF11 0000		movl	-516(%ebp), $.L64
+0473 E949 FEFF FF			jmp	.L20016
+				.L63:
+0478 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+047E 50					push	%eax
+047F E87C FBFF FF			call	visib
+0484 59					pop	%ecx
+0485 50					push	%eax
+0486 68FD 1100 00			push	$.L65
+048B 6A02				push	$2
+048D E86E FBFF FF			call	printmsg
+0492 83C4 0C				addl	%esp, $12
+0495 80BD 00FE FFFF 50			cmpb	-512(%ebp), $80
+049C 740F				je	.L66
+049E C785 FCFD FFFF 0C12 0000		movl	-516(%ebp), $.L67
+04A8 E914 FEFF FF			jmp	.L20016
+				.L66:
+04AD C685 F0FD FFFF 4E			movb	-528(%ebp), $78
+04B4 C785 F4FD FFFF 2312 0000		movl	-524(%ebp), $.L68
+				.L71:
+04BE 8BBD F4FD FFFF			movl	%edi, -524(%ebp)
+04C4 803F 00				cmpb	(%edi), $0
+04C7 742F				je	.L69
+04C9 0FBE 07				movsxb	%eax, (%edi)
+04CC 50					push	%eax
+04CD 8D85 01FE FFFF			lea	%eax, -511(%ebp)
+04D3 50					push	%eax
+04D4 E827 FBFF FF			call	index
+04D9 83C4 08				addl	%esp, $8
+04DC 0BC0				orl	%eax, %eax
+04DE 7410				je	.L72
+04E0 8BBD F4FD FFFF			movl	%edi, -524(%ebp)
+04E6 8A07				movb	%al, (%edi)
+04E8 8885 F0FD FFFF			movb	-528(%ebp), %al
+04EE EB08				jmp	.L69
+				.L72:
+04F0 FF85 F4FD FFFF			incl	-524(%ebp)
+04F6 EBC6				jmp	.L71
+				.L69:
+04F8 0FBE 85F0 FDFF FF			movsxb	%eax, -528(%ebp)
+04FF 50					push	%eax
+0500 6825 1200 00			push	$.L73
+0505 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+050B 50					push	%eax
+050C E8EF FAFF FF			call	sprintf
+0511 83C4 0C				addl	%esp, $12
+0514 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+051A 50					push	%eax
+051B 6829 1200 00			push	$.L74
+0520 6A02				push	$2
+0522 E8D9 FAFF FF			call	printmsg
+0527 83C4 0C				addl	%esp, $12
+052A 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0530 50					push	%eax
+0531 E8EA FCFF FF			call	wmsg
+0536 59					pop	%ecx
+0537 80BD F0FD FFFF 4E			cmpb	-528(%ebp), $78
+053E 750F				jne	.L75
+0540 C785 FCFD FFFF 4112 0000		movl	-516(%ebp), $.L76
+054A E972 FDFF FF			jmp	.L20016
+				.L75:
+054F 0FBE 85F0 FDFF FF			movsxb	%eax, -528(%ebp)
+0556 50					push	%eax
+0557 E814 0300 00			call	setproto
+055C 59					pop	%ecx
+055D FF35 3017 0000			push	.L40
+0563 6A01				push	$1
+0565 E896 FAFF FF			call	plog
+056A 83C4 08				addl	%esp, $8
+056D B844 0000 00			movl	%eax, $68
+0572 E9F6 0200 00			jmp	.L38
+				.L42:
+0577 FF35 0000 0000			push	nodename
+057D 6854 1200 00			push	$.L78
+0582 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0588 50					push	%eax
+0589 E872 FAFF FF			call	sprintf
+058E 83C4 0C				addl	%esp, $12
+0591 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0597 50					push	%eax
+0598 685D 1200 00			push	$.L79
+059D 6A02				push	$2
+059F E85C FAFF FF			call	printmsg
+05A4 83C4 0C				addl	%esp, $12
+05A7 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+05AD 50					push	%eax
+05AE E86D FCFF FF			call	wmsg
+05B3 59					pop	%ecx
+05B4 6800 0200 00			push	$512
+05B9 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+05BF 50					push	%eax
+05C0 E86F FBFF FF			call	rmsg
+05C5 83C4 08				addl	%esp, $8
+05C8 0BC0				orl	%eax, %eax
+05CA 7D0F				jge	.L80
+05CC C785 FCFD FFFF 6C12 0000		movl	-516(%ebp), $.L81
+05D6 E9E6 FCFF FF			jmp	.L20016
+				.L80:
+05DB 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+05E1 50					push	%eax
+05E2 E819 FAFF FF			call	visib
+05E7 59					pop	%ecx
+05E8 50					push	%eax
+05E9 6896 1200 00			push	$.L82
+05EE 6A02				push	$2
+05F0 E80B FAFF FF			call	printmsg
+05F5 83C4 0C				addl	%esp, $12
+05F8 80BD 00FE FFFF 53			cmpb	-512(%ebp), $83
+05FF 740F				je	.L83
+0601 C785 FCFD FFFF AE12 0000		movl	-516(%ebp), $.L84
+060B E9B1 FCFF FF			jmp	.L20016
+				.L83:
+0610 6A20				push	$32
+0612 8D85 01FE FFFF			lea	%eax, -511(%ebp)
+0618 50					push	%eax
+0619 E8E2 F9FF FF			call	index
+061E 83C4 08				addl	%esp, $8
+0621 8985 F4FD FFFF			movl	-524(%ebp), %eax
+0627 0BC0				orl	%eax, %eax
+0629 7409				je	.L85
+062B 8BBD F4FD FFFF			movl	%edi, -524(%ebp)
+0631 C607 00				movb	(%edi), $0
+				.L85:
+0634 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+063A 50					push	%eax
+063B E8C0 F9FF FF			call	strlen
+0640 59					pop	%ecx
+0641 83F8 0F				cmpl	%eax, $15
+0644 7E0F				jle	.L86
+0646 C785 FCFD FFFF CE12 0000		movl	-516(%ebp), $.L87
+0650 E96C FCFF FF			jmp	.L20016
+				.L86:
+0655 8D85 01FE FFFF			lea	%eax, -511(%ebp)
+065B 50					push	%eax
+065C 6834 1700 00			push	$.L39
+0661 E89A F9FF FF			call	strcpy
+0666 83C4 08				addl	%esp, $8
+0669 C705 0000 0000 3417 0000		movl	rmtname, $.L39
+0673 68E8 1200 00			push	$.L88
+0678 E883 F9FF FF			call	open_the_logfile
+067D 59					pop	%ecx
+067E FF35 0000 0000			push	version
+0684 FF35 0000 0000			push	processid
+068A FF35 0000 0000			push	rmtname
+0690 68EF 1200 00			push	$.L89
+0695 6A01				push	$1
+0697 E864 F9FF FF			call	plog
+069C 83C4 14				addl	%esp, $20
+069F FF35 0000 0000			push	rmtname
+06A5 6810 1300 00			push	$.L90
+06AA 6A01				push	$1
+06AC E84F F9FF FF			call	plog
+06B1 83C4 0C				addl	%esp, $12
+06B4 FF35 0000 0000			push	rmtname
+06BA E841 F9FF FF			call	lockit
+06BF 59					pop	%ecx
+06C0 0BC0				orl	%eax, %eax
+06C2 7D1E				jge	.L91
+06C4 C705 2C17 0000 0100 0000		movl	leavelock, $1
+06CE C785 FCFD FFFF 2713 0000		movl	-516(%ebp), $.L92
+				.L20020:
+06D8 A100 0000 00			movl	%eax, rmtname
+06DD E9B2 FCFF FF			jmp	.L20019
+				.L91:
+06E2 E811 FAFF FF			call	checkrmt
+06E7 0BC0				orl	%eax, %eax
+06E9 750C				jne	.L93
+06EB C785 FCFD FFFF 4713 0000		movl	-516(%ebp), $.L94
+06F5 EBE1				jmp	.L20020
+				.L93:
+06F7 0FBE 0519 0000 00			movsxb	%eax, _stdin+25
+06FE 50					push	%eax
+06FF E8FC F8FF FF			call	ttyname
+0704 59					pop	%ecx
+0705 A300 0000 00			movl	rdevname, %eax
+070A 0BC0				orl	%eax, %eax
+070C 750F				jne	.L95
+070E C785 FCFD FFFF 5713 0000		movl	-516(%ebp), $.L96
+0718 E9A4 FBFF FF			jmp	.L20016
+				.L95:
+071D 8305 0000 0000 05			addl	rdevname, $5
+0724 A100 0000 00			movl	%eax, role
+0729 83F8 01				cmpl	%eax, $1
+072C 7534				jne	.L97
+072E FF35 0000 0000			push	rdevname
+0734 E8C7 F8FF FF			call	locktty
+0739 59					pop	%ecx
+073A 0BC0				orl	%eax, %eax
+073C 7D24				jge	.L97
+073E A100 0000 00			movl	%eax, rdevname
+0743 8985 F4FD FFFF			movl	-524(%ebp), %eax
+0749 C705 0000 0000 0000 0000		movl	rdevname, $0
+0753 C785 FCFD FFFF 6F13 0000		movl	-516(%ebp), $.L99
+075D E932 FCFF FF			jmp	.L20019
+				.L97:
+0762 688A 1300 00			push	$.L100
+0767 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+076D 50					push	%eax
+076E E88D F8FF FF			call	sprintf
+0773 83C4 08				addl	%esp, $8
+0776 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+077C 50					push	%eax
+077D 688E 1300 00			push	$.L101
+0782 6A02				push	$2
+0784 E877 F8FF FF			call	printmsg
+0789 83C4 0C				addl	%esp, $12
+078C 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0792 50					push	%eax
+0793 E888 FAFF FF			call	wmsg
+0798 59					pop	%ecx
+0799 68A1 1300 00			push	$.L103
+079E 689D 1300 00			push	$.L102
+07A3 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+07A9 50					push	%eax
+07AA E851 F8FF FF			call	sprintf
+07AF 83C4 0C				addl	%esp, $12
+07B2 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+07B8 50					push	%eax
+07B9 68A3 1300 00			push	$.L104
+07BE 6A02				push	$2
+07C0 E83B F8FF FF			call	printmsg
+07C5 83C4 0C				addl	%esp, $12
+07C8 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+07CE 50					push	%eax
+07CF E84C FAFF FF			call	wmsg
+07D4 59					pop	%ecx
+07D5 6800 0200 00			push	$512
+07DA 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+07E0 50					push	%eax
+07E1 E84E F9FF FF			call	rmsg
+07E6 83C4 08				addl	%esp, $8
+07E9 0BC0				orl	%eax, %eax
+07EB 7D0F				jge	.L105
+07ED C785 FCFD FFFF B213 0000		movl	-516(%ebp), $.L106
+07F7 E9C5 FAFF FF			jmp	.L20016
+				.L105:
+07FC 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+0802 50					push	%eax
+0803 E8F8 F7FF FF			call	visib
+0808 59					pop	%ecx
+0809 50					push	%eax
+080A 68E1 1300 00			push	$.L107
+080F 6A02				push	$2
+0811 E8EA F7FF FF			call	printmsg
+0816 83C4 0C				addl	%esp, $12
+0819 80BD 00FE FFFF 55			cmpb	-512(%ebp), $85
+0820 7519				jne	.L10003
+0822 0FBE 8501 FEFF FF			movsxb	%eax, -511(%ebp)
+0829 50					push	%eax
+082A 68F9 1300 00			push	$.L108
+082F E8CC F7FF FF			call	index
+0834 83C4 08				addl	%esp, $8
+0837 0BC0				orl	%eax, %eax
+0839 750F				jne	.L109
+				.L10003:
+083B C785 FCFD FFFF FB13 0000		movl	-516(%ebp), $.L110
+0845 E977 FAFF FF			jmp	.L20016
+				.L109:
+084A 0FBE 8501 FEFF FF			movsxb	%eax, -511(%ebp)
+0851 50					push	%eax
+0852 E819 0000 00			call	setproto
+0857 59					pop	%ecx
+0858 FF35 3017 0000			push	.L40
+085E 6A01				push	$1
+0860 E89B F7FF FF			call	plog
+0865 83C4 08				addl	%esp, $8
+0868 B852 0000 00			movl	%eax, $82
+				.L38:
+086D 5F					pop	%edi
+086E C9					leave
+086F C3					ret
+					.align	4
+					.globl setproto
+				setproto:
+0870 55					push	%ebp
+0871 8BEC				movl	%ebp, %esp
+0873 53					push	%ebx
+0874 BB04 1700 00			movl	%ebx, $protolst
+				.L114:
+0879 803B 00				cmpb	(%ebx), $0
+087C 740D				je	.L112
+087E 0FBE 03				movsxb	%eax, (%ebx)
+0881 3B45 08				cmpl	%eax, 8(%ebp)
+0884 7405				je	.L112
+0886 83C3 14				addl	%ebx, $20
+0889 EBEE				jmp	.L114
+				.L112:
+088B 803B 00				cmpb	(%ebx), $0
+088E 7510				jne	.L115
+0890 FF75 08				push	8(%ebp)
+0893 681D 1400 00			push	$.L116
+0898 E863 F7FF FF			call	fatal
+089D 83C4 08				addl	%esp, $8
+				.L115:
+08A0 FF75 08				push	8(%ebp)
+08A3 6843 1400 00			push	$.L117
+08A8 6A01				push	$1
+08AA E851 F7FF FF			call	printmsg
+08AF 83C4 0C				addl	%esp, $12
+08B2 8B43 04				movl	%eax, 4(%ebx)
+08B5 A304 0000 00			movl	getpkt, %eax
+08BA 8B43 08				movl	%eax, 8(%ebx)
+08BD A304 0000 00			movl	sendpkt, %eax
+08C2 8B43 0C				movl	%eax, 12(%ebx)
+08C5 A304 0000 00			movl	openpk, %eax
+08CA 8B43 10				movl	%eax, 16(%ebx)
+08CD A304 0000 00			movl	closepk, %eax
+08D2 5B					pop	%ebx
+08D3 C9					leave
+08D4 C3					ret
+08D5 9090 90				.align	4
+					.globl expectstr
+				expectstr:
+08D8 C80C 0200				enter	$524, $0
+08DC 57					push	%edi
+08DD 53					push	%ebx
+08DE C785 F8FD FFFF 0000 0000		movl	-520(%ebp), $0
+08E8 FF75 08				push	8(%ebp)
+08EB 6857 1400 00			push	$.L119
+08F0 6A64				push	$100
+08F2 E809 F7FF FF			call	printmsg
+08F7 83C4 0C				addl	%esp, $12
+08FA 6868 1400 00			push	$.L120
+08FF FF75 08				push	8(%ebp)
+0902 E8F9 F6FF FF			call	strcmp
+0907 83C4 08				addl	%esp, $8
+090A 0BC0				orl	%eax, %eax
+090C 750A				jne	.L121
+090E C785 F8FD FFFF 0100 0000		movl	-520(%ebp), $1
+				.L121:
+0918 FF75 08				push	8(%ebp)
+091B E8E0 F6FF FF			call	strlen
+0920 59					pop	%ecx
+0921 8985 F4FD FFFF			movl	-524(%ebp), %eax
+0927 8D9D 00FE FFFF			lea	%ebx, -512(%ebp)
+				.L123:
+092D 83BD F8FD FFFF 00			cmpl	-520(%ebp), $0
+0934 756A				jne	.L122
+0936 FF75 0C				push	12(%ebp)
+0939 6A01				push	$1
+093B 8D85 FCFD FFFF			lea	%eax, -516(%ebp)
+0941 50					push	%eax
+0942 E8B9 F6FF FF			call	sread
+0947 83C4 0C				addl	%esp, $12
+094A 83F8 01				cmpl	%eax, $1
+094D 7551				jne	.L122
+094F 8BFB				movl	%edi, %ebx
+0951 43					incl	%ebx
+0952 8A85 FCFD FFFF			movb	%al, -516(%ebp)
+0958 8807				movb	(%edi), %al
+095A 8BFD				movl	%edi, %ebp
+095C 81EF 0002 0000			subl	%edi, $512
+0962 8BC3				movl	%eax, %ebx
+0964 2BC7				subl	%eax, %edi
+0966 3B85 F4FD FFFF			cmpl	%eax, -524(%ebp)
+096C 7CBF				jl	.L123
+096E C603 00				movb	(%ebx), $0
+0971 FFB5 F4FD FFFF			push	-524(%ebp)
+0977 8BC3				movl	%eax, %ebx
+0979 2B85 F4FD FFFF			subl	%eax, -524(%ebp)
+097F 50					push	%eax
+0980 FF75 08				push	8(%ebp)
+0983 E878 F6FF FF			call	strncmp
+0988 83C4 0C				addl	%esp, $12
+098B 0BC0				orl	%eax, %eax
+098D 750A				jne	.L125
+098F C785 F8FD FFFF 0100 0000		movl	-520(%ebp), $1
+				.L125:
+0999 8BFD				movl	%edi, %ebp
+099B 4F					decl	%edi
+099C 3BDF				cmpl	%ebx, %edi
+099E 758D				jne	.L123
+				.L122:
+09A0 8BFD				movl	%edi, %ebp
+09A2 81EF 0002 0000			subl	%edi, $512
+09A8 8BC3				movl	%eax, %ebx
+09AA 2BC7				subl	%eax, %edi
+09AC 50					push	%eax
+09AD 8D85 00FE FFFF			lea	%eax, -512(%ebp)
+09B3 50					push	%eax
+09B4 E847 F6FF FF			call	visbuf
+09B9 83C4 08				addl	%esp, $8
+09BC 50					push	%eax
+09BD 6868 1400 00			push	$.L127
+09C2 6A01				push	$1
+09C4 E837 F6FF FF			call	printmsg
+09C9 83C4 0C				addl	%esp, $12
+09CC 83BD F8FD FFFF 00			cmpl	-520(%ebp), $0
+09D3 740F				je	.L128
+09D5 687F 1400 00			push	$.L129
+09DA 6A01				push	$1
+09DC E81F F6FF FF			call	printmsg
+09E1 83C4 08				addl	%esp, $8
+				.L128:
+09E4 8B85 F8FD FFFF			movl	%eax, -520(%ebp)
+09EA 5B					pop	%ebx
+09EB 5F					pop	%edi
+09EC C9					leave
+09ED C3					ret
+09EE 9090				.align	4
+					.globl sendstr
+				sendstr:
+09F0 C80C 0000				enter	$12, $0
+09F4 56					push	%esi
+09F5 57					push	%edi
+09F6 53					push	%ebx
+09F7 8B5D 08				movl	%ebx, 8(%ebp)
+09FA 6A01				push	$1
+09FC E8FF F5FF FF			call	sleep
+0A01 59					pop	%ecx
+0A02 6A02				push	$2
+0A04 6888 1400 00			push	$.L131
+0A09 FF75 08				push	8(%ebp)
+0A0C E8EF F5FF FF			call	strncmp
+0A11 83C4 0C				addl	%esp, $12
+0A14 0BC0				orl	%eax, %eax
+0A16 7507				jne	.L132
+0A18 C745 0888 1400 00			movl	8(%ebp), $.L133
+				.L132:
+0A1F 2BC0				subl	%eax, %eax
+0A21 8945 F8				movl	-8(%ebp), %eax
+0A24 8945 F4				movl	-12(%ebp), %eax
+				.L135:
+0A27 8BFB				movl	%edi, %ebx
+0A29 43					incl	%ebx
+0A2A 8A07				movb	%al, (%edi)
+0A2C 8845 FC				movb	-4(%ebp), %al
+0A2F 0AC0				orb	%al, %al
+0A31 0F84 C701 0000			je	.L134
+0A37 837D F800				cmpl	-8(%ebp), $0
+0A3B 756E				jne	.L136
+0A3D 6A03				push	$3
+0A3F 6889 1400 00			push	$.L137
+0A44 8D43 FF				lea	%eax, -1(%ebx)
+0A47 50					push	%eax
+0A48 E8B3 F5FF FF			call	strncmp
+0A4D 83C4 0C				addl	%esp, $12
+0A50 0BC0				orl	%eax, %eax
+0A52 7514				jne	.L138
+0A54 6A01				push	$1
+0A56 688D 1400 00			push	$.L139
+0A5B E8A0 F5FF FF			call	swrite
+0A60 83C4 08				addl	%esp, $8
+0A63 83C3 02				addl	%ebx, $2
+0A66 EBBF				jmp	.L135
+				.L138:
+0A68 6A04				push	$4
+0A6A 688F 1400 00			push	$.L141
+0A6F 8D43 FF				lea	%eax, -1(%ebx)
+0A72 50					push	%eax
+0A73 E888 F5FF FF			call	strncmp
+0A78 83C4 0C				addl	%esp, $12
+0A7B 0BC0				orl	%eax, %eax
+0A7D 750A				jne	.L142
+0A7F E87C F5FF FF			call	sendbrk
+0A84 83C3 04				addl	%ebx, $4
+0A87 EB9E				jmp	.L135
+				.L142:
+0A89 807D FC5C				cmpb	-4(%ebp), $92
+0A8D 7509				jne	.L144
+0A8F C745 F801 0000 00			movl	-8(%ebp), $1
+0A96 EB8F				jmp	.L135
+				.L144:
+0A98 6A01				push	$1
+0A9A 8D45 FC				lea	%eax, -4(%ebp)
+0A9D 50					push	%eax
+0A9E E85D F5FF FF			call	swrite
+0AA3 83C4 08				addl	%esp, $8
+0AA6 E97C FFFF FF			jmp	.L135
+				.L136:
+0AAB 0FBE 45FC				movsxb	%eax, -4(%ebp)
+0AAF BAC5 0A00 00			movl	%edx, $.L10006-4
+0AB4 B90B 0000 00			movl	%ecx, $11
+				.L10007:
+0AB9 83C2 04				addl	%edx, $4
+0ABC 3B02				cmpl	%eax, (%edx)
+0ABE E0F9				loopne	.L10007
+0AC0 0F85 CA00 0000			jne	.L165
+0AC6 FF62 2C				ijmp	44(%edx)
+				.L10006:
+0AC9 4B00 0000				.long	75
+0ACD 4E00 0000				.long	78
+0AD1 5C00 0000				.long	92
+0AD5 6200 0000				.long	98
+0AD9 6300 0000				.long	99
+0ADD 6400 0000				.long	100
+0AE1 6E00 0000				.long	110
+0AE5 7000 0000				.long	112
+0AE9 7200 0000				.long	114
+0AED 7300 0000				.long	115
+0AF1 7400 0000				.long	116
+0AF5 460B 0000				.long	.L151
+0AF9 5C0B 0000				.long	.L154
+0AFD 870B 0000				.long	.L163
+0B01 210B 0000				.long	.L147
+0B05 2D0B 0000				.long	.L149
+0B09 390B 0000				.long	.L150
+0B0D 500B 0000				.long	.L152
+0B11 680B 0000				.long	.L156
+0B15 6C0B 0000				.long	.L157
+0B19 750B 0000				.long	.L159
+0B1D 7E0B 0000				.long	.L161
+				.L147:
+0B21 6A01				push	$1
+0B23 6895 1400 00			push	$.L148
+0B28 E9BD 0000 00			jmp	.L20036
+				.L149:
+0B2D C745 F401 0000 00			movl	-12(%ebp), $1
+0B34 E9B9 0000 00			jmp	.L146
+				.L150:
+0B39 6A02				push	$2
+				.L20030:
+0B3B E8C0 F4FF FF			call	sleep
+0B40 59					pop	%ecx
+0B41 E9AC 0000 00			jmp	.L146
+				.L151:
+0B46 E8B5 F4FF FF			call	sendbrk
+0B4B E9A2 0000 00			jmp	.L146
+				.L152:
+0B50 6A01				push	$1
+0B52 6897 1400 00			push	$.L153
+0B57 E98E 0000 00			jmp	.L20036
+				.L154:
+0B5C 6A01				push	$1
+0B5E 6899 1400 00			push	$.L155
+0B63 E982 0000 00			jmp	.L20036
+				.L156:
+0B68 6A01				push	$1
+0B6A EBCF				jmp	.L20030
+				.L157:
+0B6C 6A01				push	$1
+0B6E 689B 1400 00			push	$.L158
+0B73 EB75				jmp	.L20036
+				.L159:
+0B75 6A01				push	$1
+0B77 689D 1400 00			push	$.L160
+0B7C EB6C				jmp	.L20036
+				.L161:
+0B7E 6A01				push	$1
+0B80 689F 1400 00			push	$.L162
+0B85 EB63				jmp	.L20036
+				.L163:
+0B87 6A01				push	$1
+0B89 68A1 1400 00			push	$.L164
+0B8E EB5A				jmp	.L20036
+				.L165:
+0B90 0FBE 7DFC				movsxb	%edi, -4(%ebp)
+0B94 F687 0100 0000 04			testb	_ctype+1(%edi), $4
+0B9B 7419				je	.L10005
+0B9D 0FBE 3B				movsxb	%edi, (%ebx)
+0BA0 F687 0100 0000 04			testb	_ctype+1(%edi), $4
+0BA7 740D				je	.L10005
+0BA9 0FBE 7B01				movsxb	%edi, 1(%ebx)
+0BAD F687 0100 0000 04			testb	_ctype+1(%edi), $4
+0BB4 7510				jne	.L166
+				.L10005:
+0BB6 FF75 08				push	8(%ebp)
+0BB9 68A5 1400 00			push	$.L167
+0BBE E83D F4FF FF			call	fatal
+0BC3 83C4 08				addl	%esp, $8
+				.L166:
+0BC6 0FBE 7301				movsxb	%esi, 1(%ebx)
+0BCA 0FBE 3B				movsxb	%edi, (%ebx)
+0BCD 83EF 30				subl	%edi, $48
+0BD0 C1E7 03				sall	%edi, $3
+0BD3 0FBE 45FC				movsxb	%eax, -4(%ebp)
+0BD7 83E8 30				subl	%eax, $48
+0BDA C1E0 06				sall	%eax, $6
+0BDD 0BC7				orl	%eax, %edi
+0BDF 0BC6				orl	%eax, %esi
+0BE1 8845 FC				movb	-4(%ebp), %al
+0BE4 6A01				push	$1
+0BE6 8D45 FC				lea	%eax, -4(%ebp)
+0BE9 50					push	%eax
+				.L20036:
+0BEA E811 F4FF FF			call	swrite
+0BEF 83C4 08				addl	%esp, $8
+				.L146:
+0BF2 C745 F800 0000 00			movl	-8(%ebp), $0
+0BF9 E929 FEFF FF			jmp	.L135
+				.L134:
+0BFE 837D F400				cmpl	-12(%ebp), $0
+0C02 750F				jne	.L130
+0C04 6A01				push	$1
+0C06 68C3 1400 00			push	$.L169
+0C0B E8F0 F3FF FF			call	swrite
+0C10 83C4 08				addl	%esp, $8
+				.L130:
+0C13 5B					pop	%ebx
+0C14 5F					pop	%edi
+0C15 5E					pop	%esi
+0C16 C9					leave
+0C17 C3					ret
+					.align	4
+					.globl callup
+				callup:
+0C18 C81C 0000				enter	$28, $0
+0C1C 57					push	%edi
+0C1D FF35 0000 0000			push	version
+0C23 FF35 0000 0000			push	processid
+0C29 FF35 0000 0000			push	rmtname
+0C2F 68C5 1400 00			push	$.L171
+0C34 6A01				push	$1
+0C36 E8C5 F3FF FF			call	plog
+0C3B 83C4 14				addl	%esp, $20
+0C3E 6A02				push	$2
+0C40 E8BB F3FF FF			call	lsys_value
+0C45 59					pop	%ecx
+0C46 8945 FC				movl	-4(%ebp), %eax
+0C49 6A03				push	$3
+0C4B E8B0 F3FF FF			call	lsys_value
+0C50 59					pop	%ecx
+0C51 8945 F8				movl	-8(%ebp), %eax
+0C54 6A04				push	$4
+0C56 E8A5 F3FF FF			call	lsys_value
+0C5B 59					pop	%ecx
+0C5C 8945 F4				movl	-12(%ebp), %eax
+0C5F 68E0 1400 00			push	$.L172
+0C64 FF75 FC				push	-4(%ebp)
+0C67 E894 F3FF FF			call	strcmp
+0C6C 83C4 08				addl	%esp, $8
+0C6F 0BC0				orl	%eax, %eax
+0C71 7524				jne	.L173
+0C73 FF75 F4				push	-12(%ebp)
+0C76 FF75 F8				push	-8(%ebp)
+0C79 6A00				push	$0
+0C7B E880 F3FF FF			call	dcpdial
+0C80 83C4 0C				addl	%esp, $12
+0C83 0BC0				orl	%eax, %eax
+0C85 7524				jne	.L176
+				.L175:
+0C87 FF05 0000 0000			incl	terminatelevel
+0C8D B859 0000 00			movl	%eax, $89
+0C92 E908 0100 00			jmp	.L170
+				.L173:
+0C97 6A00				push	$0
+0C99 FF75 F8				push	-8(%ebp)
+0C9C FF75 FC				push	-4(%ebp)
+0C9F E85C F3FF FF			call	dcpdial
+0CA4 83C4 0C				addl	%esp, $12
+0CA7 0BC0				orl	%eax, %eax
+0CA9 74DC				je	.L175
+				.L176:
+0CAB C745 E400 0000 00			movl	-28(%ebp), $0
+				.L180:
+0CB2 FF75 E4				push	-28(%ebp)
+0CB5 E846 F3FF FF			call	lsys_expect
+0CBA 59					pop	%ecx
+0CBB 8945 F0				movl	-16(%ebp), %eax
+0CBE 0BC0				orl	%eax, %eax
+0CC0 0F84 D400 0000			je	.L178
+				.L182:
+0CC6 FF75 F0				push	-16(%ebp)
+0CC9 68E4 1400 00			push	$.L183
+0CCE 6A01				push	$1
+0CD0 E82B F3FF FF			call	printmsg
+0CD5 83C4 0C				addl	%esp, $12
+0CD8 6A2D				push	$45
+0CDA FF75 F0				push	-16(%ebp)
+0CDD E81E F3FF FF			call	index
+0CE2 83C4 08				addl	%esp, $8
+0CE5 8945 E8				movl	-24(%ebp), %eax
+0CE8 0BC0				orl	%eax, %eax
+0CEA 7409				je	.L184
+0CEC 8B7D E8				movl	%edi, -24(%ebp)
+0CEF FF45 E8				incl	-24(%ebp)
+0CF2 C607 00				movb	(%edi), $0
+				.L184:
+0CF5 6A28				push	$40
+0CF7 FF75 F0				push	-16(%ebp)
+0CFA E8D9 FBFF FF			call	expectstr
+0CFF 83C4 08				addl	%esp, $8
+0D02 0BC0				orl	%eax, %eax
+0D04 7567				jne	.L181
+0D06 837D E800				cmpl	-24(%ebp), $0
+0D0A 7514				jne	.L186
+0D0C 68FB 1400 00			push	$.L187
+0D11 6A01				push	$1
+0D13 E8E8 F2FF FF			call	plog
+0D18 83C4 08				addl	%esp, $8
+0D1B E967 FFFF FF			jmp	.L175
+				.L186:
+0D20 6A2D				push	$45
+0D22 FF75 E8				push	-24(%ebp)
+0D25 E8D6 F2FF FF			call	index
+0D2A 83C4 08				addl	%esp, $8
+0D2D 8945 F0				movl	-16(%ebp), %eax
+0D30 0BC0				orl	%eax, %eax
+0D32 7510				jne	.L188
+0D34 FF75 E8				push	-24(%ebp)
+0D37 6809 1500 00			push	$.L189
+0D3C E8BF F2FF FF			call	fatal
+0D41 83C4 08				addl	%esp, $8
+				.L188:
+0D44 8B7D F0				movl	%edi, -16(%ebp)
+0D47 FF45 F0				incl	-16(%ebp)
+0D4A C607 00				movb	(%edi), $0
+0D4D FF75 E8				push	-24(%ebp)
+0D50 6826 1500 00			push	$.L190
+0D55 6A01				push	$1
+0D57 E8A4 F2FF FF			call	printmsg
+0D5C 83C4 0C				addl	%esp, $12
+0D5F FF75 E8				push	-24(%ebp)
+0D62 E889 FCFF FF			call	sendstr
+0D67 59					pop	%ecx
+0D68 E959 FFFF FF			jmp	.L182
+				.L181:
+0D6D FF75 E4				push	-28(%ebp)
+0D70 E88B F2FF FF			call	lsys_send
+0D75 59					pop	%ecx
+0D76 8945 EC				movl	-20(%ebp), %eax
+0D79 50					push	%eax
+0D7A 6842 1500 00			push	$.L191
+0D7F 6A01				push	$1
+0D81 E87A F2FF FF			call	printmsg
+0D86 83C4 0C				addl	%esp, $12
+0D89 FF75 EC				push	-20(%ebp)
+0D8C E85F FCFF FF			call	sendstr
+0D91 59					pop	%ecx
+0D92 FF45 E4				incl	-28(%ebp)
+0D95 E918 FFFF FF			jmp	.L180
+				.L178:
+0D9A B850 0000 00			movl	%eax, $80
+				.L170:
+0D9F 5F					pop	%edi
+0DA0 C9					leave
+0DA1 C3					ret
+0DA2 9090				.align	4
+					.globl sysend
+				sysend:
+0DA4 55					push	%ebp
+0DA5 8BEC				movl	%ebp, %esp
+0DA7 FF35 0000 0000			push	rdevname
+0DAD E84E F2FF FF			call	lockttyexist
+0DB2 59					pop	%ecx
+0DB3 0BC0				orl	%eax, %eax
+0DB5 744E				je	.L193
+0DB7 A100 0000 00			movl	%eax, role
+0DBC 83F8 01				cmpl	%eax, $1
+0DBF 7516				jne	.L194
+0DC1 6857 1500 00			push	$.L195
+0DC6 6A64				push	$100
+0DC8 E833 F2FF FF			call	printmsg
+0DCD 83C4 08				addl	%esp, $8
+0DD0 E82B F2FF FF			call	dcpundial
+0DD5 EB2E				jmp	.L193
+				.L194:
+0DD7 6883 1500 00			push	$.L197
+0DDC 6A01				push	$1
+0DDE E81D F2FF FF			call	plog
+0DE3 83C4 08				addl	%esp, $8
+0DE6 FF35 0000 0000			push	rdevname
+0DEC E80F F2FF FF			call	unlocktty
+0DF1 59					pop	%ecx
+0DF2 0BC0				orl	%eax, %eax
+0DF4 740F				je	.L193
+0DF6 68AD 1500 00			push	$.L199
+0DFB 6A01				push	$1
+0DFD E8FE F1FF FF			call	plog
+0E02 83C4 08				addl	%esp, $8
+				.L193:
+0E05 833D 2C17 0000 00			cmpl	leavelock, $0
+0E0C 7552				jne	.L200
+0E0E FF35 0000 0000			push	rmtname
+0E14 E8E7 F1FF FF			call	lockexist
+0E19 59					pop	%ecx
+0E1A 0BC0				orl	%eax, %eax
+0E1C 7442				je	.L200
+0E1E E8DD F1FF FF			call	dcpundial
+0E23 68D9 1500 00			push	$.L201
+0E28 6A01				push	$1
+0E2A E8D1 F1FF FF			call	plog
+0E2F 83C4 08				addl	%esp, $8
+0E32 FF35 0000 0000			push	rmtname
+0E38 E8C3 F1FF FF			call	lockrm
+0E3D 59					pop	%ecx
+0E3E 0BC0				orl	%eax, %eax
+0E40 741E				je	.L200
+0E42 68F3 1500 00			push	$.L203
+0E47 6A00				push	$0
+0E49 E8B2 F1FF FF			call	printmsg
+0E4E 83C4 08				addl	%esp, $8
+0E51 6821 1600 00			push	$.L204
+0E56 6A01				push	$1
+0E58 E8A3 F1FF FF			call	plog
+0E5D 83C4 08				addl	%esp, $8
+				.L200:
+0E60 FF35 0000 0000			push	processid
+0E66 833D 0000 0000 00			cmpl	terminatelevel, $0
+0E6D 7407				je	.L10008
+0E6F 684F 1600 00			push	$.L205
+0E74 EB05				jmp	.L10009
+				.L10008:
+0E76 6868 1600 00			push	$.L206
+				.L10009:
+0E7B 6A01				push	$1
+0E7D E87E F1FF FF			call	plog
+0E82 83C4 0C				addl	%esp, $12
+0E85 E876 F1FF FF			call	close_logfile
+0E8A C705 0000 0000 0100 0000		movl	sysended, $1
+0E94 A100 0000 00			movl	%eax, role
+0E99 83F8 01				cmpl	%eax, $1
+0E9C 7507				jne	.L10010
+0E9E B849 0000 00			movl	%eax, $73
+0EA3 EB05				jmp	.L192
+				.L10010:
+0EA5 B841 0000 00			movl	%eax, $65
+				.L192:
+0EAA C9					leave
+0EAB C3					ret
+					.align	4
+					.globl scandir
+				scandir:
+0EAC C858 0000				enter	$88, $0
+0EB0 FF35 0000 0000			push	rmtname
+0EB6 688C 1600 00			push	$.L209
+0EBB 6886 1600 00			push	$.L208
+0EC0 8D45 B0				lea	%eax, -80(%ebp)
+0EC3 50					push	%eax
+0EC4 E837 F1FF FF			call	sprintf
+0EC9 83C4 10				addl	%esp, $16
+0ECC 8D45 B0				lea	%eax, -80(%ebp)
+0ECF 50					push	%eax
+0ED0 689C 1600 00			push	$.L210
+0ED5 6A0A				push	$10
+0ED7 E824 F1FF FF			call	printmsg
+0EDC 83C4 0C				addl	%esp, $12
+0EDF 8D45 B0				lea	%eax, -80(%ebp)
+0EE2 50					push	%eax
+0EE3 E818 F1FF FF			call	opendir
+0EE8 59					pop	%ecx
+0EE9 8945 AC				movl	-84(%ebp), %eax
+0EEC 0BC0				orl	%eax, %eax
+0EEE 0F84 0501 0000			je	.L20037
+0EF4 2BC0				subl	%eax, %eax
+0EF6 8845 FE				movb	-2(%ebp), %al
+0EF9 0FBE C0				movsxb	%eax, %al
+0EFC 8845 F0				movb	-16(%ebp), %al
+				.L213:
+0EFF FF75 AC				push	-84(%ebp)
+0F02 E8F9 F0FF FF			call	readdir
+0F07 59					pop	%ecx
+0F08 8945 A8				movl	-88(%ebp), %eax
+0F0B 0BC0				orl	%eax, %eax
+0F0D 7463				je	.L212
+0F0F 83C0 0A				addl	%eax, $10
+0F12 50					push	%eax
+0F13 68A8 1600 00			push	$.L214
+0F18 6A64				push	$100
+0F1A E8E1 F0FF FF			call	printmsg
+0F1F 83C4 0C				addl	%esp, $12
+0F22 6A02				push	$2
+0F24 8B45 A8				movl	%eax, -88(%ebp)
+0F27 83C0 0A				addl	%eax, $10
+0F2A 50					push	%eax
+0F2B 68B4 1600 00			push	$.L215
+0F30 E8CB F0FF FF			call	strncmp
+0F35 83C4 0C				addl	%esp, $12
+0F38 0BC0				orl	%eax, %eax
+0F3A 75C3				jne	.L213
+0F3C 807D F000				cmpb	-16(%ebp), $0
+0F40 7419				je	.L10012
+0F42 6A0E				push	$14
+0F44 8D45 F0				lea	%eax, -16(%ebp)
+0F47 50					push	%eax
+0F48 8B45 A8				movl	%eax, -88(%ebp)
+0F4B 83C0 0A				addl	%eax, $10
+0F4E 50					push	%eax
+0F4F E8AC F0FF FF			call	strncmp
+0F54 83C4 0C				addl	%esp, $12
+0F57 0BC0				orl	%eax, %eax
+0F59 7DA4				jge	.L213
+				.L10012:
+0F5B 6A0E				push	$14
+0F5D 8B45 A8				movl	%eax, -88(%ebp)
+0F60 83C0 0A				addl	%eax, $10
+0F63 50					push	%eax
+0F64 8D45 F0				lea	%eax, -16(%ebp)
+0F67 50					push	%eax
+0F68 E893 F0FF FF			call	strncpy
+0F6D 83C4 0C				addl	%esp, $12
+0F70 EB8D				jmp	.L213
+				.L212:
+0F72 FF75 AC				push	-84(%ebp)
+0F75 E886 F0FF FF			call	closedir
+0F7A 59					pop	%ecx
+0F7B 807D F000				cmpb	-16(%ebp), $0
+0F7F 7478				je	.L20037
+0F81 8D45 F0				lea	%eax, -16(%ebp)
+0F84 50					push	%eax
+0F85 FF35 0000 0000			push	rmtname
+0F8B 68C0 1600 00			push	$.L220
+0F90 68B7 1600 00			push	$.L219
+0F95 6800 0000 00			push	$cfile
+0F9A E861 F0FF FF			call	sprintf
+0F9F 83C4 14				addl	%esp, $20
+0FA2 6800 0000 00			push	$cfile
+0FA7 68D0 1600 00			push	$.L221
+0FAC 6A64				push	$100
+0FAE E84D F0FF FF			call	printmsg
+0FB3 83C4 0C				addl	%esp, $12
+0FB6 68E3 1600 00			push	$.L222
+0FBB 6800 0000 00			push	$cfile
+0FC0 E83B F0FF FF			call	fopen
+0FC5 83C4 08				addl	%esp, $8
+0FC8 A300 0000 00			movl	cfp, %eax
+0FCD 0BC0				orl	%eax, %eax
+0FCF 7521				jne	.L223
+0FD1 6800 0000 00			push	$cfile
+0FD6 68E5 1600 00			push	$.L224
+0FDB 6A64				push	$100
+0FDD E81E F0FF FF			call	plog
+0FE2 83C4 0C				addl	%esp, $12
+0FE5 FF05 0000 0000			incl	terminatelevel
+0FEB B859 0000 00			movl	%eax, $89
+0FF0 EB0C				jmp	.L207
+				.L223:
+0FF2 B853 0000 00			movl	%eax, $83
+0FF7 EB05				jmp	.L207
+				.L20037:
+0FF9 B851 0000 00			movl	%eax, $81
+				.L207:
+0FFE C9					leave
+0FFF C3					ret
+					.align	4
+					.align	4
+				.L5:
+1000 616C 6C00				.byte	"all", 0
+				.L6:
+1004 616E 7900				.byte	"any", 0
+				.L9:
+1008 5468 696E 6B69 6E67 206F
+1012 6620 6361 6C6C 696E 6720
+101C 7379 7374 656D 3A20 2573
+1026 00					.byte	"Thinking of calling system: %s
+			       |", 0
+				.L11:
+1027 7575 6369 636F 00			.byte	"uucico", 0
+				.L14:
+102E 5369 7465 204C 6F63 6B65
+1038 643A 2025 7300			.byte	"Site Locked: %s", 0
+				.L33:
+103E 726D 7367 207B 2573 7D00		.byte	"rmsg {%s}", 0
+				.L34:
+1048 4261 6420 7265 6365 6976
+1052 6564 206D 6573 7361 6765
+105C 207B 2573 7D00			.byte	"Bad received message {%s}", 0
+				.L35:
+1062 5265 6D6F 7465 206D 6163
+106C 6869 6E65 206E 6F74 2073
+1076 656E 6469 6E67 2044 4C45
+1080 2073 7461 7274 7570 2028
+108A 7575 6369 636F 2900		.byte	"Remote machine not sending DLE
+			       | startup (uucico)", 0
+				.L37:
+1092 776D 7367 207B 2573 7D00		.byte	"wmsg {%s}", 0
+				.L41:
+109C 5265 6164 7920 666F 7220
+10A6 7472 616E 7361 6374 696F
+10B0 6E73 00				.byte	"Ready for transactions", 0
+				.L44:
+10B3 4C6F 676F 6E20 6661 696C
+10BD 6564 3A20 3173 7420 6D73
+10C7 6720 2862 726F 6B65 6E20
+10D1 636F 6D6D 756E 6963 6174
+10DB 696F 6E3F 2900			.byte	"Logon failed: 1st msg (broken 
+			       |communication?)", 0
+				.L46:
+10E1 3173 7420 6D73 6720 3D20
+10EB 7B25 737D 00			.byte	"1st msg = {%s}", 0
+				.L47:
+10F0 5368 6572 6500			.byte	"Shere", 0
+				.L49:
+10F6 4261 6420 666F 726D 6174
+1100 2066 6F72 2031 7374 206D
+110A 7367 00				.byte	"Bad format for 1st msg", 0
+				.L51:
+110D 5761 726E 696E 673A 204E
+1117 756C 6C20 7369 7465 6E61
+1121 6D65 2063 6F6E 7461 6374
+112B 6564 00				.byte	"Warning: Null sitename contact
+			       |ed", 0
+				.L54:
+112E 496E 636F 7272 6563 7420
+1138 7369 7465 6E61 6D65 2063
+1142 6F6E 7461 6374 6564 3A20
+114C 2573 00				.byte	"Incorrect sitename contacted: 
+			       |%s", 0
+				.L55:
+114F 5325 2E2A 7320 2D51 3020
+1159 2D78 2564 00			.byte	"S%.*s -Q0 -x%d", 0
+				.L56:
+115E 5265 706C 7920 746F 2031
+1168 7374 206D 7367 203D 207B
+1172 2573 7D00				.byte	"Reply to 1st msg = {%s}", 0
+				.L58:
+1176 4C6F 676F 6E20 6661 696C
+1180 6564 3A20 326E 6420 6D73
+118A 6720 2872 656D 6F74 6520
+1194 7369 7465 2073 7461 6C65
+119E 204C 434B 3F29 00			.byte	"Logon failed: 2nd msg (remote 
+			       |site stale LCK?)", 0
+				.L59:
+11A5 326E 6420 6D73 6720 3D20
+11AF 7B25 737D 00			.byte	"2nd msg = {%s}", 0
+				.L60:
+11B4 524F 4B00				.byte	"ROK", 0
+				.L62:
+11B8 4261 6420 666F 726D 6174
+11C2 2066 6F72 2032 6E64 206D
+11CC 7367 00				.byte	"Bad format for 2nd msg", 0
+				.L64:
+11CF 4C6F 676F 6E20 6661 696C
+11D9 6564 3A20 3372 6420 6D73
+11E3 6720 2862 726F 6B65 6E20
+11ED 636F 6D6D 756E 6963 6174
+11F7 696F 6E3F 2900			.byte	"Logon failed: 3rd msg (broken 
+			       |communication?)", 0
+				.L65:
+11FD 3372 6420 6D73 6720 3D20
+1207 7B25 737D 00			.byte	"3rd msg = {%s}", 0
+				.L67:
+120C 4261 6420 666F 726D 6174
+1216 2066 6F72 2033 7264 206D
+1220 7367 00				.byte	"Bad format for 3rd msg", 0
+				.L68:
+1223 6700				.byte	"g", 0
+				.L73:
+1225 5525 6300				.byte	"U%c", 0
+				.L74:
+1229 5265 706C 7920 746F 2033
+1233 7264 206D 7367 203D 207B
+123D 2573 7D00				.byte	"Reply to 3rd msg = {%s}", 0
+				.L76:
+1241 4E6F 2063 6F6D 6D6F 6E20
+124B 7072 6F74 6F63 6F6C 00		.byte	"No common protocol", 0
+				.L78:
+1254 5368 6572 653D 2573 00		.byte	"Shere=%s", 0
+				.L79:
+125D 3173 7420 6D73 6720 3D20
+1267 7B25 737D 00			.byte	"1st msg = {%s}", 0
+				.L81:
+126C 4C6F 676F 6E20 6661 696C
+1276 6564 3A20 3173 7420 7265
+1280 706C 7920 2877 726F 6E67
+128A 2073 6974 656E 616D 653F
+1294 2900				.byte	"Logon failed: 1st reply (wrong
+			       | sitename?)", 0
+				.L82:
+1296 5265 706C 7920 746F 2031
+12A0 7374 206D 7367 203D 207B
+12AA 2573 7D00				.byte	"Reply to 1st msg = {%s}", 0
+				.L84:
+12AE 4261 6420 666F 726D 6174
+12B8 2066 6F72 2072 6570 6C79
+12C2 2074 6F20 3173 7420 6D73
+12CC 6700				.byte	"Bad format for reply to 1st ms
+			       |g", 0
+				.L87:
+12CE 5265 6365 6976 6564 2073
+12D8 6974 656E 616D 6520 746F
+12E2 206C 6F6E 6700			.byte	"Received sitename to long", 0
+				.L88:
+12E8 7575 6369 636F 00			.byte	"uucico", 0
+				.L89:
+12EF 4361 6C6C 2072 6563 6569
+12F9 7665 6420 6672 6F6D 2025
+1303 7320 7B25 647D 2028 5625
+130D 7329 00				.byte	"Call received from %s {%d} (V%
+			       |s)", 0
+				.L90:
+1310 4C6F 636B 696E 6720 7265
+131A 6D6F 7465 2073 6974 6520
+1324 2573 00				.byte	"Locking remote site %s", 0
+				.L92:
+1327 496E 636F 6D69 6E67 2073
+1331 6974 6520 2573 2061 6C72
+133B 6561 6479 206C 6F63 6B65
+1345 6400				.byte	"Incoming site %s already locke
+			       |d", 0
+				.L94:
+1347 556E 6B6E 6F77 6E20 686F
+1351 7374 2025 7300			.byte	"Unknown host %s", 0
+				.L96:
+1357 4E6F 2061 7474 6163 6865
+1361 6420 7474 7920 6465 7669
+136B 6365 2E00				.byte	"No attached tty device.", 0
+				.L99:
+136F 496E 636F 6D69 6E67 2064
+1379 6576 6963 6520 6C6F 636B
+1383 6564 3A20 2573 00			.byte	"Incoming device locked: %s", 0
+				.L100:
+138A 524F 4B00				.byte	"ROK", 0
+				.L101:
+138E 326E 6420 6D73 6720 3D20
+1398 7B25 737D 00			.byte	"2nd msg = {%s}", 0
+				.L102:
+139D 5025 7300				.byte	"P%s", 0
+				.L103:
+13A1 6700				.byte	"g", 0
+				.L104:
+13A3 3372 6420 6D73 6720 3D20
+13AD 7B25 737D 00			.byte	"3rd msg = {%s}", 0
+				.L106:
+13B2 4C6F 676F 6E20 6661 696C
+13BC 7572 653A 2033 7264 2072
+13C6 6570 6C79 2028 6C6F 7374
+13D0 2063 6F6D 6D75 6E69 6361
+13DA 7469 6F6E 3F29 00			.byte	"Logon failure: 3rd reply (lost
+			       | communication?)", 0
+				.L107:
+13E1 5265 706C 7920 746F 2033
+13EB 7264 206D 7367 203D 207B
+13F5 2573 7D00				.byte	"Reply to 3rd msg = {%s}", 0
+				.L108:
+13F9 6700				.byte	"g", 0
+				.L110:
+13FB 4E6F 2063 6F6D 6D6F 6E20
+1405 636F 6D6D 756E 6963 6174
+140F 696F 6E73 2070 726F 746F
+1419 636F 6C00				.byte	"No common communications proto
+			       |col", 0
+				.L116:
+141D 7365 7470 726F 746F 2827
+1427 2563 2729 3A20 556E 6B6E
+1431 6F77 6E20 7072 6F74 6F63
+143B 6F6C 2074 7970 6500		.byte	"setproto('%c'): Unknown protoc
+			       |ol type", 0
+				.L117:
+1443 4167 7265 6564 2070 726F
+144D 746F 636F 6C3A 2025 6300		.byte	"Agreed protocol: %c", 0
+				.L119:
+1457 7761 6974 696E 6720 666F
+1461 7220 7B25 737D 00			.byte	"waiting for {%s}", 0
+				.L120:
+Syntax error
+					.byte	"""", 0
+				.L127:
+1468 6163 7475 616C 6C79 2072
+1472 6563 6569 7665 6420 7B25
+147C 737D 00				.byte	"actually received {%s}", 0
+				.L129:
+147F 676F 7420 7468 6174 00		.byte	"got that", 0
+				.L131:
+Syntax error
+					.byte	"""", 0
+				.L133:
+1488 00					.byte	"", 0
+				.L137:
+1489 454F 5400				.byte	"EOT", 0
+				.L139:
+148D 0400				.byte	"\004", 0
+				.L141:
+148F 4252 4541 4B00			.byte	"BREAK", 0
+				.L148:
+1495 0800				.byte	"\010", 0
+				.L153:
+1497 0A00				.byte	"\n", 0
+				.L155:
+1499 00					.byte	"", 0
+149A 00					.byte	"", 0
+				.L158:
+149B 0D00				.byte	"\015", 0
+				.L160:
+149D 2000				.byte	" ", 0
+				.L162:
+149F 0900				.byte	"\011", 0
+				.L164:
+End of line detected in string
+14A1 222C 2030				.byte	"\", 0
+				.L167:
+14A5 4361 6E27 7420 7061 7273
+14AF 6520 6368 6174 2073 6372
+14B9 6970 743A 207B 2573 7D00		.byte	"Can't parse chat script: {%s}"
+			       |, 0
+				.L169:
+14C3 0D00				.byte	"\015", 0
+				.L171:
+14C5 4361 6C6C 696E 6720 7369
+14CF 7465 2025 7320 7B25 647D
+14D9 2028 5625 7329 00			.byte	"Calling site %s {%d} (V%s)", 0
+				.L172:
+14E0 4143 5500				.byte	"ACU", 0
+				.L183:
+14E4 6361 6C6C 7570 3A20 6578
+14EE 7065 6374 696E 6720 7B25
+14F8 737D 00				.byte	"callup: expecting {%s}", 0
+				.L187:
+14FB 4C6F 6769 6E20 6661 696C
+1505 6564 2E00				.byte	"Login failed.", 0
+				.L189:
+1509 4368 6174 2073 6372 6970
+1513 7420 7379 6E74 6178 2065
+151D 7272 6F72 3A20 2573 00		.byte	"Chat script syntax error: %s",
+			       | 0
+				.L190:
+1526 6361 6C6C 7570 3A20 7365
+1530 6E64 2061 6C74 6572 6E61
+153A 7465 207B 2573 7D00		.byte	"callup: send alternate {%s}", 
+			       |0
+				.L191:
+1542 6361 6C6C 7570 3A20 7365
+154C 6E64 696E 6720 7B25 737D
+1556 00					.byte	"callup: sending {%s}", 0
+				.L195:
+1557 5379 7365 6E64 3A20 6361
+1561 6C6C 696E 6720 756E 6469
+156B 616C 2061 6E64 2068 616E
+1575 6775 7020 726F 7574 696E
+157F 6573 2E00				.byte	"Sysend: calling undial and han
+			       |gup routines.", 0
+				.L197:
+1583 5379 7365 6E64 3A20 5265
+158D 6D6F 7669 6E67 2072 656D
+1597 6F74 6520 6465 7669 6365
+15A1 206C 6F63 6B20 6669 6C65
+15AB 2E00				.byte	"Sysend: Removing remote device
+			       | lock file.", 0
+				.L199:
+15AD 7379 7365 6E64 3A20 506F
+15B7 7373 6962 6C65 206C 6F63
+15C1 6B20 6669 6C65 2072 656D
+15CB 6F76 616C 2066 6169 6C75
+15D5 7265 2E00				.byte	"sysend: Possible lock file rem
+			       |oval failure.", 0
+				.L201:
+15D9 5265 6D6F 7669 6E67 2072
+15E3 656D 6F74 6520 7369 7465
+15ED 206C 6F63 6B00			.byte	"Removing remote site lock", 0
+				.L203:
+15F3 7379 7365 6E64 3A20 5265
+15FD 6D6F 7465 2073 6974 6520
+1607 4C6F 636B 2066 696C 6520
+1611 7265 6D6F 7661 6C20 6661
+161B 696C 6564 2100			.byte	"sysend: Remote site Lock file 
+			       |removal failed!", 0
+				.L204:
+1621 7379 7365 6E64 3A20 5265
+162B 6D6F 7465 2073 6974 6520
+1635 6C6F 636B 2066 696C 6520
+163F 7265 6D6F 7661 6C20 6661
+1649 696C 6564 2100			.byte	"sysend: Remote site lock file 
+			       |removal failed!", 0
+				.L205:
+164F 4162 6E6F 726D 616C 2063
+1659 6F6D 706C 6574 696F 6E20
+1663 7B25 647D 00			.byte	"Abnormal completion {%d}", 0
+				.L206:
+1668 4361 6C6C 2063 6F6D 706C
+1672 6574 696E 6720 6E6F 726D
+167C 616C 6C79 207B 2564 7D00		.byte	"Call completing normally {%d}"
+			       |, 0
+				.L208:
+1686 2573 2F25 7300			.byte	"%s/%s", 0
+				.L209:
+168C 2F75 7372 2F73 706F 6F6C
+1696 2F75 7563 7000			.byte	"/usr/spool/uucp", 0
+				.L210:
+169C 5363 616E 6469 723A 2025
+16A6 7300				.byte	"Scandir: %s", 0
+				.L214:
+16A8 5363 616E 6469 723A 2025
+16B2 7300				.byte	"Scandir: %s", 0
+				.L215:
+16B4 432E 00				.byte	"C.", 0
+				.L219:
+16B7 2573 2F25 732F 2573 00		.byte	"%s/%s/%s", 0
+				.L220:
+16C0 2F75 7372 2F73 706F 6F6C
+16CA 2F75 7563 7000			.byte	"/usr/spool/uucp", 0
+				.L221:
+16D0 5363 616E 6469 723A 2063
+16DA 6669 6C65 3A20 2573 00		.byte	"Scandir: cfile: %s", 0
+				.L222:
+16E3 7200				.byte	"r", 0
+				.L224:
+16E5 556E 6162 6C65 2074 6F20
+16EF 6F70 656E 2063 6F6E 7472
+16F9 6F6C 2066 696C 6520 2573
+1703 00					.byte	"Unable to open control file %s
+			       |", 0
+					.align	4
+				
+					.data
+					.align	4
+					.globl protolst
+				protolst:
+1704 67					.byte	103
+					.blkb	0x3
+1708 0000 0000				.long	ggetpkt
+170C 0000 0000				.long	gsendpkt
+1710 0000 0000				.long	gopenpk
+1714 0000 0000				.long	gclosepk
+1718 00					.byte	0
+					.blkb	0x13
+					.align	4
+					.globl leavelock
+				leavelock:
+172C 0000 0000				.long	0
+					.align	4
+				.L40:
+1730 9C10 0000				.long	.L41
+					.align	4
+					.align	1
+				.L39:
+					.blkb	0xF
+3 Errors

@@ -1,0 +1,281 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @@;
+
+
+1.1
+date     92.11.13.15.44.29;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * print_name:
+ *	print name and aliases of current termcap entry.
+ */
+print_name ()
+{
+    char	name[100];
+
+    tgetname (name);
+    printf ("%s,\n", name);
+}
+
+/*
+ * print_bools:
+ *	print all boolean fields of current termcap entry.
+ */
+print_bools ()
+{
+    int		i, val;
+    bool	stuffprinted = FALSE;
+
+    for (i = 0; i < MAXBOOLS; i++)
+	if (val = tgetflag (boolcaps[i].capname)) {
+	    if (val == 1)
+		printf ("\t%s,", boolcaps[i].infoname);
+	    else
+		printf ("\t%s@@,", boolcaps[i].infoname);
+	    stuffprinted = TRUE;
+	}
+    if (stuffprinted)
+	(void) putchar ('\n');
+}
+
+/*
+ * print_nums:
+ *	print all numeric fields of current termcap entry.
+ */
+print_nums ()
+{
+    int		i, capval;
+    bool	stuffprinted = FALSE;
+
+    for (i = 0; i < MAXNUMS; i++)
+	if ((capval = tgetnum (numcaps[i].capname)) >= 0) {
+	    printf ("\t%s#%d,", numcaps[i].infoname, capval);
+	    stuffprinted = TRUE;
+	}
+	else if (capval == -2) {
+	    printf ("\t%s@@,", numcaps[i].infoname);
+	    stuffprinted = TRUE;
+	}
+    if (stuffprinted)
+	(void) putchar ('\n');
+}
+
+/*
+ * print_strs:
+ *	print all string fields of current termcap entry.
+ */
+print_strs ()
+{
+    int		i, count = 0;
+    char	capval[100];
+
+    for (i = 0; i < MAXSTRS; i++) {
+	tgetstr (strcaps[i].capname, capval);
+	if (!capval[0]) {
+	    if (strcmp (strcaps[i].capname, "le") == 0) {
+		tgetstr ("bc", capval);
+	    }
+	    else if (strcmp (strcaps[i].capname, "ta") == 0) { 
+		if (tgetflag ("pt")) {
+		    capval[0] = '\t';
+		    capval[1] = '\0';
+		}
+	    }
+	}
+	if ((!capval[0]) && (strcaps[i].dflt))
+	    (void) strcpy (capval, strcaps[i].dflt);
+	if (capval[0]) {
+	    if (strcmp (capval, "@@") != 0) {
+		printf ("\t%s=", strcaps[i].infoname);
+		if (strcmp(strcaps[i].infoname,"use") != 0) {
+		    put_str (capval);
+		    printf (",");
+		}
+		else
+		    printf ("%s,", capval);
+	    }
+	    else
+		printf ("\t%s@@,", strcaps[i].infoname);
+	    count++;
+	    if (!(count %= 3))
+		putchar ('\n');
+	}
+    }
+    if (count)
+	(void) putchar ('\n');
+}
+
+/*
+ * put_str:
+ *	translate strings to printable format and print them.
+ */
+put_str (s)
+char	*s;
+{
+    bool	rflag = FALSE;	/* % codes */
+    char	*c;
+    int		parm;
+
+    if ((isdigit (*s)) || (*s == '.')) {	/* handle padding */
+	printf ("$<");
+	while ((isdigit (*s)) || (*s == '.')) {
+	    (void) putchar (*s);
+	    s++;
+	}
+	if (*s == '*') {
+	    (void) putchar (*s);
+	    s++;
+	}
+	(void) putchar ('>');
+    }
+    for (c = s; *c; c++) {	/* scan for % codes (needs work) */
+	if (*c == '%') {
+	    c++;
+	    switch (*c) {
+		case 'r':
+		    rflag = TRUE;
+		    break;
+		default:
+		    break;	/* ignore */
+	    }
+	}
+    }
+    parm = 0;
+    while (*s) {		/* print the string */
+	switch (*s) {
+	    case '%':
+		s++;
+		switch (*s) {
+		    case '%':
+			printf ("%%%%");
+			break;
+		    case 'i':
+			printf ("%%i");
+			break;
+		    case 'd':
+			parm++;
+			if ((rflag) && (parm <= 2)) {
+			    if (parm == 1)
+				printf ("%%p2%%d");
+			    else
+				printf ("%%p1%%d");
+			}
+			else
+			    printf ("%%p%d%%d", parm);
+			break;
+		    case '2':
+			parm++;
+			if ((rflag) && (parm <= 2)) {
+			    if (parm == 1)
+				printf ("%%p2%%02d");
+			    else
+				printf ("%%p1%%02d");
+			}
+			else
+			    printf ("%%p%d%%02d", parm);
+			break;
+		    case '3':
+			parm++;
+			if ((rflag) && (parm <= 2)) {
+			    if (parm == 1)
+				printf ("%%p2%%03d");
+			    else
+				printf ("%%p1%%03d");
+			}
+			else
+			    printf ("%%p%d%%03d", parm);
+			break;
+		    case '.':
+			parm++;
+			if ((rflag) && (parm <= 2)) {
+			    if (parm == 1)
+				printf ("%%p2%%c");
+			    else
+				printf ("%%p1%%c");
+			}
+			else
+			    printf ("%%p%d%%c", parm);
+			break;
+		    case '+':
+			s++;
+			parm++;
+			if ((rflag) && (parm <= 2)) {
+			    if (parm == 1)
+				printf ("%%p2%%'%c'%%+%%c", *s);
+			    else
+				printf ("%%p1%%'%c'%%+%%c", *s);
+			}
+			else
+			    printf ("%%p%d%%'%c'%%+%%c", parm, *s);
+			break;
+		    default:
+			break;	/* ignore */
+		}
+		break;
+	    case '\200':
+		printf ("\\0");
+		break;
+	    case '\177':
+		printf ("^?");
+		break;
+	    case ',':
+		printf ("\\,");
+		break;
+	    case '\\':
+		printf ("\\\\");
+		break;
+	    case '^':
+		printf ("\^");
+		break;
+	    case ':':
+		printf ("\\:");
+		break;
+	    case '\033':
+		printf ("\\E");
+		break;
+	    case '\n':
+		printf ("\\n");
+		break;
+	    case '\r':
+		printf ("\\r");
+		break;
+	    case '\t':
+		printf ("\\t");
+		break;
+	    case '\b':
+		printf ("\\b");
+		break;
+	    case '\f':
+		printf ("\\f");
+		break;
+	    case ' ':
+		printf ("\\s");
+		break;
+	    default:
+		if (*s < ' ')
+		    printf ("^%c", *s + 'A' - 1);
+		else
+		    (void) putchar (*s);
+		break;
+	}
+	s++;
+    }
+}
+@

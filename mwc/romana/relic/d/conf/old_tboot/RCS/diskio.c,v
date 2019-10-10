@@ -1,0 +1,425 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    ; strict;
+comment  @ * @;
+
+
+1.3
+date     91.12.06.18.00.41;  author piggy;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.12.02.16.33.34;  author piggy;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.11.06.15.19.07;  author piggy;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Primitive disk i/o handling routines.  The lowest level is _bread() in
+bootlib.m.  This is the next layer.  The next layer up is in sys.c.
+Indirection code (which is also at this level) is in indirect.c.
+@
+
+
+1.3
+log
+@Everything (including int and void functions) is now declared in tboot.h.
+Include files are sought in their final homes (<sys/*>).
+@
+text
+@/* diskio.c -- C routines for disk i/o in tertiary boot programs.
+ *
+ * La Monte H. Yarroll <piggy@@mwc.com>, September 1991
+ */
+
+#include <sys/types.h>
+#include <canon.h>
+#include <sys/filsys.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <sys/dir.h>
+#include <sys/buf.h>
+#include <sys/stat.h>
+
+#include "tboot.h"
+
+/* Aligning bread.
+ * Reads 1 block into an arbitrary buffer.  The assembly language
+ * routine bread() needs a buffer aligned on a 4K boundary.
+ */
+
+char bufspace[FOURK+BLOCK];
+char *lbuf = NULL;	/* Buffer for bread.  */
+
+BUF *
+bread(blockno)
+	daddr_t blockno;	/* Block number.  */
+{
+	BUF *retval = NULL;
+
+	/* If not already aligned, align buffer on a 4K boundary.  */
+	if (NULL == lbuf) {
+		lbuf = bufspace + FOURK;
+		(short) lbuf &= FOURKBOUNDRY;
+	}
+
+	sanity_check("bread() entry");
+	/*
+	 * Get a buffer to cache this in.
+	 */
+
+	retval = bclaim(blockno);
+
+ 	sanity_check("bread() returning from bclaim()");
+
+	/*
+	 * If the buffer has the right block number,
+	 * we need not go further.
+	 */
+	if ((THE_DEV == retval->b_dev) && (blockno == retval->b_bno)) {
+		return(retval);
+	}
+
+	/* Read the block, ignoring
+	 * the return value.
+	 */
+	sanity_check("bread() to _bread()");
+	_bread(blockno, lbuf);
+	sanity_check("bread() from _bread()");
+
+	/* Copy to the unaligned buffer.  */
+	sanity_check("bread() to memcpy()");
+	memcpy((uint16) (retval->b_paddr), lbuf, BLOCK);
+	sanity_check("bread() from memcpy()");
+
+	retval->b_dev	= THE_DEV;	/* Associate it with a device, */
+	retval->b_bno	= blockno;	/* and block number.  */
+
+	sanity_check("bread() about to return");
+	/* Return the buffer we just filled in.  */
+	return(retval);
+} /* bread() */
+
+
+/*
+ * Inode OPEN: Load the inode for a file into memory.
+ * iopen(struct inode *ip,
+ *	 ino_t inode_number)
+ *
+ */  
+
+int
+iopen(meminode, inode_number)
+	struct inode *meminode;
+	ino_t inode_number;
+{
+	BUF *bp;
+	char *my_block;
+
+	daddr_t blockno;	/* Physical block the inode lives on.  */
+	uint16 offset;		/* Offset within that block for inode.  */
+	struct dinode *diskinode; /* Pointer into buffer for disk
+				   * inode structure.
+				   */
+
+	/* Read the super block to check the inode_number.
+	 * bp = bread(1L);
+	 * WRITE ME
+	 */
+
+	/* Convert from inode number to block number.  */
+
+	/* This code fragment should (but doesn't) examine the
+	 * bad block list, to skip over bad blocks in the free list.
+	 *
+	 * I'm no longer certain of the preceeding comment... :-(
+	 */
+	blockno = ((inode_number - 1) / INODES_PER_BLOCK) + 2;
+	
+	offset = ((inode_number - 1) % INODES_PER_BLOCK) *
+		 sizeof(struct dinode);
+
+	/* Get the inode off disk.  */
+	bp = bread(blockno);
+	
+	/* Point at the actual disk block.  */
+	my_block = (char *) bp->b_paddr;
+	
+	/* Pick out the particular inode we want.  */
+	diskinode = (struct dinode *) (my_block + offset);
+	
+	meminode->i_dev = THE_DEV;	/* We're making something up.  */
+	meminode->i_ino = inode_number;			/* Inode index */
+	meminode->i_refc = diskinode->di_nlink;
+	meminode->i_gate[0] = 0;			/* Gate (unused) */
+	meminode->i_gate[1] = 0;			/* Gate (unused) */
+	meminode->i_flag = 0;				/* Flags (unused) */
+	meminode->i_mode = diskinode->di_mode;
+	meminode->i_nlink = diskinode->di_nlink;
+	meminode->i_uid = diskinode->di_uid;
+	meminode->i_gid = diskinode->di_gid;
+	meminode->i_size = diskinode->di_size;
+	meminode->i_atime = diskinode->di_atime;
+	meminode->i_mtime = diskinode->di_mtime;
+	meminode->i_ctime = diskinode->di_ctime;
+	meminode->i_lrt = GREATEST(			/* Last reference time */
+			meminode->i_atime,
+			meminode->i_mtime,
+			meminode->i_ctime);
+	/* Disk addresses */
+	/* Copy all block numbers (10 direct, 3 indirects).  */
+	l3tol(meminode->i_a.i_addr, diskinode->di_a.di_addb, NADDR);
+
+	/* Translate cannonical form to internal form.  */
+	canshort(meminode->i_nlink);			/* Reference count */
+	canshort(meminode->i_mode);			/* Mode and type */
+	canshort(meminode->i_nlink);			/* Number of links */
+	canshort(meminode->i_uid);			/* Owner's user id */
+	canshort(meminode->i_gid);			/* Owner's group id */
+	cansize(meminode->i_size);			/* Size of file in bytes */
+	cantime(meminode->i_atime);			/* Last access time */
+	cantime(meminode->i_mtime);			/* Last modify time */
+	cantime(meminode->i_ctime);			/* Creation time */
+
+	
+	sanity_check("iopen() calling brelease()");
+	brelease(bp);
+
+	return(1);
+} /* iopen() */
+
+
+
+/* Convert a filename to an inode number.  Returns inode number 0 on
+ * failure.
+ */ 
+ino_t
+namei(filename)
+	char *filename;
+{
+	fsize_t i;
+	struct direct dirent;
+	struct inode dir;
+
+	iopen(&dir, (ino_t) 2);	/* Open the root directory.  */
+	
+	/* Read each directory entry one at a time.  */
+	for (i = 0; i < dir.i_size; i += sizeof(struct direct)) {
+
+		iread(&dir, (char *) &dirent, (fsize_t) i,
+		      (uint16) sizeof(struct direct));
+		
+		/* Canonicalize it.  */
+		canino(dirent.d_ino);
+		if (0 == strncmp(filename, dirent.d_name, DIRSIZ)){
+			return(dirent.d_ino);
+		}
+	}
+	return((ino_t) 0);
+} /* namei() */
+
+/*
+ * Inode READ: Load a local buffer from a file.
+ * iread(struct inode *ip,
+ *	 char *buffer,
+ *	 fsize_t offset,
+ *	 uint16 lenarg);
+ */
+void
+iread(ip, buffer, offset, lenarg)
+	struct inode *ip;	/* Read from this file,		*/
+	char *buffer;		/* into this buffer,		*/
+	fsize_t offset;		/* from here in the file,	*/
+	uint16 lenarg;	/* for this many bytes.		*/
+{
+	extern uint16 myds;	/* Contents of ds register.  */
+
+	ifread(ip, myds, buffer, offset, (fsize_t) lenarg);
+} /* iread() */
+
+/*
+ * Inode to Far READ: Load an arbitrary length from a file into a far address.
+ * ifread(struct inode *ip,
+ *	  uint16 toseg,
+ *	  uint16 tooffset,
+ *	  fsize_t offset,
+ *	  fsize_t length);
+ */
+void
+ifread(ip, toseg, tooffset, offset, lenarg)
+	struct inode *ip;	/* Read from this file,		*/
+	uint16 toseg;	/* into this far buffer,	*/
+	uint16 tooffset;
+	fsize_t offset;		/* from here in the file,	*/
+	fsize_t lenarg;		/* for this many bytes.		*/
+{
+	BUF *bp;
+	char *my_block;
+
+	daddr_t fblockno;	/* Block number relative to file.  */
+	daddr_t pblockno;	/* Block number relative to disk.  */
+	uint16 blockoffset;	/* How far into buffer to start or end.  */
+	uint16 blocklen;	/* Size of first fractional block.  */
+	long length;
+
+	extern uint16 myds;	/* Contents of register ds.  */
+
+	length = (int32) lenarg;	/* We need something that can go negative.  */
+
+	/* Calculate the first block of the requested file segment.  */
+	fblockno = (daddr_t) (offset / (fsize_t) BLOCK);
+	/* Look up the physical block number.  */
+	pblockno = vmap(ip, fblockno);
+	/* Calculate starting offset within that block.  */
+	blockoffset = (uint16) (offset % (fsize_t) BLOCK);
+	blocklen =
+	 (uint16) LESSER((int32) (BLOCK - blockoffset), length);
+
+	/* Read the first fraction of a block.  */
+	bp = bread(pblockno);
+	
+	/* Point at the actual data.  */
+	my_block = (char *) bp->b_paddr;
+
+	/* Copy it in place.  */
+	ffcopy(tooffset, toseg, &(my_block[blockoffset]), myds, blocklen);
+		
+	sanity_check("ifread() calling the first brelease()");
+	brelease(bp);
+
+	/* Don't bother with the rest if there is nothing more to read.  */
+	if (blocklen == (uint16) length) {
+		return;
+	}
+
+	++fblockno;
+	pblockno = vmap(ip, fblockno);
+
+	length -= (int32) blocklen;
+	seginc(&tooffset, &toseg, blocklen);
+
+	/* Read the middle blocks.  */
+	while (length - (int32) BLOCK > 0L) {
+		sanity_check("ifread() to middle bread()");
+		bp = bread(pblockno);
+		sanity_check("ifread() from middle bread()");
+
+		/* Point at the actual data.  */
+		my_block = (char *) bp->b_paddr;
+
+		sanity_check("ifread() to middle ffcopy()");
+		ffcopy(tooffset, toseg, my_block, myds, BLOCK);
+		sanity_check("ifread() from middle ffcopy()");
+
+		sanity_check("ifread() to middle brelease()");
+		brelease(bp);
+		sanity_check("ifread() from middle brelease()");
+
+/* pacifier */	puts(".");
+		++fblockno;
+		sanity_check("ifread() to middle vmap()");
+		pblockno = vmap(ip, fblockno);
+		sanity_check("ifread() to middle vmap()");
+
+		length -= (int32) BLOCK;
+		sanity_check("ifread() to middle seginc()");
+		seginc(&tooffset, &toseg, BLOCK);
+		sanity_check("ifread() from middle seginc()");
+	}
+
+	/* Read the last fraction of a block.  */
+	if (length > 0L) {
+		/* ASSERTION: length < BLOCK */
+		bp = bread(pblockno);
+
+		/* Point at the actual data.  */
+		my_block = (char *) bp->b_paddr;
+
+		ffcopy(tooffset, toseg, my_block, myds, (uint16)length);
+		sanity_check("ifread() calling the last brelease()");
+		brelease(bp);
+	}
+} /* ifread() */
+
+
+/* Aligning xbread.
+ * Disk addresses are relative to the start of the disk, rather than
+ * the start of the partition.
+ * Reads 1 block into an arbitrary buffer.  The assembly language
+ * routine xbread() needs a buffer aligned on a 4K boundary.
+ */
+BUF *
+xbread(blockno)
+	daddr_t blockno;	/* Block number.  */
+{
+	BUF *retval = NULL;
+
+	/* If not already aligned, align buffer on a 4K boundary.  */
+	if (NULL == lbuf) {
+		lbuf = bufspace + FOURK;
+		(short) lbuf &= FOURKBOUNDRY;
+	}
+
+	sanity_check("xbread() entry");
+	/*
+	 * Get a buffer to cache this in.
+	 */
+
+	retval = bclaim(blockno);
+
+ 	sanity_check("xbread() returning from bclaim()");
+
+	/*
+	 * If the buffer has the right block number,
+	 * we need not go further.
+	 */
+	if ((THE_XDEV == retval->b_dev) && (blockno == retval->b_bno)) {
+		return(retval);
+	}
+
+	/* Read the block, ignoring
+	 * the return value.
+	 */
+	sanity_check("xbread() to _xbread()");
+	_xbread(blockno, lbuf);
+	sanity_check("xbread() from _xbread()");
+
+	/* Copy to the unaligned buffer.  */
+	sanity_check("xbread() to memcpy()");
+	memcpy((uint16) (retval->b_paddr), lbuf, BLOCK);
+	sanity_check("xbread() from memcpy()");
+
+	retval->b_dev	= THE_XDEV;	/* Associate it with a device, */
+	retval->b_bno	= blockno;	/* and block number.  */
+
+	sanity_check("xbread() about to return");
+	/* Return the buffer we just filled in.  */
+	return(retval);
+} /* xbread() */
+
+@
+
+
+1.2
+log
+@Added xbread() for reading from whole drive rather than just partition.
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d314 57
+@

@@ -1,0 +1,188 @@
+nnaammee ssppaaccee -- C Language
+
+C name-space rules
+
+The term _n_a_m_e _s_p_a_c_e refers to  the ``list'' where the translator records an
+identifier.  Each name space holds  a different set of identifiers.  If two
+identifiers are  spelled exactly the same and appear  within the same scope
+but  are  not  in the  same  name  space, they  are  _n_o_t  considered to  be
+identical.
+
+The five varieties of name space, as follows:
+
+MMaaccrroo NNaammeess
+     Macro  names  introduced  with  #ddeeffiinnee  are special.   Because  macro
+     replacement happens  before the program text is  scanned for the other
+     classes of names,  macro names exist in a global  name space that pays
+     no  heed  to  the  rules  below.   See the  description  of  namespace
+     pollution, below, for more on this.
+
+LLaabbeell NNaammeess
+     The translator treats every identifier followed by a colon `:' or that
+     follows a ggoottoo statement as a label.
+
+TTaaggss A tag is the name that follows the keywords ssttrruucctt, uunniioonn, or eennuumm. It
+     names the type of object so declared.
+
+MMeemmbbeerrss
+     A member names a field within  a structure or a uunniioonn. A member can be
+     accessed via the operators `.'  or `->'.  Each structure or uunniioonn type
+     has a separate name space for its members.
+
+OOrrddiinnaarryy iiddeennttiiffiieerrss
+     These  name  ordinary  functions  and  variables.   For  example,  the
+     expression
+
+         int example;
+
+     declares the  ordinary identifier  eexxaammppllee to  name an object  of type
+     iinntt.
+
+_N_a_m_e-_S_p_a_c_e _P_o_l_l_u_t_i_o_n
+The ANSI  Standard and the  POSIX Standard recognize  special problems that
+relate to the above classes of  name space and to the names supplied to the
+user by  the translator  or the  #iinncclluuddee mechanism.  They  provide special
+rules that govern what names a program and an implementation can define.
+
+Although the above rules are good  at resolving conflict, in the context of
+a large programming project  (which the standard C library is, effectively)
+they  are not  always  sufficient.  First,  there is  the possibility  that
+definitions in  library header files may conflict with  each other, or with
+user definitions.   Second, an internal definition  in the standard library
+may conflict with a user definition that happens to have the same name.
+
+The  ANSI  Standard  defines  rules  that  set aside  some  names  for  the
+implementation.   The implementation  can use  only  these names,  and user
+applications cannot  use them.  When implementations  and applications both
+obey these  rules, a user  program cannot conflict  with a definition  in a
+system header file.  The rules are as follows:
+
+-> Any name that begins with an  underscore followed by a capital letter or
+   underscore  is reserved  for  use by  the implementation.   Applications
+   should not  use any symbols  of this form except  to define feature-test
+   macros (e.g., _PPOOSSIIXX_SSOOUURRCCEE, see below).
+
+-> Any name that begins with  an underscore followed by a lower-case letter
+   is reserved for use by the  application if the name is internal (such as
+   a static symbol or a tag- or member-name).  Macro names of this form are
+   forbidden, because they do not  obey the other name-space rules above: a
+   user-level  macro  definition  could cause  a  conflict  with a  private
+   structure-member defined in a system header.
+
+-> C++  reserves  for   the  implementation  all  names  that  contain  two
+   underscores.
+
+-> The  Standard forbids external  identifiers (i.e.,  non-static functions
+   and variables) that match any of the function or variable defined in the
+   C standard.
+
+-> If a program  #iinncclluuddees a standard library header file,  it cannot use a
+   macro  definition that  matches  the name  of any  function or  variable
+   defined in any standard library header.
+
+These rules are  supplemented with rules that govern the  use of names that
+are defined  in any library  header described in  the ANSI Standard  or the
+POSIX Standard.   The following  gives the  rules that apply  to individual
+header files:
+
+<eerrrrnnoo.hh>
+     The implementation can define  extra macros that begin with the letter
+     `E'.
+
+<ssiiggnnaall.hh>
+     The implementation can define extra macros that begin with SSIIGG_.
+
+If  an  application needs  to  use  any function  that  the POSIX  Standard
+defines,  it  should   contain  the  following  line  before  any  #iinncclluuddee
+directives:
+
+    #define _POSIX_SOURCE 1
+
+This sets the _PPOOSSIIXX_SSOOUURRCCEE feature-test macro.  If this is done, the POSIX
+Standard  reserves  symbols  for  some  header  files.  If  an  application
+includes one of the following header  files, it must _n_o_t use any of symbols
+reserved for that header:
+
+<ddiirreenntt.hh>
+     Reserved prefix: dd_.
+
+<ffccnnttll.hh>
+     Reserved  prefixes: ll_,  FF_, OO_, and  SS_. Reserved  symbols: SSEEEEKK_CCUURR,
+     SSEEEEKK_EENNDD, and SSEEEEKK_SSEETT.
+
+<ggrrpp.hh>
+     Reserved prefix: ggrr_.
+
+<lliimmiittss.hh>
+     Reserved suffix: _MMAAXX.
+
+<ppwwdd.hh>
+     Reserved prefix: ppww_.
+
+<ssiiggnnaall.hh>
+     Reserved prefixes: ssaa_, SSIIGG_, and SSAA_.
+
+<ssyyss/ssttaatt.hh>
+     Reserved prefixes: sstt_ and SS_.
+
+<ssyyss/ttiimmeess.hh>
+     Reserved prefix: ttmmss_.
+
+If an application #iinncclluuddees any header described in the POSIX Standard, all
+symbols with the suffix _tt are reserved.
+
+Note that  the symbols defined  above that begin with  an upper-case letter
+may  be  used  by  an  application  after the  #iinncclluuddee  directive  if  the
+application uses  an #uunnddeeff directive to  cancel any conflicting definition
+supplied by the header.
+
+_E_x_a_m_p_l_e
+The following program illustrates the  concept of name space.  It shows how
+the identifier  ffoooo can be  used numerous times  within the same  scope yet
+still be distinguished.   This is extremely poor programming style.  Please
+do not write programs like this.
+
+#include <stdio.h>
+#include <stdlib.h>
+
+/* structure tag */
+struct foo {
+    /* structure member */
+    struct foo *foo;
+    int bar;
+};
+
+main(void)
+{
+    /* ordinary identifier */
+    struct foo *foo;
+    int i = 0;
+
+    foo = (struct foo *)malloc(sizeof(foo));
+    foo->bar = ++i;
+    foo->foo = NULL;
+
+/* label */
+foo:    printf("What kind of \"foo\"s am I?\n");
+    if (foo->foo == NULL) {
+        foo->foo = (struct foo *)malloc(sizeof(foo));
+        foo->foo->foo = NULL;
+        foo->foo->bar = ++i;
+        goto foo;
+    }
+
+    printf("The foo loop executed %d times\n", foo->foo->bar);
+    return(EXIT_SUCCESS);
+}
+
+_S_e_e _A_l_s_o
+CC llaanngguuaaggee
+ANSI Standard, section 3.1.2.3
+
+_N_o_t_e_s
+Pre-ANSI  implementations disagree  on the  name spaces  of structure/uunniioonn
+members.   The Standard  adopted the ``Berkeley''  rules, which  state that
+every unique  structure/uunniioonn type has its own name  space for its members.
+It rejected the  rules of the first edition of  _T_h_e _C _P_r_o_g_r_a_m_m_i_n_g _L_a_n_g_u_a_g_e,
+which  state that  the members  of all  structures and  uunniioonns reside  in a
+common name space.

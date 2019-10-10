@@ -1,0 +1,354 @@
+nnkkbb -- Device Driver
+
+Configurable device driver for console keyboard
+
+The COHERENT  device-driver nnkkbb  supports industry-standard 83-,  101-, and
+102-key AT-protocol keyboards attached as the computer console.  Unlike kkbb,
+the other COHERENT keyboard driver, nnkkbb  lets you define both the layout of
+the keyboard and the values returned by function keys.
+
+You can  change the layout  and function-key bindings  by using one  of the
+keyboard-mapping  programs  kept  in  directory /ccoonnff/kkbbdd.  This  directory
+contains the  C source code for  the mapping tables, as  well as a MMaakkeeffiillee
+that helps you rebuild the mapping programs.
+
+This article  describes the structure of the driver  nnkkbb, and describes how
+you can write or modify a keyboard-mapping program.
+
+_I_n_t_e_r_n_a_l _S_t_r_u_c_t_u_r_e
+nnkkbb understands the following ``shift'' and ``lock'' keys:
+
+     ssccrroollll    Scroll lock
+     nnuumm       Keypad <nnuumm> lock
+     ccaappss      <sshhiifftt> or <ccaappss> lock
+     llaalltt      Left <aalltt> key
+     rraalltt      Right <aalltt> key
+     llsshhiifftt    Left <sshhiifftt> key
+     rrsshhiifftt    Right <sshhiifftt> key
+     llccttrrll     Left <ccttrrll> key
+     rrccttrrll     Right <ccttrrll> key
+     aallttggrr     <aalltt ggrraapphhiicc> key (non-U.S. keyboards)
+
+nnkkbb records  the internal shift state, as defined  by the current positions
+of the  shift and lock keys.   The shift state is  a logical combination of
+internal states  SSHHIIFFTT, CCTTRRLL,  AALLTT, and  AALLTT_GGRR. The <llsshhiifftt>  and <rrsshhiifftt>
+keys  combine to  form  the current  SSHHIIFFTT state  for non-alphabetic  keys.
+Alphabetic keys generally use the current state of the <ccaappss-lloocckk> key plus
+the left and right <sshhiifftt> keys.   Numeric keys on the keypad generally use
+the state of the <nnuumm lloocckk>  key plus the left and right <sshhiifftt> keys.  The
+left and  right <ccttrrll>  keys form the  internal CCTTRRLL state.   Likewise, the
+left and right  <aalltt> keys form the internal AALLTT  state.  Note that 102-key
+keyboards  generally replace  the  right <aalltt>  key with  the <aallttggrr>  (alt
+graphics) key,  to allow access to the  alternate graphics characters found
+on some keyboards.
+
+nnkkbb  lets  you  configure or  read  the  internal  mapping  tables via  the
+following requests to iiooccttll(), as defined in header file <ssggttttyy.hh>:
+
+     TTIIOOCCGGEETTFF  Get function key bindings
+     TTIIOOCCSSEETTFF  Set function key bindings
+     TTIIOOCCGGEETTKKBBTTGet keyboard table bindings
+     TTIIOOCCSSEETTKKBBTTSet keyboard table bindings
+
+Requests TTIIOOCCGGEETTFF  and TTIIOOCCSSEETTFF reference  a data structure  of type FFNNKKEEYY,
+which is  defined in header file <ssyyss/kkbb.hh>. Structure  member kk_ffnnvvaall is a
+character  array that  contains a series  of contiguous  function key/value
+bindings; the end of the bindings is marked by manifest constant DDEELLIIMM. You
+can  use any  value other  than DDEELLIIMM  as part  of a  function-key binding.
+Structure member kk_nnffkkeeyyss  indicates how many function keys have associated
+entries in kk_ffnnvvaall. Function  keys are numbered from zero through kk_nnffkkeeyyss-
+1.
+
+_H_o_w _T_o _W_r_i_t_e _a _K_e_y_b_o_a_r_d _T_a_b_l_e
+The main  difference between the  keyboard drivers nnkkbb  and kkbb is  that nnkkbb
+uses  a ``supplemental''  process  to interpret  keystrokes.   You can  re-
+construct the  interface to the nnkkbb driver  by modifying a keyboard-mapping
+file and then using a support module to link that file to the driver.
+
+As noted  above, directory /ccoonnff/kkbbdd contains the source  code for a series
+of such supplemental programs.   These programs differ from each other only
+in the keyboard binding or mapping  tables each uses; by selecting one such
+program and  linking it into nnkkbb,  you can switch easily  from the standard
+keyboard layout  used in  the U.S. to  any of a  number of layouts  used in
+other  countries.   /ccoonnff/kkbbdd also  contains  compiled  executables, and  a
+MMaakkeeffiillee that  you use to construct the  executables from the corresponding
+source files.
+
+The  keyboard-mapping file  is  a C  program that  consists of  initialized
+tables and  strings.  In  addition, several  header files provide  the scan
+codes and  other constants required for the key  tables.  This format makes
+the  file easy  to edit,  and  also lets  you enter  characters in  several
+different formats.
+
+The  support  module,  in  turn,  performs  several tasks.   These  include
+scanning the  keyboard-mapping file for errors,  reformatting the table for
+use by the device driver, and passing the reformatted table to the driver.
+
+A keyboard-mapping source  file consists primarily of three data structures
+that you must  modify to support a given keyboard  mapping.  The first, and
+simplest, of  the structures is  ttbbll_nnaammee. This is a  character string that
+describes the  keyboard.  For example,  the stock 101-key  U.S. AT keyboard
+mapping file /ccoonnff/kkbbdd/uuss.cc initializes this string to:
+
+    "U.S. AT keyboard table"
+
+The second  data structure, kkbbttbbll, is an array  of key-mapping entries.  It
+has one entry (or row) for  each possible key location.  Each entry in this
+structure consists of 11  fields, which hold, respectively, the key number,
+nine possible  mapping values, and a mode field.   The following example is
+for   physical    key   location    3   from   key-mapping    source   file
+/ccoonnff/kkbbdd/bbeellggiiaann.cc:
+
+    { K_3, 0x82, '2', none, none, 0x82, '2', '~', none, '~', O|T },
+
+Field  1 contains  the _s_c_a_n  _c_o_d_e  _s_e_t _3  code value  for the  desired key.
+Header file  <ssyyss/kkbbssccaann.hh> contains manifest  constants of the  form KK__n_n_n
+that map  the AT  keyboard's _p_h_y_s_i_c_a_l key  number _n_n_n to  the corresponding
+scan code set 3 value generated by the keyboard.  In the above example, KK_33
+corresponds to key location three.
+
+Fields 2 through 10 contain the key mappings corresponding to the following
+shift states, as follows:
+
+    2   base or unshifted
+    3   SSHHIIFFTT
+    4   CCOONNTTRROOLL
+    5   CCOONNTTRROOLL+SSHHIIFFTT
+    6   AALLTT
+    7   AALLTT+SSHHIIFFTT
+    8   AALLTT+CCOONNTTRROOLL
+    9   AALLTT+CCOONNTTRROOLL+SSHHIIFFTT
+   10   AALLTT_GGRRAAPPHHIICC
+
+For  ``regular''  keys, the  values  for these  nine  fields are  eight-bit
+characters; for  ``function'' or ``shift''  keys, they are  special values.
+The symbolic constant  nnoonnee indicates that you want no  output when the key
+is pressed in the specified shift state.
+
+In the  case of a  function key, the  value specified is the  number of the
+desired function  key.  Header  file <ssyyss/kkbb.hh>  defines a set  of symbolic
+constants of the form ff_n,  where _n  is the number  of the  desired function
+key.  You should use these  constants; they will improve the readability of
+your code,  and they will  protect your keyboard mapping  source files from
+any future changes in the structure of the keyboard driver.
+
+In the case of a ``shift'' key, all nine entries must be identical and must
+consist  of one  of the  following symbolic  constants: ssccrroollll,  nnuumm, ccaappss,
+llaalltt, rraalltt,  llsshhiifftt, rrsshhiifftt, llccttrrll,  rrccttrrll, or aallttggrr. These  are defined in
+the header file <ssyyss/kkbb.hh>.  Note that 83-key XT-layout keyboards only have
+one ``control'' and ``alt'' key,  so not every shift-key combination may be
+possible on your target keyboard.
+
+The  last  (11th) field  in  the  key entry  is  the  ``mode'' field.   The
+following symbolic constants specify the mode of the current key:
+
+SS    The  specified key  is a  ``shift''  or ``lock''  key.  Note  that all
+     entries in  array kk_vvaall must be identical for  a ``shift'' or ``lock''
+     key to work correctly.
+
+FF    The specified key is a ``function''  or special key.  The value of all
+     elements of array kk_vvaall must specify a function key number.
+
+OO    The specified key is ``regular'' and requires no special processing.
+
+CC    The <ccaappss-lloocckk> key affects this key.
+
+MM    Make: generate an interrupt only upon key ``make'' (i.e., when the key
+     is depressed).  This mode is useful for keys that do not repeat.  Note
+     that using  this mode with  a ``shift'' key stops  you from unshifting
+     upon release of the key!
+
+TT    Typematic:  generate  an  interrupt when  the  key  is depressed,  and
+     generate  subsequent  key-depression   interrupts  while  the  key  is
+     depressed.  The rate at which interrupts are generated is specified by
+     the typematic  rate of the keyboard.  This  type is usually associated
+     with a ``regular'' key.
+
+MMBB   Make/Break: generate  an interrupt when the key  is depressed and when
+     it is released.  No  additional interrupts are generated no matter how
+     long the key is depressed.  This mode is used for ``shift'' keys.
+
+TTMMBB  Typematic/Make/Break:  generate an  interrupt  when the  key is  first
+     depressed; generate subsequent key depression interrupts while the key
+     remains depressed; and generate an interrupt when the key is released.
+
+The above  example specifies a  mode field of  OO|TT, which corresponds  to a
+``regular''  key with  typematic  repeat, and  no special  handling of  the
+``lock'' keys.
+
+The  last data  structure,  ffuunnkkeeyy, consists  of an  array of  function-key
+initializers, one  per function key.   The initializers are  simple, quoted
+character strings  delimited by either hexadecimal  value 00xxFFFF, octal value
+\337777, or symbolic constant DDEELLIIMM. Note  that any other value can be used as
+part of  a function-key  binding.  Function  keys are numbered  starting at
+zero.
+
+Function keys are useful not only  in the classic sense of the programmable
+function keys on the keyboard, but  also as a general purpose mechanism for
+binding arbitrary length character  sequences to a given key.  For example,
+physical key  location 16  is usually associated  with the <ttaabb>  and <bbaacckk
+ttaabb>  on the  AT keyboard;  and /ccoonnff/kkbbdd/uuss.cc sets  the key  mapping table
+entry for key 16 as follows:
+
+    { K_16, f42, f43, none, none, f42, f43, none, none, none, F|T },
+
+For traditional  reasons, the <bbaacckk  ttaabb> key outputs  the sequence <eesscc>[ZZ
+whereas the <ttaabb> key simply outputs the horizontal-tab character <ccttrrll-II>.
+Because at  least one of the  mapping values for this key  is more than one
+character  long, the  key must  be defined  as a  ``function'' key  and all
+entries for  the the key must correspond to  function-key numbers.  In this
+example,  function key  number 42  was chosen for  <ttaabb>, and  function key
+number 43 was  chosen for <bbaacckk ttaabb>. The constant  nnoonnee indicates that you
+want no output  when the key is pressed in  the specified shift state.  The
+corresponding ffuunnkkeeyy  initialization entries for function  keys ff4422 and ff4433
+are as follows:
+
+    /* 42 */      "\t\377",          /* Tab */
+    /* 43 */      "\033[Z\377",      /* Back Tab */
+
+We strongly recommend that you comment your function-key bindings.
+
+You  can also  change  function-key bindings  via the  command ffnnkkeeyy.  This
+command  lets  you  temporarily alter  one  or  more function-key  mappings
+without changing your key-mapping sources.
+
+_E_x_a_m_p_l_e_s
+Prior to the release of the 101- and 102-key, enhanced-layout AT keyboards,
+the <ccttrrll> key was positioned to  the left of `A' key.  Most terminals also
+locate the <ccttrrll> key there.  The  first example shows how to swap the left
+<ccttrrll> key  and the <ccaappss-lloocckk>  key on a  101- and 102-key  keyboard.  The
+<ccaappss-lloocckk> key is physical key 30, whereas the left <ccttrrll> key is physical
+key 58.  Their respective entries in file /ccoonnff/kkbbdd/uuss.cc source file are as
+follows:
+
+    { K_30, caps, caps, caps, caps, caps, caps, caps, caps, caps,  S|M },
+    { K_58, lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl, S|MB },
+
+Note that  the <ccaappss-lloocckk> key is  defined with mode MM as  it is a ``lock''
+key.   The  keyboard  will  interrupt  only  on  key  depressions,  because
+releasing a  ``lock'' key has  no effect.  The  left <ccttrrll> key  is defined
+with mode MMBB as it is a ``shift'' key.  The keyboard generates an interrupt
+on both key  depression and key release, because the  driver must track the
+state of this key.
+
+To swap  the aforementioned keys, simply change all  occurrences of ccaappss to
+llccttrrll and  vice-versa, as well  as swapping the mode  fields.  After making
+the changes, the entries now appear as:
+
+    { K_30, lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl, S|MB },
+    { K_58, caps, caps, caps, caps, caps, caps, caps, caps, caps,  S|M  },
+
+The second example converts a 101-  or 102-key keyboard table to support an
+XT-style  83-key keyboard  layout.   The following  section summarizes  the
+``typical''  differences found  when  comparing the  two keyboard  layouts.
+Needless  to  say, given  the  extreme variety  in  keyboard designs,  your
+mileage may vary:
+
+ _L_o_c_a_t_i_o_n  _1_0_1/_1_0_2 _V_a_l_u_e   _8_3-_k_e_y _V_a_l_u_e    _C_o_m_m_e_n_t_s
+    14          nnoonnee         Various       Keyboard-specific
+    30          ccaappss          llccttrrll
+    58         llccttrrll           llaalltt
+    64         rrccttrrll           ccaappss
+    65          nnoonnee            FF22         Function Key
+    66          nnoonnee            FF44         Function Key
+    67          nnoonnee            FF66         Function Key
+    68          nnoonnee            FF88         Function Key
+    69          nnoonnee           FF1100         Function Key
+    70          nnoonnee            FF11         Function Key
+    71          nnoonnee            FF33         Function Key
+    72          nnoonnee            FF55         Function Key
+    73          nnoonnee            FF77         Function Key
+    74          nnoonnee            FF99         Function Key
+    90          nnuumm            EEsscc
+    95           /             nnuumm
+    100          *            ssccrroollll
+    105          -             nnoonnee        <SSyyssRReeqq> not used
+    106          +              *
+    107         nnoonnee            -
+    108       <EEnntteerr>           +
+    110         eesscc            nnoonnee        Not on XT layout
+  112-123      FF11-FF1122          nnoonnee        Not on XT layout
+    124         nnoonnee           nnoonnee        <PPrrttSSccrr> not used
+    125        ssccrroollll          nnoonnee        Not on XT layout
+    126         nnoonnee           nnoonnee        <PPaauussee> not used
+
+_B_u_i_l_d_i_n_g _N_e_w _B_i_n_a_r_i_e_s
+After  you  have  modified  an  existing  keyboard-mapping table,  use  the
+following commands to rebuild the corresponding executables:
+
+cd /conf/kbd
+  su root
+   make
+
+If  you  have  created  a   new  keyboard  mapping  table,  you  must  edit
+/ccoonnff/kkbbdd/MMaakkeeffiillee.  Duplicate an  existing  entry from  the MMaakkeeffiillee,  and
+change the  duplicated name to match the name  of your new keyboard-mapping
+table.  After you have finished your editing, build an executable from your
+source file by simply executing the above series of commands.
+
+To load  your new keyboard  table, simply type  the name of  the executable
+that corresponds  to your keyboard-mapping file.  For  example, if you just
+built  executable ffrreenncchh  from  source file  ffrreenncchh.cc,  type the  following
+command:
+
+    /conf/kbd/french
+
+If the keyboard-support module finds an error, it will print an appropriate
+message.  If it finds no errors,  it will update the internal tables of the
+nnkkbb keyboard  driver, reprogram  the keyboard, and  print a message  of the
+form:
+
+    Loaded French AT keyboard table
+
+To ensure that the keyboard-support module is loaded automatically when you
+boot your COHERENT system, edit file  ddrrvvlldd.aallll to name the module you wish
+to use.   For example, to ensure  that the French keyboard  table is loaded
+automatically when you boot  your system, insert the following command into
+/eettcc/ddrrvvlldd.aallll:
+
+    /conf/kbd/french
+
+_D_i_s_a_b_l_i_n_g <_C_t_r_l><_A_l_t><_D_e_l>
+By convention, function-key 0,  when enabled, causes the computer system to
+reboot.   This   function  key  is  usually  bound   to  the  key  sequence
+<ccttrrll><aalltt><ddeell>, but  you can disable  it by setting the  value of driver-
+variable  KKBBBBOOOOTT to  zero.  The  installation  script for  configuring your
+console asks you  if you want to turn off  this feature; and if so, it sets
+KKBBBBOOOOTT to the correct value.
+
+_P_r_o_b_l_e_m_s _W_i_t_h _I_n_c_o_m_p_a_t_i_b_l_e _K_e_y_b_o_a_r_d_s
+If  you are  experiencing problems  with respect to  key mappings,  and you
+installed one  of the  loadable keyboard  mapping tables from  the keyboard
+selection menu,  you may have  an incompatible keyboard.   Please note that
+the  COHERENT  nnkkbb  driver  (and  loadable  tables) only  work  with  well-
+engineered keyboards,  such as those built by  IBM, Cherry, MicroSwitch, or
+Keytronics; it  may not work  correctly with a  poorly engineered ``clone''
+keyboard.
+
+The preferred  action is to replace  your keyboard with one  made by one of
+the above-named  manufacturers.  If, however,  you wish to  use a ``clone''
+keyboard with COHERENT, your best  bet is to re-install COHERENT and select
+the kkbb  driver instead  of nnkkbb.  kkbb is not  loadable and supports  only the
+U.S., German,  and French keyboard layouts.  For details  on how to replace
+nnkkbb with kkbb, see the Lexicon entry kkeeyybbooaarrdd.
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, ffnnkkeeyy, kkbb, kkbb.hh, kkeeyybbooaarrdd, vvttnnkkbb
+_T_e_c_h_n_i_c_a_l  _R_e_f_e_r_e_n_c_e _f_o_r  _t_h_e _I_B_M  _P_e_r_s_o_n_a_l  _C_o_m_p_u_t_e_r _A_T,  IBM Corporation,
+1984.
+_M_u_l_t_i-_F_u_n_c_t_i_o_n _K_e_y_b_o_a_r_d_s: _L_a_y_o_u_t_s, Cherry Electrical Products Corp.
+
+_N_o_t_e_s
+The name nnkkbb standard for ``new keyboard driver''.
+
+Key 14, if used, varies considerably among keyboard models.
+
+The location of  the key that contains characters `\'  and `|' varies among
+101-key US-layout keyboards.
+
+When designing keyboard tables for keyboards that use the AALLTT_GGRRAAPPHHIICC shift
+key, for  reasons of  backwards compatibility you  should allow the  use of
+combination shift AALLTT+CCTTRRLL as a synonym for AALLTT_GGRRAAPPHHIICC.
+
+For information on  how to select a keyboard driver,  see the Lexicon entry
+kkeeyybbooaarrdd.

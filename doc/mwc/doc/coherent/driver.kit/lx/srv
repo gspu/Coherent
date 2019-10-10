@@ -1,0 +1,87 @@
+.TH srv "" "" "Entry-Point Routine"
+.PC "Service queued messages"
+.B "#include <sys/stream.h>"
+.B "#include <sys/stropts.h>"
+.B "#include <sys/types.h>"
+\fBint \fIprefix\fBrsrv(\fIqueue\^\fB)\fR
+\fBqueue_t \fIqueue\^\fB;\fR
+.sp \n(pDu
+\fBint \fIprefix\fBwsrv(\fIqueue\^\fB)\fR
+\fBqueue_t *\fIqueue\^\fB;\fR
+.PP
+The
+.BR srv ,
+or ``service,'' routine services queued messages.
+.I queue
+points to the message queue to be serviced.
+The
+.B rsrv
+routine reads
+.IR queue ,
+and
+.B wsrv
+writes to it.
+Neither returns a meaningful value.
+A drivers or modules should call
+.B qenable()
+to invoke a service routine, rather than invoke it directly.
+.PP
+A
+.B srv
+routine allows a driver or module to process messages.
+When the \*(ST scheduler calls a
+.B srv
+routine, it processes all messages on its queue.
+Processing continues until the queue is empty or is
+flow-controlled, or an allocation error occurs.
+.PP
+.II "priority band^definition"
+.II "band, priority^definition"
+Because some networking protocols require multiple bands of data flow,
+\*(ST messages can have up to 256 different priorities.
+A stream must at least distinguish between normal messages
+and high-priority messages.
+A queue orders its messages by priority:
+a high-priority message always is written at the head of the queue, after
+all other high-priority messages already enqueued.
+Each priority band has its own flow-control limits;
+high-priority messages are not affected by flow control.
+If a band of messages is stopped by flow control, all bands with lower
+priority are also stopped.
+.SH "See Also"
+.B
+bcanputnext(),
+bufcall(),
+canputnext(),
+datab,
+entry-point routines,
+getq(),
+msgb,
+pcmsg(),
+put,
+putbq(),
+putnext(),
+putq(),
+qenable(),
+qinit,
+queue,
+timeout(),
+.R
+.SH Notes
+This entry point is used only by the DDI/DKI interface.
+It is optional for modules and drivers, but required for multiplexing
+drivers.
+If a service routine is not needed,
+initialize to NULL field
+.B qi_srvp
+within the module's
+.B qinit
+structure.
+.PP
+If the service routine finishes running because of any reason other than
+flow control or an empty queue, it must explicitly arrange to be
+rescheduled.
+.PP
+Service routines do not have user context, and so many not call any function
+that sleeps.
+Only one copy of a queue's service routine will run at a time.

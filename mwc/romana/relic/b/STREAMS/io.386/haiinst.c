@@ -1,0 +1,130 @@
+/***********************************************************************
+ *  haicfg.c    --  A device driver to allow auto configuration of
+ *                  SCSI bus.
+ *
+ *  Copyright (c) 1993, Christopher Sean Hilton, All rights reserved.
+ *
+ *  Last Modified: Thu Jun 24 22:40:26 1993 by [chris]
+ *
+ *  $Id: haiinst.c,v 1.1 93/07/20 11:21:29 bin Exp Locker: bin $
+ */
+
+#include <stddef.h>
+#include <sys/coherent.h>
+#include <sys/con.h>
+#include <sys/buf.h>
+#include <sys/io.h>
+#include <sys/sched.h>
+#include <sys/stat.h>
+
+#include <sys/uproc.h>
+#include <errno.h>
+
+#include <sys/haiscsi.h>
+#include <sys/haiinst.h>
+
+#define CFGMAJOR	14
+#define INQUIRY 	0x12
+
+static void cfg_open();
+static void cfg_ioctl();
+static int cfg_load();
+
+extern int nonedev();	/* Set error and exit. */
+extern int nulldev();	/* Do nothing and exit. */
+
+CON cfgcon = {
+	DFCHR,
+	CFGMAJOR,
+	cfg_open,	/* Open entry point */
+	nulldev,	/* Close entry point */
+	nonedev,	/* Block entry point. */
+	nonedev,	/* Read Entry point */
+	nonedev,	/* write entry point */
+	cfg_ioctl,	/* IO control entry point */
+	nonedev,	/* No powerfail entry (yet?) */
+	hatimer,	/* timeout entry point */
+	cfg_load,	/* Load entry point */
+	nulldev,	/* Unload entry point */
+	nonedev 	/* No poll entry yet either. */
+};
+
+srb_t		cfgsrb = { 0 };
+int	haipresent;
+
+/***********************************************************************
+ *  int cfg_open(dev_t dev, int mode)
+ *
+ *  Just make sure that the Host Adapter was initialized properly.
+ */
+
+static void cfg_open(dev /*, mode */)
+register dev_t	dev;
+/* int          mode; */
+{
+	if (tid(dev) != HAI_HAID || !haipresent)
+		u. u_error = EINVAL;
+}   /* cfg_open() */
+
+/***********************************************************************
+ *  cfg_load()
+ *
+ *  Load Entry point.
+ */
+
+static int cfg_load()
+
+{
+	printf("\nHAISCSI Configuration Driver v1.1\n");
+	haipresent = hainit();
+	if (!haipresent)
+		printf("Host Adapter Initialization failed\n");
+
+	return haipresent;
+}   /* cfg_load() */
+
+static void ioctlfin()
+
+{
+}   /* ioctlfin() */
+
+static void cfg_ioctl(dev, cmd, vec)
+dev_t	dev;
+int	cmd;
+char	*vec;
+{
+	cfg_io_t c;
+
+	if (!haipresent || tid(dev) != HAI_HAID) {
+		u. u_error = EINVAL;
+		return;
+	}
+
+	memset(&cfgsrb, 0, sizeof(srb_t));
+	ukcopy(vec, &c, sizeof(c));
+	cfgsrb. dev 	= dev;
+	cfgsrb. target	= c. target;
+	cfgsrb. lun 	= c. lun;
+	switch (cmd) {
+	case HAICFG_INQ:		/* Inquiry command */
+		cfgsrb. buf. space = USER_ADDR;
+		cfgsrb. buf. addr. vaddr = (vaddr_t) (((cfg_io_p) vec)->buf);
+		cfgsrb. buf. size = c. buflen;
+		cfgsrb. xferdir = DMAREAD;
+		memset(&(cfgsrb. cdb), 0, sizeof(cdb_t));
+		cfgsrb. cdb. g0. opcode = INQUIRY;
+		cfgsrb. cdb. g0. xfr_len = cfgsrb. buf. size;
+		break;
+	case HAICFG_MDSNS0: 		/* Group 0 Mode Sense */
+	case HAICFG_MDSLT0: 		/* Group 0 Mode Select */
+	case HAICFG_MDSNS2: 		/* Group 2 Mode Sense */
+	case HAICFG_MDSLT2: 		/* Group 2 Mode Select */
+	case HAICFG_USERCDB:		/* User's Command/Data Block */
+	default:
+		u. u_error = EINVAL;
+		break;
+	}
+	doscsi(&cfgsrb, c. tries, "cfg-ctl");
+}   /* cfg_ioctl() */
+
+/* End of file */

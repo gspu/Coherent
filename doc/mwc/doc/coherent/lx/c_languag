@@ -1,0 +1,191 @@
+.TH "C language" "" "" Overview
+.PC
+.PP
+\*(CO includes a C compiler that fully implements the Kernighan and
+Ritchie standard of C, with extensions taken from the ANSI standard.
+.PP
+Please note that in the following discussion,
+.I word
+indicates an object 16 bits long;
+.IR dword ,
+an object 32 bits long;
+and
+.IR qword ,
+an object 64 bits long:
+.IP "\fIIdentifiers\fR"
+Characters allowed: \fBA-Z\fR, \fBa-z\fR, \fB_\fR, \fB0-9\fR
+.br
+Case sensitive
+.br
+Number of significant characters in a variable name: \fB255\fR
+.IP "\fIEscape Sequences\fR"
+The \*(CO C compiler recognizes the following escape sequences:
+.DM
+.ie t .ta 0.5i 1.0i 1.75i 2.5i
+.el   .ta 0.5i 1.25i 2.5i 3.75i
+	\fIASCII	Ctrl	 Hex	Description\fR
+\fB\ea\fR	BEL	<ctrl-G>	0x07	audible tone (bell)
+\fB\eb\fR	BS	<ctrl-H>	0x08	backspace
+\fB\ef\fR	FF	<ctrl-L>	0x12	formfeed
+\fB\en\fR	LF	<ctrl-J>	0x0A	linefeed (newline)
+\fB\er\fR	CR	<ctrl-M>	0x0D	carriage return
+\fB\et\fR	HT	<ctrl-I>	0x09	horizontal tab
+\fB\ev\fR	VT	<ctrl-K>	0x0B	vertical tab
+\fB\exhh\fR			0xhh	hex (one to four hex digits [0-9a-fA-F])
+\fB\eooo\fR				octal (one to four octal digits [0-7])
+.DE
+.IP \fITrigraphs\fR
+The \*(CO C compiler recognizes the following trigraphs:
+.DS
+.ta 1.0iC 2.0iC
+	\fITrigraph	Character\fP
+	\fISequence	Represented\fP
+.sp \n(pDu
+	??=	#
+	??(	[
+	??/	\e
+	??)	]
+	??'	^
+	??<	{
+	??!	|
+	??>	}
+	??-	~
+.DE
+.IP
+For details, see the Lexicon entry
+.BR trigraph .
+.IP "\fIReserved Identifiers (Keywords)\fR"
+See the Lexicon entry for \fBC keywords\fR.
+.IP "\fIData Formats (in bits)\fR"
+.DS
+.ie t .ta 0.5i 1.7i
+.el   .ta 0.5i 2.25i
+	\fBchar\fR	8
+	\fBunsigned char\fR	8
+	\fBdouble\fR	64
+	\fBenum\fR	8|32
+	\fBfloat\fR	32
+	\fBint\fR	32
+	\fBunsigned int\fR	32
+	\fBlong\fR	32
+	\fBunsigned long\fR	32
+	pointer	32
+	\fBshort\fR	16
+	\fBunsigned short\fR	16
+.DE
+.IP "\fIFloating-Point Formats\fR"
+.DS
+IEEE floating-point \fBfloat\fR:
+	1 sign bit
+	8-bit exponent
+	24-bit normalized fraction with hidden bit
+	Bias of 127
+.DE
+.DS
+IEEE floating-point \fBdouble\fR:
+	1 sign bit
+	11-bit exponent
+	53-bit fraction
+	Bias of 1,023
+.DE
+.DS
+Reserved values:
+	+- infinity, -0
+.DE
+.sp \n(pDu
+All floating-point operations are done as \fBdouble\fRs.
+.IP \fILimits\fR
+.nf
+Maximum bitfield size:  32 bits
+Maximum number of \fBcase\fRs in a \fBswitch\fR:  no formal limit
+Maximum number of arguments in function declaration:  32
+Maximum number of arguments in function call:  no formal limit
+Maximum block nesting depth:  no formal limit
+Maximum parentheses nesting depth:  no formal limit
+Maximum structure size:  no formal limit
+Maximum array size:  no formal limit
+.fi
+.IP "\fIPreprocessor Instructions\fR"
+.DS
+.ta 0.5i 1.7i
+.B
+	#define	#ifdef
+	#else	#ifndef
+	#elif	#include
+	#endif	#line
+	#if	#undef
+	#pragma
+.R
+.DE
+.IP "\fIStructure Name-Spaces\fR"
+Supports both Berkeley and Kernighan\-Ritchie conventions for
+structure in union.
+.IP "\fIFunction Linkage\fR"
+.nf
+Return values in EAX
+Return values for \fBdouble\fRs:
+	With software floating-point emulation returns in EDX:EAX
+	Hardware floating-point (\-VNDP) returns in the NDP stacktop \fB%st0\fR
+Parameters pushed on stack in reverse order:
+	\fBchar\fRs, \fBshort\fRs, and pointers pushed as dwords
+	Structures copied onto the stack
+Caller must clear parameters off stack
+Stack frame linkage is done through ESP register
+.fi
+.IP "\fIStructures and Alignment\fR"
+Structure members are aligned according to the most strictly aligned
+type within the structure.
+For example, a structure is word-aligned if it contains only \fBshort\fRs,
+but on dword if it contains an \fBint\fR or \fBlong\fR.
+\fB#pragma align \fIn\fR can override this feature.
+.IP \fIRegisters\fR
+Registers EBX, EDI, and ESI are available for register variables.
+Only 32-bit objects go into registers.
+.SH "Special Features and Optimizations"
+Both implementations of C perform the following optimizations:
+.IP \(bu 0.3i
+Branch optimization is performed:
+this uses the smallest branch instruction for the required range.
+.IP \(bu
+Unreached code is eliminated.
+.IP \(bu
+Duplicate instruction sequences are removed.
+.IP \(bu
+Jumps to jumps are eliminated.
+.IP \(bu
+Multiplication and division by constant powers of two are changed to shifts
+when the results are the same.
+.IP \(bu
+Sequences that can be resolved at compile time are identified and resolved.
+.SH "Compilation Environments"
+\*(CO supports a number of different compilation environments.
+For example, you can compile a program to use the environment for
+\*(UN System V release 4 or release 3, or the Berkeley environment.
+This is done by setting manifest constants on your C compiler's
+command line, which, in turn, invokes various settings within the
+header files.
+For details, see the Lexicon entry for
+.BR "header files" .
+.SH Example
+.II "Fiterman, Charles"
+The following gives an example C program, which does something interesting.
+It was writen by Charles Fiterman:
+.DM
+	char *x="char *x=%c%s%c;%cmain(){printf(x,34,x,34,10,10);}%c";
+	main(){printf(x,34,x,34,10,10);}
+.DE
+.SH "See Also"
+.Xr argc, argc
+.Xr argv, argv
+.Xr "C keywords," c_keywords
+.Xr "C preprocessor," c_preproce
+.Xr environ, environ
+.Xr envp, envp
+.Xr "header files," header_fi
+.Xr initialization, initializ
+.Xr libraries, libraries
+.Xr "main()," main
+.Xr "name space," name_spac
+.Xr "offsetof()," offsetof
+.Xr "Programming COHERENT," programmi
+.Xr trigraph trigraph

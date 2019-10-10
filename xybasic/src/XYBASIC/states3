@@ -1,0 +1,706 @@
+;STATES3 12/05/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;statement routines for statements ON through WAIT
+
+
+;ON <expr> {GOTO | GOSUB} <line #> [, <line #>]*
+on:	call	gtexp		;value to BC
+	call	gtcha
+	cpi	gotot
+	jz	ongot
+	cpi	gsubt
+	jnz	snerr		;SN error if not GOTO or GOSUB
+	stc
+ongot:	push	psw		;carry set for GOSUB, reset for GOTO
+	dcx	b		;value - 1 to BC
+	mov	a,b
+	ora	a
+	inx	b
+	cnz	on3		;count negative or big
+on1:	call	gtlno		;line # to DE
+	dcr	c		;decrement count
+	jz	on2		;do current line #
+	call	gtcom		;look for comma
+	jnc	on1		;keep going
+	call	onerr		;nonfatal ON error if line # list exhausted
+on2:	call	gtdel		;scan to end of statement
+	call	goto2		;set TEXTP and LNNUM
+	pop	psw
+	rnc			;done if GOTO
+	jmp	gosu1		;else build GOSUB control stack entry
+on3:	mvi	c,1
+	jm	onerr		;replace negative values by 1
+	mvi	c,255		;and positive by 255
+onerr:	error	n, O, N		;nonfatal ON error
+	ret			;and return
+
+;OUT <expr>, <expr>
+	if	not wild
+put:	call	gtbex		;get byte expression
+	mov	a,c
+	sta	wport + 1	;set port #
+	call	gtcbe		;get comma, byte expr
+	mov	a,c
+	jmp	wport		;OUT it and return
+	endif			;end of NOT WILD conditional
+
+	if	epstn
+;PLOT <expr> [, <expr>]*
+plot:	lda	colum		;find current column
+	push	psw		;and save
+plot1:	xra	a
+	sta	colum		;clear column count
+	call	gtbex		;get byte valued expr
+	mov	a,c
+	call	writc		;write the char
+	call	gtcom		;look for comma
+	jnc	plot1		;more
+	pop	psw
+	sta	colum		;restore column count
+	ret
+	endif
+
+;POKE <expr>, <expr>
+	if	not wild
+poke:	call	gtexp
+	push	b		;save location
+	call	gtcbe		;get comma, byte expr
+	mov	a,c
+	pop	b
+	stax	b		;store data in location
+	ret
+	endif			;end of NOT WILD conditional
+
+;{PRINT | ?} [@<expr>] [[<print item>] {, | ;}]* [<print item>]
+;<print item> ::= [UNS | TAB | SPC] <expr> | <string> | <camvar name>
+;PRINT first PUSHes a return to itself, so the print routines may be CALLed
+;and simply RETurn.  The routines for comma and semicolon check for following
+;delimiter, so a delimiter found after any other item produces a crlf.
+;DPRIN is in module SDISK.
+;WILD PRINT is in module WILD, and calls PRIN0.
+	if	not wild
+print:	if	sdisk
+	call	gtsfn		;look for file number
+	jnc	dprin		;PRINT to file
+	endif
+	endif
+prin0:	lxi	b,prin0
+	push	b		;push common return to print more
+	call	gtcho		;look at next char
+	cpi	'"'		;look for quoted string first to avoid eval
+	jz	prqu0		;quoted string
+	if	camac
+	cpi	drivt
+	jz	prdri		;print DRIVER
+	call	gtcam		;look for camvar name
+	jnc	prcam		;print the camvar value
+	endif
+	call	eval		;look for expression
+	jnc	prval		;expression found, print its value
+	call	dtest
+	jz	prdel		;delimiter, print crlf and exit
+	if	not wild	;only one print item allowed in WILD versions
+	call	read1		;read the char
+	cpi	','
+	jz	prcom		;comma
+	cpi	semic
+	jz	prsem		;semicolon
+	cpi	tabt
+	jz	prtab		;TAB
+	if	not camac
+	cpi	spct
+	jz	prspc		;SPC
+	endif
+	if	not float	;UNS allowed as print fn in nonfloat versions
+	cpi	unst
+	jz	pruns
+	endif
+	if	not strng	;CHR$ allowed as print fn in nonstring versions
+	cpi	chrst
+	jz	prchr
+	endif
+	endif			;end of NOT WILD conditional
+	jmp	snerr		;else SN error
+;print delimiter
+prdel:	pop	b		;pop the PRINT return
+	jmp	wcrlf		;write crlf and exit
+;print the value of an EVALuated expression
+prval:	call	fetc1		;fetch the value
+	iftyp	prsng,prstr	;branch if noninteger
+prinv:	mov	a,b
+	ora	a		;check sign of integer value
+	jp	priv1		;print unsigned if positive
+	if	wild
+	jmp	wrtbs
+	else
+	call	wrtbs		;otherwise write signed
+	jmp	wrts0		;write trailing space and return
+	endif
+priv1:	mvi	a,' '		;leading space to A
+	if	wild
+	jmp	wrtb1
+	else
+	call	wrtb1		;write unsigned with leading space
+	jmp	wrts0		;write trailing space and return
+	endif
+	if	not wild
+;comma, space to the next tab stop
+prcom:	call	prco1		;do the comma
+				;and fall through to PRSEM for delimiter test
+;semicolon
+prsem:	call	dtst0		;check if next char is delimiter
+	rc			;nondelimiter, continue printing
+	pop	b		;else pop the PRINT return
+	ret			;and exit from PRINT
+prco1:	lhld	colum
+	mov	a,l		;fetch current column
+	ora	a
+	rz
+	if	float		;comma column width is 14 if floating
+	lxi	b,14		;comma column width to BC
+	mov	l,b		;0 to L
+	jp	prco2		;column is < 128 currently
+	mvi	l,126		;else make L 14*9
+	sub	l		;and reduce column accordingly
+prco2:	dad	b		;add comma width
+	sub	c		;subtract comma width from column
+	jp	prco2		;repeat until negative
+	else			;comma column width is 8 if nonfloating
+	ori	7
+	inr	a		;compute desired column
+	mov	l,a		;save column in L
+	endif
+	mov	a,h
+	ora	a
+	mov	a,l		;fetch desired column
+	jz	prco3		;width 0, suppress cr check
+	cmp	h		;compare to width
+	jnc	wcrlf		;write crlf if >= width
+prco3:	mov	c,a
+	jmp	prta1		;else tab to column desired
+;UNS
+	if	not float
+pruns:	call	gtexp		;get argument
+	jmp	priv1
+	endif
+;TAB
+prtab:	call	prta0		;get arg mod width
+prta1:	lda	colum
+	cmp	c
+	rz			;found desired column
+	call	prta2		;else write spaces until there
+	jmp	prta1
+prta2:	jc	wrtsp		;write a space if left of desired column
+	jmp	wcrlf		;else write a crlf
+;PRTA0 evaluates <expr> mod width for TAB and SPC
+prta0:	call	gtexp		;get argument
+	lda	width
+	ora	a		;Zero set iff width 0
+	mov	e,a
+	mvi	d,0
+	push	d
+	cnz	opmod		;evaluate arg mod width unless width 0
+	pop	d		;restore width to DE
+	mov	a,b
+	ora	a		;check if arg was negative
+	cm	iadd		;yes, add width to result to make positive
+	ret
+;SPC
+	if	not camac
+prspc:	call	prta0		;get arg mod width
+	mov	a,c
+	ora	a
+prsp1:	rz			;done
+	call	wrtsp		;else write a space
+	dcr	c		;decrement space count
+	jmp	prsp1		;and repeat
+	endif
+	endif			;end of NOT WILD condtional
+;quoted string
+prqu0:	call	read1		;read the "
+prquo:	mov	d,h
+	mov	e,l		;address of first char to DE
+	call	gtclq		;scan to close quote or cr
+	mov	a,l		;fetch last+1 address
+	sub	e		;last+1 - first = # chars
+prst0:	mov	c,a		;to C
+	jmp	prstr		;and print the string
+	if	not strng	;allow CHR$ as print fn
+prchr:	call	gtbex		;get byte-value expr
+	mov	a,c
+	jmp	writc		;write value and return
+	endif
+;floating point value
+	if	float
+prsng:	call	fout		;convert FACC to string
+	if	wild
+	jmp	prstl
+	else
+	call	prstl		;write the string
+	jmp	wrts0		;write trailing space and return
+	endif
+	endif
+;PRCAM is in module CAMAC.
+
+;RANDOMIZE <expr>
+	if	not wild
+rndiz:	call	gtexp
+	mov	h,b
+	mov	l,c		;value to HL
+	shld	randx		;and it becomes new seed
+	ret
+	endif			;end of NOT WILD conditional
+
+;READ <var list>
+;READ must scan the command line READ <var list> and lines of DATA [<expr>,]*.
+;The text pointers are kept in TEXTP and TXTP2 and exchanged by FLIP.
+read:	lhld	rdptr
+	shld	txtp2		;READ pointer to TXTP2
+reada:	call	gtlhs		;get destination for ASSGN
+	if	strng
+	push	psw		;save var type in string version
+	endif
+	call	flip		;to scan data
+	call	gtcnd		;see if comma (in DATA <lit>,<lit>...) next
+	cc	reade		;no, find next DATA statement
+	if	strng
+	pop	psw		;restore var type
+	cpi	strst
+	jnz	readb		;not a string var
+	call	evunq		;string var, get value (possibly unquoted)
+	jmp	readd
+	endif
+readb:	call	gtlit		;look for value
+	jc	readf		;no value found
+readd:	call	asigv		;assign value to variable
+	call	flip		;to scan varlist
+	call	gtcom		;look for comma
+	jnc	reada		;read another
+	lhld	txtp2		;else recover new RDPTR
+	shld	rdptr		;and store it
+	ret			;and done
+;READE finds the next DATA statement.
+;Issues nonfatal OD error and retries if no more DATA.
+;Issues fatal SN error if SN error in DATA.
+reade:	call	dtst0		;check if at delimiter
+	jc	readf		;no -- SN error in DATA
+	mvi	b,datat
+	call	fndst		;find next DATA
+	rnc			;OK if found
+	error	n, O, D		;nonfatal OD error
+	call	rstor		;do a RESTORE
+	shld	textp
+	jmp	reade		;and try again
+;READF issues fatal SN error for bad DATA items.
+readf:	xchg			;DATA textp to DE
+	call	fndln		;find its line number
+	shld	lnnum		;reset line # for error message
+	error	f, S, N		;fatal SN error
+
+;REM <unquoted string>
+rem:	call	gtcha
+	cpi	cr
+	jnz	rem		;scan to <cr>
+	call	bakup		;back up text pointer
+	inx	h		;let HL point to next byte in case on-line
+	ret
+
+;RENUM [<line #> [, <line #> [, <line #>]]]
+	if	editc
+	if	compl
+renum	equ	uferr
+	else
+;RENU0 gets an optional comma followed by <line #>, default value from DE.
+renu0:	call	gtcnd		;look for comma
+	cnc	gtlno		;if comma look for <line #>
+	xchg			;to HL
+	ret			;and return
+;First RENUM must get arguments.
+;RNOLD gets the old line # of first renumbered line,
+;RNNEW gets the new line # of first renumbered line, and
+;RNINC gets the renumbering increment.
+renum:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	call	gtlno		;look for <line #>
+	jnc	renu1		;<line #> given
+	call	findl		;none given -- look for line 0
+	stc			;to skip following FDLNO
+renu1:	cnc	fdlno		;find the specified line #
+	push	h		;save first renumbered line location
+	call	modem		;line # of first renumbered line to DE
+	push	d		;and saved
+	xchg
+	shld	rnold		;and saved in RNOLD
+	lxi	d,10		;default arg2 is 10
+	call	renu0		;get increment
+	mov	a,h
+	ora	l
+	jz	userr		;fatal US error if 0 (e.g., RENUM 10,,)
+	shld	rninc		;increment saved in RNINC
+	xthl			;save increment, first line line # to HL
+	xchg			;and then to DE as default arg3
+	call	renu0		;get destination <line #>
+	shld	rnnew		;and saved in RNNEW
+	xchg			;destination to DE
+	call	iitst		;RENUM illegal indirect
+;Now test if the specified args give too large a max <line #>.
+	pop	b		;increment to BC
+	pop	h		;location to HL
+	push	b
+	push	d
+	push	h		;save args
+	mov	a,m		;fetch length
+	call	adahl		;address second line
+renu2:	mov	a,m		;fetch length
+	ora	a
+	jz	renu3		;eof
+	call	adahl		;address next line
+	xchg
+	dad	b		;compute its eventual line #
+	xchg
+	jnc	renu2		;continue if no overflow
+	jmp	userr		;too large, US error
+;Now test if last line # before first is < new first.
+renu3:	lxi	b,0		;last line before first initially 0
+	pop	d		;first line # length byte address to DE
+	lxi	h,srcad		;start at beginning of source text
+renu4:	call	cmdhu		;compare first to current
+	jz	renu5		;matched, BC now has last
+	inx	h
+	mov	c,m
+	inx	h
+	mov	b,m		;line number to BC
+	dcx	h
+	dcx	h
+	mov	a,m		;fetch length byte
+	call	adahl		;address next
+	jmp	renu4		;and try it
+renu5:	pop	d		;new first line # to DE
+	push	d		;and resave
+	call	cmbdu		;compare to line # before first
+	jnc	userr		;US error if previous is larger
+	lhld	textp
+	push	h		;save TEXTP
+	call	lnref		;change <line #> references in source text
+	pop	h
+	shld	textp
+;Now change the actual <line #>s.
+	lhld	rnold
+	xchg			;RNOLD to DE
+	call	findl		;find (possibly new) location of first changed
+	pop	d		;RNNEW to DE
+	pop	b		;RNINC to BC
+renu6:	mov	a,m		;fetch length of next line
+	ora	a
+	jz	renu7		;all line numbers changed
+	push	h		;save current length byte address
+	call	adahl		;address next line
+	xthl			;save next, recover current
+	inx	h
+	mov	m,e
+	inx	h
+	mov	m,d		;change the line number
+	pop	h		;next line length byte address to HL
+	xchg
+	dad	b
+	xchg			;update line number
+	jmp	renu6		;and renumber more
+;Check break bytes for flag indicating illegal <line #> in line.
+renu7:	mvi	b,0		;clear bad line flag
+	lxi	h,srcad		;begin at the beginning
+renu8:	mov	a,m
+	ora	a
+	jz	renux		;eof, done
+	push	h		;save length byte loc
+	inx	h
+	inx	h		;skip line # bytes
+	inx	h		;and address break byte
+	mov	a,m		;fetch it
+	ora	a		;check bit 7
+	jp	renu9		;ok if not set
+	dcx	h
+	dcx	h		;address line # byte
+	call	prntl		;print the bad line
+	call	wcrlf		;and crlf
+	mvi	b,255		;and set bad line flag
+renu9:	pop	h
+	mov	a,m		;refetch length
+	call	adahl		;address next line
+	jmp	renu8		;and try next line
+renux:	push	b		;save bad line flag
+	call	addl3		;text may have moved, reset stacks
+	pop	psw		;recover bad line flag
+	ora	a
+	rz			;successful RENUM
+	jmp	userr		;else US error message
+	endif
+	else
+renum	equ	exerr		;EX error in non-EDITC versions
+	endif
+
+;RESTORE [<line #>]
+restr:	call	gtlno		;look for line #
+	jc	rstor		;none, take least
+	call	fdlno		;find the line
+	jmp	rsto1		;and reset the read pointer
+rstor:	if	romsq
+	lhld	sourc
+	else
+	lxi	h,srcad
+	endif
+rsto1:	dcx	h		;point to <cr> preceding line
+	shld	rdptr		;let read pointer address <cr>
+	ret
+
+;RETURN
+retrn:	call	eos		;end of statement test
+	lxi	b,(csgos shl 8) or csint
+	call	csdig		;look for gosub or interrupt cstack entry
+	jc	rgerr		;not found -- RG error
+	call	cspop		;pop cstack information
+	cmp	b		;zero set if gosub, reset interrupt
+	jz	csrst		;GOSUB entry -- reset stack & return
+	push	psw
+	call	mvdem		;interrupt table byte addr to DE
+	ldax	d
+	ori	40H		;resume interrupt
+	stax	d
+	pop	psw
+	jmp	csrst		;reset control stack and return
+rgerr:	error	f, R, G		;fatal RG error
+
+;RUN [<line #>]
+	if	compl
+run	equ	uferr		;UF error if COMPL version
+	else
+run:	if	sdisk
+	call	closn		;close any OPEN files
+	endif
+	if	camac and false	;Northstar version
+	call	close		;close any OPEN files
+	endif
+	call	gtlno		;look for line #
+	push	psw
+	push	d
+	call	iitst		;RUN illegal indirect
+	call	clea1		;clear CSTACK, symbol table, string space
+	if	not wild
+	call	disab		;disable interrupts
+	endif
+	call	rstor		;restore READ pointer
+	pop	d
+	pop	psw
+	jnc	goto2		;line # specified, execute from there
+	shld	textp		;else point to <cr> before source text
+	ret			;and execute from there
+	endif
+
+;SAVE is in section STATES4.
+
+;SCALL <expr> [, <integer var ref>]*
+;SCALL loads BC, DE and HL with the values of the <integer var ref>s, if any,
+;and branches to the <expr> address.  When the user routine RETurns,
+;the values in BC, DE and HL are assigned to the <integer var ref>s.
+scall:	call	gtexp
+	lhld	textp
+	shld	savtp		;save textp for rescan on return
+	lxi	h,sretn
+	push	h		;return address to stack
+	push	b		;branch address to stack
+	lxi	d,3		;maximum parameter count to DE
+scal1:	call	gtcnd		;look for comma not followed by delimiter
+	jc	scal2		;none, set up registers and branch to user
+	call	gtiva		;perform integer var ref
+	jc	mcerr		;not a var ref
+	push	b		;save parameter value
+	dcr	e		;decrement parameter count
+	jnz	scal1		;get more parameters if not three already
+	call	gtcnd		;check if more parameters
+	jc	scal2		;no more
+	error	n, M, C		;nonfatal MC error if too many
+;At SCAL2, DE contains 3 - # parameters specified, and the parameter values
+;are PUSHed.  By adding DE to the address POP3, the branch address
+;is computed to POP 3, 2, 1 or 0 values before branching to the user routine.
+scal2:	lxi	h,pop3
+	dad	d		;compute pop address
+	pchl			;branch to it
+;SRETN is the entry point from the user routine's RETurn.
+sretn:	push	h
+	push	d
+	push	b		;save registers
+	lhld	savtp
+	shld	textp		;restore TEXTP
+	lxi	d,0		;# of POPed registers to DE
+sret1:	call	gtcnd		;look for comma
+	jc	scal2		;done, POP extras and return
+	inr	e		;increment POPed count
+	mvi	a,3
+	cmp	e
+	jc	nextc		;too many, scan to end and return
+	push	d
+	call	gtlhs		;get destination
+	inx	h		;point to high order destination
+	pop	d
+	pop	b		;value to BC
+	call	asigi		;assign integer value, traced
+	jmp	sret1		;and  repeat
+
+;SETTIME <expr> [, <expr>] [, <expr>]
+	if	realt and not camac	;SETTIME in REALT versions only
+sttim:	lxi	h,timex+3	;HL addresses hour count
+	lxi	d,24		;max # hours
+	ora	a		;reset Carry
+	call	stti2		;get hours count and set clock
+	lxi	d,60		;max # minutes or seconds
+	call	stti1		;get minutes count and set clock
+	call	stti1		;get seconds count and set clock
+	dcx	h
+	mvi	m,255 and -20	;reset 20ths count
+	ret
+stti1:	dcx	h		;point to next time component
+	push	h
+	call	gtcnd		;look for comma
+	pop	h
+	lxi	b,0		;default to 0 if unspecified
+stti2:	cnc	gtexp		;get desired count
+	call	cmbdu		;compare to max
+	cnc	fcer0		;too big, nonfatal FC error and return 0
+	mov	a,c		;fetch count
+	sub	e		;subtract bias
+	mov	m,a		;and store to set clock
+	ret
+	endif
+
+;STOP
+	if	compl		;STOP boots in COMPL version
+	if	wild
+stop	equ	uferr		;UF error in WILD RTPAK
+	else
+stop	equ	boot
+	endif
+	else
+stop:	mvi	a,csbrk		;break token to A
+stop1:	push	psw		;line break entry point
+	call	linbc		;line # to BC
+	jz	dmod2		;direct mode -- do not save info
+	call	prtm0		;turn on OMODE, print BREAK message
+	db	cr, lf, 'BREAK AT LINE', ' ' or 80H
+	call	wrtbu		;print line # unsigned
+	pop	psw
+stop2:	call	cpush		;break info to control stack -- END entry point
+	jmp	dmod2		;and continue in DMODE
+	endif			;end of COMPL conditional
+
+;TIME
+	if	(not camac) and (not realt)
+time:	mvi	a,cntlg
+	call	writc		;ring a bell
+	lxi	h,0
+	call	readc		;get and ignore first char
+	call	timer
+	jnc	exerr		;counted to 0 -- EX error
+	call	ctest		;read the char TIMER saw
+	push	h		;save minute count
+	mov	a,h
+	sta	timex+4		;minute count / 256 to TIMEX+4
+	mov	b,h
+	mov	c,l
+	lxi	d,60
+	call	divd0		;min count / 60 = sec count to HL
+	pop	d
+	call	cplde		;complement minute count
+	xchg
+	shld	timex		;complmented minute count to TIMEX
+	call	cplde		;complement second count
+	xchg
+	shld	timex+2		;complemented second count to TIMEX+2
+	ret
+	endif
+
+;TRACE | UNTRACE
+;TRAP | UNTRAP
+	if	compl
+tcon	equ	uferr		;UF error if COMPL version
+tcoff	equ	uferr
+tpon	equ	uferr
+tpoff	equ	uferr
+	else
+tcon:	stc
+tcoff:	sbb	a		;A gets 0 if no carry, 255 if carry
+	sta	trace
+	ret
+tpoff:	stc
+tpon:	sbb	a
+	sta	trap
+	ret
+	endif			;end of NOT COMPL conditional
+
+;UNBREAK [<line #> | <var list>]
+;UNBREAK removes all breakpoints.
+;UNBREAK <line #> removes the breakpoint (if any) on the specified line.
+;UNBREAK <var list> removes breakpoints on the specified variables.
+	if	compl
+unbrk	equ	uferr		;UF error if COMPL version
+	else
+unbrk:	call	gtlno		;see if line # present
+	jc	unbr2		;no
+;Remove breakpoint from line # in DE.
+	if	romsq
+	call	isrom		;must be running in RAM
+	endif
+	call	fdlno		;find the line
+;UNBR1 removes the breakpoint on line addressed by HL.
+unbr1:	inx	h		;move pointer from length byte
+	inx	h		;   past line #
+	inx	h		;   to break byte
+	mvi	m,0		;and zero it
+	ret
+unbr2:	call	dtest		;see if var list present
+	jc	ubvar		;yes
+	lhld	symta		;no, unbreak all lines and variables
+;UNBR3 removes all variable breakpoints.
+unbr3:	call	stnxt		;get next symbol table entry
+	jc	unbkl		;end of table -- unbreak lines and return
+	ldax	d
+	ani	7FH
+	stax	d		;unbreak one entry
+	jmp	unbr3
+;UBVAR removes breakpoints on the specified <var list> variables.
+ubvar:	call	fdvar		;find var ref
+	jc	snerr
+	ldax	d
+	ani	7FH
+	stax	d		;unbreak it
+	call	gtcnd		;look for comma
+	jnc	ubvar		;unbreak another var
+	ret
+	endif			;end of NOT COMPL conditional
+
+;UNTRACE and UNTRAP are under TRACE and TRAP above.
+
+;WAIT <byte expr> , <byte expr> [, <byte expr>] [,$]
+	if	not wild
+wait:	call	iinfo		;get interrupt info
+	mov	a,c
+	ral
+	ral
+	mov	c,a		;$ bit to C7
+	mov	a,b		;port # to A
+	call	rdp1		;read
+	ora	e		;mask
+	xra	d		;compare
+	jz	wait1
+	stc			;carry set iff compare nonzero
+wait1:	rar			;A7 set iff compare nonzero
+	xra	c		;sign set iff keep waiting
+	rp			;condition fulfilled -- return
+	lhld	savtp
+	shld	textp		;reset text pointer to parse WAIT again
+	ret
+	endif			;end of NOT WILD conditional
+
+
+;end of STATES3
+	page

@@ -1,0 +1,1518 @@
+
+
+ksh                          Command                          ksh
+
+
+
+
+The Korn shell
+
+kksshh _t_o_k_e_n ...
+
+The  COHERENT system  offers  two command  interpreters: sshh,  the
+Bourne  shell;  and  kksshh, the  Korn  shell.   sshh  is the  default
+COHERENT  command interpreter.   The shell  tutorial  included in
+this manual describes the Bourne shell in detail.
+
+This article describes kksshh, the Korn shell.  kksshh is a superset of
+the Bourne  shell, and contains  many features that  you may well
+find useful.   These include MicroEMACS-style  editing of command
+lines; command  hashing; a full-featured aliasing  feature; and a
+job-control facility.
+
+***** Invoking ksh *****
+
+To invoke  kksshh from within  the Bourne shell, simply  type kksshh at
+the  command-line prompt.   To  use kksshh  as  your default  shell,
+instead of sshh, append the command /uussrr/bbiinn/kksshh to the end of your
+entry in the file  /eettcc/ppaasssswwdd. (See the Lexicon entry for ppaasssswwdd
+for more information on this file.)
+
+You can  invoke kksshh with one or more  built-in options; these are
+described below.
+
+***** Commands *****
+
+A _c_o_m_m_a_n_d consists of one or  more _t_o_k_e_n_s. A _t_o_k_e_n is a string of
+text  characters  (i.e.,   one  or  more  alphabetic  characters,
+punctuation marks,  and numerals) delineated by  spaces, tabs, or
+newlines.
+
+A _s_i_m_p_l_e _c_o_m_m_a_n_d consists of the command's name, followed by zero
+or more tokens that  represent arguments to the command, names of
+files,  or shell  operators.  A  _c_o_m_p_l_e_x  _c_o_m_m_a_n_d will  use shell
+constructs  to execute  one or  more commands  conditionally.  In
+effect, a  complex command is  a mini-program that  is written in
+the shell's programming language and interpreted by kksshh.
+
+***** Shell Operators *****
+
+The  shell  includes  a  number  of  operators that  form  pipes,
+redirect  input  and  output  to  commands,  and let  you  define
+conditions under which commands are executed.
+
+_c_o_m_m_a_n_d | _c_o_m_m_a_n_d
+     The _p_i_p_e  operator: let the  output of one  command serve as
+     the input to a second.  You can combine commands with `|' to
+     form _p_i_p_e_l_i_n_e_s. A pipeline passes the standard output of the
+     first (leftmost) command to the standard input of the second
+     command.  For example, in the pipeline
+
+             sort customers | uniq | more
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+     kksshh invokes ssoorrtt to sort the contents of file ccuussttoommeerrss.  It
+     pipes the output of  ssoorrtt to the command uunniiqq, which outputs
+     one unique copy of the text that is input into it.  kksshh then
+     pipes the output of uunniiqq to the command mmoorree, which displays
+     it  on your  terminal one  screenful at  a time.   Note that
+     under   COHERENT,   unlike   MS-DOS,  pipes   are   executed
+     concurrently: that is, ssoorrtt does not have to finish its work
+     before uunniiqq  and mmoorree can begin to receive  input and get to
+     work.
+
+_c_o_m_m_a_n_d ; _c_o_m_m_a_n_d
+     Execute  commands  on  a  command  line  sequentially.   The
+     command to the left  of the `;' executes to completion; then
+     the command  to the right  of it executes.   For example, in
+     the command line
+
+             a | b ; c | d
+
+     first  execute  the  pipeline aa  |  bb  then,  when  aa and  bb
+     complete, execute the pipeline cc | dd.
+
+_c_o_m_m_a_n_d &
+     Execute  a command  in the  background.  This  operator must
+     follow the  command, not precede it.   It prints the process
+     identifier of the command on the standard output, so you can
+     use the  kkiillll command to kill  that process should something
+     go  wrong.  This  operator lets  you  execute more  than one
+     command simultaneously.  For example, the command
+
+             /etc/fdformat -v /dev/fha0 &
+
+     formats  a high-density,  5.25-inch floppy  disk in  drive 0
+     (that is,  drive A); but while the  disk is being formatted,
+     kksshh returns  the command line prompt  so you can immediately
+     enter another command and begin to work.  If you did not use
+     the  `&'  in this  command,  you would  have  to wait  until
+     formatting  was  finished  before  you could  enter  another
+     command.
+
+     kksshh also  prints a message  on your terminal  when a command
+     that you are  running in the background finishes processing.
+     It  does not  check  these ``child''  processes very  often,
+     however, so a command may have finished some time before kksshh
+     informs you  of the fact.   See the Lexicon  article for the
+     command ppss  for information on  all processes; also  see the
+     description of the built-in command jjoobbss, below.
+
+_c_o_m_m_a_n_d && _c_o_m_m_a_n_d
+     Execute a  command upon  success.  kksshh executes  the command
+     that  follows  the  token  `&&'  only  if the  command  that
+     precedes  it returns  a  zero exit  status, which  signifies
+     success.  For example, the command
+
+             cd /etc
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+             fdformat -v /dev/fha0 && badscan -o proto /dev/fha0 2400
+
+     formats a  floppy disk, as  described above.  If  the format
+     was successful, it  then invokes the command bbaaddssccaann to scan
+     the disk for bad  blocks; if it was not successful, however,
+     it does nothing.
+
+_c_o_m_m_a_n_d || _c_o_m_m_a_n_d
+     Execute  a  command  upon  failure.   This is  identical  to
+     operator `&&', except that the second command is executed if
+     the  first  returns   a  non-zero  status,  which  signifies
+     failure.  For example, the command
+
+             /etc/fdformat -v /dev/fha0 || echo "Format failed!"
+
+     formats a floppy  disk.  If formatting failed, it echoes the
+     message  FFoorrmmaatt  ffaaiilleedd!   on  your  terminal;  however,  if
+     formatting succeeds, it does nothing.
+
+     Note that the tokens  newline, `;' and `&' bind less tightly
+     than `&&'  and `||'.  kksshh parses command  lines from left to
+     right if separators bind equally.
+
+>_f_i_l_e
+     Redirect  standard  output.   The _s_t_a_n_d_a_r_d  _i_n_p_u_t,  _s_t_a_n_d_a_r_d
+     _o_u_t_p_u_t, and _s_t_a_n_d_a_r_d _e_r_r_o_r streams are normally connected to
+     the terminal.  A pipeline attaches the output of one command
+     to the input  of another command.  In addition, kksshh includes
+     a set of operators that redirect input and output into files
+     rather than other commands.
+
+     The operator `>' redirects output into a file.  For example,
+     the command
+
+             sort customers >customers.sort
+
+     sorts file ccuussttoommeerrss  and writes the sorted output into file
+     ccuussttoommeerrss.ssoorrtt.  It creates  ccuussttoommeerrss.ssoorrtt if  it  does not
+     exist, and destroys its previous contents if it does exist.
+
+>>_f_i_l_e
+     Redirect output  into a file, and append.   If the file does
+     not exist,  this operator creates  it; however, if  the file
+     already  exists, this  operator appends  the output  to that
+     file's contents rather  than destroying those contents.  For
+     example, the command
+
+             sort customers.now | uniq >>customers.all
+
+     sorts file ccuussttoommeerrss.nnooww,  pipes its output to command uunniiqq,
+     which throws away  duplicate lines of input, and appends the
+     results to file ccuussttoommeerrss.aallll.
+
+<_f_i_l_e
+     Redirect input.  Here, kksshh  reads the contents of a file and
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+     processes them as if  you had typed them from your keyboard.
+     For example, the command
+
+             ed textfile <edit.script
+
+     invokes  the  line-editor  eedd  to  edit  tteexxttffiillee;  however,
+     instead of reading  editing commands from your keyboard, the
+     shell passes  eedd the contents of  eeddiitt.ssccrriipptt.  This command
+     would  let you  prepare  an editing  script  that you  could
+     execute repeatedly upon files rather than having to type the
+     same commands over and over.
+
+<< _t_o_k_e_n
+     Prepare  a ``here  document''.  This  operator tells  kksshh to
+     accept standard input from  the shell input until it reads a
+     line that contains only _t_o_k_e_n. For example, the command
+
+             cat >FOO <<\!
+                     Here is some text.
+             !
+
+     redirects  all  text  between  `<<\!'  and  `!' to  the  ccaatt
+     command.  The  `>' in turn redirects the  output of ccaatt into
+     file FFOOOO.   kksshh performs parameter substitution  on the here
+     document  unless  the  leading  _t_o_k_e_n is  quoted;  parameter
+     substitution and quoting are described below.
+
+_c_o_m_m_a_n_d 22> _f_i_l_e
+     Redirect  the  standard  error  stream  into  a  file.   For
+     example, the command
+
+             nroff -ms textfile >textfile.p 2>textfile.err
+
+     invokes  the  command   nnrrooffff  to  format  the  contents  of
+     tteexxttffiillee.   It  redirects the  output  of  nnrrooffff (i.e.,  the
+     standard  output)  into tteexxttffiillee.pp;  it  also redirects  any
+     error   messages   that  nnrrooffff   may   generate  into   file
+     tteexxttffiillee.eerrrr.
+
+     Note in passing that a command may use up to 20 streams.  By
+     default, stream  0 is  the standard  input; stream 1  is the
+     standard output;  and stream 2  is the standard  error.  kksshh
+     lets  you redirect  any of  these streams  individually into
+     files, or combine streams into each other.
+
+<&_n  kksshh can redirect  the standard input and output to duplicate
+     other  file  descriptors.   (See  the Lexicon  article  ffiillee
+     ddeessccrriippttoorr  for details  on what  these are.)  This operator
+     duplicates the standard input from file descriptor _n.
+
+>&_n  Duplicate the  standard output from file  descriptor _n.  For
+     example,
+
+             2>&1
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+     redirects  file descriptor  2 (the  standard error)  to file
+     descriptor 1 (the standard output).
+
+Note that each  command executed as a foreground process inherits
+the file  descriptors and signal  traps (described below)  of the
+invoking   shell,   modified   by  any   specified   redirection.
+Background processes  take input  from the null  device /ddeevv/nnuullll
+(unless redirected), and ignore interrupt and quit signals.
+
+***** File-Name Patterns *****
+
+The  shell interprets  an  input token  that contain  any of  the
+special characters `?', `*', or `[' as a file name _p_a_t_t_e_r_n.
+
+?  Match any  single character except newline.   For example, the
+   command
+
+           ls name?
+
+   will print  the name of  any file that consists  of the string
+   nnaammee  plus  any one  character.   If nnaammee  is  followed by  no
+   characters, or is followed  by two or more characters, it will
+   not be printed.
+
+*  Match  a  string  of  non-newline  characters  of  any  length
+   (including zero).
+
+           ls name*
+
+   will print  the name of  any file that begins  with the string
+   nnaammee,  regardless  of  whether it  is  followed  by any  other
+   characters.  Likewise, the command
+
+           ls name?*
+
+   will print  the name of  any file that consists  of the string
+   nnaammee followed  by at least  one character.  Unlike  nnaammee*, the
+   token  nnaammee?*  insists  that  be  followed  by  at  least  one
+   character before it will be printed.
+
+~_n_a_m_e
+   Replace the  name of user _n_a_m_e with  his $HHOOMMEE directory.  For
+   example, the command
+
+           ls -l ~norm/src
+
+   lists the  contents of the _s_r_c  subdirectory located under the
+   $HHOOMMEE directory for user  nnoorrmm. This spares you from having to
+   know where a given user's HOME directory is located.
+
+[_C-_c]
+   Enclose alternatives to match a single character.  A hyphen `-
+   ' indicates a range of characters.  For example, the command
+
+           ls name[ABC]
+
+
+COHERENT Lexicon                                           Page 5
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+   will  print  the  names  of  files  nnaammeeAA,  nnaammeeBB,  and  nnaammeeCC
+   (assuming, of  course, that those  files exist in  the current
+   directory).  The command
+
+           ls name[A-K]
+
+   prints the names of files nnaammeeAA through nnaammeeKK (again, assuming
+   that they exist in the current directory).
+
+When kksshh reads a token that contains one of the above characters,
+it replaces  the token in  the command line  with an alphabetized
+list  of file  names  that match  the  pattern.  If  it finds  no
+matches,  it passes  the  token unchanged  to  the command.   For
+example, when you enter the command
+
+
+        ls name[ABC]
+
+
+kksshh  replaces the  token nnaammee[AABBCC] with  nnaammeeAA, nnaammeeBB,  and nnaammeeCC
+(again, if  they exist in the current  directory), so the command
+now reads:
+
+
+        ls nameA nameB nameC
+
+
+It then  passes this second,  transformed version of  the command
+line to the command llss.
+
+Note that  the slash `/'  and leading period `.'  must be matched
+explicitly  in a  pattern.  The slash,  of course,  separates the
+elements of  a path name; while  a period at the  begin of a file
+name  usually  (but  not always)  indicates  that  that file  has
+special significance.
+
+***** Quoting Text *****
+
+From  time to  time, you  will want to  ``turn off''  the special
+meaning of characters.  For example, you may wish to pass a token
+that contains a literal asterisk to a command; to do so, you need
+a way  to tell kksshh  not to expand  the token into a  list of file
+names.  Therefore, kksshh includes the qquuoottaattiioonn ooppeerraattoorrss `\', `"',
+and `'';  these ``turn  off'' (or  _q_u_o_t_e) the special  meaning of
+operators.
+
+The backslash  `\' quotes the following  character.  For example,
+the command
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 6
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+        ls name\*
+
+
+lists a file named nnaammee*, and no other.
+
+The shell ignores  a backslash immediately followed by a newline,
+called a _c_o_n_c_e_a_l_e_d _n_e_w_l_i_n_e.  This lets you give more arguments to
+a command than will fit on one line.  For example, the command
+
+
+        cc -o output file1.c file2.c file3.c \
+                file4.c file5.c file19.c
+
+
+invokes the C compiler cccc to compile a set of C source files, the
+names of which extend over more than one line of input.  You will
+find  this to  be extremely  helpful,  especially when  you write
+scripts  and  mmaakkeeffiillees,  to help  you  write  neat, easily  read
+commands.
+
+A pair of apostrophes ' ' prevents interpretation of any enclosed
+special characters.  For example, the command
+
+
+        find . -name '*.c' -print
+
+
+finds and  prints the  name of any  C-source file in  the current
+directory and any  subdirectory.  The command ffiinndd interprets the
+`*'  internally;  therefore, you  want  to  suppress the  shell's
+expansion of  that operator,  which is accomplished  by enclosing
+that token between apostrophes.
+
+A pair of quotation marks " "  has   the  same   effect.   Unlike
+apostrophes, however, kksshh will perform parameter substitution and
+command-output  substitution (described  below) within  quotation
+marks.  Note  that everything between  quotation marks will  be a
+single  argument, even  if there are  spaces between  the tokens.
+For example, the command
+
+
+        grep "x y" *.c
+
+
+calls  the string-search  command  ggrreepp to  look  for the  string
+xx<ssppaaccee>yy.
+
+***** Scripts *****
+
+Shell commands can be stored in a file, or _s_c_r_i_p_t. The command
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 7
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+        ksh _s_c_r_i_p_t [ _p_a_r_a_m_e_t_e_r ... ]
+
+
+executes the  commands in  _s_c_r_i_p_t with  a new subshell  kksshh. Each
+_p_a_r_a_m_e_t_e_r  is a  value for a  positional parameter,  as described
+below.   If  you  have used  the  command  cchhmmoodd  to make  _s_c_r_i_p_t
+executable, you may omit the kksshh command.
+
+Parameters  of  the form  `$_n'  represent command-line  arguments
+within a  script.  _n can range from zero  through nine; $00 always
+gives the  name of the script.  These  parameters are also called
+_p_o_s_i_t_i_o_n_a_l _p_a_r_a_m_e_t_e_r_s.
+
+If no  corresponding parameter is given on  the command line, the
+shell  substitutes  the  null  string  for that  parameter.   For
+example, if the script ffoorrmmaatt contains the following line:
+
+
+        nroff -ms $1 >$1.out
+
+
+then invoking ffoorrmmaatt with the command line:
+
+
+        format mytext
+
+
+invokes the  command nnrrooffff to format the  contents of mmyytteexxtt, and
+writes the output  into file mmyytteexxtt.oouutt.  If, however, you invoke
+this command with the command line
+
+
+        format mytext yourtext
+
+
+the script will format mmyytteexxtt but ignore yyoouurrtteexxtt altogether.
+
+Reference  $*  represents all  command-line  arguments.  If,  for
+example, we change the contents of script ffoorrmmaatt to read
+
+
+        nroff -ms $* >$1.out
+
+
+then the command
+
+
+        format mytext yourtext
+
+
+will invoke nnrrooffff to  format the contents of mmyytteexxtt and yyoouurrtteexxtt,
+and write the output into file mmyytteexxtt.oouutt.
+
+Commands  in a  script  can also  be  executed with  the .  (dot)
+command.   It resembles  the kksshh command,  but the  current shell
+
+
+COHERENT Lexicon                                           Page 8
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+executes the script commands without creating a new subshell or a
+new   environment;  therefore,   you   cannot  use   command-line
+arguments.
+
+***** Variables *****
+
+Shell variables are names that can be assigned string values on a
+command line, in the form
+
+
+        _n_a_m_e=_v_a_l_u_e
+
+
+The  name must  begin  with a  letter, and  can contain  letters,
+digits,  and  underscores   `_'.   In  shell  input,  `$_n_a_m_e'  or
+`${_n_a_m_e}' represents the value of the variable.  For example:
+
+
+        TEXT=mytext
+
+        nroff -ms $TEXT >$TEXT.out
+
+
+Here,  kksshh expands  $TTEEXXTT before it  executes the  nnrrooffff command.
+This technique is very useful in large, complex scripts: by using
+variables, you  can change the behavior of  the script by editing
+one  line,   rather  than  having  to   edit  numerous  variables
+throughout the script.
+
+Note that if an assignment precedes a command on the same command
+line,  the effect  of the  assignment is  local to  that command;
+otherwise, the effect is permanent.  For example,
+
+
+        kp=one testproc
+
+
+assigns variable  kkpp the value oonnee only for  the execution of the
+script tteessttpprroocc.
+
+kksshh sets the following variables by default:
+
+#  The  number  of  actual  positional  parameters given  to  the
+   current command.
+
+@  The list of positional parameters ``$1 $2 ...''.
+
+*  The list of positional parameters ``$1'' ``$2'' ...  (the same
+   as `$@' unless some parameters are quoted).
+
+-  Options  set in  the invocation  of  the shell  or by  the sseett
+   command.
+
+?  The exit status returned by the last command.
+
+
+
+COHERENT Lexicon                                           Page 9
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+!  The process number of the last command invoked with `&'.
+
+$  The process number of the current shell.
+
+***** Environmental Variables *****
+
+kksshh references the following environmental variables:
+
+CCWWDD     Current  working  directory: this  is  the  name  of  the
+        directory in which you are now working.
+
+EENNVV     If this variable  is set  at start-up, after  all pprrooffiillee
+        files have been  executed, the expanded value  is used as
+        the  shell's   start-up  file.    It  typically   defines
+        functions and aliases.
+
+FFCCEEDDIITT  This sets the editor used by the command ffcc.
+
+HHOOMMEE    Initial  working  directory;  usually  specified  in  the
+        password file /eettcc/ppaasssswwdd.
+
+IIFFSS     Delimiters  for  tokens;  by   default  space,  tab,  and
+        newline.
+
+KKSSHH_VVEERRSSIIOONN
+        The current version of the Korn shell that you are using.
+
+MMAAIILL    Checked at intervals specified  by environmental variable
+        MMAAIILLCCHHEECCKK. If  file  specified by  this  variable is  new
+        since last checked,  the shell prints  ``You have mail.''
+        on the  user's terminal.   If the  file has  increased in
+        size since the  last check,  the shell prints  ``You have
+        new mail.'' on the user's terminal.
+
+MMAAIILLCCHHEECCKK
+        Specifies the number of seconds  between checking for new
+        mail.   If  not  specified,   MMAAIILLCCHHEECCKK  defaults  to  60
+        seconds.
+
+OOLLDDPPWWDD  The prior working directory, if any.
+
+PPAATTHH    Colon-separated  list   of   directories   searched   for
+        commands.
+
+PPSS11     First prompt  string,  usually `$'.   Note  that in  this
+        variable and  PPSS22,  kksshh  expands the  symbol  ! into  the
+        current number  of the  command line.   For  example, the
+        prompt kksshh !> prints the prompt kksshh _N_N>    with     every
+        command, where _N_N  is the number of  the current command.
+        This is useful when you have enabled the history feature,
+        as described below.
+
+PPSS22     Second prompt string, usually `>'.  kksshh prints it when it
+        expects more input,  such as when  an open quotation-mark
+        has been typed  but a  close quotation-mark has  not been
+
+
+COHERENT Lexicon                                          Page 10
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+        typed, or within a shell construct.
+
+PPWWDD     The present working directory, i.e., the directory within
+        which you are now working.
+
+SSEECCOONNDDSS
+        The  number  of  seconds  since  the  current  shell  was
+        started.
+
+SSHHEELLLL   The  full  path  name  of the  shell  that  you  are  now
+        executing.
+
+TTEERRMM    The name of  the type of  terminal you are  now using, as
+        used  by   various   programs   for   reading  the   file
+        /eettcc/tteerrmmccaapp.
+
+TTIIMMEEZZOONNEE
+        The current timezone you  are located in, as  set in your
+        .pprrooffiillee.  This is an  interesting and powerful variable;
+        see its entry in the Lexicon for details.
+
+UUSSEERR    The login-identifier of the user, i.e., you.
+
+The following special forms substitute parameters conditionally:
+
+${_n_a_m_e-_t_o_k_e_n}
+     Substitite  _n_a_m_e if  it  is set;  if it  is not,  substitute
+     _t_o_k_e_n.
+
+${_n_a_m_e=_t_o_k_e_n}
+     Substitute _n_a_m_e  if it is set; if it  is not set, substitute
+     _t_o_k_e_n and set _n_a_m_e to equal _t_o_k_e_n.
+
+${_n_a_m_e+_t_o_k_e_n}
+     Substitute _t_o_k_e_n if _n_a_m_e is set.
+
+${_n_a_m_e?_t_o_k_e_n}
+     Substitute _n_a_m_e if it is set;  if it is not, print _t_o_k_e_n and
+     exit from the shell.
+
+***** Command Output Substitution *****
+
+kksshh can  use the output of  a command as shell  input (as command
+arguments,  for  example)  by  enclosing  the  command  in  grave
+characters ` `.   For  example,  to  list  the  contents  of  the
+directories named in file ddiirrss, use the command
+
+
+        ls -l `cat dirs`
+
+
+***** Constructs *****
+
+kksshh  lets  you  control the  execution  of  programs through  the
+following  constructs.   It recognizes  a  construct  only if  it
+
+
+COHERENT Lexicon                                          Page 11
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+occurs unquoted  as the first  token of a  command.  This implies
+that a separator must precede each reserved word in the following
+constructs; for  example, newline or  `;' must precede  ddoo in the
+ffoorr construct.
+
+bbrreeaakk [_n]
+     Exit from ffoorr,  uunnttiill, or wwhhiillee. If _n is  given, exit from _n
+     levels.
+
+ccaassee _t_o_k_e_n iinn [ _p_a_t_t_e_r_n [ | _p_a_t_t_e_r_n ] ...) _s_e_q_u_e_n_c_e;; ] ... eessaacc
+     Check  _t_o_k_e_n  against  each  _p_a_t_t_e_r_n, and  execute  _s_e_q_u_e_n_c_e
+     associated with the first matching _p_a_t_t_e_r_n.
+
+ccoonnttiinnuuee [_n]
+     Branch to the end of  the _nth enclosing ffoorr, uunnttiill, or wwhhiillee
+     construct.
+
+ffoorr _n_a_m_e [ iinn _t_o_k_e_n ... ] ddoo _s_e_q_u_e_n_c_e ddoonnee
+     Execute  _s_e_q_u_e_n_c_e once  for each  _t_o_k_e_n. On  each iteration,
+     _n_a_m_e takes the value of the  next _t_o_k_e_n. If the iinn clause is
+     omitted,  $@ is  assumed.  For  example,  to list  all files
+     ending with .cc:
+
+             for i in *.c
+             do
+                     cat $i
+             done
+
+
+iiff _s_e_q_1 tthheenn _s_e_q_2 [ eelliiff _s_e_q_3 tthheenn _s_e_q_4 ] ... [ eellssee _s_e_q_5 ] ffii
+     Execute _s_e_q_1.  If the exit status is  zero, execute _s_e_q_2; if
+     not, execute the optional _s_e_q_3 if given.  If the exit status
+     of _s_e_q_3 is zero, then execute  _s_e_q_4, and so on.  If the exit
+     status of all tested sequences is nonzero, execute _s_e_q_5.
+
+ttiimmee _s_e_q_u_e_n_c_e
+     Time how  long it takes _s_e_q_u_e_n_c_e  to execute.  When _s_e_q_u_e_n_c_e
+     has  finished  exeucting,  the  time  is  displayed  on  the
+     standard output.
+
+wwhhiillee _s_e_q_u_e_n_c_e_1 [ ddoo _s_e_q_u_e_n_c_e_2 ] ddoonnee
+     Execute  _s_e_q_u_e_n_c_e_2 as  long  as the  execution of  _s_e_q_u_e_n_c_e_1
+     results in an exit status of zero.
+
+(_s_e_q_u_e_n_c_e)
+     Execute _s_e_q_u_e_n_c_e within a subshell.  This allows _s_e_q_u_e_n_c_e to
+     change the  current directory,  for example, and  not affect
+     the enclosing environment.
+
+{_s_e_q_u_e_n_c_e}
+     Braces simply enclose a _s_e_q_u_e_n_c_e.
+
+***** Built-in Commands *****
+
+kksshh  executes  most  commands via  the  ffoorrkk  system call,  which
+
+
+COHERENT Lexicon                                          Page 12
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+creates a  new process.  See  the Lexicon articles  on ffoorrkk() and
+eexxeecc  for details  on these  calls.  kksshh  also has  the following
+commands built into itself.
+
+. _s_c_r_i_p_t
+     Read and execute commands from _s_c_r_i_p_t. Positional parameters
+     are not allowed.   kksshh searches the directories named in the
+     environmental variable PPAATTHH to find the given _s_c_r_i_p_t.
+
+: [_t_o_k_e_n ...]
+     A colon  `:' indicates a ``partial  comment''.  kksshh normally
+     ignores all  commands on  a line  that begins with  a colon,
+     except for redirection and such symbols as $, {, ?, etc.
+
+#    A complete  comment: if # is the first  character on a line,
+     kksshh ignores all text that follows on that line.
+
+aalliiaass [-dd] [_n_a_m_e=_v_a_l_u_e ...]
+     When called without  arguments, aalliiaass prints all aliases and
+     their  values.  When  called with a  _n_a_m_e but  no associated
+     value, then it prints the value of _n_a_m_e.  When called with a
+     _n_a_m_e and _v_a_l_u_e combination, it associated _v_a_l_u_e with _n_a_m_e.
+
+     For example, the command
+
+             alias logout='exit'
+
+     binds  the  token llooggoouutt  to  the  command eexxiitt:  hereafter,
+     whenever you  type llooggoouutt,  it will be  as if you  typed the
+     eexxiitt command.
+
+     The -dd option creates an alias for a directory.
+
+     kksshh has a number of aliases set by default.  See the section
+     AAlliiaasseess, below, for details.
+
+bbiinndd [-mm] [_k_e_y__s_e_q_u_e_n_c_e=_b_i_n_d_i_n_g__n_a_m_e ...]
+     When called  without arguments, list the  current set of key
+     bindings  for  MicroEMACS-style  editing of  command  lines.
+     When  called  with   arguments,  bind  the  _k_e_y__s_e_q_u_e_n_c_e  to
+     _b_i_n_d_i_n_g__n_a_m_e.
+
+     For example, the command
+
+             bind '^[^H'=delete-word-backward
+
+     binds  the editing command  ddeelleettee-wwoorrdd-bbaacckkwwaarrdd to  the key
+     sequence <eesscc><bbaacckkssppaaccee>.   Note that the  carat characters
+     in  this  command   are  literally  that,  not  the  shell's
+     representation of a literal <eesscc> or <bbaacckkssppaaccee> character.
+
+     When  called  with   the  -mm  option,  bind  more  than  one
+     _b_i_n_d_i_n_g__n_a_m_e to  a given _k_e_y__s_e_q_u_e_n_c_e.  This  lets you build
+     keyboard macros,  to perform complex editing  tasks with one
+     or two keystrokes.
+
+
+COHERENT Lexicon                                          Page 13
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+     See the section on CCoommmmaanndd-lliinnee EEddiittiinngg, below, for details.
+
+bbuuiillttiinn _c_o_m_m_a_n_d
+     Execute _c_o_m_m_a_n_d as a built-in command.
+
+ccdd _d_i_r
+     Change  the working  directory  to _d_i_r.  If  no argument  is
+     given,  change   to  the  home  directory   as  set  by  the
+     environmental variable  HHOOMMEE. When invoked,  it also changes
+     the environmental variables PPWWDD and OOLLDDPPWWDD.
+
+     Using a  hyphen `-' as the argument causes  kksshh to change to
+     the  previous directory,  i.e., the  one indicated  by shell
+     variable OOLLDDPPWWDD. In  effect, this swaps OOLLDDPPWWDD and PPWWDD, thus
+     allowing  you to  flop  back and  forth  easily between  two
+     directories.
+
+eecchhoo _t_o_k_e_n ...
+     Echo  _t_o_k_e_n  onto the  standard  output.   kksshh replaces  the
+     command eecchhoo with the alias eecchhoo='pprriinntt'.
+
+eevvaall [_t_o_k_e_n ...]
+     Evaluate each _t_o_k_e_n and treat the result as shell input.
+
+eexxeecc [_c_o_m_m_a_n_d]
+     Execute _c_o_m_m_a_n_d directly  rather than as a subprocess.  This
+     terminates the current shell.
+
+eexxiitt [_s_t_a_t_u_s]
+     Set  the exit  status to _s_t_a_t_u_s,  if given,  then terminate;
+     otherwise, the previous status is used.
+
+eexxppoorrtt [_n_a_m_e ...]
+     kksshh  executes  each  command  in  an _e_n_v_i_r_o_n_m_e_n_t,  which  is
+     essentially a set  of shell variable names and corresponding
+     string values.  It inherits an environment when invoked, and
+     normally it  passes the same environment  to each command it
+     invokes.  eexxppoorrtt  specifies that  the shell should  pass the
+     modified  value of  each given  _n_a_m_e  to the  environment of
+     subsequent commands.  When  no _n_a_m_e is given, kksshh prints the
+     name of each variable marked for export.
+
+ffcc [-ll] [-nn] [_f_i_r_s_t [_l_a_s_t]]
+     Draw  the previously  executed commands  _f_i_r_s_t  through _l_a_s_t
+     back  for manipulation  and possible  execution.   _f_i_r_s_t and
+     _l_a_s_t can  be referenced either by  their history numbers, or
+     by  a string  with  which the  command  in question  begins.
+     Normally,  the  commands  are  pulled  into  an  editor  for
+     manipulation before they are executed; the editor is defined
+     by  the environmental  variable FFCCEEDDIITT  (default,  eedd).  The
+     commands in  question are executed as soon  as you exit from
+     the editor.   Option -ll lists the  command(s) on ssttddoouutt, and
+     so suppresses  the editing feature.  Option  -nn inhibits the
+     default history numbers.
+
+
+COHERENT Lexicon                                          Page 14
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+ffcc -ss [_o_l_d=_n_e_w] [_c_o_m_m_a_n_d]
+     Re-execute _c_o_m_m_a_n_d after substituting string _n_e_w for _o_l_d.
+
+ggeettooppttss _o_p_t_s_t_r_i_n_g _n_a_m_e [_a_r_g ...]
+     Parse  the _a_r_gs  to See  the Lexicon  entry for  ggeettooppttss for
+     details.
+
+hhaasshh [-rr] [_n_a_m_e ...]
+     When called without  arguments, hhaasshh lists the path names of
+     all hashed  commands.  When called  with _n_a_m_e hhaasshh  check to
+     see if it is an executable command, and if so adds it to the
+     shell's hash list.  The -rr option removes _n_a_m_e from the hash
+     list.
+
+kkiillll [-ll] [_s_i_g_n_a_l] _p_r_o_c_e_s_s ...
+     Send _s_i_g_n_a_l  to _p_r_o_c_e_s_s. The  default signal is  TTEERRMM, which
+     terminates the process.  _s_i_g_n_a_l  may either be a number or a
+     mnemonic as #ddeeffiinneed  in header file <ssiiggnnaall.hh>. When called
+     with the  -ll option,  it lists  all known types  of signals.
+     See the Lexicon entry for kkiillll for details.
+
+lleett [_e_x_p_r_e_s_s_i_o_n]
+     Evaluate  each  _e_x_p_r_e_s_s_i_o_n.  This  command returns  zero  if
+     _e_x_p_r_e_s_s_i_o_n evaluates to  non-zero (i.e., fails), and returns
+     non-zero if  it evalutes to zero  (i.e., succeeds).  This is
+     useful for evaluating  expressions before actually executing
+     them.
+
+pprriinntt [-nnrreeuu_n] [_a_r_g_u_m_e_n_t ...]
+     Print  each _a_r_g_u_m_e_n_t  on the  standard output,  separated by
+     spaces and terminated  with a newline.  Option -nn suppresses
+     printing of  the newline.  Option -uu_n  redirects output from
+     the standard output to file descriptor _n.
+
+     Note that each _a_r_g_u_m_e_n_t can contain the following standard C
+     escape characters:  \bb, \ff,  \nn, \rr,  \vv, and \###.  See the
+     Lexicon article  on CC LLaanngguuaaggee for  details each character's
+     meaning.  The  option -rr inhibits  this feature, and  the -ee
+     option re-enables it.
+
+rreeaadd _n_a_m_e ...
+     Read a line from the standard input and assign each token of
+     the input  to the corresponding shell  variable _n_a_m_e. If the
+     input contains  fewer tokens than the  _n_a_m_e list, assign the
+     null string to  extra variables.  If the input contains more
+     tokens, assign the last _n_a_m_e the remainder of the input.
+
+rreeaaddoonnllyy [_n_a_m_e ...]
+     Mark  each  shell variable  _n_a_m_e  as  a read-only  variable.
+     Subsequent  assignments to read-only  variables will  not be
+     permitted.  With  no arguments, print the  name and value of
+     each read-only variable.
+
+
+
+
+COHERENT Lexicon                                          Page 15
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+rreettuurrnn [_s_t_a_t_u_s]
+     Return _s_t_a_t_u_s to the parent process.
+
+sseett [-aaeeffhhkkmmnnuuvvxx [-oo _k_e_y_w_o_r_d] [_n_a_m_e ...] ]
+     Set listed flag.   The -oo option sets _k_e_y_w_o_r_d, where _k_e_y_w_o_r_d
+     is a shell option.
+
+     When used  with one or  more _n_a_m_e_s, this  command sets shell
+     variables _n_a_m_e to  values of positional parameters beginning
+     with $11.
+
+     For example, the command
+
+             set -h -o emacs ignoreeof
+
+     performs the  following: turns on hashing  for all commands,
+     turns  on MicroEMACS-style  command-line editing,  and turns
+     off exiting  upon EOF (that  is, you must type  eexxiitt to exit
+     from the  shell).  sseett  commands are especially  useful when
+     embedded in  your .pprrooffiillee, where they  can customize kksshh to
+     your preferences.
+
+     For details of this command, see its Lexicon entry.
+
+sshhiifftt
+     Rename positional parameter 11 to current value of $22, and so
+     on.
+
+tteesstt [_o_p_t_i_o_n] [_e_x_p_r_e_s_s_i_o_n]
+     Check _e_x_p_r_e_s_s_i_o_n for condition  _o_p_t_i_o_n. This is a useful and
+     complex command, with  more options than can be listed here.
+     See its Lexicon entry for details.
+
+ttiimmeess
+     Print on  the standard output  a summary of  processing time
+     used by the current shell and all of its child processes.
+
+ttrraapp [_c_o_m_m_a_n_d] [_n ...]
+     Execute  _c_o_m_m_a_n_d if  kksshh receives  signal  _n. If  _c_o_m_m_a_n_d is
+     omitted,  reset  traps  to  original  values.  To  ignore  a
+     signal, pass  null string as  _c_o_m_m_a_n_d. With _n  zero, execute
+     _c_o_m_m_a_n_d when the  shell exits.  With no arguments, print the
+     current trap settings.
+
+ttyyppeesseett [-ffiirrxx] [+ffiirrxx] [_n_a_m_e [=_v_a_l_u_e] ... ]
+     When  called without  an  argument, this  command lists  all
+     variables and their attributes.
+
+     When called with an option  but without a _n_a_m_e, it lists all
+     variables that have the specified attribute; - tells ttyyppeesseett
+     to list the value of each variable and + tells it not to.
+
+     When called  with one  or more _n_a_m_e_s,  it gives _n_a_m_e  to the
+     listed  attribute.   If _n_a_m_e  is  associated  with a  _v_a_l_u_e,
+     ttyyppeesseett also assigns the _v_a_l_u_e to it.
+
+
+COHERENT Lexicon                                          Page 16
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+     ttyyppeesseett recognizes the following attributes:
+
+             -ii      Store variable's value as an integer
+             -ff      List function instead of variable
+             -rr      Make the variable read-only
+             -xx      Export variable to the environment
+
+uummaasskk [_n_n_n]
+     Set user file creation mask to _n_n_n. If no argument is given,
+     print the current file creation mask.
+
+uunnaalliiaass [-dd] _n_a_m_e ...
+     Remove the  alias for each _n_a_m_e. The  -dd option unaliases an
+     alias for a directory.
+
+wwaaiitt [_p_i_d]
+     Hold  execution  of   further  commands  until  process  _p_i_d
+     terminates.   If   _p_i_d  is  omitted,  wait   for  all  child
+     processes.  If no children are active, this command finishes
+     immediately.
+
+wwhheennccee [-vv] _n_a_m_e ...
+     List the type of command for each _n_a_m_e. When called with the
+     -vv option, also list functions and aliases.
+
+***** Aliases *****
+
+kksshh implements  as aliases a number of commands  that sshh calls as
+separate executable programs.  The eecchhoo alias, for instance, does
+everything that  /bbiinn/eecchhoo does, but kksshh does  not have to ffoorrkk()
+and eexxeecc() simply to echo a token.  Other aliases, like ppwwdd, work
+by  printing  the  contents  of  shell  variables.   The  command
+/bbiinn/ppwwdd still  works should you prefer it,  but you must request
+it by  its full  path name  should you not  wish to use  the much
+faster alias version.
+
+kksshh sets the following aliases  by default.  If you wish, you can
+use the  built-in command uunnaalliiaass to  make one or all  of them go
+away.
+
+        eecchhoo=pprriinntt
+        ffaallssee=lleett
+        ffuunnccttiioonnss=ttyyppeesseett -ff
+        hhiissttoorryy=ffcc -ll
+        iinntteeggeerr=ttyyppeesseett -ii
+        llooggiinn=eexxeecc llooggiinn
+        nneewwggrrpp=eexxeecc nneewwggrrpp
+        ppwwdd=pprriinntt -rr $PPWWDD
+        rr=ffcc -ss
+        ttrruuee=:
+        ttyyppee=wwhheennccee -vv
+
+
+
+
+
+COHERENT Lexicon                                          Page 17
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+***** Job Control *****
+
+kksshh lets  you manipulate and monitor background  jobs via its _j_o_b
+_c_o_n_t_r_o_l commands.
+
+The following commands manipulate background jobs:
+
+jjoobbss Display information about  all controlled jobs.  Information
+     is in the following format:
+
+             %_n_u_m [+-] _p_i_d _s_t_a_t_u_s _c_o_m_m_a_n_d
+
+     where  _n_u_m indicates  the  job number,    `+' indicates  the
+     current  job, `-'  indicates the  previous  job, _p_i_d  is the
+     job's process identifier, _s_t_a_t_u_s shows the status of the job
+     (e.g., Running,  Done, Killed),  and _c_o_m_m_a_n_d is  the command
+     description.  Note  that kksshh only checks  for changes in job
+     status when waiting for a command to complete.
+
+kkiillll [-_s_i_g_n_a_l] _p_i_d ...
+     Described above.
+
+wwaaiitt [_p_i_d]
+     Hold  execution  of   further  commands  until  process  _p_i_d
+     terminates.  See its Lexicon entry for details.
+
+The following `%' syntax can be used with the above commands:
+
+%+   Select the current job.
+
+%-   Select the previous job.
+
+%_n_u_m Select the job with job number _n_u_m.
+
+%_s_t_r_i_n_g
+     Select the  most recently  invoked job whose  command begins
+     with _s_t_r_i_n_g.
+
+%?_s_t_r_i_n_g
+     Select the most  recently invoked job whose command contains
+     _s_t_r_i_n_g.
+
+***** Command-line Editing *****
+
+One of the most useful features of kksshh is its ability to remember
+commands that  you have typed previously.   You can interactively
+edit previously issued commands and re-issue them with just a few
+keystrokes.
+
+You  can recall  commands  and edit  them using  the ffcc  command,
+described  above.   kksshh,  however,  also  has  built  into  it  a
+MicroEMACS editing feature that lets you recall and edit commands
+using MicroEMACS-style editing  commands.  When you have finished
+editing,  simply typing  <eenntteerr> dispatches  the command  for re-
+execution.
+
+
+COHERENT Lexicon                                          Page 18
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+To turn on MicroEMACS editing, use the command
+
+
+        set -o emacs
+
+
+The following  table gives each  editing command and  its default
+keybinding.   Note that  you  can replace  any  of the  following
+keybindings by  using the  bbiinndd command, described  above.  Note,
+too, that not every command has a default keybinding.  Those that
+do not have one are marked ``None''.
+
+aabboorrtt (<ccttrrll-GG>)
+     Abort the current input line or function.
+
+aauuttoo-iinnsseerrtt
+     Insert text into the  command line.  This is the default for
+     almost every key.
+
+bbaacckkwwaarrdd-cchhaarr (<ccttrrll-BB>)
+     Move the cursor one character to the left.
+
+bbaacckkwwaarrdd-wwoorrdd (<eesscc>BB)
+     Move the cursor one word to  the left.  A wwoorrdd is defined as
+     any  cluster   of  characters  delineated  by   any  of  the
+     characters  named  in  the  environmental variable  IIFFSS:  by
+     default, <ssppaaccee>, <ttaabb>, and <nneewwlliinnee>.
+
+bbeeggiinnnniinngg-ooff-lliinnee (<ccttrrll-AA>)
+     Move  the  cursor   to  the  leftmost  position  (i.e.,  the
+     beginning) of the line.
+
+ccoommpplleettee (<eesscc><eesscc>)
+     Complete as much as is  unique of the hashed command name or
+     file name  in which the cursor is  positioned.  If no unique
+     command or  file name is  found, kksshh beeps.   Note that this
+     command does nothing unless you have used the sseett command to
+     turn on hashing.
+
+ccoommpplleettee-ccoommmmaanndd (<ccttrrll-XX><eesscc>)
+     Automatically complete  as much as  is unique of  the hashed
+     command name.  Like the ccoommpplleettee command, above, except that
+     file names are not expanded.
+
+ccoommpplleettee-ffiillee (<ccttrrll-XX><ccttrrll-XX>)
+     Automatically  complete as  much as  is  unique of  the file
+     name.   Like  the   ccoommpplleettee  command,  above,  except  that
+     commands are not expanded.
+
+ddeelleettee-cchhaarr-bbaacckkwwaarrdd (<ccttrrll-HH>)
+     Delete the character to  the left of the cursor.  Shift text
+     to the left to fill the gap left by the deleted character.
+
+
+
+
+COHERENT Lexicon                                          Page 19
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+ddeelleettee-cchhaarr-ffoorrwwaarrdd (<ccttrrll-DD>)
+     Delete the  character upon  which the cursor  is positioned.
+     Shift text to  the left to fill the gap  left by the deleted
+     character.
+
+ddeelleettee-wwoorrdd-bbaacckkwwaarrdd (<ccttrrll-WW>)
+     Delete the  word to the  left of the cursor.   Shift text to
+     the left to fill the gap left by the deleted word.
+
+ddeelleettee-wwoorrdd-ffoorrwwaarrdd (<eesscc>DD)
+     Delete the  word to the right of the  cursor.  Shift text to
+     the left to fill the gap left by the deleted word.
+
+ddoowwnn-hhiissttoorryy (<ccttrrll-NN>)
+     Scroll to the next command in the history buffer, if any.
+
+eenndd-ooff-lliinnee (<ccttrrll-EE>)
+     Move the cursor to the rightmost position (i.e., the end) of
+     the line.
+
+eeoott (<ccttrrll-_>)
+     Send  an EOT  (end  of transmission)  signal  to the  shell.
+     Normally,  this is  sent  by <ccttrrll-DD>,  but MicroEMACS  mode
+     binds this keystroke to an editing command.
+
+ffoorrwwaarrdd-cchhaarr (<ccttrrll-FF>)
+     Move the cursor one character to the right.
+
+ffoorrwwaarrdd-wwoorrdd (<eesscc>FF)
+     Move the cursor one word to the right.
+
+kkiillll-lliinnee (<ccttrrll-UU>)
+     Delete (i.e., erase) this entire input line.
+
+kkiillll-ttoo-eeooll (<ccttrrll-KK>)
+     Kill the  input line from where the  cursor is positioned to
+     the end of the line.
+
+lliisstt (<eesscc>?)
+     Display  a sorted  listed of  all  hashed commands  and file
+     names that have been entered so far, and so lists the tokens
+     that can  be expanded with the  ccoommpplleettee commands, described
+     above.
+
+lliisstt-ccoommmmaanndd (<ccttrrll-XX>?)
+     List all hashed commands.
+
+lliisstt-ffiillee (none)
+     List all files used in hashed commands so far.
+
+nneewwlliinnee (<ccttrrll-JJ> or <ccttrrll-MM>)
+     Dispatch the  current line to the  shell for execution.  The
+     cursor need not  be at the beginning or end  of the line for
+     this command to work correctly.
+
+
+
+COHERENT Lexicon                                          Page 20
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+pprreeffiixx-11 (<eesscc>)
+     Introduce a two-character command sequence.
+
+pprreeffiixx-22 (<ccttrrll-XX>)
+     Introduce a two-character command sequence.
+
+qquuoottee (<ccttrrll-^>)
+     Read the  following character  literally, rather than  as an
+     editing command.
+
+rreeddrraaww (<ccttrrll-LL>)
+     Redisplay the prompt  and the current command line.  This is
+     useful if  the line is garbled due to,  say, line noise when
+     you are using a modem.
+
+sseeaarrcchh-cchhaarraacctteerr (<ccttrrll-]>)
+     Search  forward in  the current  command  line for  the next
+     character typed.
+
+sseeaarrcchh-hhiissttoorryy (<ccttrrll-RR>)
+     Enter incremental-search  mode and search  backwards through
+     the history buffer.   aabboorrtt aborts search and returns you to
+     the  line  from  which  you  began  the search;  <eesscc>  ends
+     searching and leaves you in the current line.
+
+ssttuuffff (none)
+     Take a  character that  is bound  to an editing  command and
+     ``stuff'' it back into the terminal input, so it can receive
+     special treatment by the terminal handler.
+
+ssttuuffff-rreesseett (none)
+     ``Stuffs'' a character, then aborts input.
+
+ttrraannssppoossee-cchhaarrss (<ccttrrll-TT>)
+     Swap the  character the cursor in on,  with the character to
+     its left.
+
+uupp-hhiissttoorryy (<ccttrrll-PP>)
+     Move to the previous line in the history buffer (if any).
+
+yyaannkk (<ccttrrll-YY>)
+     Insert the  most recently killed text  back into the command
+     string, at the point where the cursor is positioned.
+
+yyaannkk-ppoopp (<eesscc>YY)
+     Yank a  string, then replace  it within the  ``yank'' buffer
+     with the next most previously killed string.
+
+***** Example *****
+
+The  following C  code  creates a  program  called sspplluurrtt.cc.   It
+demonstrates  numbered redirection  of  kksshh, by  writing to  five
+streams without opening them.  Compile it with the command:
+
+
+
+
+COHERENT Lexicon                                          Page 21
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+
+        cc -o splurt splurt.c
+
+
+To call it from the command line, you could type a command of the
+form:
+
+
+        splurt  3> splurt3 4> splurt4 5> splurt5 6> splurt6 7> splurt7
+
+
+This will redirect the sspplluurrtt's output into files sspplluurrtt33 through
+sspplluurrtt77.
+
+
+#include <stdio.h>
+main()
+{
+        int i;
+        char buf[50];
+
+
+
+        for(i = 3; i < 8; i++) {
+                sprintf(buf, "For fd %d\n", i);
+                write(i, buf, strlen(buf));
+        }
+}
+
+
+***** Files *****
+
+/eettcc/pprrooffiillee -- System-wide initial commands
+$HHOOMMEE/.pprrooffiillee -- User-specific initial commands
+/ddeevv/nnuullll -- For background input
+
+***** See Also *****
+
+bbiinndd,  ccoommmmaannddss,  dduupp(), eennvviirroonn,  eexxeecc,  ffoorrkk(), ggeettooppttss,  jjoobbss,
+kkiillll, llooggiinn, nneewwggrrpp, sseett, sshh, ssiiggnnaall(), tteesstt, wwaaiitt
+_I_n_t_r_o_d_u_c_t_i_o_n _t_o _s_h, _t_h_e _B_o_u_r_n_e _S_h_e_l_l, tutorial
+
+***** Notes *****
+
+This version of  kksshh offers a subset of the  features of the Korn
+shell  shipped  with UNIX  System  V.2.  It  does  _n_o_t offer  the
+following features:
+
+-> vvii-style command-line editing.
+
+-> Command ffcc -ee.
+
+-> Variables RRAANNDDOOMM and PPPPIIDD.
+
+
+
+
+COHERENT Lexicon                                          Page 22
+
+
+
+
+ksh                          Command                          ksh
+
+
+
+-> Variable arrays.
+
+-> Variable attributes other than integers.
+
+The Mark  Williams version of  kksshh is based  on the public-domain
+version of the Korn shell, which  in turn is based on the public-
+domain  version of  the seventh edition  Bourne shell  written by
+Charles Forsyth  and modified by Eric  Gisin, Ron Natalie, Arnold
+Robbins, Doug Gwyn, and Erik Baalbergen.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                          Page 23
+
+

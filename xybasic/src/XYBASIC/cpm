@@ -1,0 +1,777 @@
+;CPM 5/21/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;CP/M version SAVE and LOAD, including GTFIL
+
+	if	cpm		;CP/M versions
+
+	if	rtpak		;UF error in Runtime Module version
+save	equ	uferr
+load	equ	uferr
+	else
+
+;SAVE <filename> [,A]
+save:	call	prntm		;print SAVING message
+	db	'SAVING', ' ' or 80H
+	call	gtfil		;read filename, initialize file control block
+	mov	a,b
+	ora	a
+	jnz	snerr		;SN error if ,R specified
+	mov	a,c
+	if	amd
+	cpi	2
+	jz	saves		;save via PUN device in AMD version
+	endif
+	ora	a
+	push	psw		;save ,A status
+	call	cdkmk		;delete old one, make new one
+	pop	psw		;restore ,A info
+	jz	savea		;ASCII save
+	if	amd
+	jm	savea		;HEX save in AMD version
+	endif
+	call	rtdma		;reset DMA address just in case
+	if	romsq
+	call	last		;last to BC
+	push	b		;save last
+	lhld	sourc		;first source address to HL
+	if	amd
+	dcx	h
+	endif
+	else
+	lhld	eofad		;eof address to HL
+	push	h		;save last
+	lxi	h,srcad		;next source address to HL
+	endif
+;EOF address is stacked, next address to save is in HL
+save1:	mov	b,h
+	mov	c,l		;next address to BC
+	lxi	d,80H
+	dad	d		;current + 80H = next to HL
+	push	h		;save next
+	lxi	h,dmaad		;destination = default DMA address
+	call	moved		;move current block to default DMA address
+	call	cdkwt		;write the block
+	pop	h		;next to HL
+	pop	d		;EOF address to DE
+	push	d		;and saved again
+	call	cmdhu		;compare
+	jnc	save1		;eof >= current -- keep going
+	pop	d		;unstack saved EOF address
+cdkcl:	mvi	c,dkclf
+cdkc1:	call	bdosf		;close it
+	cpi	255
+	rnz			;done if closed successfully
+dkerr:	call	rtdma		;reset DMA address after errors
+	error	f, D, K		;fatal DK error
+rtdma:	lxi	d,dmaad		;default DMA address to DE
+stdma:	mvi	c,dkdmf		;set DMA address to (DE)
+	if	c3885 and not debug
+	jmp	bdos1		;disable interrupts if 3885
+	else
+	jmp	bdos
+	endif
+bdosf:	lxi	d,fcbad		;fcb address to DE
+	if	c3885 and not debug
+bdos1:	lda	imode		;fetch current interrupt mode status
+	ora	a
+	jnz	bdos		;disabled, just do the BDOS call
+	di			;enabled, disable around BDOS call
+	call	bdos
+	ei
+	ret
+	else
+	jmp	bdos		;just do it
+	endif
+cdkmk:	mvi	c,dkdlf
+	call	bdosf		;delete old one
+	mvi	c,dkmkf
+	jmp	cdkc1		;make new one
+cdkwt:	mvi	c,dkwtf
+	call	bdosf
+	ora	a
+	rz
+	jmp	dkerr
+savea:	if	amd
+	mov	b,a		;save HEX or ASCII status
+	endif
+	call	sprst		;reset disk buffer pointer
+	lda	omode
+	push	psw		;save output mode
+	mvi	a,80H
+	sta	omode		;80H to OMODE
+	if	amd
+	mov	a,b
+	ora	a
+	jm	saveh		;HEX save
+	endif
+	if	romsq
+	lhld	sourc
+	else
+	lxi	h,srcad
+	endif
+	lxi	b,-1
+	call	list1		;list the program to disk
+sava1:	mvi	c,cntlz
+	call	dkout		;end of file
+	call	cdkwt		;write the last record
+	pop	psw
+	sta	omode		;restore omode
+	jmp	cdkcl		;close file and return
+
+	if	amd		;HEX or serial SAVE in AMD version
+
+saveh:	lhld	sourc
+	dcx	h		;first - 1 to HL
+	push	h		;and saved
+	xchg
+	call	cplde		;complemented
+	xchg
+	shld	temp		;-first+1 saved in TEMP
+	call	last		;last to HL
+	xthl			;first -1 to HL
+	pop	d		;last to DE
+;convert the file to hex and write it
+savh1:	push	h		;save current
+	lxi	b,10H		;max record length to BC
+	dad	b		;current + max to HL
+	call	cmdhu		;compare eof to current + max
+	pop	h		;restore current
+	mov	a,c		;max to A
+	jnc	savh2		;eof >= current + max, write max
+	mov	a,e
+	sub	l
+	inr	a		;eof+1 - current = remaining to be written
+	jz	savh4		;current = eof+1, just write eof record
+savh2:	push	d		;save eof address
+	mov	e,a		;length to  E
+	mvi	d,0		;checksum to D
+	mvi	c,':'
+	call	dwrit		;write record mark
+	mov	a,e
+	call	wbyte		;write length
+	call	waddr		;write address and record type
+savh3:	mov	a,m		;fetch data byte
+	inx	h
+	call	wbyte		;write data
+	dcr	e
+	jnz	savh3		;write more data
+	call	wcsum		;write the checksum
+	pop	d		;restore eof address
+	jmp	savh1		;and do more
+;write eof record
+savh4:	mvi	c,':'
+	call	dwrit		;write :
+	xra	a
+	mov	d,a		;checksum to D
+	call	wbyte		;write record length = 0
+	lhld	sourc
+	dcx	h		;first - 1 to HL
+	call	waddr		;write starting address 0 and record type
+	call	wcsum		;write the checksum
+	jmp	sava1		;write eof, close and return
+
+;save to serial device (PUNch)
+saves:	lxi	b,fcbad+1	;filename source
+	lxi	h,headr+2	;filename destination
+	mvi	e,8		;filename length
+	call	movd0		;copy filename to headr
+	lhld	sourc
+	dcx	h		;first to HL
+	push	h
+	push	h		;and saved
+	call	last		;last to HL
+	pop	d		;first to DE
+	call	cplde		;-first to DE
+	inx	d		;-first + 1
+	dad	d		;last - first + 1 = length
+	push	h		;and saved
+	lxi	h,headr
+	mvi	e,headl		;header length to E
+savs1:	mov	c,m		;header char to C
+	call	pout		;and out to punch device
+	inx	h
+	dcr	e
+	jnz	savs1		;keep sending header chars
+	pop	d		;file length to DE
+	pop	h
+savs2:	inx	d
+	push	d		;save length+1
+	mov	a,d
+	ora	a		;zero set iff length < 255
+	jz	savs3
+	mvi	e,0
+savs3:	dcr	e		;length of block to E
+	mvi	c,stbyt
+	call	pout		;send start  byte
+	mvi	c,tybyt
+	call	pout		;send type byte
+	mov	c,e
+	call	pout		;send length byte
+	mov	a,e
+	ora	a		;check if length = 0
+	jz	savs5		;yes, done
+	call	ctest		;check for console break char
+	mvi	d,0		;checksum in D
+savs4:	mov	c,m
+	call	pout		;send source char
+	mov	a,m
+	add	d
+	mov	d,a		;update checksum
+	inx	h
+	dcr	e
+	jnz	savs4		;send more source chars
+	mov	c,d
+	call	pout		;send checksum
+savs5:	pop	d		;recover length + 1  to DE
+	mov	a,d
+	ora	a
+	rz			;done if length < 255
+	dcr	d		;else new length = length+1-256 = length-255
+	jmp	savs2		;and save more blocks
+
+	endif			;end of AMD conditional
+
+;LOAD <filename> [,A] [,R]
+load:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	call	prntm		;print LOADING message
+	db	'LOADING', ' ' or 80H
+	if	amd
+	call	gtcom		;look for comma
+	jnc	lods0		;LOAD without filename in AMD version
+	endif
+	call	gtfil		;read file name, initialize FCB
+	if	amd
+	mov	a,c
+	cpi	2
+	jz	loads		;load from RDR device in AMD version
+	endif
+	push	b		;save ,A and ,R info
+	mvi	c,dkopf
+	call	bdosf		;try to open it
+	cpi	255
+	jnz	load0		;successful open
+	pop	b
+	mvi	c,0		;reset C to indicate ,A
+	push	b		;and save
+	call	gtfl4		;reset file type to .BAS
+	call	cdkop		;and try to open .BAS file
+load0:	call	new		;clobber old program
+	pop	b
+	mov	a,c
+	ora	a
+	jz	loada		;ASCII load
+	if	amd
+	jm	loadh		;HEX load
+	endif
+lod0b:	push	b		;save ,R status -- initialization entry point
+	lhld	symta
+	lxi	d,-7FH
+	dad	d		;first bad dma address to HL
+	if	amd
+	lxi	d,srcad-1
+	else
+	lxi	d,srcad
+	endif
+load1:	call	cmdhu		;compare to see how much space still available
+	jnc	loadx		;program too large -- OM error
+	push	h		;save bad address
+	push	d		;save destination
+	call	stdma		;set DMA address
+	call	cdkrd		;read a record
+	pop	h
+	pop	d		;restore destination to HL, bad addr to DE
+	jz	load2		;eof
+	lxi	b,80H
+	dad	b		;find next destination
+	xchg			;destination to DE, bad addr to HL
+	jmp	load1
+loada:	lda	omode
+	mov	c,a
+	push	b		;save OMODE and ,R status
+	call	dloa1		;read a record, set buffer pointer
+	mvi	a,7FH
+	sta	omode		;set OMODE for ASCII load
+loda1:	call	gtlin		;get a line
+	call	tkize		;tokenize it
+	jc	loda1		;ignore if no line #
+	cnz	addln		;add to source
+	jmp	loda1		;and keep loading
+
+	if	amd		;HEX or serial LOAD in AMD version
+
+loadh:	lda	omode
+	mov	c,a
+	push	b
+	call	dloa1
+	mvi	a,7FH
+	sta	omode
+lodh1:	call	readc		;read a char from hex file
+	sui	':'
+	jnz	lodh1		;not record mark, retry
+	mov	d,a		;0 for checksum to D
+	call	rbyte		;read a file byte
+	jz	lodh3		;eof record
+	mov	e,a		;else record length to E
+	call	rbyte		;read destination msb
+	push	psw		;and save
+	call	rbyte		;read destination lsb
+	pop	h		;destination msb to H
+	mov	l,a		;destination now in HL
+	lxi	b,srcad-1	;base address to BC
+	dad	b		;add to base address for actual destination
+	call	rbyte		;skip type byte
+lodh2:	call	rbyte		;read a data byte
+	mov	m,a		;and store
+	inx	h		;address next
+	dcr	e
+	jnz	lodh2		;load another data byte
+	call	rbyte		;read checksum
+	jnz	loadx		;checksum error
+	dcx	h		;point to last loaded byte
+	call	new1		;and reset EOFAD in case end of program
+	jmp	lodh1		;load next record
+lodh3:	call	readc		;keep reading chars
+	jmp	lodh3		;until EOF in readc exits from LOAD
+
+;serial LOAD via RDR device
+loads:	mov	a,b
+	push	psw		;save ,R status
+	lxi	b,fcbad+1
+	lxi	h,headr+2
+	mvi	e,8
+	call	movd0		;move filename to header block
+	jmp	lods1		;and continue as below
+lods0:	mvi	d,'S'
+	call	gtdsn		;skip S after comma
+	call	gtcom		;look for comma before ,R
+	mvi	a,0
+	jc	lodsa		;not ,R
+	mvi	d,'R'
+	call	gtdsn		;skip R after comma
+	mvi	a,1
+lodsa:	push	psw		;save ,R status	
+	lxi	h,headr+2	;first filename char address to HL
+	lxi	b,8		;0 to B, # filename chars to C
+	call	fillm		;fill filename with 0s
+lods1:	lxi	h,headr
+	mvi	c,headl
+	call	ctest		;check for console break char
+lods2:	call	rdrin		;read a char
+	cmp	m		;compare to header char
+	jz	lods3		;matched, try next
+	mov	a,m		;else fetch header char
+	ora	a		;check if null, i.e. LOAD ,S typed
+	jnz	lods1		;not null, try again from the top
+lods3:	inx	h
+	dcr	c
+	jnz	lods2		;see if next matches too
+	call	new		;got the file header, prepare to load
+	lxi	h,srcad-1	;load address to HL
+lods4:	call	rdrin		;read start byte
+	cpi	stbyt		;check if start byte
+	jnz	cserr		;issue CS error if not
+	call	ctest		;check for console break char
+	call	rdrin		;read type byte
+	cpi	tybyt		;check if type byte
+	jnz	cserr		;issue CS error if not
+	call	rdrin		;read length byte
+	ora	a
+	jz	lods6		;block length 0, done
+	mov	e,a		;block length to E
+	inr	a
+	push	psw		;save length+1
+	mvi	d,0		;checksum to D
+lods5:	call	rdrin		;read a char
+	mov	m,a		;store it
+	inx	h
+	add	d
+	mov	d,a		;update checksum
+	dcr	e
+	jnz	lods5		;more chars in block
+	call	rdrin		;read the checksum
+	cmp	d
+	jnz	cserr		;checksum error
+	pop	psw		;recover block length+1
+	jz	lods4		;length was 255, so load more blocks
+	dcx	h		;point to new eof adress
+lods6:	pop	psw		;recover ,R status
+	ora	a
+	jz	dmodx		;reset stacks and continue iff direct and no ,R
+	call	new1		;else reset stacks
+	jmp	loadr		;and run the program
+cserr:	call	new		;erase the garbage
+	error	f, C, S		;fatal CS error
+
+	endif			;end of AMD conditional
+
+cdkop:	mvi	c,dkopf
+	if	sdisk
+	call	bdosf
+	cpi	255
+	rnz			;successful open
+	error	f, F, N		;fatal FN error
+	else
+	jmp	cdkc1		;open file
+	endif
+cdkrd:	mvi	c,dkrdf
+	call	bdosf		;read a record
+	cpi	2
+	jz	dkerr		;read error
+	cpi	1
+	ret			;Zero set iff eof
+loadx:	call	new		;clobber bad fragment
+	jmp	omerr		;and issue fatal OM error
+load2:	call	rtdma		;reset DMA address to default
+	lxi	d,-1
+	call	findl		;find bottom of source text
+	mov	a,m
+	call	adahl
+	pop	psw		;recover ,R status
+	ora	a
+	jz	dmodx		;no ,R specified, so reset stacks as usual
+	call	new1		;set new eof, cstack, estack
+				;and fall through to LOADR to run
+loadr:	call	loadz		;reset LNNUM and TEXTP
+	jmp	run		;and RUN the program
+loadz:	call	lnnu0		;reset LNNUM to 0
+	lxi	h,nlnad
+	shld	textp		;reset TEXTP to input buffer
+	mvi	m,cr		;and <cr> to input buffer
+	ret
+
+	if	debug
+dsav0:	lda	amode
+	cma
+	sta	amode		;toggle saving mode if ^D
+	ora	a
+	jz	dsav3
+	mvi	c,7
+	lxi	d,libad
+	lxi	h,fcbad+9
+dsav1:	ldax	d
+	mov	m,a		;set filetyp to LIB
+	inx	d
+	inx	h
+	dcr	c
+	jnz	dsav1		;store another char
+	sta	fcbcr		;set current record to 0
+	call	cdkmk		;delete old one, make new one
+	call	sprst		;reset buffer pointer
+dsav2:	mvi	a,cntlx
+	jmp	pop3		;and return
+dsav3:	mvi	c,cntlz
+	call	dkout		;write a control-z as eof
+	call	cdkwt		;write the last record
+	call	cdkcl		;and close the file
+	jmp	dsav2
+libad	db	'LIB', 0, 0, 0, 0
+	endif			;end of ^d conditional
+
+;write char to disk file for ASCII SAVE and PRINT @foo
+dkout:	lhld	sptr		;write one char to buffer
+	mov	m,c
+	inx	h
+	shld	sptr		;update pointer
+	mov	a,h
+	ora	a
+	rz			;buffer not full -- done
+	call	cdkwt		;write a record
+sprst:	lxi	h,80H
+	shld	sptr		;reset SPTR to base of buffer
+	ret
+
+;read char from disk for ASCII LOAD and [L]INPUT @foo
+dload:	lhld	sptr		;buffer pointer to HL
+	mov	a,h
+	ora	a
+	cnz	dloa1		;read another record
+	mov	a,m		;fetch next char
+	ani	7FH		;remove parity bit
+	inx	h
+	shld	sptr		;move up pointer
+	cpi	cntlz
+	jnz	pop3		;return unless eof
+	lxi	sp,stack-4	;OMODE and NEXTS return pushed
+	pop	b		;recover ,R status and OMODE
+	mov	a,c
+	sta	omode		;recover OMODE
+	mov	a,b
+	ora	a
+	jz	dmod2		;return to direct mode if no ,R
+	jmp	loadr		;else RUN the program
+dloa1:	call	cdkrd		;read a record
+	call	sprst		;reset pointer
+	rnz			;return unless eof
+	mvi	m,cntlz
+	ret
+
+;GTFIL gets <filename> [,A] [,R] and initializes a file control block to
+;<filename>.XYB or <filename>.BAS.  The name may consist of a letter followed
+;by adjacent printable chars, and is padded by spaces to 8 chars.
+;The message addressed by HL is printed (SAVING or LOADING), and
+;the filename is echoed.
+;Retn:	B	0 if no ,R specified, 1 if ,R
+;	C	0 if .BAS (,A), 1 if .XYB (no ,A)
+;In AMD version, filetype is .HEX and C is 0FFH if ,H specified.
+;In AMD version, C is 2 if ,S specified.
+blkfn:	db	0, '           ', 0, 0, 0, 0, 80H	;blank filename
+ambfn:	db	'???????????', 0, 0, 0, 0, 80H		;ambiguous filename
+xybft:	db	'XYB', 80H
+basft:	db	'BAS', 80H
+	if	amd
+hexft:	db	'HEX', 80H
+	endif
+gtfil:	call	gtfnm		;get unambiguous filename
+	lxi	d,fcbad+1
+	mvi	c,8
+	call	prstr		;echo it
+	call	wcrlf		;and write crlf
+	call	gtcom		;look for comma
+	lxi	b,1		;0 to B, 1 to C
+	jc	gtfl2		;no comma, filetype is .XYB
+	mvi	d,'A'
+	call	gtd		;look for A
+	if	amd
+	jnc	gtfl0		;ASCII specified
+	mvi	d,'H'
+	call	gtd		;look for H
+	mvi	c,0FFH		;0FFH to C for HEX
+	jnc	gtf0a		;HEX specified
+	mvi	d,'S'
+	call	gtd		;look for S
+	mvi	c,2		;2 to C for serial
+	jnc	gtf0a		;serial specified
+	mvi	c,1		;1 to C for XYB
+	jmp	gtfl1		;not A or H, must be R
+	else			;not AMD
+	jc	gtfl1		;no A, must be R after comma
+	endif
+gtfl0:	mov	c,b		;0 to C to indicate .BAS filetype
+gtf0a:	call	gtcom		;look for ,R
+	jc	gtfl2		;none
+gtfl1:	mvi	d,'R'
+	call	gtdsn		;skip ,R
+	mvi	b,1		;1 to B to indicate ,R
+gtfl2:	lxi	d,xybft
+	mov	a,c
+	ora	a
+	if	amd
+	jz	gtfl4
+	jp	gtfl5
+	lxi	d,hexft
+	jmp	gtfl5
+	else
+	jnz	gtfl5
+	endif
+gtfl4:	lxi	d,basft		;filetype .BAS -- LOAD entry point
+gtfl5:	push	b		;save status
+	lxi	h,fcbft
+	call	cpyst		;copy filetype to FCB
+	dcx	h
+	mvi	m,0		;reset last char
+	pop	b		;restore status
+	ret			;and return
+
+;GTFNM gets an unambiguous filename.
+gtfnm:	call	gtafn		;get ambiguous filename
+	lxi	h,fcbad+1	;first char location to HL
+	mvi	c,11		;char count to C
+	mvi	a,'?'		;? to A
+gtfn0:	cmp	m		;check if filename char is ?
+	jz	snerr		;yes, SN error
+	inx	h
+	dcr	c
+	jnz	gtfn0		;try next char
+	ret
+
+;GTAFN gets an ambiguous filename and initializes the default FCB.
+;Leading spaces are removed and lower case is converted to UPPER.
+gtafn:	lxi	d,blkfn
+	lxi	h,fcbad
+	push	h
+	call	cpyst		;copy blank filename to fcb
+	xra	a
+	sta	fcbcr		;reset current record field to 0
+	if	strng
+	call	evals		;look for filename
+	call	fetch
+	jnc	snerr		;nonstring filename
+	else			;parse string ad hoc if nonstring version
+	mvi	d,'"'
+	call	gtdsn
+	mov	d,h
+	mov	e,l		;first char address to DE
+	mvi	c,0		;char count to C
+gta0a:	mov	a,m		;fetch possible filename char
+	inx	h		;point to next
+	cpi	'"'
+	jz	gta0b		;done if at close quote
+	cpi	cr
+	jz	snerr		;SN error if cr before close quote
+	inr	c		;bump count
+	jmp	gta0a		;and try next
+gta0b:	shld	textp		;update TEXTP
+	endif
+	pop	h		;restore fcb address to HL
+	mov	a,c
+	ora	a
+	jz	gtaf5		;null file name, take @:*.*
+gtaf0:	ldax	d
+	cpi	' '
+	jnz	gtaf1		;no more leading spaces
+	inx	d
+	dcr	c		;remove a leading space
+	jz	gtaf5		;no chars after spaces, take @:*.*
+	jmp	gtaf0		;and try next
+gtaf1:	dcr	c
+	jz	gtaf2		;one-char filename, skip : check
+	inx	d
+	ldax	d		;fetch second character
+	dcx	d
+	cpi	':'
+	jnz	gtaf2		;no disk specified
+	ldax	d		;fetch disk name
+	sui	'@'		;subtract ASCII bias
+	jc	snerr
+	ani	1FH		;convert lower to upper
+	cpi	5
+	jnc	snerr
+	mov	m,a		;store disk number in fcb
+	inx	d
+	inx	d		;point to char after :
+	dcr	c
+	dcr	c		;and update char count
+gtaf2:	inr	c		;correct char count in C
+	jz	gtaf5		;no more chars, take *.*
+	inx	h		;point to first filename char destination
+	mvi	b,8		;max # filename chars to B
+gtaf3:	call	fchar		;process filename char
+	dcr	b
+	jm	gtaf4		;skip it
+	mov	m,a
+	inx	h		;store it
+gtaf4:	inx	d
+	dcr	c
+	rz			;done
+	jmp	gtaf3		;else process next
+gtaf5:	lxi	d,ambfn
+	lxi	h,fcbad+1
+	jmp	cpyst		;copy *.* to fcb
+
+fchar:	ldax	d		;fetch the char
+	ani	7FH		;remove parity
+	cpi	'"'+1
+	jc	snerr		;space, quote, exclam, controls not allowed
+	cpi	'*'
+	jz	fcha1		;expand * to ???...
+	cpi	'.'
+	jz	fcha2		;filetype follows
+	cpi	60H
+	rc			;printable char
+	sui	20H		;convert lower to upper
+	ret
+fcha1:	dcr	b
+	jm	fcha3
+	mvi	m,'?'		;store a ?
+	inx	h
+	jmp	fcha1
+fcha2:	mvi	b,3		;filetype char count
+fcha3:	pop	h		;pop FCHAR return
+	lxi	h,fcbft		;filetype address to HL
+	jmp	gtaf4
+
+	if	amd		;routines for HEX LOADing and SAVEing
+
+;INTEL HEX format is a series of records, with all info in ASCII:
+;frame 0	record mark ':' [3AH]
+;frames 1-2	record length n, hex number 0-FFH [0 for eof;  here max=10H]
+;frames 3-6	load address
+;frames 7-8	record type [here 0]
+;frames 9 - 8+2*n	data
+;frames 9+2*n - 10+2*n	checksum  [negated sum mod 256 of preceding items]
+
+;WASCI converts A3-A0 to ASCII and falls through to DWRIT to write
+wasci:	ani	0FH		;00H, ..., 09H, 0AH, ..., 0FH
+	adi	90H		;90H, ..., 99H, 9AH, ..., 9FH
+	daa			;90H, ..., 99H, 00H+C,...,05H+C
+	aci	40H		;D0H, ..., D9H, 41H, ..., 46H
+	daa			;30H, ..., 39H, 41H, ..., 46H
+	mov	c,a		;pass value to write through C
+				;and fall through to DWRIT
+dwrit:	push4
+	call	dkout		;write the char
+	jmp	pop4
+
+;WBYTE writes byte from A as two ASCII bytes, updating checksum in D
+wbyte:	push	psw
+	rrc
+	rrc
+	rrc
+	rrc
+	call	wasci		;convert left nibble to ascii and write
+	pop	psw
+	push	psw
+	call	wasci		;convert right nibble to ascii and write
+	pop	psw
+	add	d
+	mov	d,a		;update checksum
+	ret
+
+;WADDR writes address from HL (subtracting loading bias), and record type.
+waddr:	push	h
+	push	d
+	xchg			;address to DE
+	lhld	temp		;-first to HL
+	dad	d		;load address to HL
+	pop	d
+	mov	a,h
+	call	wbyte		;write high byte
+	mov	a,l
+	call	wbyte		;write low byte
+	xra	a
+	call	wbyte		;write record type = 0
+	pop	h
+	ret			;and return
+
+;WCSUM writes the checksum from D, followed by CR and LF.
+wcsum:	xra	a
+	sub	d
+	call	wbyte		;write checksum
+	mvi	c,cr
+	call	dwrit
+	mvi	c,lf
+	jmp	dwrit		;write cr and lf and return
+
+;RBYTE reads two ASCII bytes and builds binary char, updating checksum in D.
+;Retn:	A	char read
+;	C	clobbered
+;	D	updated checksum
+;	BEHL	preserved
+;	Zero	set iff new checksum = 0
+rbyte:	call	readc		;read a byte
+	call	ishex		;convert ASCII to binary
+	jc	loadx		;not an ASCII hex digit, abort
+	rlc
+	rlc
+	rlc
+	rlc
+	mov	c,a		;high nibble to C
+	call	readc		;read another
+	call	ishex
+	jc	loadx		;not ASCII hex digit
+	ora	c		;form complete byte from nibbles
+	mov	c,a		;and save
+	add	d		;update checksum
+	mov	d,a		;and checksum to D
+	mov	a,c		;restore result to A
+	ret
+	endif			;end of AMD conditional
+	endif			;end of NOT RTPAK conditional
+	endif			;end of CPM conditional
+
+
+;end of CPM
+	page

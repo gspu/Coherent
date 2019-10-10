@@ -1,0 +1,385 @@
+.TH asy "" "" "Device Driver"
+.PC "Device driver for asynchronous serial lines"
+.PP
+.II /dev/com
+.II "COM port"
+.II "serial port"
+.II "port^serial, driver"
+.II "port^COM"
+.II "card^serial"
+.II "serial cards"
+.II "dumb serial cards"
+.II "intelligent serial cards"
+.II "driver^serial port"
+.II "device driver^serial port"
+The device driver
+.B asy
+supports serial ports.
+It uses major number 5.
+.PP
+.B asy
+can handle from one to 32 serial ports.
+The ports can be any mixture of 8250, 8250B, 16550, 16550A,
+and equivalent devices, including nearly all conventional COM1 through COM4
+serial cards, and most non-intelligent multiport add-in cards.
+It automatically recognizes, and uses, on-chip FIFO,
+and it can specify groups of ports that share a single interrupt status.
+.SH "Types of Port Configuration"
+Each port that
+.B asy
+serves has a base name, e.g., 
+.BR /dev/com1r .
+Each has its own minor device number.
+Different configurations of the port are selected by using different
+suffixes, as follows:
+.IP \fBl\fR 0.3i
+(Local)
+``Local mode'' means that the line will have a terminal plugged into
+it, or is connected to a modem running in command mode.
+Local mode uses the minor device with the modem-control bit (bit 7) set.
+.IP \fBr\fR
+(Remote)
+``Modem control'' means that the line will have a modem plugged into it.
+Modem control is enabled on a serial line by resetting the modem control
+bit (bit 7) in the minor number for the device.
+This allows the system to generate a hangup signal when the modem indicates
+loss of carrier by dropping DCD (Data Carrier Detect).
+A modem line should always have its DSR, DCD and CTS pins connected.
+If left hanging, spurious transitions can cause severe system thrashing.
+An
+.B open()
+to a modem-control line will block until a carrier is detected (i.e.,
+until DCD goes true).
+.IP \fBp\fR
+(Polled mode)
+``Polled mode'' means that the port cannot generate an interrupt,
+but must be checked (or polled) constantly by the \*(CO system
+to see if activity has occurred on it.
+Such polling takes a significant toll on system performance.
+The main reason for supporting polled devices is that older style
+COM equipment will not allow both
+.B com1
+and
+.B com3
+to use interrupts at the same time, nor will it allow both
+.B com2
+and
+.B com4
+to use interrupts at the same time.
+If you use a port in polled mode, you will get better performance
+using one of the newer FIFO parts, such as the 16550A.
+.IP
+To convert from using a polled to an interrupt driven device, edit file
+.B /etc/ttys
+and then type the command:
+.DM
+	kill quit 1
+.DE
+.IP
+For details, see the Lexicon entry for
+.BR ttys .
+.IP \fBf\fR
+(Flow control)
+A device with hardware flow control.
+Here, signal CTS must be active for the driver to send data out the port,
+and signal RTS will be set active by the driver whenever it is ready for input.
+Some high-speed modems, and some serial printers, are capable of using these
+conventions.
+If your equipment does not support RTS/CTS handshaking,
+there is no benefit to using this option.
+.PP
+Due to limitations in the design of the ports, you can
+enable interrupts on either COM1 or COM3 (or on COM2 or COM4), but not both.
+If you wish to use both ports simultaneously, one must be run in polled mode.
+For example, if you wish to open all four serial lines, you can open two
+of the lines in interrupt mode:
+you can open either COM1 or COM3 in interrupt mode, and you can open either
+COM2 or COM4 in interrupt mode.
+The other two lines must be opened in polled mode.
+.PP
+Opening a device in polled mode consumes many
+CPU cycles, based upon the speed of the highest baud rate requested.
+For example, on a 20 MHz 80386-based machine,
+polling at 9600-baud was found to consume about 15% of the CPU time.
+As only one device can use the interrupt line at any given time, the best
+approach is to make the high-speed line of the pair
+interrupt driven and open the low-speed or less-frequently used line
+in polled mode.
+However, if you enable a polled line for logins, the port is open and will
+be polled as long as the port remains open (enabled).
+Thus, even if a port is not in use, the fact that it has a
+.B getty
+on it consumes CPU cycles.
+As a rule of thumb, try to open a port in interrupt mode.
+If you cannot, use the polled version.
+.PP
+If you intend to use a modem on your serial port,
+you must insure that the DCD signal from the
+modem actually \fIfollows\fP the state of carrier detect.
+Some modems allow the user to ``strap'' or set the DCD signal so that
+it is always asserted (true).
+This incorrect setup will cause \*(CO to think
+that the modem is ``connected''
+to a remote modem, even when there is no such connection.
+.PP
+There are eight possible configurations, and eight valid suffixes.
+In the example of the port whose base name is
+.BR com1 ,
+the configurations would be
+found in the directory
+.B /dev
+as
+.BR /dev/com1l ,
+.BR /dev/com1r ,
+.BR /dev/com1pl ,
+.BR /dev/com1pr ,
+.BR /dev/com1fl ,
+.BR /dev/com1fr ,
+.BR /dev/com1fpl ,
+and
+.BR /dev/com1fpr .
+.SH "Driver Configuration"
+.B asy
+is usually configured \(em and proper names are created in directory
+\fB/dev\fR \(em when you install \*(CO.
+The following explains how to configure
+.BR asy ,
+in case you must modify the original installation.
+.PP
+To configure
+.BR asy ,
+do the following:
+.IP \fB1.\fR 0.3i
+Type the following command to become the superuser
+.BR root :
+.DM
+	su root
+.DE
+.IP \fB2.\fR
+Change to directory
+.BR /etc/conf .
+.IP \fB3.\fR
+Execute script
+.BR asy/mkdev .
+This script walks you through the process of
+describing your serial ports to \*(CO.
+.IP \fB4.\fR
+When you have successfully completed
+.BR asy/mkdev ,
+type the command:
+.DM
+	bin/idmkcoh -o cohtest
+.DE
+.IP
+This generates a new kernel, called
+.BR cohtest ,
+which incorporates the changes you described when you ran
+.BR asy/mkdev .
+.IP \fB5.\fR
+Boot your new kernel.
+If you do not know how to do this, read the Lexicon entry
+.BR booting .
+.SH "Editing /etc/default/async"
+.II /etc/default/async
+.II async
+The first step in reconfiguring
+.B asy
+is to edit
+.BR /etc/default/async .
+This file holds the description of how the
+.B asy
+driver is to be configured.
+.PP
+.B asy
+ignores blank lines and lines that begin with a pound
+sign `#'; you can use them as comments if you wish.
+Each port that is not in a group must have a line beginning with
+the letter `P', followed by seven numbers:
+.IP \(bu 0.3i
+The hexadecimal base address for the port.
+.IP \(bu
+The IRQ number, in decimal,
+used by the port (use zero if no interrupt line is needed).
+.IP \(bu
+The hexadecimal value used for control lines OUT1 and OUT2 when the port
+is open.
+Permissible values are 0, 4, 8, and C.
+Use 4 if OUT1 must be asserted, 8 if OUT2 must be asserted, and C if both
+signals are needed.
+The most common value needed in this field is 8.
+.IP \(bu
+One if the port needs exclusive use of its interrupt line (true for
+conventional COM1/COM4 equipment), zero otherwise.
+.IP \(bu
+Default baud rate for the port.
+.IP \(bu
+Channel number for the port (0-31).
+.IP \(bu
+A flag to indicate if modem-status interrupts are to be disabled for this board:
+one if they are to be disabled, zero if they are not.
+.PP
+The last field is required because
+some chips are defective and lock up the system
+if modem status interrupts are enabled.
+This flag protects you against such problems, but at the price of
+disabling hardware flow control.
+.PP
+Many multiport boards support a separate I/O address that can be read
+to determine which port requires service.
+Each group of up to 16 ports
+must have a line beginning with the letter `G', followed by a separate line
+describing each port in the group.
+There are four different group types:
+.IP \fB1.\fR 0.3i
+Bits in the status port are one when the corresponding port needs
+service, zero otherwise.
+(Sealevel, Comtrol, Star Gate, Connect Tech, Boca Research.)
+.IP \fB2.\fR
+Bits in the status port are zero when the corresponding port needs
+service, one otherwise.
+(Arnet.)
+.IP \fB3.\fR
+The low three bits in the status port give the slot number on the card
+for the port needing service.
+(GTEK.)
+.IP \fB4.\fR
+The low four bits in the status port give the slot number on the card for
+the port reading service.
+If no port needs service, the status port contains hexadecimal value FF.
+(Digiboard.)
+.PP
+The `G' line requires the following fields.
+All are in decimal, except as noted:
+.IP \(bu 0.3i
+The hexadecimal address for the group-status port.
+.IP \(bu
+The IRQ number used by the group.
+Use zero if no interrupt line is needed.
+.IP \(bu
+The hexadecimal value used for control lines OUT1 and OUT2 when the port
+is open (usually eight).
+.IP \(bu
+The type number of the group \(em one, two, or three, as described above.
+.IP \(bu
+The number of ports in the group, 1 through 16.
+.IP \(bu
+A flag to indicate if modem-status interrupts are to be disabled for this board:
+one if they are to be disabled, zero if they are not.
+.PP
+Each group line is followed by a separate `M' line for each member of the group.
+Fields required on the `M' line (in decimal, except as noted) are:
+.IP \(bu 0.3i
+The hexadecimal base address for the port.
+.IP \(bu
+Default baud rate for the port.
+.IP \(bu
+The slot number of the port within the group 0 through 7.
+For group types 1 and 2, slot 0 corresponds to the least-order bit
+in the status port, slot 7 to the highest order bit.
+.IP \(bu
+Channel number for the port (0-31).
+.PP
+The following gives the
+.B async
+file for a system with standard
+.B COM1
+through
+.B COM4
+ports as channels 0 through 3, a Comtrol Hostess 550/16 as
+channels 4 through 19, and finally an Arnet Multiport as channels 20 through 27.
+.DM
+.ta 0.7i 1.4i 2.1i 2.8i 3.5i 4.2i 5.0i
+# /etc/default/async spec for standard com1-com4
+#Record formats:
+#P	Port	Irq	OUT[12]	Excl	Speed	Channel	No MS int
+#G	Port	Irq	OUT[12]	Type	Number-of-Slots	No MS int
+#M	Port	Speed	Slot	Channel
+.DE
+.DM
+.ta 0.7i 1.4i 2.1i 2.8i 3.5i 4.2i 4.5i
+# com1/2/3/4
+P	3f8	4	8	1	9600	0	0
+P	2f8	3	8	1	9600	1	0
+P	3e8	4	8	1	9600	2	0
+P	2e8	3	8	1	9600	3	0
+.DE
+.DM
+.ta 0.7i 1.4i 2.1i 2.8i 3.5i 4.2i
+# Hostess 550 16 - two groups of 8 ports, using irq 12
+G	507	12	8	1	8	0
+M	500	9600	0	4
+M	508	9600	1	5
+M	510	9600	2	6
+M	518	9600	3	7
+M	520	9600	4	8
+M	528	9600	5	9
+M	530	9600	6	10
+M	538	9600	7	11
+.DE
+.DM
+.ta 0.7i 1.4i 2.1i 2.8i 3.5i 4.2i
+G	547	12	8	1	8	0
+M	540	9600	0	12
+M	548	9600	1	13
+M	550	9600	2	14
+M	558	9600	3	15
+M	560	9600	4	16
+M	568	9600	5	17
+M	570	9600	6	18
+M	578	9600	7	19
+.DE
+.DM
+.ta 0.7i 1.4i 2.1i 2.8i 3.5i 4.2i
+# Arnet Multiport - one group of 8 ports, using irq 7
+G	272	7	0	2	8	0
+M	280	9600	0	20
+M	288	9600	1	21
+M	290	9600	2	22
+M	298	9600	3	23
+M	2A0	9600	4	24
+M	2A8	9600	5	25
+M	2B0	9600	6	26
+M	2B8	9600	7	27
+.DE
+.PP
+You should look at the version of
+.B /etc/default/async
+that is shipped with \*(CO for examples of all
+.B async
+features, including those described above.
+This file includes sample configurations for every board
+that Mark Williams Company had available for testing.
+.SH "Building a New Kernel"
+Now that you have described how you want
+.B asy
+to be configured, the next step is to build a new kernel.
+Log in as the superuser
+.B root
+and execute the following commands:
+.DM
+	cd /etc/conf
+	asy/mkdev
+	bin/idmkcoh -o /\fIkernel_name\fP
+.DE
+.PP
+where
+.I kernel_name
+is the new kernel that includes the
+.B asy
+driver.
+To run this new kernel, simply reboot your machine.
+.SH "See Also"
+.Xr asymkdev, asymkdev
+.Xr "device drivers," device_dr
+.Xr RS-232 rs-232
+.SH Notes
+.II UART
+If your system loses characters while transferring files
+on 4800-bps or higher-speed lines,
+.I
+we strongly urge you to replace
+your existing 8250- or 16450-based UARTs with those based upon the 16550A
+design, such as the National Semiconductor NS16550AFN.
+.R
+These newer UARTs are pin-compatible with the older UARTs.
+\*(CO automatically senses and enables them when it boots.

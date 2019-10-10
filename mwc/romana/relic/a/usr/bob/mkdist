@@ -1,0 +1,75 @@
+: mkdist 10/19/90
+: Usage: mkdist [fha \| fqa \| fva]
+: Make a 3.5 or 5.25 diskette distribution kit from /distrib.
+: Run me as root.
+
+if [ $# -ne 1 ] ; then
+	echo Usage: mkdist [fha \| fqa \| fva]
+	exit 1
+fi
+
+if [ $1 = fqa0 ] ; then
+	export MAJOR=4
+	export MINOR=13
+	export BLOCKS=1440
+	export DEV=/dev/fqa0
+	export BOOT=boot.fqa
+	export MNT=/f0
+elif [ $1 = fha1 ] ; then
+	export MAJOR=4
+	export MINOR=14
+	export BLOCKS=2400
+	export DEV=/dev/fha1
+	export BOOT=boot.fha
+	export MNT=/f0
+elif [ $1 = fva0 ] ; then
+	export MAJOR=4
+	export MINOR=15
+	export BLOCKS=2880
+	export DEV=/dev/fva0
+	export BOOT=boot.fva
+	export MNT=/f0
+else
+	echo Usage: makedist [fha \| fqa \| fva]
+	exit 1
+fi
+
+: Get a version id.
+echo -n 'Enter id: '
+read id
+
+: Split /distrib to boot disk in /distrib1,
+: files from Files.last.f[vh]a in /distrib3, and remainder in /distrib2.
+: splitdist $1
+: /etc/unmkfs /distrib2 $BLOCKS -pprotos/$1.a
+: /etc/unmkfs /distrib3 $BLOCKS -pprotos/$1.b
+: Build a boot disk.
+n=1
+echo -n "Insert disk $n and hit enter... "
+read x
+mkboot $1
+/etc/mount $DEV $MNT
+touch $MNT/$id.$n
+echo "Fix /etc/brc.install: /etc/install -b $id $DEV ndisks ..... [enter]"
+read xxxx
+me $MNT/etc/brc.install
+echo -n "Edit bin/mount and set alias f0 to be $DEV: [enter]"
+read x
+me $MNT/bin/mount
+/etc/umount $DEV
+
+: Build remainder of kit.
+for i in protos/$1.*
+do
+	n=`expr $n + 1`
+	echo -n "Insert disk $n and hit enter... "
+	read x
+	echo "Bump i-node count by hand [enter] ..."
+	read x
+	me $i
+	/etc/fdformat -i 6 $DEV
+	/etc/mkfs -d $DEV $i
+	/etc/mount $DEV $MNT
+	touch $MNT/$id.$n
+	/etc/umount $DEV
+done

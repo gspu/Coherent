@@ -1,0 +1,171 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.06.18.09.22.58;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ *      vsh: security and copy protection functions
+ *
+ *      Copyright (c) 1992-93 by Udo Munk
+ */
+
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/utsname.h>
+
+#ifdef MAXUSE
+static struct flock lock = {		/* struct to lock lockfile */
+	F_WRLCK,			/* lock file exclusive */
+	SEEK_SET,			/* lock from start of file */
+	0,				/* lock the whole file */
+	0,				/* dito */
+	0				/* PID isn't interesting */
+};
+#endif
+
+/*
+ *	check the copy protection mechanisms
+ */
+check_copy()
+{
+	register char *s;
+
+#ifdef DEMO
+	extern long time();
+	extern struct tm *localtime();
+	register struct tm *t;
+	long tp, today;
+	long expire = DEMO ^ 0xAAAAAAAAL;
+#endif
+
+#ifdef ONLY_THIS_NODE
+	char *scrambled_nn = ONLY_THIS_NODE;
+	static char clear_nn[50];
+	register int i;
+	extern struct utsname sname;
+#endif
+
+#ifdef COH_SERIAL_NO
+	char *scrambled = COH_SERIAL_NO;
+	static char clear[50];
+	static char serno[50];
+	FILE *fp;
+	register int i;
+#endif
+
+#ifdef MAXUSE
+	extern long lseek();
+	int lfd, wrk;
+#endif
+
+#ifdef DEMO
+	time(&tp);
+	t = localtime(&tp);
+	today = (long) t->tm_year * 10000L + ((long) t->tm_mon + 1L) * 100L +
+		(long) t->tm_mday;
+	if (today > (expire ^ 0xAAAAAAAAL))
+		exit(1);
+#endif
+
+#ifdef ONLY_THIS_NODE
+	i = 0;
+	s = scrambled_nn + strlen(scrambled_nn) - 1;
+	while (s >= scrambled_nn) {
+		clear_nn[i] = (*s) + 1;
+		s--;
+		i++;
+	}
+	clear_nn[i] = '\0';
+	if (strcmp(clear_nn, sname.nodename))
+		exit(1);
+#endif
+
+#ifdef COH_SERIAL_NO
+	i = 0;
+	s = scrambled + strlen(scrambled) - 1;
+	while (s >= scrambled) {
+		clear[i] = (*s) + 1;
+		s--;
+		i++;
+	}
+	clear[i++] = '\n';
+	clear[i] = '\0';
+	if ((fp = fopen("/etc/serialno", "r")) == NULL)
+		exit(1);
+	fgets(serno, 50, fp);
+	if (strcmp(serno, clear))
+		exit(1);
+#endif
+
+#ifdef MAXUSE
+	wrk = umask(0);
+	lfd = open(VSHLOCK, O_RDWR | O_CREAT, 0666);
+	umask(wrk);
+	if (lfd == -1) {
+		fprintf(stderr, "%s\n", msgs[3]);
+		exit(1);
+	}
+	if (fcntl(lfd, F_SETLKW, &lock) == -1) {
+		fprintf(stderr, "%s\n", msgs[3]);
+		exit(1);
+	}
+	if (read(lfd, (char *) &wrk, sizeof(int)) <= 0) {
+		wrk = 1;
+		write(lfd, (char *) &wrk, sizeof(int));
+	} else {
+		if (wrk >= MAXUSE) {
+			fprintf(stderr, "%s\n", msgs[4]);
+			exit(1);
+		} else {
+			wrk++;
+			lseek(lfd, 0L, 0);
+			write(lfd, (char *) &wrk, sizeof(int));	
+		}
+	}
+	close(lfd);
+#endif
+}
+
+#ifdef MAXUSE
+/*
+ *	decrement number of running vsh's in the lockfile
+ */
+remove_vsh()
+{
+	extern long lseek();
+	int lfd, wrk; 
+
+	if ((lfd = open(VSHLOCK, O_RDWR)) != -1) {
+		if (fcntl(lfd, F_SETLKW, &lock) != -1) {
+			if (read(lfd, (char *) &wrk, sizeof(int)) == sizeof(int)) {
+				wrk--;
+				lseek(lfd, 0L, 0);
+				write(lfd, (char *) &wrk, sizeof(int));
+				close(lfd);
+			}
+		}
+	}
+}
+#endif
+@

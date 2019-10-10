@@ -1,0 +1,1505 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     91.08.01.12.34.08;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.12.14.49.28;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version provided by steve ness
+@
+
+
+1.2
+log
+@updated by stevesf to include :/etc/drvld in error messages
+produced by drvld
+@
+text
+@/*
+ * INETCO Coherent Driver Load Program
+ *
+ * $Log:	/usr/src/inetco/etc/drvld.c,v $
+ * Revision 1.3	91/07/31  13:44:11 	bin
+ * steve 7/31/91
+ * Corrected additional fatal error message.
+ * 
+ * Revision 1.2	91/07/31  13:40:09 	bin
+ * steve 7/31/91
+ * In warn(), added line to print "/etc/drvld: " preceding warnings
+ * or fatal error messages.
+ * 
+ * Revision 1.1	91/07/31  13:38:11 	bin
+ * Initial revision
+ * 
+ * Revision 1.2	88/07/07  09:30:37	src
+ * Bug:	Drivers whose prefix consisted had a numeric third character
+ * 	were not recognized by the drvld(1M) command.
+ * Fix:	A numeric third digit is ignored in driver symbol aliasing.
+ * 	ie: rs0con_ will be recognized when searching for con_.
+ * 
+ * Revision 1.1	88/07/07  08:49:44	src
+ * Initial revision
+ * 
+ * 87/12/01	Allan Cornish		/usr/src/cmd/etc/drvld.c
+ * relocate() now properly relocates uninitialized data.
+ */
+#include <stdio.h>
+#include <canon.h>
+#include <errno.h>
+#include <l.out.h>
+#include <signal.h>
+#include <sys/fcntl.h>
+
+extern long lseek();
+
+/*
+ * The following three variables are obtained from kernel data space.
+ */
+static int	 NSLOT;		/* Number of driver data slots	*/
+static int	 slotsz;	/* Number of bytes per slot	*/
+static int  *	 slotp;		/* Slot offset in kernel data	*/
+
+/*
+ * Local Variables.
+ */
+char *  ksym_file = "/coherent";/* Kernel symbol file name	*/
+char *  kmem_file = "/dev/kmem";/* Kernel data file name	*/
+char *  text_file;		/* Driver code file name	*/
+char *  dsym_file;
+unsigned kmem_end;		/* End of kernel data space	*/
+int	 verbose;		/* Non-zero for verbose debug	*/
+int	 ksym_fd = -1;		/* Kernel obj file descriptor	*/
+int	 dsym_fd = -1;		/* Driver obj file descriptor	*/
+int	 kmem_fd = -1;		/* Kernel data file descriptor	*/
+int	 text_fd = -1;		/* Driver text file descriptor	*/
+int	 slot;			/* First slot in current driver */
+int	 nslot;			/* Number slots for curr driver */
+unsigned datap;			/* Ptr to driver data in kernel	*/
+struct ldsym * dsym_tab;	/* Driver symbol table		*/
+struct ldsym * ksym_tab;	/* Kernel symbol table		*/
+int	 dsym_cnt;		/* Number of driver symbols	*/
+int	 ksym_cnt;		/* Number of kernel symbols	*/
+int	 dsym_len;		/* Number of bytes of symbols	*/
+unsigned char * drel_tab;	/* Driver relocation table	*/
+int	 drel_len;		/* Number of relocation bytes	*/
+int	 dflag;			/* Enable debugging output	*/
+int	 rflag;			/* Remove output file after exec*/
+int	 sflag;			/* Strip symbols from output	*/
+struct	 ldheader ldh_ker;	/* Kernel load header		*/
+struct	 ldheader ldh_drv;	/* Driver load header		*/
+
+/*
+ * Forward referenced functions.
+ */
+void	startup();
+void	cleanup();
+void	warn();
+void	fatal();
+void	canldh();
+void	relocate();
+long	symoff();
+void	symsave();
+struct ldsym * drvalias();
+struct ldsym * ksymbol();
+char *	basename();
+
+main( argc, argv )
+int argc;
+char ** argv;
+{
+	/*
+	 * Perform system initialization.
+	 */
+	startup( argv );
+
+	/*
+	 * Load drivers.
+	 */
+	for ( argc = 0; dsym_file = *++argv; ) {
+		if ( **argv != '-' ) {
+			drvload();
+			argc++;
+		}
+	}
+
+	/*
+	 * No drivers loaded.
+	 */
+	if ( argc == 0 )
+		fatal( "usage", ": drv [-k/coherent] [-r] [-s] file ..." );
+
+	/*
+	 * Perform system cleanup.
+	 */
+	cleanup( 0 );
+}
+
+/**
+ *
+ * void
+ * startup( argv )	-- perform system initialization.
+ * char ** argv;
+ *
+ *	Input:	argv = pointer to null-terminated list of arguments.
+ *
+ *	Action:	Process flag arguments.
+ *		Obtain kernel symbolic information.
+ *		Obtain kernel loadable driver characteristics.
+ */
+void
+startup( argv )
+register char ** argv;
+{
+	register struct ldsym * ksymp;
+	register char * cp;
+	register int sig;
+
+#if EBUG > 0
+	static char obuf[BUFSIZ];
+	setbuf( stdout, obuf );
+#endif
+
+	/*
+	 * Only super-use can load drivers.
+	 */
+	if ( getuid() != 0 )
+		fatal( "not super-user", "" );
+
+	/*
+	 * Trap non-ignored signals.
+	 */
+	for ( sig = 1; sig <= NSIG; sig++ )
+		if ( signal( sig, SIG_IGN ) != SIG_IGN )
+			signal( sig, cleanup );
+
+	/*
+	 * Trap alarm signal.
+	 */
+	signal( SIGALRM, cleanup );
+
+	/*
+	 * Scan argument list for flags.
+	 */
+	while ( cp = *++argv ) {
+
+		/*
+		 * Ignore drivers to be loaded.
+		 */
+		if ( *cp != '-' )
+			continue;
+
+		while ( *++cp ) {
+			switch ( *cp ) {
+
+			case 'd':
+				/*
+				 * -d specifies debugging output.
+				 */
+				dflag = 1;
+				break;
+
+			case 'k':
+				/*
+				 * -k <KERNEL> specifies kernel to load against.
+				 */
+				if ( argv[1] == NULL )
+					fatal( "Missing file arg after ", "-k" );
+				if ( argv[1][0] == '-' )
+					fatal( "Invalid kernel file: ", *argv );
+				ksym_file = *++argv;
+				*argv = "-";
+				break;
+
+			case 'o':
+				/*
+				 * -o outputfile
+				 */
+				if ( argv[1] == NULL )
+				fatal( "Missing file arg after ", "-o" );
+				if ( argv[1][0] == '-' )
+					fatal( "Invalid output file: ", *argv );
+				text_file = *++argv;
+				*argv = "-";
+				break;
+
+			case 'r':
+				/*
+				 * -r removes output file after loading.
+				 */
+				rflag = 1;
+				break;
+
+			case 's':
+				/*
+				 * -s strips symbols from output file.
+				 */
+				sflag = 1;
+				break;
+
+			case 'v':
+				/*
+				 * -v turns verbose monitoring on.
+				 */
+				verbose++;
+				break;
+
+			default:
+				fatal( "Invalid flag: -", cp );
+			}
+		}
+	}
+
+	/*
+	 * Obtain kernel object module header.
+	 */
+	ksym_fd = get_ldh( ksym_file, &ldh_ker );
+
+	/*
+	 * Kernel must not be relocatable.
+	 */
+	if ( (ldh_ker.l_flag & LF_NRB) == 0 )
+		fatal( ksym_file, ": relocatable" );
+
+	/*
+	 * Allocate memory space for kernel symbol table.
+	 */
+	ksym_cnt = ldh_ker.l_ssize[L_SYM] / sizeof(struct ldsym);
+	if ( (ksym_tab = malloc( (int) ldh_ker.l_ssize[L_SYM])) == NULL )
+		fatal( ksym_file, ": symbol table too large" );
+
+#if EBUG > 0
+	if ( dflag ) {
+		printf("startup: ksym_cnt=%d ksym_len=%d ksym_tab=%04x\n",
+			ksym_cnt, (int) ldh_ker.l_ssize[L_SYM], ksym_tab );
+	}
+#endif
+
+	/*
+	 * Extract kernel symbol table from object module.
+	 */
+	if ( lseek( ksym_fd, (long) symoff(&ldh_ker), 0 ) < 0 )
+		fatal( ksym_file, ": bad seek" );
+	if ( read( ksym_fd, ksym_tab, (int) ldh_ker.l_ssize[L_SYM] ) <= 0 )
+		fatal( ksym_file, ": bad read" );
+
+	/*
+	 * Open kernel data space.
+	 */
+	if ((kmem_fd = open( kmem_file, O_RDWR )) < 0 )
+		fatal( kmem_file, ": can't open.");
+
+	/*
+	 * Obtain address of end of kernel data space - end.
+	 */
+	if ( (ksymp = ksymbol( "end_" )) == NULL )
+		fatal( ksym_file, ": symbol 'end' not found" );
+	kmem_end = ksymp->ls_addr;
+
+	/*
+	 * Read NSLOT kernel variable.
+	 */
+	if ( (ksymp = ksymbol( "NSLOT_" )) == NULL )
+		fatal( ksym_file, ": symbol NSLOT not found" );
+	if ( (lseek( kmem_fd, (long) ksymp->ls_addr, 0 ) < 0)
+	  || (read( kmem_fd, &NSLOT, sizeof(NSLOT) ) < 0) )
+	  	fatal( kmem_file, ": can't access NSLOT var");
+
+	/*
+	 * Read slotsz kernel variable.
+	 */
+	if ( (ksymp = ksymbol( "slotsz_" )) == NULL )
+		fatal( ksym_file, ": symbol slotsz not found" );
+	if ( (lseek( kmem_fd, (long) ksymp->ls_addr, 0 ) < 0)
+	  || (read( kmem_fd, &slotsz, sizeof(slotsz) ) < 0) )
+	  	fatal( kmem_file, ": can't access slotsz var");
+
+	/*
+	 * Read slotp kernel variable.
+	 */
+	if ( (ksymp = ksymbol( "slotp_" )) == NULL )
+		fatal( ksym_file, ": symbol slotp not found" );
+	if ( (lseek( kmem_fd, (long) ksymp->ls_addr, 0 ) < 0)
+	  || (read( kmem_fd, &slotp, sizeof(slotp) ) < 0) )
+	  	fatal( kmem_file, ": can't access slotp var");
+
+#if EBUG > 0
+	if ( dflag )
+	printf("NSLOT=%d slotsz=%d slotp=%04x end=%04x\n",
+		NSLOT, slotsz, slotp, kmem_end );
+#endif
+
+	/*
+	 * Validate kernel variables - NSLOT, slotsz, slotp.
+	 */
+	if ( (NSLOT <= 0) || (slotsz <= 0) || (slotp == NULL) )
+		fatal(  kmem_file, ": loadable drivers disabled." );
+}
+
+/**
+ *
+ * void
+ * cleanup( sig )	-- clean up and terminate.
+ * int sig;
+ *
+ *	Input:	sig = signal causing termination, or 0.
+ *
+ *	Action:	Close special files.
+ *		Exit.
+ */
+void
+cleanup( sig )
+int sig;
+{
+	/*
+	 * Quietly accept alarm signals.
+	 */
+	if ( sig == SIGALRM ) {
+		signal( sig, cleanup );
+		return;
+	}
+
+	/*
+	 * Remove output files.
+	 */
+	if ( (sig != 0) || (rflag != 0) && (text_file[0] != 0) )
+		unlink( text_file );
+
+	exit( sig );
+}
+
+/**
+ *
+ * void
+ * warn( s1, s2 )	-- print error message.
+ * char * s1;
+ * char * s2;
+ *
+ *	Input:	s1 = pointer to null-terminated error string.
+ *		s2 = pointer to null-terminated error string.
+ *
+ *	Action: Output error messages.
+ *		Output new-line.
+ */
+void
+warn( s1, s2 )
+char * s1;
+char * s2;
+{
+#if EBUG > 0
+	fflush( stdout );
+	fflush( stderr );
+#endif
+
+	write( 2, "/etc/drvld: ", 12);
+	write( 2, s1, strlen(s1) );
+	write( 2, s2, strlen(s2) );
+	write( 2, "\n", 1 );
+}
+
+/**
+ *
+ * void
+ * fatal( s1, s2 )	-- print fatal error message, terminate.
+ * char * s1;
+ * char * s2;
+ *
+ *	Input:	s1 = pointer to null-terminated error string.
+ *		s2 = pointer to null-terminated error string.
+ *
+ *	Action: Output error messages.
+ *		Output new-line.
+ *		Exit with status 100.
+ */
+void
+fatal( s1, s2 )
+char * s1;
+char * s2;
+{
+	warn( s1, s2 );
+	cleanup( 100 );
+}
+
+/**
+ * 
+ * void
+ * canldh( ldp )	- Convert a load file header from canonical form.
+ * ldheader * ldp;
+ *
+ *	Input:	ldp = pointer to load file header to be [de]canonized.
+ *
+ *	Action:	Convert load file header to/from canonical form.
+ */
+void
+canldh( ldp )
+register struct ldheader * ldp;
+{
+	register int seg;
+
+	canint( ldp->l_magic   );
+	canint( ldp->l_flag    );
+	canint( ldp->l_machine );
+	canvaddr( ldp->l_entry   );
+
+	for ( seg = 0; seg < NLSEG; seg++ )
+		cansize( ldp->l_ssize[seg] );
+}
+
+/**
+ *
+ * int
+ * drvload()	- Spawn a kernel process.
+ *
+ *	Action:	Validate object module.
+ *		Allocate and initialize kernel data slots for driver.
+ *		Create and initialize driver code file.
+ *		Create driver symbol table.
+ *		Apply relocation to driver code and data.
+ *		Fork and execute the driver code.
+ */
+drvload()
+{
+	register int n;
+	int cpid;
+	long off;
+	static char buf[BUFSIZ];
+	static char nambuf[64];
+
+	/*
+	 * Define name of driver code file if not already specified.
+	 */
+	if ( (text_file == NULL) || (text_file == nambuf) ) {
+		text_file = nambuf;
+		strcpy( nambuf, "/tmp/" );
+		strcat( nambuf, basename(dsym_file) );
+	}
+
+	/*
+	 * Obtain driver object module header.
+	 */
+	dsym_fd = get_ldh( dsym_file, &ldh_drv );
+
+	/*
+	 * Driver must be relocatable.
+	 */
+	if ( ldh_drv.l_flag & LF_NRB )
+		fatal( dsym_file, ": not relocatable" );
+
+	/*
+	 * Build symbol table from driver and referenced kernel symbols.
+	 * Allocate kernel data space.
+	 * Adjust data relative symbols.
+	 */
+	symload();
+	drvalloc();
+	symadjust();
+
+	/*
+	 * Prepare to install driver data into allocated slots.
+	 */
+	off = sizeof(ldh_drv)+ldh_drv.l_ssize[L_SHRI]+ldh_drv.l_ssize[L_PRVI];
+	if ( lseek( dsym_fd, (long) off, 0 ) < 0 )
+		fatal( dsym_file, ": bad seek" );
+	if ( lseek( kmem_fd, (long) datap, 0 ) < 0 )
+		fatal( kmem_file, ": bad seek" );
+
+#if EBUG > 0
+	if ( dflag )
+		printf("driver data at kernel offset %04x\n", datap );
+#endif
+
+	/*
+	 * Install initialized driver data.
+	 */
+	off = ldh_drv.l_ssize[L_SHRD] + ldh_drv.l_ssize[L_PRVD];
+#if EBUG > 0
+	if ( dflag ) printf("initialized data = %ld bytes\n", off );
+#endif
+	while ( off > 0 ) {
+		n = (off > BUFSIZ) ? BUFSIZ : off;
+		if ( read( dsym_fd, buf, n ) != n ) 
+			fatal( dsym_file, ": truncated" );
+		if ( write( kmem_fd, buf, n ) != n )
+			fatal( kmem_file, ": bad write" );
+#if EBUG > 0
+		if ( dflag ) printf("write %d bytes\n", n );
+#endif
+		off -= n;
+	}
+
+	/*
+	 * Erase uninitialized driver data.
+	 */
+	memset( buf, 0, sizeof(buf) );
+	off = ldh_drv.l_ssize[L_BSSD];
+#if EBUG > 0
+	if ( dflag ) printf("uninitialized data = %ld bytes\n", off );
+#endif
+	while ( off > 0 ) {
+		n = (off > BUFSIZ) ? BUFSIZ : off;
+		if ( write( kmem_fd, buf, n ) != n )
+			fatal( kmem_file, ": bad write" );
+#if EBUG > 0
+		if ( dflag ) printf("clear %d bytes\n", n );
+#endif
+		off -= n;
+	}
+
+	/*
+	 * Create driver code file.
+	 */
+	unlink( text_file );
+	if ( (text_fd = creat( text_file, 0700)) < 0 )
+		fatal( text_file, ": can't create" );
+	close( text_fd );
+	if ( (text_fd = open( text_file, O_RDWR)) < 0 )
+		fatal( text_file, ": can't reopen" );
+
+	/*
+	 * Prepare to install driver code into new file.
+	 */
+	if ( lseek( dsym_fd, (long) sizeof(ldh_drv), 0 ) < 0 )
+		fatal( dsym_file, ": bad seek" );
+	if ( lseek( text_fd, (long) sizeof(ldh_drv), 0 ) < 0 )
+		fatal( text_file, ": bad seek" );
+
+	/*
+	 * Install initialized driver code.
+	 */
+	off = ldh_drv.l_ssize[L_SHRI] + ldh_drv.l_ssize[L_PRVI];
+#if EBUG > 0
+	if ( dflag ) printf("initialized code = %ld bytes\n", off );
+#endif
+	while ( off > 0 ) {
+		n = (off > BUFSIZ) ? BUFSIZ : off;
+		if ( read( dsym_fd, buf, n ) != n ) 
+			fatal( dsym_file, ": truncated" );
+		if ( write( text_fd, buf, n ) != n )
+			fatal( text_file, ": bad write" );
+		off -= n;
+	}
+
+	/*
+	 * Apply relocation directives to driver code and data.
+	 */
+	relocate();
+
+	/*
+	 * Save symbol table in driver code file.
+	 */
+	symsave();
+
+	/*
+	 * Close driver files.
+	 */
+	close( dsym_fd );
+	close( text_fd );
+	fflush( stdout );
+	sync();
+
+	/*
+	 * Load driver - spawning kernel process.
+	 */
+	if ( (cpid = sload(text_file)) < 0 )
+		fatal( text_file, ": can't load driver\n" );
+
+	/*
+	 * Lock all data slots required by server process.
+	 */
+	for ( n = slot + nslot; --n >= slot; ) {
+		/*
+		 * Lock data slot or kill server and terminate.
+		 */
+		if ( skword( &slotp[n], cpid ) < 0 ) {
+			kill( cpid, SIGKILL );
+			fatal( kmem_file, ": bad write" );
+		}
+	}
+
+#if EBUG > 0 )
+	if ( dflag )
+		printf("Driver process id = %d\n", cpid );
+#endif
+
+	/*
+	 * Remove text file.
+	 */
+	if ( rflag )
+		unlink( text_file );
+}
+
+/**
+ *
+ * int
+ * drvalloc()		- Allocate kernel data slots.
+ */
+int
+drvalloc()
+{
+	int baseslot = 0;
+	int pid;
+
+	/*
+	 * Determine number of required driver data slots.
+	 */
+	nslot = (ldh_drv.l_ssize[L_SHRD] + ldh_drv.l_ssize[L_PRVD] +
+		 ldh_drv.l_ssize[L_BSSD] + slotsz - 1) / slotsz;
+
+#if EBUG > 0
+	if ( dflag )
+		printf( "drvalloc: nslot=%d\n", nslot );
+#endif
+
+	/*
+	 * No data space required.
+	 */
+	if ( nslot == 0 ) {
+		datap =	(unsigned) (&slotp[NSLOT]);
+		slot = 0;
+		return;
+	}
+
+	/*
+	 * Allocate driver data slots.
+	 */
+	for ( slot = 0; slot < NSLOT; ) {
+
+#if EBUG > 0
+		if ( dflag )
+			printf( "checking slot %d ", slot );
+#endif
+
+		/*
+		 * Obtain slot process id.
+		 */
+		if ( fkword( &slotp[slot], &pid ) < 0 )
+		  	fatal( kmem_file, ": bad slot pid read." );
+
+#if EBUG > 0
+		if ( dflag )
+			printf("pid=%d\n", pid );
+#endif
+
+		/*
+		 * Slot is not allocated.
+		 */
+		if ( pid == 0 )
+			;
+
+		/*
+		 * Validate process id and existence.
+		 */
+		else if ( (pid < 0) || (kill(pid,0) < 0) ) {
+
+#if EBUG > 0
+			if ( dflag )
+				printf( "clearing slot %d\n", slot );
+#endif
+
+			/*
+			 * Erase slot process id - this makes the slot empty.
+			 */
+			if ( skword( &slotp[slot], 0 ) < 0 )
+			  	fatal( kmem_file, ": can't free slot." );
+
+			pid = 0;
+		}
+
+		/*
+		 * Ignore busy slots.
+		 */
+		if ( pid != 0 ) {
+			baseslot = ++slot;
+			continue;
+		}
+
+		/*
+		 * Sufficient contiguous slots found.
+		 */
+		if ( (++slot - baseslot) >= nslot )
+			break;
+	}
+
+	/*
+	 * Insufficient contiguous slot space.
+	 */
+	if ( (slot - baseslot) < nslot )
+		fatal( dsym_file, ": out of driver memory" );
+
+#if EBUG > 0
+		if ( dflag )
+			printf("%d slots allocated starting at slot %d\n",
+				nslot, baseslot );
+#endif
+
+	/*
+	 * Compute offset of driver data in kernel memory.
+	 */
+	datap =	(unsigned) (&slotp[NSLOT]) + (baseslot * slotsz);
+	slot  = baseslot;
+}
+
+/**
+ *
+ * int
+ * get_ldh( filename, ldp )
+ * char * filename;
+ * struct ldheader * ldp;
+ *
+ *	Input:	filename = name of object file to be accessed.
+ *		ldp = pointer to load header to be initialized.
+ *
+ *	Return:	Read-only file descriptor on object file.
+ */
+int
+get_ldh( filename, ldp )
+char * filename;
+register struct ldheader * ldp;
+{
+	register int fd;
+
+	/*
+	 * Obtain kernel object module header.
+	 */
+	if ( (fd = open(filename, O_RDONLY)) < 0 )
+		fatal( filename, ": can't open" );
+	if ( read( fd, ldp, sizeof(*ldp) ) < 0 )
+		fatal( filename, ": truncated" );
+
+	/*
+	 * Convert from canonical to machine format.
+	 */
+	canldh( ldp );
+
+	/*
+	 * Validate object module.
+	 */
+	if ( ldp->l_magic != L_MAGIC )
+		fatal( filename, ": not an object file" );
+	if ( ldp->l_machine != M_8086 )
+		fatal( filename, ": not an iAPX-86 object file" );
+
+	/*
+	 * Return read-only file descriptor.
+	 */
+	return( fd );
+}
+
+/**
+ *
+ * void
+ * relocate()	- apply relocation directives to driver code and data.
+ *
+ * NOTE: This function only works on a iAPX-86 relocating iAPX-86 code.
+ */
+void
+relocate()
+{
+	register unsigned char * cp;
+	long off;
+	unsigned char  opcode;
+	unsigned short addr;
+	unsigned short symno;
+	unsigned short bias;
+	int txtlen;
+
+#if EBUG > 0
+	if ( dflag )
+		printf("relocate()\n");
+#endif
+
+	/*
+	 * No relocation directives.
+	 */
+	if ( (drel_len = ldh_drv.l_ssize[L_REL]) == 0 )
+		return;
+
+	/*
+	 * Calculate offset of relocation information.
+	 */
+	off = sizeof(ldh_drv) + ldh_drv.l_ssize[L_SHRI ] +
+				ldh_drv.l_ssize[L_PRVI ] +
+				ldh_drv.l_ssize[L_SHRD ] +
+				ldh_drv.l_ssize[L_PRVD ] +
+				ldh_drv.l_ssize[L_DEBUG] +
+				ldh_drv.l_ssize[L_SYM  ];
+
+	/*
+	 * Compute boundary location between code and data relocation.
+	 */
+	txtlen = ldh_drv.l_ssize[L_SHRI] +
+		 ldh_drv.l_ssize[L_PRVI] +
+		 ldh_drv.l_ssize[L_BSSI];
+
+	/*
+	 * Obtain in-memory copy of driver relocation directives.
+	 */
+	if ( (drel_tab = malloc( drel_len )) == NULL )
+		fatal( dsym_file, ": too many relocation directives" );
+	if ( lseek( dsym_fd, off, 0 ) < 0 )
+		fatal( dsym_file, ": bad seek" );
+	if ( read( dsym_fd, drel_tab, drel_len ) != drel_len )
+		fatal( dsym_file, ": bad read" );
+
+#if EBUG > 0
+	if ( dflag )
+		printf("drel_tab=%04x drel_len=%d\n", drel_tab, drel_len );
+#endif
+
+	/*
+	 * Scan driver relocation directives.
+	 */
+	for ( cp = drel_tab; drel_len >= 3; ) {
+
+		/*
+		 * Clear bias [high byte may not be read]
+		 */
+		bias = 0;
+
+		/*
+		 * Read opcode and address.
+		 */
+		opcode = cp[0];
+		addr   = (cp[2] << 8) + cp[1];
+		drel_len -= 3;
+		cp += 3;
+
+		/*
+		 * Obtain code to be relocated.
+		 */
+		if ( addr < txtlen ) {
+			off = sizeof(struct ldheader) + addr;
+			if ( lseek( text_fd, off, 0 ) < 0 )
+				fatal( text_file, ": bad seek" );
+			if (read(text_fd, &bias, (opcode & LR_WORD)?2:1) < 0)
+				fatal( text_file, ": bad read" );
+		}
+
+		/*
+		 * Obtain data to be relocated.
+		 */
+		else {
+			off = datap + addr - txtlen;
+			if ( lseek( kmem_fd, off, 0 ) < 0 )
+				fatal( kmem_file, ": bad seek" );
+			if (read(kmem_fd, &bias, (opcode & LR_WORD)?2:1) < 0)
+				fatal( kmem_file, ": bad read" );
+		}
+
+#if EBUG > 0
+		if ( dflag )
+			printf("opcode=%02x, addr=%04x, offset=%04x, bias=%04x",
+				opcode, addr, (int) off, bias );
+#endif
+
+		/*
+		 * Perform relocation.
+		 * NOTE: Program Counter Relative relocation is ignored,
+		 *	 since no code is being inserted.
+		 */
+		switch ( opcode & LR_SEG ) {
+
+		case L_SHRI:
+		case L_PRVI:
+		case L_BSSI:
+			/*
+			 * No relocation required - no code was inserted.
+			 */
+#if EBUG > 0
+			if ( dflag )
+				printf("\n");
+#endif
+			continue;
+
+		case L_BSSD:
+		case L_PRVD:
+		case L_SHRD:
+			bias -= txtlen;
+			bias += datap;
+			break;
+
+		case L_SYM:
+			/*
+			 * Obtain symbol number.
+			 */
+			symno  = (cp[1] << 8) + cp[0];
+			drel_len -= 2;
+			cp += 2;
+
+			/*
+			 * Validate symbol number.
+			 */
+			if ( (symno < 0) || (symno >= dsym_cnt) )
+				fatal( dsym_file, ": bad relocation" );
+
+#if EBUG > 0
+			if ( dflag )
+				printf("\n\t\t\t\tsymid=%.*s symaddr=%04x ",
+					NCPLN, dsym_tab[symno].ls_id,
+					dsym_tab[symno].ls_addr );
+#endif
+
+			/*
+			 * Access symbol.
+			 */
+			bias += dsym_tab[symno].ls_addr;
+			break;
+		}
+
+#if EBUG > 0
+		if ( dflag )
+			printf(" --> %04x\n", bias );
+#endif
+
+		/*
+		 * Save relocated code.
+		 */
+		if ( addr < txtlen ) {
+			if ( lseek( text_fd, off, 0 ) < 0 )
+				fatal( text_file, ": bad seek" );
+			if (write(text_fd, &bias, (opcode & LR_WORD)?2:1) < 0)
+				fatal( text_file, ": bad write" );
+		}
+
+		/*
+		 * Save relocated data.
+		 */
+		else {
+			if ( lseek( kmem_fd, off, 0 ) < 0 )
+				fatal( kmem_file, ": bad seek" );
+			if (write(kmem_fd, &bias, (opcode & LR_WORD)?2:1) < 0)
+				fatal( kmem_file, ": bad write" );
+		}
+	}
+
+	/*
+	 * Release malloc'ed storage.
+	 */
+	free( drel_tab );
+}
+
+/**
+ *
+ * int
+ * symload()	- load driver symbol table
+ */
+symload()
+{
+	register struct ldsym * dsymp;
+	register struct ldsym * ksymp;
+	long off;
+	int undef;
+
+	/*
+	 * Allocate memory space for driver symbol table.
+	 */
+	dsym_cnt = ldh_drv.l_ssize[L_SYM] / sizeof(struct ldsym);
+	dsym_len = ldh_drv.l_ssize[L_SYM];
+	if ( (dsym_cnt != 0) && ((dsym_tab = malloc(dsym_len)) == NULL) )
+		fatal( dsym_file, ": symbol table too large" );
+
+#if EBUG > 0
+	if ( dflag ) {
+		printf("symload: dsym_cnt=%d dsym_len=%d\n", dsym_cnt, dsym_len );
+		printf("dsym_tab=%04x\n", dsym_tab );
+	}
+#endif
+
+	if ( dsym_cnt == 0 )
+		return;
+
+	/*
+	 * Extract driver symbol table from object module.
+	 */
+	if ( lseek( dsym_fd, (long) symoff(&ldh_drv), 0 ) < 0 )
+		fatal( dsym_file, ": bad seek" );
+	if (read(dsym_fd, dsym_tab, (int) ldh_drv.l_ssize[L_SYM]) <= 0)
+		fatal( dsym_file, ": bad read" );
+
+	/*
+	 * 1st Pass: Adjust symbol offsets.
+	 */
+	for ( dsymp = &dsym_tab[dsym_cnt]; --dsymp >= dsym_tab; ) {
+
+		switch ( dsymp->ls_type & LR_SEG ) {
+
+		case L_SHRI:
+		case L_PRVI:
+		case L_BSSI:
+		case L_ABS:
+			/*
+			 * Leave code/absolute data references alone.
+			 */
+			break;
+
+		case L_SHRD:
+		case L_PRVD:
+		case L_BSSD:
+			/*
+			 * Convert data references to uninitialized data ref.
+			 */
+			dsymp->ls_type &= ~LR_SEG;
+			dsymp->ls_type |= L_BSSD;
+#if EBUG > 0
+			if ( dflag )
+			printf("%.*s: DRIVER type=%d addr=%04x\n",
+				NCPLN, dsymp->ls_id,
+				dsymp->ls_type, dsymp->ls_addr );
+#endif
+			break;
+		}
+	}
+
+	/*
+	 * 2nd Pass: Resolve undefined references.
+	 */
+	for ( undef = 0, dsymp = &dsym_tab[dsym_cnt]; --dsymp >= dsym_tab; ) {
+
+		if ( (dsymp->ls_type & LR_SEG) != L_REF )
+			continue;
+
+		/*
+		 * Check for aliased driver configuration.
+		 * ie: 'con_' is an alias for '??con_'
+		 */
+		if ( ksymp = drvalias(dsymp->ls_id) ) {
+
+#if EBUG > 0
+			if ( dflag )
+				printf("Driver prefix = '%.2s'\n",
+					ksymp->ls_id );
+#endif
+
+			/*
+			 * Update symbol information.
+			 */
+			dsymp->ls_type = ksymp->ls_type;
+			dsymp->ls_addr = ksymp->ls_addr;
+
+#if EBUG > 0
+			if ( dflag )
+				printf("%.*s: ALIAS %.*s type=%d addr=%04x\n",
+					NCPLN, dsymp->ls_id,
+					NCPLN, ksymp->ls_id,
+					dsymp->ls_type, dsymp->ls_addr );
+#endif
+		}
+
+		/*
+		 * Search for undefined symbol in kernel symbol table.
+		 */
+		else if ( ksymp = ksymbol( dsymp->ls_id ) ) {
+			/*
+			 * Update symbol information.
+			 */
+			dsymp->ls_type = ksymp->ls_type;
+			dsymp->ls_addr = ksymp->ls_addr;
+
+			/*
+			 * Convert kernel data references to absolute.
+			 */
+			if ( ((dsymp->ls_type & LR_SEG) >= L_SHRD)
+			  && ((dsymp->ls_type & LR_SEG) <= L_BSSD) ) {
+				dsymp->ls_type &= ~LR_SEG;
+				dsymp->ls_type |= L_ABS;
+			}
+
+#if EBUG > 0
+			if ( dflag )
+				printf("%.*s: KERNEL type=%d addr=%04x\n",
+					NCPLN, dsymp->ls_id,
+					dsymp->ls_type, dsymp->ls_addr );
+#endif
+		}
+
+		/*
+		 * Define commons as uninitialized data.
+		 */
+		else if ( dsymp->ls_addr > 0 ) {
+			/*
+			 * Ensure data size is even.
+			 */
+			dsymp->ls_addr +=  1;
+			dsymp->ls_addr &= ~1;
+
+			/*
+			 * Convert symbol to uninitialized data.
+			 */
+			dsymp->ls_type &= ~LR_SEG;
+			dsymp->ls_type |=  L_BSSD;
+
+			/*
+			 * Calculate new location of symbol.
+			 */
+			off =	ldh_drv.l_ssize[L_SHRI] +
+				ldh_drv.l_ssize[L_PRVI] +
+				ldh_drv.l_ssize[L_BSSI] +
+				ldh_drv.l_ssize[L_SHRD] +
+				ldh_drv.l_ssize[L_PRVD] +
+				ldh_drv.l_ssize[L_BSSD];
+
+			/*
+			 * Adjust size of uninitialized data.
+			 * Record new location of symbol.
+			 */
+			ldh_drv.l_ssize[L_BSSD] += dsymp->ls_addr;
+			dsymp->ls_addr = off;
+
+#if EBUG > 0
+			if ( dflag )
+				printf("%.*s: COMMON type=%d addr=%04x\n",
+					NCPLN, dsymp->ls_id,
+					dsymp->ls_type, dsymp->ls_addr );
+#endif
+		}
+
+		/*
+		 * Undefined symbol.
+		 */
+		else {
+			undef++;
+			dsymp->ls_id[NCPLN] = 0;
+			warn( dsymp->ls_id, ": undefined symbol" );
+		}
+	}
+
+	/*
+	 * Terminate if symbols undefined.
+	 */
+	if ( undef )
+		cleanup( 100 );
+}
+
+/**
+ *
+ * void
+ * symadjust()		-- Adjust addresses of driver data symbols.
+ *
+ *	NOTE:	Has to be done AFTER kernel data space allocation.
+ */
+symadjust()
+{
+	register struct ldsym * dsymp;
+	register unsigned txtlen;
+
+	if ( dsym_cnt == 0 )
+		return;
+
+	txtlen = ldh_drv.l_ssize[L_SHRI] +
+		 ldh_drv.l_ssize[L_PRVI] +
+		 ldh_drv.l_ssize[L_BSSI];
+
+	/*
+	 * Search driver symbol table.
+	 */
+	for ( dsymp = &dsym_tab[ dsym_cnt ]; --dsymp >= dsym_tab; ) {
+
+		/*
+		 * All driver data references are specified as uninitialized.
+		 * All kernel data references are specified as absolute.
+		 */
+		if ( (dsymp->ls_type & LR_SEG) != L_BSSD )
+			continue;
+
+#if EBUG > 0
+		if ( dflag )
+		printf("adjusting %.*s [type %d] from %04x by %04x\n",
+			NCPLN, dsymp->ls_id,
+			dsymp->ls_type,
+			dsymp->ls_addr,
+			datap );
+#endif
+
+		/*
+		 * Validate data address.
+		 */
+		if ( dsymp->ls_addr < txtlen ) {
+			dsymp->ls_id[NCPLN] = 0;
+			fatal( dsymp->ls_id, ": invalid address" );
+		}
+
+		/*
+		 * Adjust address of data symbol.
+		 * Separate code/data eliminates relocation after code.
+		 * Insertion into kernel data adds slot relocation.
+		 */
+		dsymp->ls_addr -= txtlen;
+		dsymp->ls_addr += datap;
+	}
+}
+
+/**
+ *
+ * struct ldsym *
+ * drvalias( s )	- Search driver for alias for undefined symbol.
+ * char * s;
+ */
+struct ldsym *
+drvalias( sym_id )
+register char * sym_id;
+{
+	register struct ldsym * symp;
+
+	/*
+	 * No driver symbols.
+	 */
+	if ( dsym_cnt == 0 )
+		return( NULL );
+
+	/*
+	 * Not a symbol which can be aliased.
+	 */
+	if ( strncmp("con_", sym_id, NCPLN ) != 0 )
+		return( NULL );
+
+	/*
+	 * Scan driver symbol table [backwards for efficiency].
+	 */
+	for ( symp = &dsym_tab[dsym_cnt]; --symp >= dsym_tab; ) {
+
+		/*
+		 * Ignore all except code/data declarations.
+		 */
+		if ( (symp->ls_type & LR_SEG) > L_BSSD )
+			continue;
+
+		/*
+		 * Check id after discarding two char driver prefix.
+		 */
+		if ( strncmp( sym_id, &symp->ls_id[2], NCPLN-2 ) == 0 )
+			return( symp );
+
+		/*
+		 * Bypass id if 3rd char is not a numeric digit.
+		 */
+		if ( (symp->ls_id[2] < '0') || (symp->ls_id[2] > '9') )
+			continue;
+
+		/*
+		 * Check id after discarding three char driver prefix.
+		 */
+		if ( strncmp( sym_id, &symp->ls_id[3], NCPLN-3 ) == 0 )
+			return( symp );
+	}
+
+	return( NULL );
+}
+
+/**
+ *
+ * struct ldsym *
+ * ksymbol( s )	- Search kernel for undefined symbol.
+ * char * s;
+ */
+struct ldsym *
+ksymbol( sym_id )
+register char * sym_id;
+{
+	register struct ldsym * ksymp;
+	register int i;
+	char id[NCPLN];
+
+	/*
+	 * Find last character in symbol identifier.
+	 */
+	for ( i = NCPLN-1; (i > 0) && (sym_id[i] == 0); --i );
+		;
+
+	/*
+	 * Scan kernel symbol table [backwards for efficiency].
+	 */
+	for ( ksymp = &ksym_tab[ksym_cnt]; --ksymp >= ksym_tab; ) {
+
+		if ( strncmp( sym_id, ksymp->ls_id, NCPLN ) != 0 )
+			continue;
+
+		/*
+		 * Disallow references to C-callable kernel code symbols.
+		 */
+		if((sym_id[i] == '_') && ((ksymp->ls_type & LR_SEG) == L_SHRI))
+			return( NULL );
+
+		return( ksymp );
+	}
+
+	/*
+	 * Check symbol for 'K' prefix.
+	 * If found, try again after discarding prefix.
+	 */
+	if ( (i < 3) || (sym_id[0] != 'K') )
+		return( NULL );
+	strncpy( &id[0], &sym_id[1], NCPLN-1 );
+	id[NCPLN-1] = 0;
+
+	/*
+	 * Scan kernel symbol table [backwards for efficiency].
+	 */
+	for ( ksymp = &ksym_tab[ksym_cnt]; --ksymp >= ksym_tab; ) {
+
+		/*
+		 * Only shared kernel code symbols accessible via K prefix.
+		 */
+		if ( (ksymp->ls_type & LR_SEG) != L_SHRI)
+			continue;
+
+		if ( strncmp( id, ksymp->ls_id, NCPLN ) == 0 )
+			return( ksymp );
+	}
+
+	return( NULL );
+}
+
+/**
+ *
+ * void
+ * symsave()	-- save revised driver symbol table in code file.
+ */
+void
+symsave()
+{
+	/*
+	 * Format driver code header.
+	 */
+	ldh_drv.l_flag  = LF_SEP  | LF_NRB | LF_KER;
+	ldh_drv.l_ssize[L_SHRD]  = 0;
+	ldh_drv.l_ssize[L_PRVD]  = 0;
+	ldh_drv.l_ssize[L_BSSD]  = kmem_end;
+	ldh_drv.l_ssize[L_DEBUG] = 0;
+	ldh_drv.l_ssize[L_SYM ]  = 0;
+	ldh_drv.l_ssize[L_REL ]  = 0;
+
+	/*
+	 * Save symbol table BEFORE canonizing header.
+	 * NOTE: Reversing sequence will cause errors with symoff().
+	 *	 Don't save if removing or stripping object.
+	 */
+	if ( (rflag == 0) && (sflag == 0) && (dsym_cnt != 0) ) {
+
+		ldh_drv.l_ssize[L_SYM] = dsym_len;
+
+		if ( lseek( text_fd, (long) symoff(&ldh_drv), 0 ) < 0 )
+			fatal( text_file, ": bad seek" );
+
+		if ( write( text_fd, (char *) dsym_tab, dsym_len ) < 0 )
+			fatal( text_file, ": bad write" );
+	}
+
+	/*
+	 * Canonize and save driver code header AFTER saving symbol table.
+	 */
+	canldh( &ldh_drv );
+	if ( lseek( text_fd, 0L, 0 ) < 0 )
+		fatal( text_file, ": bad seek" );
+	if ( write( text_fd, &ldh_drv, sizeof(ldh_drv) ) < 0 )
+		fatal( text_file, ": bad write" );
+
+	/*
+	 * Release the malloc'ed storage.
+	 */
+	if ( dsym_tab != NULL ) {
+		free( dsym_tab );
+		dsym_tab = NULL;
+	}
+}
+
+/**
+ *
+ * long
+ * symoff( ldp )	-- compute offset of symbol table in object module
+ * struct ldheadr * ldp;
+ */
+long
+symoff( ldp )
+register struct ldheader * ldp;
+{
+	return(	sizeof(*ldp) +
+		ldp->l_ssize[L_SHRI] +
+		ldp->l_ssize[L_PRVI] +
+		ldp->l_ssize[L_SHRD] +
+		ldp->l_ssize[L_PRVD] +
+		ldp->l_ssize[L_DEBUG] );
+}
+	
+/**
+ *
+ * int
+ * fkword( kp, up )	- Fetch word from kernel locn 'kp' to user locn 'up'.
+ * int * ip;
+ * int * up;
+ */
+int
+fkword( kp, up )
+int * kp;
+int * up;
+{
+	if ( lseek( kmem_fd,  (long) kp, 0 ) < 0 )
+		return( -1 );
+
+	if ( read( kmem_fd, up, sizeof(*up) ) < 0 )
+	  	return( -1 );
+
+	return( 0 );
+}
+
+/**
+ *
+ * int
+ * skword( kp, w )	- Store word 'w' into kernel locn 'kp'.
+ * int * kp;
+ * int w;
+ */
+int
+skword( kp, w )
+int * kp;
+int w;
+{
+	if ( lseek( kmem_fd, (long) kp, 0 ) < 0 )
+		return( -1 );
+
+	if ( write( kmem_fd, &w, sizeof(w) ) < 0 )
+	  	return( -1 );
+
+	return( 0 );
+}
+
+char *
+basename( s )
+register char * s;
+{
+	register char * base;
+
+	for ( base = s; *s != '\0'; s++ ) {
+		if ( (s[0] == '/') && (s[1] != '/') && (s[1] != '\0') )
+			base = s+1;
+	}
+
+	return( base );
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d4 13
+a16 1
+ * $Log:	/usr/src/cmd/etc/RCS/drvld.c,v $
+d149 1
+a149 1
+		fatal( "drvld", ": not super-user" );
+d376 1
+@

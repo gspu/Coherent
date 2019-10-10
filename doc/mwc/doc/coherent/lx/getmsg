@@ -1,0 +1,279 @@
+.TH getmsg() "" "" "System Call (libc)"
+.PC "Get the next message from a stream"
+.B "#include <stropts.h>"
+\fBint getmsg (\fIfd\^\fB, \fIctlptr\^\fB, \fIdataptr\^\fB, \fIflagsp\^\fB)\fR
+\fBint \fIfd\^\fB; struct strbuf *\fIctlptr\^\fB, \fIdataptr\^\fB; int *\fIflagsp\^\fB;\fR
+.PP
+.B getmsg()
+retrieves a message from a \*(ST file,
+and writes it into the buffer or buffers that you specify.
+The message must contain a data part, a control part, or both.
+.B getmsg()
+writes each part into its own buffer, as described below.
+The \*(ST module that generated the message
+defines the semantics of each part.
+.PP
+.I fd
+gives the file descriptor that references the stream whose message is
+being retrieved.
+.I ctlptr
+and
+.I dataptr
+each point to a structure of type
+.BR strbuf ,
+which contains the following members:
+.DM
+	int maxlen;	Maximum buffer length
+	int len;	Length of data
+	void  *buf;	Pointer to buffer
+.DE
+.PP
+.I ctlptr
+holds the message's control part, and
+.I dataptr
+its data part.
+.B buf
+points to the buffer into which the data or control information is
+to be written, and
+.B maxlen
+gives the maximum number of bytes the buffer can hold.
+.B getmsg()
+initializes
+.B len
+to the number of bytes of data or control information that
+it actually wrote into
+.BR buf .
+It sets
+.B len
+to zero if the part in question has a length of zero; and it sets
+.B len
+to \-1 if the message does not contain the part in question.
+.PP
+.I flagsp
+points to an integer that indicates the type of messages you can receive;
+this is discussed in detail below.
+.PP
+.B getmsg()
+has special behaviors, corresponding to the settings of
+.I ctlptr
+and
+.IR dataptr ,
+and of the structures to which they point:
+.IP \(bu 0.3i
+If either
+.I ctlptr
+or
+.I dataptr
+is NULL, or if
+.B maxlen
+equals \-1,
+.B getmsg()
+does not process the corresponding part of the message.
+The message is left on the stream head's read queue.
+.IP \(bu
+If
+.I ctlptr
+or
+.I dataptr
+is not NULL, but the message does not have a corresponding part,
+.B getmsg()
+sets
+.B len
+to \-1.
+.IP \(bu
+If
+.B maxlen
+equals zero and there is a zero-length control or data part,
+.B getmsg()
+removes the zero-length part from the read queue and sets
+.B len
+to zero
+If
+.B maxlen
+equals zero and the corresponding section contains
+more than zero bytes of information,
+.B getmsg()
+leaves that information on the read queue and sets
+.B len
+to zero.
+.IP \(bu
+If
+.B maxlen
+is less than than the corresponding part of the message
+(the control part for
+.I ctlptr
+and the data part for
+.IR dataptr ),
+.B getmsg()
+retrieves
+.B maxlen"
+bytes.
+It leaves the remainder of the message
+on the stream head's read queue and returns
+and a non-zero return value.
+Details are given below.
+.SH "Flags"
+The following summarizes what flags are available, and what they mean.
+.IP \(bu 0.3i
+By default,
+.B getmsg()
+processes the first available message on the stream head's read queue.
+However, you can choose to retrieve only a high-priority message:
+just insert
+.B RS_HIPRI
+into the integer to which
+.I flagsp
+points.
+In this case,
+.B getmsg()
+processes the next message only if it is a high-priority message.
+.IP \(bu
+If the integer to which
+.I flagsp
+points equals zero,
+.B getmsg()
+retrieves any message available on the stream head's read queue.
+In this case,
+if
+.B getmsg()
+retrieves a high-priority message, it sets to
+the integer to which
+.I flagsp
+points to
+.BR RS_HIPRI ;
+if the message does not have high priority, it sets that integer to zero.
+.IP \(bu
+If flags
+.B O_NDELAY
+and
+.B O_NONBLOCK
+are not set as part of the global settings for
+.I fd
+(for details, see the Lexicon entry for \fBopen()\fR\^),
+.B getmsg()
+blocks execution of your program until a message of the type specified by
+.I flagsp
+is available on the stream head's read queue.
+If either
+.B O_NDELAY
+or
+.B O_NONBLOCK
+has been set and a message of the specified type is not at the top of the queue,
+.B getmsg()
+fails and sets
+.B errno
+to
+.BR EAGAIN .
+.PP
+If a hangup occurs on the stream from which messages are to be
+retrieved,
+.B getmsg()
+operates normally until the stream head's read queue is empty.
+Thereafter, it returns zero in the
+.B len
+fields of both
+.I ctlptr
+and
+.IR dataptr .
+.SH "Return Values"
+If all goes well,
+.B getmsg()
+returns a non-negative value.
+Zero indicates that a full message was read successfully.
+.PP
+.B MORECTL
+and
+.B MOREDATA
+indicate, respectively, that more control information or more data are
+awaiting retrieval; whereas
+.B "MORECTL | MOREDATA"
+indicates that more of both types information remain in the queue,
+to be retrieved by
+subsequent calls to
+.BR getmsg() .
+However, if a message of higher priority has come into the stream head's
+read queue, the next call to
+.B getmsg()
+retrieves that higher-priority message and the information remaining from
+the partially retrieved message remains on the queue.
+.SH Errors
+.B getmsg()
+fails if any of the following conditions are true:
+.IP \(bu 0.3i
+Either of the flags
+.B O_NDELAY
+or
+.B O_NONBLOCK
+is set but no message is available.
+.B getmsg()
+sets
+.B errno
+to
+.BR EAGAIN .
+.IP \(bu
+.I fd
+is not a valid file descriptor.
+.B getmsg()
+sets
+.B errno
+to
+.BR EBADF .
+.IP \(bu
+The next message in the read queue is not valie for
+.B getmsg()
+to read.
+.B getmsg()
+sets
+.B errno
+to
+.BR EBADMSG .
+.IP \(bu
+.IR ctlptr ,
+.IR dataptr ,
+or
+.I flagsp
+contains an illegal address.
+.B getmsg()
+sets
+.B errno
+to
+.BR EFAULT .
+.IP \(bu
+A signal was caught as
+.B getmsg()
+was executing.
+.B getmsg()
+sets
+.B errno
+to
+.BR EINTR .
+.IP \(bu
+.I flagsp
+holds an unrecognized value, or the stream referenced by
+.I fd
+is linked under a multiplexor.
+.B getmsg()
+sets
+.B errno
+to
+.BR EINVAL .
+.IP \(bu
+.I fd
+does not describe a stream.
+.B getmsg()
+sets
+.B errno
+to
+.BR ENOSTR .
+.PP
+.B getmsg()
+also fails if the stream header receives a \*(ST error message before
+.B getmsg()
+tries to read it.
+.B getmsg()
+then returns the value in the \*(ST error message.
+.SH "See Also"
+.Xr "libc," libc
+.Xr "putmsg()," putmsg
+.Xr "STREAMS," streams
+.Xr "stropts.h" stropts.h

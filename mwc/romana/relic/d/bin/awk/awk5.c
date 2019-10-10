@@ -1,0 +1,626 @@
+/*
+ * Awk - internal execution functions.
+ */
+
+#include "awk.h"
+#include "y.tab.h"
+
+FILE	*xoutput();
+
+/*
+ * `print' directive.
+ * First argument is the NODE (or list) to print
+ * and the second is the output.
+ * Have to close pipes specially.
+ * The ALIST stuff should be generalised
+ * so that functions can get their arguments
+ * a little more easily.
+ */
+xprint(np, xp)
+register NODE *np;
+register NODE *xp;
+{
+	register FILE *ofp;
+
+	ofp = xoutput(xp);
+	while (np != NULL) {
+		if (np->n_op == ALIST) {
+			xp = np->n_O1;
+			np = np->n_O2;
+		} else {
+			xp = np;
+			np = NULL;
+		}
+		xp = evalexpr(xp);
+		if (xp->t_flag & T_NUM) {
+			if (xp->t_flag & T_INT)
+				fprintf(ofp, OFMT, xp->t_INT); else
+				fprintf(ofp, "%.6g", xp->t_FLOAT);
+		} else
+			fprintf(ofp, "%s", xp->t_STRING);
+		if (np != NULL)
+			fprintf(ofp, "%s", OFS);
+	}
+	fprintf(ofp, "%s", ORS);
+	fflush(ofp);
+}
+
+/*
+ * `printf' directive.
+ * First argument is list, second
+ * is output.
+ * If third argument is non-NULL,
+ * it is used for sprintf rather than
+ * printf.
+ */
+xprintf(np, xp, sp)
+NODE *np;
+NODE *xp;
+STRING sp;
+{
+	NODE *nextarg();
+	int *pflist;
+	register CHAR *cp;
+	register int *pflp;
+	register int c;
+	register int i;
+	register FILE *ofp;
+
+	pflp = pflist = (int *)xalloc(fnargs(np) * sizeof(double));
+	if (sp == NULL)
+		ofp = xoutput(xp); else
+		*sp = '\0';
+	i = 1;
+	*((CHAR **)pflp) = cp = evalstring(nextarg(np, i++));
+	bump(pflp, CHAR*);
+	for (;;) {
+		while ((c = *cp++)!='%' && c!='\0')
+			;
+		if (c == '\0')
+			break;
+		if (*cp == '-')
+			cp++;
+		if (*cp == '*') {
+			*pflp++ = evalint(nextarg(np, i++));
+			cp++;
+		} else
+			while (isdigit(*cp))
+				cp++;
+		if (*cp == '.') {
+			cp++;
+			if (*cp == '*') {
+				*pflp++ = evalint(nextarg(np, i++));
+				cp++;
+			} else
+				while (isdigit(*cp))
+					cp++;
+		}
+		if ((c = *cp++) == 'l')
+			c = toupper(*cp++);
+		switch (c) {
+		case 'd':
+		case 'u':
+		case 'x':
+		case 'o':
+			*pflp++ = evalint(nextarg(np, i++));
+			break;
+
+		case 'D':
+		case 'U':
+		case 'X':
+		case 'O':
+			*((long *)pflp) = (long)evalint(nextarg(np, i++));
+			bump(pflp, long);
+			break;
+
+		case 'e':
+		case 'f':
+		case 'g':
+			*((double *)pflp) = (double)evalfloat(nextarg(np, i++));
+			bump(pflp, double);
+			break;
+
+		case 'c':
+			xp = evalexpr(nextarg(np, i++));
+			if (xp->n_flag & T_NUM)
+				*pflp++ = evalint(xp); else
+				*pflp++ = *evalstring(xp);
+			break;
+
+		case 's':
+			*((CHAR **)pflp) = evalstring(nextarg(np, i++));
+			bump(pflp, CHAR*);
+			break;
+
+		case 'r':
+			awkwarn("%%r not available in sprintf/printf");
+			break;
+		}
+	}
+	if (sp == NULL) {
+		fprintf(ofp, "%r", pflist);
+		fflush(ofp);
+	} else
+		sprintf(sp, "%r", pflist);
+	free(pflist);
+}
+
+/*
+  * Return the next argument for printf.
+ */
+static NODE *
+nextarg(anp, n)
+register NODE *anp;
+register int n;
+{
+	if ((anp = fargn(anp, n)) == NULL)
+		awkerr("Missing argument to printf/sprintf");
+	return (anp);
+}
+
+/*
+ * Calculate the output
+ * stream for print or printf.
+ * This saves up names so that they
+ * don't get re-opened every time.
+ */
+FILE *
+xoutput(np)
+register NODE *np;
+{
+	register CHAR *s;
+	register OFILE *ofp;
+	register OFILE *ofslot;
+
+	if (np == NULL)
+		return (stdout);
+	s = evalstring(np->n_O1);
+	ofslot = NULL;
+	for (ofp = files; ofp < endof(files); ofp++)
+		if (ofp->of_fp != NULL) {
+			if (strcmp(ofp->of_name, s) == 0)
+				return (ofp->of_fp);
+		} else
+			ofslot = ofp;
+	if ((ofp = ofslot) == NULL)
+		awkerr("Too many output files or pipes");
+	ofp->of_flag = 0;
+	switch (np->n_op) {
+	case AFOUT:
+		if ((ofp->of_fp = fopen(s, "w")) == NULL)
+			awkerr("Cannot open output `%s'", s);
+		break;
+
+	case AFAPP:
+		if ((ofp->of_fp = fopen(s, "a")) == NULL)
+			awkerr("Cannot open `%s' for append", s);
+		break;
+
+	case AFPIPE:
+#ifndef GEMDOS
+		if ((ofp->of_fp = popen(s, "w")) == NULL)
+#endif
+			awkerr("Cannot create pipe to `%s'", s);
+		ofp->of_flag = OFPIPE;
+		break;
+
+	default:
+		awkerr("Bad output tree op %d", np->n_op);
+	}
+	ofp->of_name = xalloc(strlen(s) + sizeof(CHAR));
+	strcpy(ofp->of_name, s);
+	setbuf(ofp->of_fp, outbuf);
+	return (ofp->of_fp);
+}
+
+/*
+ * Do the form: for (i in array) stat
+ * `var' is the index and `stat' the statement.
+ */
+xforin(var, array, stat)
+NODE *var;
+register NODE *array;
+NODE *stat;
+{
+	register CHAR *cp;
+	register TERM *tp;
+	register int i;
+	register int j;
+
+	for (i=0; i<NHASH; i++)
+		for (tp = symtab[i]; tp != NULL; tp = tp->t_next)
+			if (tp->t_ahval==array->t_hval && tp->t_flag&T_ARRAY
+			    && streq(tp->t_name, array->t_name)) {
+				if ((j = setjmp(fwenv[fwlevel])) == ABREAK)
+					break;
+				else if (j == ACONTIN)
+					continue;
+				cp = tp->t_name;
+				while (*cp++ != '\0')
+					;
+				xassign(var, snode(cp, 0));
+				evalact(stat);
+			}
+}
+
+/*
+ * Return a node associated with
+ * an array element.
+ * `array' is the array identifier,
+ * and `index' is the index expression
+ * represented as a STRING.
+ */
+NODE *
+xarray(array, index)
+NODE *array;
+NODE *index;
+{
+	return (alookup(array->t_name, evalstring(index)));
+}
+
+/*
+ * Extract the field given by the expression.
+ * A negative field number is
+ * considered to be from the end.
+ * The `asval' is non-NULL when
+ * the string is to be assigned to a field.
+ */
+NODE *
+xfield(i, asval)
+int i;
+STRING asval;
+{
+	CHAR *xfield1();
+	register CHAR *as, *s1, *s2;
+	register int c, i1;
+	register unsigned nb;
+
+	if ((s1 = inline) == NULL) {
+		awkwarn("field, $%d, illegal in BEGIN or END", i);
+		return (snode(SNULL, 0));
+	}
+	if (i == 0) {
+		if (asval != NULL) {
+			inline = xalloc(strlen(asval)+sizeof(CHAR));
+			strcpy(inline, asval);
+		}
+		return (snode(inline, 0));
+	}
+	if (i < 0)
+		if ((i += (int)NF + 1) == 0)
+			i = -1;
+
+	i1 = i;
+	if (whitesw) {
+		do {
+			while ((c = *s1) && FSMAP[c])
+				s1++;
+			if (!c || --i==0)
+				break;
+			while ((c = *s1) && !FSMAP[c])
+				s1++;
+		} while (c);
+	} else {
+		do {
+			if (!*s1 || --i==0)
+				break;
+			while ((c = *s1) && !FSMAP[c])
+				s1++;
+			if (FSMAP[*s1])
+				s1++;
+		} while (c);
+	}
+	s2 = s1;
+	nb = sizeof(CHAR);
+	while ((c = *s2++)!='\0' && !FSMAP[c])
+		nb++;
+	s2--;
+	if (asval != NULL) {
+		/*
+		 * An attempt to set an arg past the end.
+		 */
+		if(0 < (i1 -= evalint(NFp))) {
+			if (whitesw && (i1 > 1))
+				awkwarn("Assignment to unbuildable field");
+			/* remove trailing delimeters */
+			while ((--s1 > inline) && FSMAP[*s1])
+				;
+			s2 = ++s1;
+			as = xalloc(strlen(asval) + i1 + 1);
+			strcpy(as + i1, asval);
+			memset(as, FS[0], i1);
+
+			inline = xfield1(inline, s1, as, s2, s2);
+			free(as);
+			return (snode(inline, 0));
+		}
+		inline = as = xfield1(inline, s1, asval, s2, s2+strlen(s2));
+		return (snode(inline, 0));
+	} else {
+		as = xalloc(nb);
+		while (s1 < s2)
+			*as++ = *s1++;
+		*as++ = '\0';
+		as -= nb;
+	}
+	return (snode(as, T_ALLOC));
+}
+
+/*
+ * Assignment of fields support.
+ * The arguments are:
+ * `f1', `f2', `middle', `e1', `e2'
+ * for the front start and stop, the middle
+ * and the end start and stop, respectively.
+ */
+CHAR *
+xfield1(f1, f2, middle, e1, e2)
+CHAR *f1, *f2;
+CHAR *middle;
+CHAR *e1, *e2;
+{
+	register CHAR *p1, *p2;
+	register CHAR *as;
+
+	as = xalloc(f2-f1 + e2-e1 + strlen(middle) + sizeof(CHAR));
+	p1 = as;
+	p2 = f1;
+	while (p2 < f2)
+		*p1++ = *p2++;
+	p2 = middle;
+	while (*p2 != '\0')
+		*p1++ = *p2++;
+	p2 = e1;
+	while (p2 < e2)
+		*p1++ = *p2++;
+	*p1 = '\0';
+	return (as);
+}
+
+/*
+ * String catenation in two nodes.
+ */
+NODE *
+xconc(n1, n2)
+register NODE *n1, *n2;
+{
+	register CHAR *ap;
+	register CHAR *cp1, *cp2;
+	register int n;
+
+	n = strlen(ap = evalstring(n1)) + sizeof(CHAR);
+	if ((n1->t_un.t_flag & T_NUM) == 0) {
+		cp1 = xalloc(n);
+		strcpy(cp1, ap);
+	} else
+		cp1 = ap;
+	n += strlen(cp2 = evalstring(n2));
+	ap = xalloc(n);
+	strcpy(ap, cp1);
+	strcat(ap, cp2);
+	if ((n1->t_un.t_flag & T_NUM) == 0)
+		free(cp1);
+	return (snode(ap, T_ALLOC));
+}
+
+/*
+ * Arithmetic operations --
+ *
+ * Numeric addition
+ */
+NODE *
+xadd(n1, n2)
+register NODE *n1, *n2;
+{
+	if (isfloat(n1) || isfloat(n2))
+		return (fnode(evalfloat(n1) + evalfloat(n2)));
+	return (inode(evalint(n1) + evalint(n2)));
+}
+
+/*
+ * Subtraction -- actually a numeric operation.
+ */
+NODE *
+xsub(n1, n2)
+register NODE *n1, *n2;
+{
+	if (isfloat(n1) || isfloat(n2))
+		return (fnode(evalfloat(n1) - evalfloat(n2)));
+	return (inode(evalint(n1) - evalint(n2)));
+}
+
+/*
+ * Multiplication
+ */
+NODE *
+xmul(n1, n2)
+register NODE *n1, *n2;
+{
+	if (isfloat(n1) || isfloat(n2))
+		return (fnode(evalfloat(n1) * evalfloat(n2)));
+	return (inode(evalint(n1) * evalint(n2)));
+}
+
+/*
+ * Negation
+ */
+NODE *
+xneg(n1)
+register NODE *n1;
+{
+	if (isfloat(n1))
+		return (fnode(-evalfloat(n1)));
+	return (inode(-evalint(n1)));
+}
+
+/*
+ * Division
+ * If either numeric is of internal FLOAT type,
+ * the division will be a float one, otherwise use
+ * INT division.
+ */
+NODE *
+xdiv(n1, n2)
+register NODE *n1, *n2;
+{
+	if (isfloat(n1) || isfloat(n2))
+		return (fnode(evalfloat(n1) / evalfloat(n2)));
+	return (inode(evalint(n1) / evalint(n2)));
+}
+
+/*
+ * Modulus
+ * Same type conversion rule as for division.
+ */
+NODE *
+xmod(n1, n2)
+register NODE *n1, *n2;
+{
+	if (isfloat(n1) || isfloat(n2))
+		awkwarn("Modulus operator not allowed on floating point");
+	return (inode(evalint(n1) % evalint(n2)));
+}
+
+/*
+ * Comparison operators --
+ * string or numeric comparison
+ * for equality or non-equality.
+ * The tricks come in conversions
+ * between FLOAT and INT.
+ * The nodes passed should not be evaluated
+ * beforehand so that checks for fields can
+ * be made as here fields are always considered
+ * as strings.
+ */
+NODE *
+xcmp(n1, n2, op)
+register NODE *n1, *n2;
+int op;
+{
+	register int result;
+	register int isnum = 0;
+
+	if (n1->n_op != AFIELD)
+		isnum = isnumeric(n1 = evalexpr(n1));
+	else
+		n1 = evalexpr(n1);
+	if (n2->n_op != AFIELD)
+		isnum |= isnumeric(n2 = evalexpr(n2));
+	else
+		n2 = evalexpr(n2);
+	if (isnum) {
+		result = 0;
+		if (isfloat(n1) || isfloat(n2)) {
+			register FLOAT f1, f2;
+
+			if ((f1 = evalfloat(n1)) > (f2 = evalfloat(n2)))
+				result++;
+			else if (f1 < f2)
+				result--;
+		} else {
+			register INT i1, i2;
+
+			if ((i1 = evalint(n1)) > (i2 = evalint(n2)))
+				result++;
+			else if (i1 < i2)
+				result--;
+		}
+	} else if ((n1->t_flag & T_NUM)==0 && (n2->t_flag & T_NUM)==0)
+		result = strcmp(n1->t_STRING, n2->t_STRING);
+	else
+		result = strcmp(evalstring(n1), evalstring(n2));
+	switch (op) {
+	case AEQ:
+		result = result==0;
+		break;
+
+	case ANE:
+		result = result!=0;
+		break;
+
+	case AGT:
+		result = result>0;
+		break;
+
+	case AGE:
+		result = result>=0;
+		break;
+
+	case ALT:
+		result = result<0;
+		break;
+
+	case ALE:
+		result = result<=0;
+		break;
+	}
+	return (inode((INT)result));
+}
+
+/*
+ * Assignment
+ * The two nodes `l' and `r' are the left
+ * and right sides of the assignment,
+ * respectively.
+ */
+NODE *
+xassign(l, r)
+register NODE *l, *r;
+{
+	if (l->t_op == AFIELD)
+		return (xfield((int)evalint(l->n_O1), evalstring(r)));
+	else if (l->t_op == AARRAY)
+		l = xarray(l->n_O1, l->n_O2);
+	if ((l->t_flag & (T_ALLOC|T_NUM)) == T_ALLOC)
+		free(l->t_STRING);
+	l->t_flag &= ~(T_INT|T_NUM);
+	l->t_flag |= T_ALLOC|(r->t_flag & (T_INT|T_NUM));
+	if (r->t_flag & T_NUM)
+		if (r->t_flag & T_INT)
+			l->t_INT = r->t_INT; else
+			l->t_FLOAT = r->t_FLOAT;
+	else {
+		l->t_STRING = xalloc(strlen(r->t_STRING)+sizeof(CHAR));
+		strcpy(l->t_STRING, r->t_STRING);
+	}
+	if (l == FSp)
+		fsmapinit(evalstring(l));
+	return (l);
+}
+
+/*
+ * Post increment -- return the old
+ * value before the increment of the
+ * node.
+ */
+NODE *
+xinca(np)
+register NODE *np;
+{
+	register NODE *rnp;
+	register NODE *enp;
+
+	enp = evalexpr(np);
+	rnp = inode((INT)0);
+	xassign(rnp, enp);
+	xassign(np, xadd(enp, &xone));
+	return (rnp);
+}
+
+/*
+ * Post decrement -- return the old value
+ * but increment the variable.
+ */
+NODE *
+xdeca(np)
+register NODE *np;
+{
+	register NODE *rnp;
+	register NODE *enp;
+
+	enp = evalexpr(np);
+	rnp = inode((INT)0);
+	xassign(rnp, enp);
+	xassign(np, xsub(enp, &xone));
+	return (rnp);
+}

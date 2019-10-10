@@ -1,0 +1,1302 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5;
+comment  @ * @;
+
+
+1.5
+date     93.06.27.14.32.03;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.03.05.14.09.34;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     93.02.03.17.34.34;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.07.17.10.39.51;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.14.50.32;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver. prov by stevesf
+@
+
+
+1.5
+log
+@steve: changes for new headers for 4.2.0
+@
+text
+@/*
+ * /usr/src/cmd/prof.c
+ * 6/23/93
+ * prof interprets the mon.out files produced by the runtime profiling option,
+ * i.e. by programs compiled with the cc option -p (a.k.a. -VPROF).
+ * This version understands both COH286 l.out and COH386 COFF executables,
+ * which have different mon.out sizes in addition to different symbol formats.
+ * Usage:
+ *	prof [ -abcs ] [ l.out [ mon.out ] ]
+ * Options:
+ * 	-a	use all symbols (as opposed to only external symbols)
+ *	-b	print all bin information (to detect hot spots)
+ *	-c	print all call information
+ *	-s	print stack depth information
+ */
+
+#include <stdio.h>
+#include <l.out.h>
+#include <coff.h>
+#include <sys/const.h>
+#include <canon.h>
+#include <mon.h>
+#if	_I386
+#include <oldmon.h>
+#endif
+
+#if	DEBUG
+#define	dbprintf(args)	printf args
+#else
+#define	dbprintf(args)
+#endif
+
+/*
+ * Note that in setting PSCALE, one must guard against overflow.
+ * Examine putdata() carefully before changing this constant.
+ * Also note that certain divisibility properties are assumed
+ * there reguarding PSCALE and HZ.
+ */
+#define PSCALE	((long)100)		/* pc count scale factor	*/
+#define	CSYMLEN	255			/* maximum COFF symbol length	*/
+#define	SYMWMAX	32			/* maximum symbol printf width	*/
+#define	TRUE	(0 == 0)
+#define	FALSE	(0 != 0)
+
+typedef struct	symbol {
+	off_t		addr;		/* address			*/
+	long		pcount;		/* pc count, scaled by PSCALE	*/
+	long		ccount;		/* number of times routine called */
+	char		name[];		/* name				*/
+}	SYMBOL;
+
+/* Forward. */
+char	*alloc();
+void	centi();
+int	cmpdata();
+int	cmpsym();
+SYMBOL	**credit();
+void	fatal();
+void	getcdata();
+void	getdata();
+void	getpdata();
+void	getstring();
+void	getsyms();
+void	putdata();
+void	readcoffsyms();
+void	readsyms();
+void	usage();
+void	warning();
+
+/* Globals. */
+int		aflag	= FALSE;	/* use all symbols		*/
+int		bflag	= FALSE;	/* dump bin info		*/
+int		cflag	= FALSE;	/* dump call info		*/
+SYMBOL		**dict;			/* NULL-terminated SYMBOL list	*/
+int		dsize;			/* number of symbols		*/
+int		iscoff	= FALSE;	/* COFF executable (not l.out)	*/
+#if	_I386
+char		*lout	= "a.out";	/* executable file name		*/
+#else
+char		*lout	= "l.out";	/* executable file name		*/
+#endif
+caddr_t		lowpc;			/* lowest pc profiled		*/
+char		*monout	= "mon.out";	/* monitor file name		*/
+char		name[CSYMLEN+1];	/* symbol name buffer		*/
+unsigned int	scaler;			/* scale factor			*/
+int		sflag	= FALSE;	/* dump low stack mark		*/
+off_t		stksz;			/* stack size			*/
+long		strtable;		/* COFF string table offset	*/
+int		symwidth = NCPLN;	/* printf symbol field width	*/
+long		tcalls;			/* total number of calls	*/
+long		tticks;			/* total number of clock ticks	*/
+
+main(argc, argv) int argc; register char *argv[];
+{
+	register char *cp, ch;
+
+	for (cp=*++argv; cp != NULL  &&  *cp++ == '-'; cp=*++argv)
+		while ((ch=*cp++) != '\0')
+			switch (ch) {
+			case 'a':	aflag = TRUE;		break;
+			case 'b':	bflag = TRUE;		break;
+			case 'c':	cflag = TRUE;		break;
+			case 's':	sflag = TRUE;		break;
+			default:	usage();		break;
+			}
+	if (*argv != NULL)
+		lout = *argv++;
+	if (*argv != NULL)
+		monout = *argv++;
+	if (*argv != NULL)
+		usage();
+	getsyms();
+	getdata();
+	if (sflag)
+		printf("%u bytes stack used\n", stksz);
+	if (!bflag && !cflag)
+		putdata();
+	exit(0);
+}
+
+/*
+ * alloc() is an interface to malloc() which exits if there is no room.
+ */
+char *
+alloc(size) unsigned size;
+{
+	char	*result;
+
+	result = (char *)malloc(size);
+	if (result == NULL)
+		fatal("out of space");
+	return result;
+}
+
+/*
+ * Print on standard output 'num' / 'den' to two places, with
+ * at least 'width' places to the left of the decimal point.
+ */
+void
+centi(num, den, width) long num, den; int width;
+{
+	long	cv;
+
+	cv = (num*100 + den/2) / den;
+	printf("%*ld.%02d", width, cv/100, (int)(cv%100));
+}
+
+/*
+ * Compare the data in the dictionary entries 'sp1' and 'sp2'.
+ * Return an int which reflects which entry should be listed first.
+ * If the value is positive, 'sp2' should occur first.
+ * If it is zero, it makes no difference. 
+ * If it is negative, 'sp1' should occur first.
+ */
+int
+cmpdata(sp1, sp2) SYMBOL **sp1, **sp2;
+{
+	register SYMBOL *adr1, *adr2;
+	long rel;
+
+	adr1 = *sp1;
+	adr2 = *sp2;
+	rel = adr2->pcount - adr1->pcount;
+	if (rel == 0)
+		rel = adr2->ccount - adr1->ccount;
+	if (rel > 0)
+		return 1;
+	else if (rel < 0)
+		return -1;
+	else
+		return strcmp(adr1->name, adr2->name);
+}
+
+/*
+ * Compare the two SYMBOLs 'sp1' and 'sp2' and return an
+ * int corresponding to the relative order of the address fields.
+ */
+int
+cmpsym(sp1, sp2) SYMBOL **sp1, **sp2;
+{
+	register off_t adr1, adr2;
+
+	adr1 = (*sp1)->addr;
+	adr2 = (*sp2)->addr;
+	if (adr1 > adr2)
+		return 1;
+	else if (adr1 == adr2)
+		return 0;
+	else
+		return -1;
+}
+
+/*
+ * Account for tick information.
+ */
+SYMBOL	**
+credit(tick, low, high, dpp) int tick; off_t low, high; SYMBOL **dpp;
+{
+	register unsigned	overlap;
+	register SYMBOL		*cur, *nxt;
+	unsigned		binlen;
+
+	dbprintf(("credit(%d, %x, %x, %s)\n", tick, low, high, (*dpp)->name));
+	binlen = high - low;
+	if (binlen == 0)
+		binlen = 1;		/* avoid 0-divide below */
+
+	nxt = *dpp;
+	if (nxt == NULL  ||  nxt->addr >= high) {
+		if (bflag)
+			printf("%3d %06o %06o\n", tick, low, high-1);
+		return dpp;
+	}
+	do {
+		cur = nxt;
+		nxt = *++dpp;
+	} while (nxt != NULL  &&  nxt->addr <= low);
+	if (bflag)
+		printf("%3d %*s+%-4u ", tick, symwidth, cur->name,
+			low - cur->addr);
+	do {
+		if (nxt != NULL  &&  nxt->addr < high)
+			overlap = nxt->addr;
+		else
+			overlap = high;
+		if (cur->addr > low)
+			overlap -= cur->addr;
+		else
+			overlap -= low;
+		cur->pcount += (PSCALE*overlap*tick + binlen/2) / binlen;
+		cur = nxt;
+		nxt = *++dpp;
+	} while (cur != NULL && cur->addr < high);
+	dpp -= 2;
+	if (bflag)
+		printf("%*s+%u\n", symwidth, dpp[0]->name,
+			high - 1 - dpp[0]->addr);
+	return dpp;
+}
+
+/*
+ * Print fatal error message and die.
+ */
+void
+fatal(str) char *str;
+{
+	fprintf(stderr, "prof: %r\n", &str);
+	exit(1);
+}
+
+/*
+ * Read function call information from the mon.out file.
+ */
+void
+getcdata(fp, nfnc) FILE *fp; register unsigned nfnc;
+{
+	register SYMBOL	**dpp, *dp;
+	struct m_func	buf;
+#if	_I386
+	struct	old_m_func obuf;
+#endif
+
+	dbprintf(("getcdata(): nfnc=%d\n", nfnc));
+	while (nfnc-- != 0) {
+#if	_I386
+		if (!iscoff) {
+			if (fread(&obuf, sizeof obuf, 1, fp) != 1)
+				fatal("unexpected end of file on \"%s\"", monout);
+			buf.m_addr = (caddr_t)obuf.m_addr;
+			buf.m_ncalls = obuf.m_ncalls;
+		} else
+#endif
+		if (fread(&buf, sizeof buf, 1, fp) != 1)
+			fatal("unexpected end of file on \"%s\"", monout);
+		for (dpp=dict; (dp=*++dpp) != NULL && dp->addr <= (off_t)buf.m_addr;)
+			;
+		dp = dpp[-1];
+		if (cflag)
+			printf("%4ld %*s+%u\n", buf.m_ncalls, symwidth,
+				dp->name, buf.m_addr - dp->addr);
+		tcalls += buf.m_ncalls;
+		dp->ccount += buf.m_ncalls;
+	}
+	dbprintf((" tcalls=%ld\n", tcalls));
+}
+
+/*
+ * Read the mon.out file and put the information into the dictionary.
+ */
+void
+getdata()
+{
+	FILE		*fp;
+	struct m_hdr	hdr;
+#if	_I386
+	struct	old_m_hdr ohdr;
+#endif
+
+	dbprintf(("getdata():\n"));
+	fp = fopen(monout, "r");
+	if (fp == NULL)
+		fatal("cannot open \"%s\"", monout);
+#if	_I386
+	if (!iscoff) {
+		/* Read COH286 mon.out and massage accordingly. */
+		if (fread(&ohdr, sizeof ohdr, 1, fp) != 1)
+			fatal("\"%s\" is not a 286 mon.out file", monout);
+		hdr.m_nbins = ohdr.m_nbins;
+		hdr.m_scale = ohdr.m_scale;
+		hdr.m_nfuncs = ohdr.m_nfuncs;
+		hdr.m_lowpc = (caddr_t)ohdr.m_lowpc;
+		hdr.m_lowsp = (caddr_t)ohdr.m_lowsp;
+		hdr.m_hisp = (caddr_t)ohdr.m_hisp;
+	} else
+#endif
+	if (fread(&hdr, sizeof hdr, 1, fp) != 1)
+		fatal("\"%s\" is not a mon.out file", monout);
+	dbprintf((" nbins=%d scale=%d nfuncs=%d\n", hdr.m_nbins, hdr.m_scale, hdr.m_nfuncs));
+	scaler = hdr.m_scale & 0xffff;
+	if ((scaler & 0xfff) == 0xfff)
+		scaler++;
+	lowpc = hdr.m_lowpc;
+	stksz = hdr.m_hisp - hdr.m_lowsp;
+	dbprintf((" lowpc=%x hisp=%x lowsp=%x\n", lowpc, hdr.m_hisp, hdr.m_lowsp));
+	dbprintf((" scaler=%d stksz=%x\n", scaler, stksz));
+
+	/* Read call data or skip over it. */
+	if (cflag || !bflag)
+		getcdata(fp, hdr.m_nfuncs);
+	else if (iscoff)
+		fseek(fp, hdr.m_nfuncs * (long)sizeof (struct m_func), SEEK_CUR);
+	else
+		fseek(fp, hdr.m_nfuncs * (long)sizeof (struct old_m_func), SEEK_CUR);
+
+	/* Read clock tick profil data. */
+	if (bflag || !cflag)
+		getpdata(fp, hdr.m_nbins);
+	fclose(fp);
+}
+
+/*
+ * Reads in the profiling data and increment the corresponding
+ * symbols' pcount fields.
+ * N.B. the global scale must contain the mon.out scale divided by 2.
+ *
+ *	scale		.text bytes per bin
+ *	0x10000		2
+ *	0xFFFF		2	(for historical reasons)
+ *	0x8000		4
+ *	0x7FFF		4	(for historical reasons)
+ *	0x4000		8
+ *	...		...
+ *	0x0002		65536
+ *
+ */
+void
+getpdata(fp, nbins) FILE *fp; unsigned nbins;
+{
+	register SYMBOL	**dpp;
+	off_t		high, low;
+	int		highr, inc, incr;
+	short		tick;
+
+	dbprintf(("getpdata(): nbins=%d\n", nbins));
+	high = (off_t)lowpc;
+	highr = 0;
+#if	1
+	inc = ((long)1<<17) / scaler;
+	incr = ((long)1<<17) % scaler;
+	if (incr) {
+		++inc;
+		incr -= scaler;
+	}
+#else
+	inc = 131072L/scaler;
+#endif
+	dbprintf((" inc=%d incr=%d scale=%d\n", inc, incr, scaler));
+	for (dpp=dict; nbins > 0; --nbins) {
+		low = high;
+		high += inc;
+		highr += incr;
+		if (-highr >= scaler) {
+			--high;
+			highr += scaler;
+		}
+		if (fread(&tick, sizeof tick, 1, fp) != 1)
+			fatal("unexpected end of file on \"%s\"", monout);
+		if (tick == 0)
+			continue;
+		tticks += tick;
+		dpp = credit(tick, low, high, dpp);
+	}
+	if (fgetc(fp) != EOF)
+		warning("excess data in \"%s\"", monout);
+}
+
+/*
+ * Read a NUL-terminated string from offset 'loc' (in COFF string table)
+ * in fp into name[].
+ * Symbols longer than CSYMLEN are truncated.
+ */
+void
+getstring(fp, loc) FILE *fp; long loc;
+{
+	register long sav;
+	register char *cp;
+	register int c;
+
+	sav = ftell(fp);
+	if (fseek(fp, strtable+loc, SEEK_SET) == -1L)
+		fatal("seek failed");
+	for (cp = name; cp < &name[CSYMLEN]; *cp++ = c)
+		if ((c = fgetc(fp)) == '\0' || c == EOF)
+			break;
+	*cp = '\0';
+	if (c != '\0' && fgetc(fp) != '\0')
+		warning("symbol truncated to %s", name);
+	if (fseek(fp, sav, SEEK_SET) == -1L)
+		fatal("seek failed");
+}
+
+/*
+ * Read the symbols from an l.out file.
+ * Set dict to an array of them, in sorted order.
+ */
+void
+getsyms()
+{
+	FILE		*fp;
+	long		skip;
+	struct ldheader	hdr;
+	FILEHDR		chdr;
+
+	dbprintf(("getsyms():\n"));
+	fp = fopen(lout, "r");
+	if (fp == NULL)
+		fatal("cannot open \"%s\"", lout);
+	if (fread(&hdr, sizeof hdr, 1, fp) != 1 || hdr.l_magic != L_MAGIC) {
+		/* File is not l.out, see if it is COFF. */
+		rewind(fp);
+		if (fread(&chdr, sizeof chdr, 1, fp) != 1
+		 || !ISCOFF(chdr.f_magic))
+			fatal("\"%s\" is neither l.out nor COFF executable", lout);
+		iscoff = TRUE;
+		dbprintf(("386 COFF executable\n"));
+		if (fseek(fp, chdr.f_symptr, SEEK_SET) == -1L)
+			fatal("seek to symbol table failed");
+		strtable = chdr.f_symptr + chdr.f_nsyms * sizeof(SYMENT);
+		readcoffsyms(chdr.f_nsyms, fp);
+	} else {
+		/* File is l.out. */
+		dbprintf(("286 l.out executable\n"));
+		cansize(hdr.l_ssize[L_SHRI]);
+		cansize(hdr.l_ssize[L_PRVI]);
+		cansize(hdr.l_ssize[L_SHRD]);
+		cansize(hdr.l_ssize[L_PRVD]);
+		cansize(hdr.l_ssize[L_DEBUG]);
+		cansize(hdr.l_ssize[L_SYM]);
+		skip = hdr.l_ssize[L_SHRI] + hdr.l_ssize[L_PRVI]
+			+ hdr.l_ssize[L_SHRD] + hdr.l_ssize[L_PRVD]
+			+ hdr.l_ssize[L_DEBUG];
+		fseek(fp, skip, SEEK_CUR);
+		readsyms((int)(hdr.l_ssize[L_SYM]/sizeof (struct ldsym)), fp);
+	}
+	if (dsize == 0)
+		fatal("no symbols found in \"%s\"", lout);
+	dict = (SYMBOL *)realloc(dict, (dsize + 1) * sizeof *dict);
+	qsort(dict, dsize, sizeof *dict, cmpsym);
+	fclose(fp);
+}
+
+/*
+ * Print out the results which have been tabulated in the dictionary.
+ */
+void
+putdata()
+{
+	register SYMBOL	**dpp, *dp;
+
+	dbprintf(("putdata():\n"));
+	qsort(dict, dsize, sizeof *dict, cmpdata);
+	for (dpp=dict; (dp=*dpp++) != NULL;) {
+		if (dp->pcount == 0 && dp->ccount == 0)
+			continue;
+		printf("%-*s", symwidth, dp->name);
+		if (tticks != 0) {
+			centi(dp->pcount, (PSCALE * tticks)/100, 2);
+			putchar('%');
+		}
+		if (dp->ccount != 0) {
+			printf(" %7ld ", dp->ccount);
+			centi((1000*dp->pcount) / (PSCALE*10),
+				(HZ*dp->ccount) / 10, 3);
+		}
+		putchar('\n');
+	}
+}
+
+/*
+ * Read in nsyms COFF symbols from FILE fp.
+ * Set dict to an array of the resulting symbols.
+ */
+#define	SCNUM_TEXT	1		/* COFF .text section number */
+void
+readcoffsyms(nsyms, fp) register long nsyms; FILE *fp;
+{
+	register SYMBOL **dpp, *dp;
+	SYMENT sym;
+	int len, maxlen;
+
+	dbprintf(("readcoffsyms(): nsyms=%ld\n", nsyms));
+	dict = dpp = (SYMBOL **)alloc((nsyms + 1) * sizeof *dpp);
+	maxlen = 0;
+	while (nsyms-- > 0) {
+		if (fread(&sym, sizeof sym, 1, fp) != 1)
+			fatal("symbol read failed");
+		if (sym.n_scnum != SCNUM_TEXT || sym.n_sclass != C_EXT)
+			continue;		/* ignore all but .text */
+		if (sym.n_zeroes == 0L)
+			getstring(fp, sym.n_offset);
+		else {
+			strncpy(name, sym.n_name, 8);
+			name[8] = '\0';
+		}
+		len = strlen(name);
+		dp = (SYMBOL *)alloc(sizeof *dp + len + 1);
+		strcpy(dp->name, name);
+		dp->addr = sym.n_value;
+		dp->pcount = dp->ccount = 0;
+		*dpp++ = dp;
+		if (len > maxlen)
+			maxlen = len;
+	}
+	*dpp = NULL;
+	dsize = dpp - dict;
+	if (maxlen > NCPLN) {
+		symwidth = maxlen;
+		if (symwidth > SYMWMAX)
+			symwidth = SYMWMAX;		/* for readability */
+	}
+}
+
+/*
+ * Read in nsyms l.out ldsyms from the FILE fp. 
+ * Set dict to an array of the resulting symbols.
+ */
+void
+readsyms(nsyms, fp) register int nsyms; FILE *fp;
+{
+	register SYMBOL	**dpp, *dp;
+	struct ldsym	lsym;
+
+	dbprintf(("readsyms(): nsyms=%d\n", nsyms));
+	dict = dpp = (SYMBOL **)alloc((nsyms + 1) * sizeof *dpp);
+	while (--nsyms >= 0) {
+		if (fread(&lsym, sizeof lsym, 1, fp) != 1)
+			fatal("unexpected end of file on \"%s\"", lout);
+		if ((lsym.ls_type & ~L_GLOBAL) > L_BSSI)
+			continue;
+		if ((lsym.ls_type & L_GLOBAL) == 0 && ! aflag)
+			continue;
+		strncpy(name, lsym.ls_id, NCPLN);
+		name[NCPLN] = '\0';
+		dp = (SYMBOL *)alloc(sizeof *dp + strlen(name) + 1);
+		strcpy(dp->name, lsym.ls_id);
+		dp->addr = lsym.ls_addr;
+		dp->pcount = dp->ccount = 0;
+		*dpp++ = dp;
+	}
+	*dpp = NULL;
+	dsize = dpp - dict;
+}
+
+/*
+ * Print usage message and die.
+ */
+void
+usage()
+{
+	fprintf(stderr, "Usage: prof [ -abcs ] [ l.out [ mon.out ] ]\n");
+	exit(1);
+}
+
+/*
+ * Print nonfatal warning message.
+ */
+void
+warning(str) char *str;
+{
+	fprintf(stderr, "prof: Warning: %r\n", &str);
+}
+
+/* end of /usr/src/cmd/prof.c */
+@
+
+
+1.4
+log
+@steve: conditionalized for _I386
+@
+text
+@d3 1
+a3 1
+ * 3/4/93
+d46 1
+a46 1
+	vaddr_t		addr;		/* address			*/
+d82 1
+a82 1
+vaddr_t		lowpc;			/* lowest pc profiled		*/
+d87 1
+a87 1
+vaddr_t		stksz;			/* stack size			*/
+d181 1
+a181 1
+	register vaddr_t adr1, adr2;
+d197 1
+a197 1
+credit(tick, low, high, dpp) int tick; vaddr_t low, high; SYMBOL **dpp;
+d269 1
+a269 1
+			buf.m_addr = obuf.m_addr;
+d275 1
+a275 1
+		for (dpp=dict; (dp=*++dpp) != NULL && dp->addr <= buf.m_addr;)
+d311 3
+a313 3
+		hdr.m_lowpc = ohdr.m_lowpc;
+		hdr.m_lowsp = ohdr.m_lowsp;
+		hdr.m_hisp = ohdr.m_hisp;
+d360 1
+a360 1
+	vaddr_t		high, low;
+d365 1
+a365 1
+	high = lowpc;
+@
+
+
+1.3
+log
+@updated by steve when bigln messages were appearing under kernel 72
+@
+text
+@d3 1
+a3 1
+ * 7/16/92
+d77 3
+d81 1
+@
+
+
+1.2
+log
+@update from steve for 4.0 profiling
+@
+text
+@d3 1
+a3 1
+ * 7/15/92
+a14 2
+ *
+ * UNDONE: COFF version truncates symbols at NCPLN characters.
+d40 2
+a41 1
+#define	SWIDTH	10			/* default printf symbol width	*/
+a44 1
+/* This should be modified to allow arbitrary length symbols for COFF... */
+d46 2
+a47 3
+	char		name[NCPLN];
+	vaddr_t		addr;
+	long		pcount;		/* pc count, scaled by PSCALE */
+d49 2
+a50 1
+}	symbol;
+d57 1
+a57 1
+symbol	**credit();
+d62 1
+a62 1
+char	*getstring();
+d71 4
+a74 4
+int		aflag	= FALSE;	/* iff we use all symbols	*/
+int		bflag	= FALSE;	/* iff we should dump bin info	*/
+int		cflag	= FALSE;	/* iff we should dump call info	*/
+symbol		**dict;			/* NULL terminated list of symbols */
+d80 3
+a82 1
+int		sflag	= FALSE;	/* iff we should dump low stack mark */
+d85 1
+a87 1
+unsigned int	scaler;
+d152 1
+a152 1
+cmpdata(sp1, sp2) symbol **sp1, **sp2;
+d154 1
+a154 1
+	register symbol *adr1, *adr2;
+d167 1
+a167 1
+		return strncmp(adr1->name, adr2->name, NCPLN);
+d171 1
+a171 1
+ * Compare the two symbols 'sp1' and 'sp2' and return an
+d175 1
+a175 1
+cmpsym(sp1, sp2) symbol **sp1, **sp2;
+d192 2
+a193 2
+symbol	**
+credit(tick, low, high, dpp) int tick; vaddr_t low, high; symbol **dpp;
+d196 1
+a196 1
+	register symbol		*cur, *nxt;
+d201 2
+a202 2
+if (binlen == 0) binlen = 1; /* ??? */
+printf("binlen=%d\n", binlen);
+d215 1
+a215 1
+		printf("%3d %*.*s+%-4u ", tick, SWIDTH, NCPLN, cur->name,
+d232 1
+a232 1
+		printf("%*.*s+%u\n", SWIDTH, NCPLN, dpp[0]->name,
+d253 1
+a253 1
+	register symbol	**dpp, *dp;
+d275 1
+a275 1
+			printf("%4ld %*.*s+%u\n", buf.m_ncalls, SWIDTH, NCPLN,
+d320 4
+a323 1
+	dbprintf((" scaler=%d lowpc=%x stksz=%x\n", scaler, lowpc, stksz));
+d326 2
+d329 3
+a331 1
+		fseek(fp, hdr.m_nfuncs * (long)sizeof (struct m_func), SEEK_CUR);
+d341 2
+a342 10
+ */
+void
+getpdata(fp, nbins) FILE *fp; unsigned nbins;
+{
+	register symbol	**dpp;
+	vaddr_t		high, low;
+	int		highr, inc, incr;
+	short		tick;
+/*
+ *	scale		text bytes covered per bin
+d350 1
+d352 7
+d363 1
+a363 1
+#if 1
+d371 1
+a371 1
+	inc = 131072/scaler;
+d395 2
+a396 2
+ * in fp into a static buffer.
+ * For now, symbols longer than NCPLN are truncated!
+d398 1
+a398 2
+#define	NBUF	(NCPLN+1)
+char *
+a400 1
+	static char buf[NBUF];
+d408 1
+a408 1
+	for (cp = buf; cp < &buf[NBUF-1]; *cp++ = c)
+d413 1
+a413 1
+		warning("symbol truncated to %s", buf);
+a415 1
+	return buf;
+d461 3
+d474 1
+a474 1
+	register symbol	**dpp, *dp;
+d481 1
+a481 1
+		printf("%-*.*s", SWIDTH, NCPLN, dp->name);
+d503 1
+a503 2
+	register symbol **dpp, *dp;
+	char name[NCPLN];
+d505 1
+d508 2
+a509 2
+	dict = dpp = (symbol **)alloc((nsyms + 1) * sizeof *dpp);
+	name[8] = '\0';
+a514 1
+		dp = (symbol *)alloc(sizeof *dp);
+d516 1
+a516 1
+			strncpy(dp->name, getstring(fp, sym.n_offset), NCPLN);
+d518 2
+a519 2
+			strncpy(dp->name, sym.n_name, 8);
+			dp->name[8] = '\0';
+d521 3
+d527 2
+d532 5
+a536 3
+	if (dsize == 0)
+		fatal("no symbols found in \"%s\"", lout);
+	dict = (symbol *)realloc(dict, (dpp + 1 - dict) * sizeof *dpp);
+d546 1
+a546 1
+	register symbol	**dpp, *dp;
+d550 1
+a550 1
+	dict = dpp = (symbol **)alloc((nsyms + 1) * sizeof *dpp);
+d558 4
+a561 2
+		dp = (symbol *)alloc(sizeof *dp);
+		strncpy(dp->name, lsym.ls_id, NCPLN);
+a567 3
+	if (dsize == 0)
+		fatal("no symbols found in \"%s\"", lout);
+	dict = (symbol *)realloc(dict, (dpp + 1 - dict) * sizeof *dpp);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 15
+a16 8
+ * Prof interprets the mon.out files produced by monitor(3) and hence by
+ * the cc(1) option -p.  The usage is as follows:
+ *	prof [-a] [-b] [-c] [-s] [l.out_file [mon.out_file]]
+ * The -a option indicates that all symbols should be used (as opposed to
+ * only external symbols).  The -b option indicates that we should print
+ * all bin information (to detect hot spots).  The -c option indicates
+ * that all call information should be printed.  The -s option asks for stack
+ * depth information.
+d18 1
+d21 1
+d24 4
+a27 1
+#include "mon.h"
+d29 5
+d37 1
+a37 1
+ * Examine putdata carefully before changeing these constants.
+d41 2
+a42 4
+#define PSCALE	((long)100)		/* pc count scale factor */
+#define	SWIDTH	10			/* default symbol widht */
+#define	EOS	'\0'			/* string terminator */
+#define	REL	1			/* relative position for fseek */
+d46 1
+a46 1
+
+d50 2
+a51 2
+	long		pcount,		/* pc count, scaled by PSCALE */
+			ccount;		/* number of times routine called */
+d54 22
+a75 2
+char		*lout	= "l.out",
+		*monout	= "mon.out";
+d77 11
+a87 10
+int		dsize,			/* number of symbols */
+		allsyms	= FALSE,	/* iff we use all symbols */
+		bindmp	= FALSE,	/* iff we should dump bin info */
+		calldmp	= FALSE;	/* iff we should dump call info */
+int		stkdmp = FALSE;		/* iff we should dump low stack mark */
+long		tticks,			/* total number of clock ticks */
+		tcalls;			/* total number of calls */
+vaddr_t		lowpc;			/* lowest pc profiled */
+unsigned	scale;			/* mon.out scale factor over 2 */
+vaddr_t		stksz;			/* Stack size */
+d89 3
+a92 7
+main(argc, argv)
+int		argc;
+register char	*argv[];
+{
+	register char	*cp,
+			ch;
+
+d94 1
+a94 1
+		while ((ch=*cp++) != EOS)
+d96 5
+a100 14
+				case 'a':
+					allsyms = TRUE;
+					break;
+				case 'b':
+					bindmp = TRUE;
+					break;
+				case 'c':
+					calldmp = TRUE;
+					break;
+				case 's':
+					stkdmp = TRUE;
+					break;
+				default:
+					usage();
+d110 1
+a110 1
+	if (stkdmp)
+d112 1
+a112 1
+	if (! bindmp  &&  ! calldmp)
+d114 1
+a114 1
+	return(0);
+d117 7
+d125 4
+a128 5
+die(str)
+char	*str;
+{
+	fprintf(stderr, "%r\n", &str);
+	exit(1);
+d131 8
+d140 2
+a141 3
+usage()
+{
+	die("Usage: prof [-a] [-b] [-c] [-s] [l.out_file [mon.out_file]]");
+a143 1
+
+d145 5
+a149 2
+ * Getsyms reads in the symbols from an l.out file and sets dict to
+ * an array of them, in sorted order.
+d151 2
+a152 1
+getsyms()
+d154 2
+a155 4
+	FILE		*fp;
+	long		skip;
+	struct ldheader	hdr;
+	int		cmpsym();
+d157 11
+a167 18
+	fp = fopen(lout, "r");
+	if (fp == NULL)
+		die("Can't open %s", lout);
+	if (fread(&hdr, sizeof hdr, 1, fp) != 1 || hdr.l_magic != L_MAGIC)
+		die("%s not l.out file", lout);
+	cansize(hdr.l_ssize[L_SHRI]);
+	cansize(hdr.l_ssize[L_PRVI]);
+	cansize(hdr.l_ssize[L_SHRD]);
+	cansize(hdr.l_ssize[L_PRVD]);
+	cansize(hdr.l_ssize[L_DEBUG]);
+	cansize(hdr.l_ssize[L_SYM]);
+	skip = hdr.l_ssize[L_SHRI] + hdr.l_ssize[L_PRVI]
+		+ hdr.l_ssize[L_SHRD] + hdr.l_ssize[L_PRVD]
+		+ hdr.l_ssize[L_DEBUG];
+	fseek(fp, skip, REL);
+	readsy((int)(hdr.l_ssize[L_SYM]/sizeof (struct ldsym)), fp);
+	qsort(dict, dsize, sizeof *dict, cmpsym);
+	fclose(fp);
+a169 1
+
+d171 1
+a171 1
+ * Cmpsym compares the two symbols `sp1' and `sp2', and returns an
+d174 2
+a175 3
+cmpsym(sp1, sp2)
+symbol	**sp1,
+	**sp2;
+d177 1
+a177 2
+	register vaddr_t	adr1,
+				adr2;
+d182 1
+a182 1
+		return (1);
+d184 1
+a184 1
+		return (0);
+d186 1
+a186 1
+		return (-1);
+a188 1
+
+d190 1
+a190 2
+ * Readsy reads in nsyms ldsyms from the FILE fp.  It sets dict to
+ * an array of the resulting symbols.
+d192 2
+a193 3
+readsy(nsyms, fp)
+register int	nsyms;
+FILE		*fp;
+d195 3
+a197 4
+	register symbol	**dpp,
+			*dp;
+	struct ldsym	lsym;
+	char		*alloc();
+d199 10
+a208 13
+	dict = dpp = (symbol **)alloc((nsyms + 1) * sizeof *dpp);
+	while (--nsyms >= 0) {
+		if (fread(&lsym, sizeof lsym, 1, fp) != 1)
+			die("Unexpected end of file on %s", lout);
+		if ((lsym.ls_type & ~L_GLOBAL) > L_BSSI)
+			continue;
+		if ((lsym.ls_type & L_GLOBAL) == 0 && ! allsyms)
+			continue;
+		dp = (symbol *)alloc(sizeof *dp);
+		strncpy(dp->name, lsym.ls_id, NCPLN);
+		dp->addr = lsym.ls_addr;
+		dp->pcount = dp->ccount = 0;
+		*dpp++ = dp;
+d210 25
+a234 3
+	*dpp = NULL;
+	dsize = dpp - dict;
+	dict = (symbol *)realloc(dict, (dpp + 1 - dict) * sizeof *dpp);
+d237 9
+d248 1
+a248 2
+ * Alloc is simply an interface to malloc which exits if there is no
+ * room.
+d250 2
+a251 3
+char	*
+alloc(size)
+unsigned	size;
+d253 5
+a257 1
+	char	*result;
+d259 22
+a280 4
+	result = (char *)malloc(size);
+	if (result == NULL)
+		die("Out of space");
+	return (result);
+a282 1
+
+d284 1
+a284 2
+ * Getdata reads in the mon.out file and puts the information into
+ * the dictionary.
+d286 1
+d291 3
+d295 1
+d298 14
+a311 1
+		die("Can't open %s", monout);
+d313 5
+a317 2
+		die("%s not mon.out file", monout);
+	scale = hdr.m_scale/2;
+d320 2
+a321 1
+	if (calldmp  ||  ! bindmp)
+d324 2
+a325 2
+		fseek(fp, hdr.m_nfuncs * (long)sizeof (struct m_func), REL);
+	if (bindmp  ||  ! calldmp)
+d327 1
+a329 1
+
+d331 3
+a333 1
+ * Getcdata reads in the function call information from the mon.out file.
+d335 2
+a336 3
+getcdata(fp, nfnc)
+FILE	*fp;
+register unsigned	nfnc;
+d338 4
+a341 18
+	register symbol	**dpp,
+			*dp;
+	struct m_func	buf;
+
+	while (nfnc-- != 0) {
+		if (fread(&buf, sizeof buf, 1, fp) != 1)
+			die("unexpected end of file on %s", monout);
+		for (dpp=dict; (dp=*++dpp) != NULL && dp->addr <= buf.m_addr;)
+			;
+		if (calldmp)
+			printf("%4ld %*.*s+%u\n", buf.m_ncalls, SWIDTH, NCPLN,
+				dpp[-1]->name, buf.m_addr - dpp[-1]->addr);
+		tcalls += buf.m_ncalls;
+		dpp[-1]->ccount += buf.m_ncalls;
+	}
+}
+
+
+d343 8
+a350 4
+ * Getpdata reads in the profileing data and increments the corresponding
+ * symbols pcount fields.
+ * Note that the global scale must contain the mon.out scale divided
+ * by 2.
+a351 12
+getpdata(fp, nbins)
+FILE		*fp;
+unsigned	nbins;
+{
+	register symbol	**dpp;
+	vaddr_t		high,
+			low;
+	int		highr,
+			inc,
+			incr;
+	short		tick;
+	symbol		**credit();
+d353 1
+d356 4
+a359 3
+	inc = ((long)1<<16) / scale;
+	incr = ((long)1<<16) % scale;
+	if (incr != 0) {
+d361 1
+a361 1
+		incr -= scale;
+d363 4
+d371 1
+a371 1
+		if (-highr >= scale) {
+d373 1
+a373 1
+			highr += scale;
+d376 1
+a376 1
+			die("Unexpected end of file on %s\n", monout);
+d382 2
+d386 13
+d400 20
+a419 6
+symbol	**
+credit(tick, low, high, dpp)
+int	tick;
+vaddr_t	low,
+	high;
+symbol	**dpp;
+d421 4
+a424 4
+	register unsigned	overlap;
+	register symbol		*cur,
+				*nxt;
+	unsigned		binlen;
+d426 30
+a455 6
+	binlen = high - low;
+	nxt = *dpp;
+	if (nxt == NULL  ||  nxt->addr >= high) {
+		if (bindmp)
+			printf("%3d %06o %06o\n", tick, low, high-1);
+		return(dpp);
+d457 2
+a458 25
+	do {
+		cur = nxt;
+		nxt = *++dpp;
+	} while (nxt != NULL  &&  nxt->addr <= low);
+	if (bindmp)
+		printf("%3d %*.*s+%-4u ", tick, SWIDTH, NCPLN, cur->name,
+			low - cur->addr);
+	do {
+		if (nxt != NULL  &&  nxt->addr < high)
+			overlap = nxt->addr;
+		else
+			overlap = high;
+		if (cur->addr > low)
+			overlap -= cur->addr;
+		else
+			overlap -= low;
+		cur->pcount += (PSCALE*overlap*tick + binlen/2) / binlen;
+		cur = nxt;
+		nxt = *++dpp;
+	} while (cur != NULL && cur->addr < high);
+	dpp -= 2;
+	if (bindmp)
+		printf("%*.*s+%u\n", SWIDTH, NCPLN, dpp[0]->name,
+			high - 1 - dpp[0]->addr);
+	return (dpp);
+a460 1
+
+d462 1
+a462 2
+ * Putdata prints out the results which have been tabulated in the
+ * dictionary.
+d464 1
+d467 1
+a467 4
+	register symbol	**dpp,
+			*dp;
+	int		cmpdata();
+	char		*centi();
+d469 1
+d475 4
+a478 2
+		centi(dp->pcount, (PSCALE * tticks)/100, 2);
+		putchar('%');
+d488 11
+d500 26
+d527 2
+a528 5
+ * Cmpdata compares the data in the dictionary entries `sp1'
+ * and `sp2'.  It returns an int which reflects which entry should
+ * be listed first.  If the value is positive, `sp2' should occur
+ * first.  If it is zero, it makes no difference.  If it is negative,
+ * `sp1' should occur first.
+d530 2
+a531 3
+cmpdata(sp1, sp2)
+symbol	**sp1,
+	**sp2;
+d533 2
+a534 3
+	register symbol	*adr1,
+			*adr2;
+	long		rel;
+d536 20
+a555 11
+	adr1 = *sp1;
+	adr2 = *sp2;
+	rel = adr2->pcount - adr1->pcount;
+	if (rel == 0)
+		rel = adr2->ccount - adr1->ccount;
+	if (rel > 0)
+		return (1);
+	else if (rel < 0)
+		return (-1);
+	else
+		return (strncmp(adr1->name, adr2->name, NCPLN));
+d558 9
+d569 1
+a569 2
+ * Centi prints out on standard output `num' / `den' to two places, with
+ * atleast `width' places to the left of the decimal point.
+d571 2
+a572 5
+char	*
+centi(num, den, width)
+long	num,
+	den;
+int	width;
+d574 2
+a575 1
+	long	cv;
+d577 1
+a577 3
+	cv = (num*100 + den/2) / den;
+	printf("%*ld.%02d", width, cv/100, (int)(cv%100));
+}
+@

@@ -1,0 +1,548 @@
+/*
+ * n0/cpp.c
+ * C preprocessor.
+ * This version of cpp runs as a module of cc0.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * Low-level functions and macros.
+ */
+
+/*
+ * Stash characters into the 'dbuf'
+ * where most things are being accumulated.
+ */
+
+dputc(c) int c;
+{
+	if (dputp < dpshp)
+		*dputp++ = c;
+	else
+		dfull("dput");
+}
+dpshc(c) int c;
+{
+	if (--dpshp > dputp)
+		*dpshp = c;
+	else
+		dfull("dpsh");
+}
+dspush(t, p) int t; char *p;
+{
+	if (--dstackp > dlistp) {
+		dstackp->ds_type = t;
+		dstackp->ds_char = 0;
+		dstackp->ds_ptr = p;
+	} else
+		dfull("dspush");
+}
+dspushc(t, c) int t, c;
+{
+	if (--dstackp > dlistp) {
+		dstackp->ds_type = t;
+		dstackp->ds_char = c;
+		dstackp->ds_ptr = 0;
+	} else
+		dfull("dspushc");
+}
+dslist(t, p) int t; char *p;
+{
+	if (dlistp < dstackp) {
+		dlistp->ds_type = t;
+		dlistp->ds_char = 0;
+		(dlistp++)->ds_ptr = p;
+	} else
+		dfull("dslist");
+}
+dslistc(t, c) int t, c;
+{
+	if (dlistp < dstackp) {
+		dlistp->ds_type = t;
+		dlistp->ds_char = c;
+		(dlistp++)->ds_ptr = 0;
+	} else
+		dfull("dslistc");
+}
+
+dfull(where) char *where;
+{
+	cfatal("macro expansion buffer overflow in %s", where);
+}
+
+dputs(p) register char *p;
+{
+	register int c;
+
+	while (c = *p++) dputc(c);
+}
+
+dpshs(p) register char *p;
+{
+	register int c;
+
+	while (c = *p++) dpshc(c);
+}
+
+dputstr(d) register int d;
+{
+	register int c;
+	instring = c = d;
+	for (;;) {
+		dputc(c);
+		if ((c = get()) < 0 || c == '\n' || c == d)
+			break;
+		if (c == '\\') {
+			dputc(c);
+			if ((c = get()) < 0 || c == '\n') {
+				dputc(' ');
+				break;
+			}
+		}
+	}
+	dputc(d);
+	instring = 0;
+	return c;
+}
+
+dpshstr(d) register int d;
+{
+	register int c;
+	instring = c = d;
+	for (;;) {
+		dpshc(c);
+		if ((c = get()) < 0 || c == '\n' || c == d)
+			break;
+		if (c == '\\') {
+			dpshc(c);
+			if ((c = get()) < 0 || c == '\n') {
+				dpshc(' ');
+				break;
+			}
+		}
+	}
+	dpshc(d);
+	instring = 0;
+	return c;
+}
+
+dputnum(c) register int c;
+{
+	++incpp;
+	if (c == '.') {
+		unget(c = get());
+		if (c < 0 || ct[c] != CON) {
+			dputc('.');
+			--incpp;
+			return;
+		}
+		getnum(get(), 1);
+	} else
+		getnum(c, 0);
+	dputs(id);
+	--incpp;
+}
+
+dpshnum(c) register int c;
+{
+	++incpp;
+	if (c == '.') {
+		unget(c = get());
+		if (c < 0 || ct[c] != CON) {
+			dpshc('.');
+			--incpp;
+			return;
+		}
+		getnum(get(), 1);
+	} else
+		getnum(c, 0);
+	dpshs(id);
+	--incpp;
+}
+
+/*
+ * Hide set handling.
+ */
+
+#if	OVERLAID
+/* For the OVERLAID compiler, keep a list of malloc'ed HIDESETs to free. */
+typedef	struct	hidelist {
+	struct hidelist	*h_hlp;
+	HIDESET		*h_hsp;
+} HIDELIST;
+static HIDELIST *hidelist;
+
+/*
+ * Release hide sets.
+ * More bother than it's worth, but tidy.
+ */
+freehide()
+{
+	register HIDELIST *hp;
+
+	while ((hp = hidelist) != NULL) {
+		hidelist = hp->h_hlp;
+		free(hp->h_hsp);
+		free(hp);
+	}
+	hidefree = hidesets = NULL;
+}
+
+#endif
+
+/* Allocate a new hide set element */
+HIDESET *newhide()
+{
+	register HIDESET *hp;
+	register HIDEMEM *mp;
+	register int n;
+#if	OVERLAID
+	register HIDELIST *hlp;
+#endif
+
+	if ((hp = hidefree) == NULL) {
+		n = 8;
+		hidefree = hp = new(n*sizeof(HIDESET));
+#if	OVERLAID
+		hlp = (HIDELIST *)new(sizeof(HIDELIST));
+		hlp->h_hlp = hidelist;
+		hlp->h_hsp = hp;
+		hidelist = hlp;
+#endif
+		while (--n > 0) {
+			hp->h_next_set = hp+1;
+			hp->h_this_set = NULL;
+			hp += 1;
+		}
+		hp->h_next_set = NULL;
+		hp->h_this_set = NULL;
+		hp = hidefree;
+	}
+	if ((mp = hp->h_this_set) == NULL) {
+		hidefree = hp->h_next_set;
+		hp->h_next_set = NULL;
+		return hp;
+	}
+	hp->h_this_set = mp->h_next_mem;
+	mp->h_this_mem = NULL;
+	mp->h_next_mem = NULL;
+	return mp;
+}
+
+/* return the HIDESET corresponding to index x */
+HIDEMEM *hideget(x) register int x;
+{
+	register HIDESET *hp;
+
+	if ((x -= SET0) == 0)
+		return NULL;
+	for (hp = hidesets; --x > 0; hp = hp->h_next_set)
+		if (hp == NULL)
+			cbotch("impossible hide set");
+	return hp->h_this_set;
+}
+
+/* Compare hidesets for equality */
+hideeq(mp1, mp2) register HIDEMEM *mp1, *mp2;
+{
+	for (;;) {
+		if (mp1 == NULL)
+			if (mp2 == NULL)
+				return 1;
+			else
+				return 0;
+		else if (mp2 == NULL)
+			return 0;
+		else if (mp1->h_this_mem != mp2->h_this_mem)
+			return 0;
+		mp1 = mp1->h_next_mem;
+		mp2 = mp2->h_next_mem;
+	}
+}
+
+/* Enter a hideset into the universe and return its index */
+hideent(mp) HIDEMEM *mp;
+{
+	register HIDESET **hpp, *hp;
+	register int x;
+	HIDESET *tp;
+
+	tp = hp = newhide();
+	hp->h_this_set = mp;
+	x = SET0;
+	hpp = &hidesets;
+	while ((hp = *hpp) != NULL) {
+		++x;
+		if (hideeq(hp->h_this_set, mp)) {
+			hp = tp;
+			hp->h_next_set = hidefree;
+			hidefree = hp;
+			return x;
+		}
+		hpp = &hp->h_next_set;
+	}
+	++x;
+	*hpp = tp;
+	return x;
+}
+
+HIDEMEM *hideapp(mp1, tp) HIDEMEM *mp1; TOK *tp;
+{
+	register HIDEMEM **mp;
+	for (mp = &mp1; *mp != NULL; mp = &((*mp)->h_next_mem))
+		;
+	*mp = newhide();
+	(*mp)->h_this_mem = tp;
+	return mp1;
+}
+
+/* Return true if the current id[] is hidden */
+hidden()
+{
+	register HIDEMEM *mp;
+
+	for (mp = hideget(idhide); mp != NULL; mp = mp->h_next_mem)
+		if (idp == mp->h_this_mem)
+			return 1;
+	return 0;
+}
+
+/* Return the intersection of s1 and s2 */
+hideint(s1, s2) int s1, s2;
+{
+	register HIDEMEM *mp1, *mp2, *mp3;
+	if (s1 == SET0)
+		return s1;
+	if (s2 == SET0)
+		return s2;
+	if (s1 == -1) {
+		return s2;
+	}
+	if (s2 == -1)
+		return s1;
+	if (s1 == s2)
+		return s1;
+	mp1 = hideget(s1);
+	mp2 = hideget(s2);
+	mp3 = NULL;
+	while (mp1 != NULL && mp2 != NULL) {
+		if (mp1->h_this_mem == mp2->h_this_mem) {
+			mp3 = hideapp(mp3, mp1->h_this_mem);
+			mp1 = mp1->h_next_mem;
+			mp2 = mp2->h_next_mem;
+			continue;
+		}
+		if (mp1->h_this_mem < mp2->h_this_mem) {
+			mp1 = mp1->h_next_mem;
+			continue;
+		}
+		if (mp2->h_this_mem < mp1->h_this_mem) {
+			mp2 = mp2->h_next_mem;
+			continue;
+		}
+	}
+	return hideent(mp3);
+}
+
+/* Return the union of s1 and s2 */
+hideaug(s1, s2) int s1, s2;
+{
+	register HIDEMEM *mp1, *mp2, *mp3;
+	if (s1 == SET0)
+		return s2;
+	if (s2 == SET0)
+		return s1;
+	mp1 = hideget(s1);
+	mp2 = hideget(s2);
+	mp3 = NULL;
+	while (mp1 != NULL || mp2 != NULL) {
+		if (mp1 == NULL) {
+			mp3 = hideapp(mp3, mp2->h_this_mem);
+			mp2 = mp2->h_next_mem;
+			continue;
+		}
+		if (mp2 == NULL) {
+			mp3 = hideapp(mp3, mp1->h_this_mem);
+			mp1 = mp1->h_next_mem;
+			continue;
+		}
+		if (mp1->h_this_mem == mp2->h_this_mem) {
+			mp3 = hideapp(mp3, mp1->h_this_mem);
+			mp1 = mp1->h_next_mem;
+			mp2 = mp2->h_next_mem;
+			continue;
+		}
+		if (mp1->h_this_mem < mp2->h_this_mem) {
+			mp3 = hideapp(mp3, mp1->h_this_mem);
+			mp1 = mp1->h_next_mem;
+			continue;
+		}
+		if (mp2->h_this_mem < mp1->h_this_mem) {
+			mp3 = hideapp(mp3, mp2->h_this_mem);
+			mp2 = mp2->h_next_mem;
+			continue;
+		}
+	}
+	return hideent(mp3);
+}
+
+/* Return the hide set for tp */
+hideset(tp) register TOK *tp;
+{
+	/* Determine if we are at source file level */
+	{
+		register DSTACK *dsp;
+		for (dsp = dstackp; dsp < dstack+NDLEV; dsp += 1)
+			if (dsp->ds_type == DS_NAME)
+				goto part2;
+	}
+	/* Release the previous hide set universe */
+	if (hidesets != NULL) {
+		register HIDESET **pp, *hp;
+		for (pp = &hidesets; (hp = *pp) != NULL; pp = &hp->h_next_set)
+			;
+		*pp = hidefree;
+		hidefree = hidesets;
+		hidesets = NULL;
+	}
+ part2:	return hideent(hideapp(NULL, tp));
+}
+
+/*
+ * The following four functions are called from cc0 main().
+ */
+
+/*
+ * Install a new symbol with given value.
+ *	-Dname=value
+ */
+cppd(name, value) char *name, *value;
+{
+	register CPPSYM *sp;
+
+	setid(name);
+	sp = newcpp(-1, value, strlen(value)+1);
+	sp->s_sp = idp->t_sym;
+	idp->t_sym = sp;
+}
+
+/*
+ * Undefine a cpp symbol.
+ *	-Uname
+ */
+cppu(name) char *name;
+{
+	setid(name);
+	undefine();
+}
+
+/*
+ * Add a directory to the list to be searched for include files.
+ *	-Ipath
+ */
+cppi(path) char *path;
+{
+	if (ndirs >= NDIRS)
+		cfatal("too many directories in include list");
+	incdirs[ndirs++] = path;
+}
+
+/*
+ * cpp loop for generating
+ * preprocessed text files.
+ *	isvariant(VCPP) != 0
+ */
+cppwork()
+{
+	register int c, d;
+	register char *p;
+	register int myline;
+	register char *myfile;
+
+	myfile = file;
+	myline = line;
+	while ((c = get()) >= 0) {
+		switch (ct[c]) {
+
+		case DIV:
+			putc(c, ofp);
+			if (notvariant(VCPPC))
+				continue;
+			/*
+			 * Watch out for comments in cpp -C mode,
+			 * single and double quotes otherwise cause problems.
+			 */
+			if ((c = get()) >= 0
+			 && (c == '*' || isvariant(VCPLUS) && c == '/')) {
+				putc(c, ofp);
+				if (c == '*') {
+					/* Copy normal C-style comment. */
+					while ((c = getc(ifp)) >= 0) {
+						putc(c, ofp);
+						if (c != '*')
+							continue;
+						if ((c = getc(ifp)) >= 0) {
+							putc(c, ofp);
+							if (c != '/')
+								continue;
+							break;
+						}
+					}
+				} else {
+					/* Copy //-delimited C++ online comment. */
+					while ((c = getc(ifp)) >= 0 && c != '\n')
+						putc(c, ofp);
+					if (c == '\n')
+						ungetc(c, ifp);
+				}
+			} else
+				ungetc(c, ifp);
+			continue;
+
+		case ID:
+			if (expand(c))
+				continue;
+			for (p = id; c = *p++; putc(c, ofp));
+			continue;
+
+		case QUOTE:
+		case STRING:
+			putc(c, ofp);
+			instring = c;
+			while ((d = get()) >= 0 && d != c) {
+				putc(d, ofp);
+				if (d == '\\')
+					putc(get(), ofp);
+			}
+			instring = 0;
+			if (d < 0)
+				cerror("EOF in string");
+			else
+				putc(d, ofp);
+			continue;
+
+		default:
+			putc(c, ofp);
+			if (c != '\n')
+				continue;
+			if (myfile != file) {
+				myfile = file;
+				myline = line;
+				continue;
+			}
+			if (++myline == line)
+				continue;
+			myline = line;
+			if (notvariant(VCPPE))
+				fprintf(ofp, "#line %d\n", line);
+			continue;
+		}
+	}
+}
+
+/* end of n0/cpp.c */

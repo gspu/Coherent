@@ -1,0 +1,439 @@
+head     1.11;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.11;
+comment  @ * @;
+
+
+1.11
+date     93.01.13.13.46.57;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     92.09.04.06.58.42;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     92.07.20.14.32.59;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     92.07.15.14.03.28;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.05.28.08.56.34;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.05.05.15.05.50;  author piggy;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.04.30.10.43.42;  author piggy;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.02.06.18.04.00;  author piggy;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.02.06.13.20.54;  author piggy;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.01.27.16.48.31;  author piggy;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.01.27.16.47.39;  author piggy;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@main() for the tertiry boot.  Invoked by code in Startup.s.
+@
+
+
+1.11
+log
+@Hal: added printf code, removed
+buy coherent msg, added fix to coff.c because we were blowing a struct
+when booting the gcc (240K) kernel.
+@
+text
+@/*
+ * tboot.c -- tertiary boot
+ * This is invoked by the secondary boot to do all the things we can't
+ * do in just 512 bytes.
+ *
+ * Includes an interpreter for builtin commands.  Just type "info" or "dir"
+ * to get disk information, or a directory listing of "/".
+ *
+ * Can load an image up to 1 gigabyte in length.  Segments can be as
+ * big as the whole file.
+ *
+ * La Monte H. Yarroll <piggy@@mwc.com>, September 1991
+ */
+
+#include <sys/types.h>
+#include <sys/typed.h>
+
+#define MAIN
+#include "tboot.h"
+#undef MAIN
+
+
+/* Potentially communicated information from an earlier tboot.  */
+TYPED_SPACE(boot_gift, 8192, T_FIFO_SIC);	/* Static In-Core FIFO.  */
+
+main()
+{
+	char cmd_line[BLOCK];		/* Command typed at prompt.  */
+
+	sys_base = DEF_SYS_BASE; 	/* Load the kernel here.  */
+	sys_base_set = FALSE;
+	want_monitor = FALSE;	/* Don't invoke mini-monitor before execution.  */
+	verbose_flag = FALSE;	/* Don't be verbose.  */
+
+	puts("\r\nCOHERENT Tertiary boot Version 1.2.6\r\n");
+
+	/*
+	 * If autoboot exists, give the user a chance to abort and then
+	 * try to run it.
+	 */
+	if (0 != namei("autoboot")) {
+		puts("Press <SPACE> to abort boot.\r\n");
+		if( !wait_for_keystroke(WAIT_DELAY, (int) ' ') ) {
+			interpret("autoboot");
+		}
+	}
+
+	puts("If installing COHERENT, please type \"begin\".\r\n");
+
+	for (;;) {
+		puts("? ");
+		gets(cmd_line, BLOCK);
+		puts("\r\n");
+		sanity_check("Main command loop");
+
+		interpret(cmd_line);
+	} /* forever */
+	
+	puts("Unreachable code in main().\r\n");
+}
+@
+
+
+1.10
+log
+@update bypiggy for 1.2.5
+@
+text
+@d35 1
+a35 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.2.5\r\n");
+@
+
+
+1.9
+log
+@bumped version 1.2.1
+@
+text
+@d35 1
+a35 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.2.1\r\n");
+@
+
+
+1.8
+log
+@update by piggy to autodetect 286 cpus for bozo 4.0 users
+@
+text
+@d35 1
+a35 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.2\r\n");
+@
+
+
+1.7
+log
+@piggy update to load tboot into higher ram
+@
+text
+@d1 2
+a2 1
+/* tboot.c -- tertiary boot
+a14 1
+#include <canon.h>
+a15 6
+#include <sys/dir.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <l.out.h>
+#include <coff.h>
+#include <string.h>
+a27 1
+	extern uint16 myds;	/* My data segment, from Setup.s.  */
+a28 1
+	char cmd_name[BLOCK] = "autoboot"; /* File to boot.  */
+d30 4
+a33 3
+	ino_t imageinum;		/* inode number of the boot image.  */
+	struct inode imageinode;  /* Inode structure for the boot image.  */
+	int imageok;		  /* Flag to identify usable executables.  */
+d35 1
+a35 22
+	uint16 filemagic;		/* Magic number from file.  */
+	struct load_segment imagetable[MAX_SEGS]; /* How to load a file.  */
+	struct load_segment *cur_segment; /* Pointer for walking imagetable.  */ 
+
+	uint16 data_seg;	/* Data segment register for image.  */
+
+	uint16 boot_value;      /* Offset of boot_gift into
+				 * load image data segment.
+				 */
+
+	
+	/* Load the kernel here.  */
+	sys_base = DEF_SYS_BASE;
+	sys_base_set = FALSE;
+
+	want_monitor = FALSE;	/* Don't invoke mini-monitor before execution.  */
+
+	puts("\r\nCOHERENT Tertiary boot Version 1.1\r\n");
+	/* Look for a valid executable.  */
+	do {
+		/* Find the file in the file system.  */
+		while  ((ino_t) 0 == (imageinum = namei(cmd_name))){
+d37 10
+a46 12
+			/* Ask for another name.
+			 * Don't generate a message for name "".
+			 */
+			if (cmd_name[0] != '\0') {
+				if (0 == strcmp(cmd_name, "autoboot")) {
+					puts("If installing COHERENT, please type \"begin\".\r\n");
+				} else {
+					puts("\r\nCan't find \"");
+					puts(cmd_name);
+					puts("\".  Type \"dir\" for a list of files.\r\n");
+				}
+			}
+d48 1
+a48 9
+			/* Fetch new file names, executing them
+			 * if they are builtins.  Terminate loop
+			 * when we want to try another file name.
+			 */
+			do {
+				puts("? ");
+				gets(cmd_line, DIRSIZ);
+				puts("\r\n");
+				sanity_check("Main command loop");
+d50 5
+a54 1
+			} while (interpret(cmd_line));
+d56 4
+a59 104
+			/* Extract the cmd_name from the command line.
+			 * Do this because strtok is destructive and we
+			 * want cmd_line for later use.
+			 */
+			strcpy(cmd_name, cmd_line);
+			strtok(cmd_name, WS);
+		}
+
+		/* We've found the image we want to boot--let's open it.  */
+		if (0 == iopen(&imageinode, imageinum)) {
+			puts("Can't open ");
+			puts(cmd_name);
+			puts(".  Type \"dir\" for a list of files.\r\n");
+			continue;
+		}
+
+		/* Read the magic number.  */
+		iread(&imageinode, &filemagic,
+			(fsize_t) 0, (uint16) sizeof (int));
+		canint(filemagic);	/* Harmless on 80386.  */
+
+		/* If we haven't explicitly set sys_base, default it based
+		 * on the type of file we are loading.
+		 */
+		if (!sys_base_set) {
+#ifdef VERBOSE
+			puts("Assuming default sys_base.\r\n");
+#endif /* VERBOSE */
+			sys_base = object_sys_base(filemagic);
+		}
+
+		imageok = object2load(filemagic, &imageinode, imagetable, &data_seg);
+
+		if (!imageok) {
+			puts("File ");
+			puts(cmd_name);
+			puts(" is not an executable.\r\n");
+			puts(".\r\n");
+			cmd_name[0] = '\0';
+		}
+
+		if (imageok && (0 == strcmp(cmd_name, "autoboot"))) {
+			puts("Press <SPACE> to abort boot.\r\n");
+			imageok = !wait_for_keystroke(WAIT_DELAY, (int) ' ');
+			if (!imageok) {
+				cmd_name[0] = '\0';
+			}
+		}
+	} while (!imageok);
+
+	/* ASSERTION: imageinode and imagetable describe a valid executable.  */
+
+#ifdef VERBOSE
+	puts("OK!  Loading ");
+	puts(cmd_name);
+	puts("...\r\n");
+#endif /* VERBOSE */
+
+	/* Now actually load everything into memory.  */
+	for (cur_segment = &imagetable[0]; cur_segment->valid; ++cur_segment) {
+		puts(cur_segment->message);
+
+		ifread(&imageinode,
+			cur_segment->load_toseg,
+			cur_segment->load_tooffset,
+			cur_segment->load_offset,
+			cur_segment->load_length);
+	}
+
+	/* Does the program we just loaded want more info?  */
+
+	/* Look up the variable "boot_gift" in the image.  */	
+	puts("\r\nPlease wait...\r\n");
+	boot_value = object_nlist(filemagic, cmd_name, "boot_gift");
+
+
+	if (0 != boot_value) {
+#ifdef VERBOSE
+		puts("Preparing arguments.\r\n");
+#endif /* VERBOSE */
+		/* Yes, this program can accept more information.  */
+		prepare_gift(data_seg, boot_value, cmd_line);
+	}
+
+#ifdef VERBOSE
+	puts("\r\nRunning ");
+	puts(cmd_name);
+	puts("...\r\n");
+#endif /* VERBOSE */
+
+	if (want_monitor) {
+		puts("The kernel is ready to run.\r\n");
+		puts("SYS_START: ");
+		print16(SYS_START);
+		puts(" sys_base: ");
+		print16(sys_base);
+		puts(" data_seg: ");
+		print16(data_seg);
+		puts("\r\n");
+		monitor();
+	}
+
+	/* Run the image (the kernel).  */
+	gotoker(SYS_START, sys_base, data_seg);
+@
+
+
+1.6
+log
+@Version 1.0.9 -- Modified loading messages, more pacifier options,
+compiles under COH 386 with 286 tools.
+@
+text
+@d59 1
+a59 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.0.9\r\n");
+d68 8
+a75 6
+			if (cmd_name[0] != '\0' &&
+			    (0 == strcmp(cmd_name, "autoboot"))) {
+				puts("\r\nCan't find \"");
+				puts(cmd_name);
+				puts("\".  Type \"dir\" for a list of files.\r\n");
+				puts("If installing COHERENT, please type \"begin\".\r\n");
+@
+
+
+1.5
+log
+@Includes new coff header <coff.h>, updated to version 1.0.8
+which adds the new pacifier.
+@
+text
+@d59 1
+a59 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.0.8\r\n");
+@
+
+
+1.4
+log
+@Cosmetic change--now says "Please wait..." instead of "Checking for..."
+@
+text
+@d20 1
+a20 1
+#include <filehdr.h>
+d59 1
+a59 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.0.7\r\n");
+@
+
+
+1.3
+log
+@New version: 1.0.7
+Supports mon_on command to automaticly enter the mini-monitor
+after loading the kernel.
+@
+text
+@d160 1
+a160 1
+	puts("\r\nChecking for argument compatibility.\r\n");
+@
+
+
+1.2
+log
+@Trivial text change in singon message.
+@
+text
+@d57 3
+a59 1
+	puts("\r\nCOHERENT Tertiary boot Version 1.0.6\r\n");
+d178 12
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d71 1
+a71 1
+				puts("If installing COHERENT, please type begin.\r\n");
+@

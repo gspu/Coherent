@@ -1,0 +1,230 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5;
+comment  @ * @;
+
+
+1.5
+date     91.09.11.07.31.42;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.05.29.15.17.53;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.04.16.17.59.48;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.19.20.02.46;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.08.15.36.56;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version provided by steve ness
+@
+
+
+1.5
+log
+@updated by stevesf
+@
+text
+@/*
+ * code.h
+ * Nroff/Troff.
+ * Data structure for storing character codes and stream directives.
+ */
+
+/*
+ * Stream directives.
+ */
+#define DNULL	0			/* Null				*/
+#define DHMOV	(-1)			/* Move horizontally		*/
+#define DVMOV	(-2)			/* Move vertically		*/
+#define DFONT	(-3)			/* Change font			*/
+#define DPSZE	(-4)			/* Change pointsize		*/
+#define DSPAR	(-5)			/* Space down and return	*/
+#define DPADC	(-6)			/* Paddable character		*/
+#define DHYPH	(-7)			/* Place to hyphenate		*/
+#define	DHYPC	(-8)			/* Hyphen character		*/
+#define	DTRAB	(-9)			/* Transparent buffer		*/
+#define	DFPOS	(-10)			/* Fix position			*/
+#define	DHLIN	(-11)			/* Horizontal line		*/
+#define	DVLIN	(-12)			/* Vertical line		*/
+
+/*
+ * All characters and commands are stored in this structure.
+ * To identify whether an element is a character or a command,
+ * call the function ifcchar(element) which returns 1 if the
+ * element is a character code and 0 if the element is a command.
+ */
+typedef	union	{
+	struct c_arg {			/* Structure containing character */
+		int	c_code;		/* Character code		*/
+		unsigned c_move;	/* Distance to move after char	*/
+	} c_arg;
+	struct l_arg {			/* Command with one int argument */
+		int	c_code;		/* Type of command		*/
+		int	c_iarg;		/* Int parameter		*/
+	} l_arg;
+	struct b_arg {			/* Command with buffer ptr. (dag)*/
+		int	c_code;		/* Type of command		*/
+		char	*c_bufp;	/* Pointer to buffer		*/
+	} b_arg;
+} CODE;
+
+/*
+ * Macros testing whether an element is a character code
+ * or a stream directive.
+ */
+#define is_char(c)	((c) > 0)
+#define is_dir(c)	((c) < 0)
+
+/*
+ * Global variables.
+ */
+extern	CODE	codeval;		/* Diversion struct returned by getl */
+
+/* end of code.h */
+@
+
+
+1.4
+log
+@mods provided by stevesf
+@
+text
+@d19 4
+a22 2
+#define	DTRAB	(-9)			/* Transparent buffer 	 (dag)	*/
+#define	DFPOS	(-10)			/* Fix position		 (dag)	*/
+d32 2
+a33 2
+		int	c_code;		/* Character code */
+		unsigned c_move;	/* Distance to move after char */
+d35 3
+a37 4
+	struct l_arg {			/* Command with one long argument */
+		int	c_code;		/* Type of command */
+		int	c_iarg;		/* Long parameter */
+		int	c_csp;		/* Pre tab space */
+@
+
+
+1.3
+log
+@steve updated
+@
+text
+@a31 4
+#if	0
+		/* Special chars not implemented yet... */
+		int	c_char;		/* If special character, char */
+#endif
+@
+
+
+1.2
+log
+@update prov by stevesf
+@
+text
+@d32 2
+d35 1
+d49 1
+a49 1
+ * Functions for determining whether an element is a character code
+d52 2
+a53 2
+#define ifcchar(c)	((c)>0)
+#define ifcdirc(c)	((c)<0)
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+d10 11
+a20 13
+#define DNULL	0			/* Null */
+#define DHMOV	-1			/* Move horizontally */
+#define DVMOV	-2			/* Move vertically */
+#define DFONT	-3			/* Change font */
+#define DPSZE	-4			/* Change pointsize */
+#define DSPAR	-5			/* Space down and return */
+#define DPADC	-6			/* Paddable character */
+#define DHYPH	-7			/* Place to hyphenate */
+#define	DHYPC	(-8)			/* Hyphen character */
+#define	DTRAN	(-9)			/* Transparent character (dag)*/
+#define	DTRAB	(-10)			/* Transparent buffer 	 (dag)*/
+#define	DSPEC	(-11)			/* Special character	 (dag)*/
+#define	DFPOS	(-12)			/* Fix position		 (dag)*/
+d29 1
+a29 1
+	struct	{			/* Structure containing character */
+d34 1
+a34 1
+	struct	{			/* Command with one long argument */
+d39 1
+a39 1
+	struct	{			/* Command with buffer ptr. (dag)*/
+d53 1
+a53 1
+ * Add a character given the font number and width.
+a54 36
+#define addchar(f, w) {							\
+	chkcode();							\
+	nlinptr->c_code = f;						\
+	nlinptr->c_csp = 0;						\
+	nlinptr++->c_move = w;						\
+}
+
+/*
+ * Add a directive which takes an integer argument.
+ */
+#define addidir(d, i) {							\
+	chkcode();							\
+	nlinptr->c_code = d;						\
+	nlinptr++->c_iarg = i;						\
+}
+
+/*
+ * Add a transparent buffer directive
+ */
+#define	addtrab(bp) {							\
+	chkcode();							\
+	nlinptr->c_code = DTRAB;					\
+	nlinptr++->c_bufp = (bp);					\
+}
+
+/*
+ * Make sure there is space to add another command.
+ */
+#define chkcode() {							\
+	if (nlinptr >= &linebuf[LINSIZE])				\
+		panic(lbomsg);						\
+}
+
+/*
+ * Global variables.
+ */
+d56 2
+a57 1
+extern	char	lbomsg[];		/* "Line buffer overflow" */
+@

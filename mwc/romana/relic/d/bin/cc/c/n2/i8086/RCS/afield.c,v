@@ -1,0 +1,115 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.29.19.12.30;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * The functions in this file
+ * handle the management of address fields
+ * in the intermediate file. It converts the tree
+ * like items into `afield' structures.
+ */
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+/*
+ * Read in an address field. The style
+ * of the address is determined by flag bits that
+ * hide in the address mode. These bits are cleared away
+ * when the mode is actually stored in the afield.
+ */
+getfield(opcode, afp)
+register AFIELD	*afp;
+{
+	register int	mode;
+
+	mode = iget();
+	afp->a_mode = mode & (A_PREFX|A_AMOD|A_REGM);
+	afp->a_sp = NULL;
+	afp->a_value = 0;
+	if ((mode&A_OFFS) != 0)
+		afp->a_value = iget();
+	if ((mode&A_LID) != 0)
+		afp->a_sp = llookup(iget(), 0);
+	else if ((mode&A_GID) != 0) {
+		sget(id, NCSYMB);
+		afp->a_sp = glookup(id, 0);
+	}
+}
+
+/*
+ * Unassemble an address field.
+ * Output the unassembly to the output file
+ * in intermediate file format.
+ */
+genfield(afp, flag)
+register AFIELD	*afp;
+{
+	register SYM	*sp;
+	register int	mode;
+
+	mode = afp->a_mode;
+	if (afp->a_value != 0 || (mode&A_AMOD)==A_IMM)
+		mode |= A_OFFS;
+	if ((sp = afp->a_sp) != NULL) {
+		if ((sp->s_flag&S_LABNO) != 0)
+			mode |= A_LID;
+		else
+			mode |= A_GID;
+	}
+	iput(mode);
+	if ((mode&A_OFFS) != 0)
+		iput(afp->a_value);
+	if ((mode&A_LID) != 0)
+		iput(sp->s_labno);
+	else if ((mode&A_GID) != 0)
+		sput(sp->s_id);
+}
+
+/*
+ * Compare the address field parts of
+ * two instructions.
+ */
+cmpfield(ip1, ip2)
+INS	*ip1, *ip2;
+{
+	register AFIELD	*afp1, *afp2;
+	register int	n;
+
+	if ((n = ip1->i_naddr) != 0) {
+		afp1 = &ip1->i_af[0];
+		afp2 = &ip2->i_af[0];
+		do {
+			if (afp1->a_mode != afp2->a_mode
+			||  afp1->a_sp != afp2->a_sp
+			||  afp1->a_value != afp2->a_value)
+				return (0);
+			++afp1;
+			++afp2;
+		} while (--n);
+	}
+	return (1);
+}
+@

@@ -1,0 +1,1112 @@
+.TH nroff "" "" Command
+.PC "Text-formatting language"
+\fBnroff [\fIoption ...\^\fB] [\fIfile ...\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-d\fR
+Debug: print each request before executing
+.IC "\fB\-f\fI name\fR"
+Write temporary file in file \fIname\fR
+.IC \fB\-i\fR
+Read stdin after each \fIfile\fR has been read
+.IC \fB\-k\fR
+Keep temporary file
+.IC \fB\-m\fIname\fR
+Read macro package \fB/usr/lib/tmac.\fIname\fR
+.IC \fB\-n\fIN\fR
+Number first page of output \fIN\fR (default, 1)
+.IC \fB\-r\fIaN\fR
+Set number register \fIa\fR to value \fIN\fR
+.IC \fB\-r\fIabN\fR
+Set number register \fIab\fR to value \fIN\fR; for obvious reasons,
+\fIab\fR cannot contain a digit
+.IC "\fB\-v\fR"
+Return the number of your version
+.IC \fB\-x\fR
+Do not eject to bottom of final page
+.HE
+.B nroff
+is the \*(CO text-formatter and text-formatting language.
+By embedding commands within files of text, you can instruct
+.B nroff
+to format text, create paragraphs, subheadings, headers, footers,
+and in general perform all tasks required to format text for the printed
+page or for screen display.
+.PP
+.B nroff
+is designed to be used with character-display terminals or monospace printers.
+The related program
+.B troff
+performs typeset-quality formatting, suitable for printing on the
+Hewlett-Packard LaserJet printer or any printer for which the PostScript
+language has been implemented.
+.BR troff 's
+formatting language is a superset of that used by
+.BR nroff .
+Text that you have encoded for formatting by
+.B nroff
+will work with
+.BR troff ,
+but the reverse is not always true.
+See the Lexicon entry on
+.B troff
+for information that applies to
+.B troff
+alone.
+.SH "nroff Input"
+.B nroff
+processes each
+.IR file ,
+or the standard input if none is specified,
+and prints the formatted result on the standard output.
+The input must contain formatting instructions
+as well as the text to be processed.
+.PP
+Basic
+.B nroff
+commands provide for such things as setting line length, page
+length, and page offset, generating vertical and horizontal motions,
+indentation, filling and adjusting output lines, and centering.
+The great flexibility of
+.B nroff
+lies in its acceptance of
+user-defined macros to control almost all formatting.
+For example, the formation of paragraphs, header and footer areas,
+and footnotes must all be implemented by the user via macros.
+.PP
+The following summarizes the commands and options
+that can be used with
+.BR nroff .
+Four types of commands and options are described:
+(1) command line options;
+(2) \fBnroff\fR's basic commands (also called \fIprimitives\fR);
+(3) escape sequences that can be used with \fBnroff\fR; and
+(4) \fBnroff\fR's dedicated number registers, and
+what information each one keeps.
+.SH "Command-line Options"
+Command-line options may be listed in any order on the command line.
+They are as follows:
+.IP \fB\-d\fR
+Debug:
+print each request before execution.
+This options is extremely useful when you are writing new macros.
+.IP "\fB\-f \fIname\fR"
+Write the temporary file in file \fIname\fR.
+.IP \fB\-k\fR
+Keep: do not erase the temporary file.
+.IP \fB\-i\fR
+Read from the standard input after reading the given
+.IR files .
+.IP "\fB\-m\fIname\fR"
+Include the macro file
+.BI /usr/lib/tmac. name
+in the input stream.
+.IP "\fB\-n\fIN\fR"
+Number the first page of output
+.IR N .
+.IP "\fB\-r\fIaN\fR"
+Set number register
+.I a
+to the value
+.IR N .
+.IP "\fB\-r\fIabN\fR"
+Set number register \fIab\fR to value \fIN\fR.
+For obvious reasons, \fIab\fR cannot contain a digit.
+.IP "\fB\-v\fR"
+Return the number of your version.
+.IP \fB\-x\fR
+Do not eject to the bottom of the last page when text ends.
+Use this option when you wish to use
+.B nroff
+interactively.
+It, too, is useful when debugging macros.
+.PP
+.B nroff
+appends the contents of the environmental variable
+.B NROFF
+to the beginning of the list of command-line arguments.
+This let you set commonly used options once in the environment,
+rather than retype them for each invocation of
+.BR nroff .
+.SH "Primitives"
+The following gives the basic commands, or \fIprimitives\fR,
+that are built into \fBnroff\fR.
+These primitives can be assembled into macros, or can be
+written directly into the text of your document.
+Commands may begin either with a period `.'
+or with an apostrophe; the former causes a break (see
+.BR .br ,
+below), the latter does not.
+.IP "\fB.ab \fImsg\fR"
+Abort:
+print
+.I msg
+on the standard error and abort processing.
+.IP "\fB.ad [bclr]\fR"
+Enter adjust mode:
+that is, insert white space between words to create right-justified
+output.
+.B b
+adjusts for both margins; this is the default.
+.B c
+adjusts and centers on the line.
+.B l
+adjusts, flush with the left margin.
+.B r
+adjusts, flush with the right margin.
+.IP "\fB.af \fIR X\fR"
+Assign format
+.I X
+to number register
+.I R.
+The assigned format may be one of the following:
+.DS
+	\fB1\fR	Arabic numerals (default)
+	\fBi\fR	Lower-case Roman numerals
+	\fBI\fR	Upper-case Roman numerals
+	\fBa\fR	Lower-case alphabetic characters
+	\fBA\fR	Upper-case alphabetic characters
+.DE
+.IP "\fB.am \fIXX\fR"
+Append the following to macro
+.I XX.
+Used like \fB.de\fR, below.
+.IP "\fB.as \fIXX\fR"
+Append the following to string
+.I XX.
+Used like \fB.ds\fR, below.
+.IP \fB.bp\fR
+Begin a new page.
+.IP \fB.br\fR
+Break; print any fraction of a line of text that is
+in the input buffer before reading new text.
+.IP "\fB.c2 \fIc\fR"
+Set the no-break control character to
+.IR c .
+With no argument, reset it to the default character, which is the apostrophe.
+.IP "\fB.cc \fIc\fR"
+Set the normal control character to
+.IR c .
+With no argument, reset it to the default character, which is the period.
+.IP "\fB.ce \fIN\fR"
+Center
+.I N
+lines of text (default, one).
+.IP "\fB.ch \fIXX N\fR"
+Change the location of the trap for macro
+.I XX
+to vertical position
+.I N
+on the page.
+Used like command \fB.wh\fR, below.
+.IP "\fB.co \fIendmark\fR"
+Copy input directly to the output until
+.I endmark
+is seen.
+If no
+.I endmark
+is given, copy until another
+.B .co
+is seen.
+.IP "\fB.cu \fIN\fR"
+Underline the next
+.I N
+lines.
+When used without an argument, one line is underlined.
+The instruction
+.DM
+	.cu 0
+.DE
+.sp \n(pDu
+turns off underlining.
+Note that unlike the \*(UN version of
+.BR nroff ,
+.B .cu
+does not perform continuous underlining \(em it underlines words,
+but not spaces.
+.IP "\fB.da \fIX\fR"
+Divert and append the following text into macro
+.IR X .
+A diversion is ended by a \fB.da\fR command that has no argument.
+.IP "\fB.de \fIX\fR"
+Define macro
+.I X.
+The macro definition is ended by a line that contains only two
+periods \*(QL..\*(QR.
+.IP "\fB.di \fIX\fR"
+Divert the following text into macro
+.I X.
+Diversion is ended by a \fB.di\fR command that has no argument.
+.IP "\fB.ds \fIX value\fR"
+Define string
+.I X
+to have the given
+.IR value .
+.IP "\fB.ec \fIc\fR"
+Set the escape characer to
+.IR c .
+With no argument, reset it to the default backslash character \*(Ql\e\*(Qr.
+.IP "\fB.el \fIaction\fR"
+Execute
+.I action
+when the test in an
+.B .ie
+command fails.
+This command must be used with an \fB.ie\fR command.
+.IP "\fB.em \fIXX\fR"
+Execute macro
+.I XX
+when processing is completed.
+.IP \fB.eo\fR
+Escape off:
+turn off special handling of all escape sequences.
+.IP "\fB.ev \fIN\fR"
+Change the environment.
+When followed by 0, 1, 2, the command
+\fIpushes\fR that environment; when used without an argument, the command
+\fIpops\fR the present environment and returns to the previous
+environment.
+.IP \fB.ex\fR
+Exit from
+.B nroff
+without further ado.
+.IP \fB.fi\fR
+Enter fill mode.
+.IP \fB.fl\fR
+Flush; same as
+.BR .br .
+.IP "\fB.ft \fIX\fR"
+Change the current font to
+.I X.
+.B nroff
+recognizes \fBR\fR, \fBB\fR, and \fBI\fR, for
+Roman, bold, and italic, respectively.
+.IP "\fB.ie \fIcondition action\fR"
+This command tests to see if
+.I condition
+is true; if true, it then executes
+.IR action ;
+otherwise, it performs the action introduced by an
+.B .el
+primitive.
+This command must be used with the
+.B .el
+command.
+.IP "\fB.if \fIcondition action\fR
+This command tests to see if
+.I condition
+is true; if so, then
+.I action
+is executed; otherwise,
+.I action
+is ignored.
+The command \fB.if o\fR applies if the page number is
+odd, and the command \fB.if e\fR applies if the
+page number is even.
+The command \fB.if n\fR applies if the text is processed by
+.BR nroff ,
+and the command \fB.if t\fR applies if the text is processed by
+.BR troff .
+The command \fB.if l\fR applies in landscape mode.
+The command \fB.if p\fR applies to
+.B troff
+PostScript mode.
+Note that the last two conditions are unique to the \*(CO
+implementation of
+.BR nroff ,
+and may not be portable to other implementations.
+.IP "\fB.ig \fIX\fR
+Ignore all input until macro \fI.X\fR is called;
+if no argument is given, ignore input until two periods \*(QL..\*(QR.
+.IP "\fB.in \fINX\fR
+Change the normal indentation to
+.I N
+units of
+.I X
+scale.
+.I X
+can be \fBu\fR or \fBi\fR, for \fImachine units\fR or
+\fIinches\fR, respectively.
+If
+.I N
+is used without
+.IR X ,
+.B nroff
+assumes the indentation to be given in number of character-widths
+(in picas, or tenths of an inch).
+Default indentation is zero.
+.IP "\fB.it \fIN XX\fR
+Set an input trap to execute macro
+.I XX
+after
+.I N
+input lines (not counting request lines).
+.IP "\fB.lc \fIc\fR
+Set the leader dot character to
+.IR c .
+When
+.B nroff
+sees the escape sequence \fB\ea\fP,
+it fills space to the next tab stop with the leader dot character.
+.B lc
+with no argument tells
+.B nroff
+to use spaces to fill leaders.
+.IP "\fB.ll \fINX\fR
+Set the line length.
+Used like the \fB.in\fR command, above.
+.IP "\fB.ls \fIX\fR"
+Leave spaces; insert
+.I X
+vertical spaces after each line of text.
+Default is zero.
+.IP "\fB.lt \fINX\fR"
+Length of title.
+Used like the \fB.in\fR command, above.
+.IP \fB.na\fR
+Enter no-adjust mode.
+Line lengths are not changed.
+.IP "\fB.ne \fINX\fR"
+Confirm that at least
+.I N
+portions of
+.I X
+units of measure of vertical space are needed before the next trap.
+If this amount of space is not available, then move the text to
+the top of the next page.
+.I X
+can be \fBi\fR or \fBv\fR, for inches or vertical spaces, respectively.
+This command is used in display macros and in paragraph macros to help
+prevent widows and orphans.
+.IP \fB.nf\fR
+Enter no-fill mode; no right justification is performed, although
+line lengths are changed to approximate uniform line length.
+.IP "\fB.nh\fR"
+Turn off hyphenation.
+.B nroff
+hyphenates according to built-in algorithms that are correct most of
+the time, but not always.
+.IP "\fB.nr \fIX N1 N2\fR
+Set number register
+.I X
+to value
+.IR N1 ;
+set its default increment/decrement to
+.IR N2 .
+For example, \fB.nr X 2 3\fR sets number register
+\fBX\fR to 2, and sets its default increment to 3.
+.sp \n(pDu
+The basic unit of measurement for
+.B nroff
+1/120th of an inch; this is also called the \fImachine unit\fR.
+It is indicated by the suffix \fBu\fR to a measurement.
+Unless otherwise stated, all number registers that information
+about a page holds that information in
+.B nroff
+machine units.
+.sp \n(pDu
+Other units of measure convert into
+.B nroff
+units as follows:
+.DS
+.ie t .ta 0.5i 2.5i
+.el   .ta 0.5i 3.5i
+	inch:	1\fBi\fR = 120\fBu\fR
+	vertical line space:	1\fBv\fR = 20\fBu\fR
+	centimeter:	1\fBc\fR = 47\fBu\fR
+	em:	1\fBm\fR = 12\fBu\fR
+	en:	1\fBn\fR = 12\fBu\fR
+	pica:	1\fBP\fR = 20\fBu\fR
+	point:	1\fBp\fR = 1\fBu\fR
+.DE
+.IP "\fB.ns\fR"
+No-space mode.
+.IP "\fB.nx \fIfile\fR
+Terminate processing of the current input file and
+begin processing
+.I file
+instead.
+.IP "\fB.pl \fINX\fR"
+Set the page length to
+.I N.
+The unit of measure
+.I X
+can be \fBV\fR or \fBi\fR, for vertical
+spaces (sixths of an inch) or inches, respectively.
+The default unit of measure is vertical spaces.
+.IP "\fB.pn \fIN\fR"
+Set the page number to
+.I N.
+.IP "\fB.po \fINX\fR"
+Set the default page offset to
+.IR N .
+The unit of measure
+.I X
+can be set to \fBi\fR, for inches.
+The default unit of measure is number of characters.
+.IP "\fB.rb \fIfile\fR"
+Read binary: read the given
+.I file
+and copy it directly to the output without processing.
+.IP "\fB.rd \fIprompt\fR
+Read an insertion from the standard input
+after issuing the given
+.IR prompt .
+.IP "\fB.rf \fIXX YY\fR
+Rename font
+.I XX
+as
+.IR YY .
+For example, to have calls to font K remapped to Roman font, use the call:
+.DM
+	.rf K R
+.DE
+.IP "\fB.rm \fIXX\fR
+Remove macro or string
+.I XX.
+.IP "\fB.rn \fIXX YY\fR"
+Change the name of a macro or string from
+.I XX
+to
+.I YY.
+.IP "\fB.rr \fIX\fR"
+Remove register
+.I X.
+.IP "\fB.rs\fR"
+Restore normal space mode.
+.IP "\fB.so \fIfile\fR
+Open \fIfile\fR, read its contents, and process them.
+When the end of \fIfile\fR is reached, resume processing the contents
+of the present file.
+.IP "\fB.sp [|]\fINX\fR"
+Space down
+.IR N .
+The unit of measure
+.I X
+can be \fBi\fR, for inches, with
+the default unit of measure being vertical spaces, or
+sixths of an inch.
+The optional vertical bar \*(Ql|\*(Qr indicates that
+.I N
+is an absolute value; for example, \fB.sp |1.5i\fR
+means to move to 1.5 inches below the top of the
+page, whereas \fB.sp 1.5i\fR means to move to 1.5 inches
+below the present position.
+.IP "\fB.sy \fIcommand\fR"
+Execute
+.I command
+under the shell.
+Please note that this primitive is non-standard.
+Macros that use it cannot be formatted under standard AT&T
+.BR nroff .
+.IP "\fB.ta \fINX ...\fR"
+Set the tab to
+.I N.
+The unit of measure
+.I X
+can be set to \fBi\fR, for inches;
+the default unit of measure is number of characters, or tenths
+of an inch.
+A tab setting, of course, is for an absolute, not a relative, value.
+If more than one tab setting is defined, the first defines the
+first tabulation character on a text line, the second defines the
+second tabulation character, etc.
+Any undefined tabulations are thrown away.
+.IP "\fB.tc \fIX N\fR"
+Fill any unused space within a tabulation field with the character
+.I X.
+If the optional
+.I N
+is present, it specifies a width for the character;
+for example,
+\fB.tc . .1i\fR fills tabs with dots spaced one-tenth of an inch apart.
+.IP "\fB.ti \fINX\fR"
+Temporary indent; indent only the next line.
+Used like the \fB.in\fR command, above.
+.IP "\fB.tl \fI\'left\'center\'right\'\fR"
+Set a three-part title, with
+.I left
+being set flush left,
+.I center
+being centered on the line, and
+.I right
+being set flush right.
+Note the use of the apostrophes to separate the fields;
+the apostrophes for an undefined field must still be
+present, or a syntax error will be generated.
+.IP "\fB.tm \fImessage\fR"
+Print
+.I message
+on the standard error device.
+This is often used with \fB.if\fR or \fB.ie\fR
+commands to indicate an error condition.
+.IP "\fB.tr \fIxy\fR"
+Translate character
+.I x
+to
+.I y
+on output.
+.IP "\fB.ul \fIN\fR"
+This behaves the same as
+.BR .cu .
+.IP "\fB.vs \fINp\fR"
+Reset the normal vertical spacing to
+.I N
+points
+.BR p .
+.II pica
+.II point
+One point equals 1/72 of an inch.
+The default setting one pica, which equals is 12 points or 1/6 of an inch.
+.IP "\fB.wh \fINX action\fR
+Set a trap to perform
+.I action
+when point
+.I N
+is reached on every formatted page.
+If
+.I N
+is negative, it is measured up from the bottom of the page.
+The unit of measure
+.I X
+may be \fBi\fR or \fBv\fR, for
+inches or number of vertical lines, respectively;
+the default unit of measure is \fBv\fR.
+.SH "Escape Sequences"
+The following lists \fBnroff\fR's escape sequences,
+or commands that suspend or work around the normal
+operation of \fBnroff\fR.
+Each escape sequences is introduced by the
+.IR "escape character" ,
+normally the backslash character \*(Ql\e\*(Qr:
+.IP \fB\e(\fIxx\fR
+Print special character
+.IR xx ,
+as defined by a
+.B .dc
+request.
+.B nroff
+reads default special character definitions
+from file
+.BR /usr/lib/roff/nroff/specials.r .
+For example,
+the escape sequence \fB\e(<=\fP prints the less-than-or-equal-to
+symbol \(<=.
+.IP \fB\e.\fR
+Print a literal period.
+.IP "\fB\e\'\fR"
+Print a literal apostrophe.
+This should be used in text that will be manipulated by the \fB\ew\fR
+escape sequence or the \fB.tl\fR primitive.
+.IP \fB\e\e\fR
+Delay interpretation of a backslash character.
+This normally is used to
+defer the interpretation of a macro or string from the
+time it is processed to the time that it is called.
+.IP \fB\e\-\fR
+Print a minus sign.
+.IP \fB\e&\fR
+Ignore what is normally a command string.
+.IP \fB\e$\fIN\fR
+Call macro argument
+.IR N .
+.IP "\fB\e\'\'\fR"
+Introduce a comment within your text.
+All text to the right of this escape sequence will be
+ignored by \fBnroff\fR.
+This sequence must read \fB.\e''\fR when used
+at the beginning of a line.
+.IP \fB\e*\fIS\fR
+Call string
+.I S.
+.IP \fB\e*(\fIST\fR
+Call string
+.I ST.
+.IP \fB\ea\fR
+Fill the space to the next tab stop with leader dots (normally `.').
+.IP \fB\ed\fR
+Move \fIdown\fR by one-half em (\fBtroff\fR) or one-half line (\fBnroff\fR).
+Normally used to do crude subscripting, or to undo the effect of the
+.B \eu
+escape sequence.
+.IP \fB\ee\fR
+Print the escape character in the output text \(em normally, a
+backslash.
+.IP \fB\ef\fIX\fR
+Set font to
+.IR X ;
+this can be either \fBR\fR, \fBI\fR, \fBB\fR, or \fBP\fR,
+for Roman, \fIitalic\fR, \fBbold\fR, or previous font,
+respectively.
+.IP "\fB\eh\'[|]\fINX\fB\'\fR"
+Move horizontally by
+.I N
+units of
+.I X.
+If
+.I N
+is positive, move to the right; if negative, move to the left.
+The unit of measure
+.I X
+may be \fBi\fR, for inches; the default unit
+of measure is ems.
+(One em equals one pica, which is one-sixth of an inch).
+When the optional vertical bar `|' is used, move to an absolute position
+on the line.
+For example \fB\eh'|1.5i'\fR moves to 1.5 inches to the right of the
+left margin, whereas \fB\eh'1.5i'\fP moves 1.5 inches to the right of the
+current position.
+.IP \fB\ek\fIx\fR\fR
+Record the current vertical position into register
+.IR x .
+.IP "\fB\el\'\fINX\fB\'\fR"
+Draw a horizontal
+line
+.I N
+units of
+.I X
+long.
+The unit of measure
+.I X
+may be \fBi\fR, for inches; the default unit
+of measure is character-widths.
+.IP "\fB\eL\'\fINX\fB\'\fR"
+Draw a vertical line; used like \fB\el\fR, above.
+.IP \fB\en\fIX\fR
+Read the value of number register
+.I X.
+.IP \fB\en(\fIXY\fR
+Read the value of number register
+.I XY.
+.IP \fB\eo\'\fIchars\fB\'\fR
+Overstrike the given
+.IR chars ,
+centered on the widest.
+.IP \fB\es\fIN\fR
+Change the current size of the type to
+.I N
+points.
+.IP \fB\es+\fIN\fR
+Increment the current point size by
+.I N
+points.
+.IP \fB\es\-\fIN\fR
+Decrement the current point size by
+.I N
+points.
+.IP \fB\et\fR
+Print a tab.
+.IP \fB\eu\fR
+Move \fIup\fR by one-half em (\fBtroff\fR) or one-half line (\fBnroff\fR).
+Normally used to do crude superscripting, or to reverse the effect of the
+.B \ed
+escape sequence.
+.IP "\fB\ev\'\fINX\fB\'\fR"
+Vertical motion; move
+.I N
+units of
+.I X
+vertically.
+If
+.I N
+is positive, move down; if negative, move up.
+The unit of measure
+.I X
+may be \fBi\fR or \fBv\fR, for inches or
+vertical spaces (sixths of an inch), respectively.
+The default unit of measure is \fBv\fR.
+.IP "\fB\ew\'\fIargument\fB\'\fR"
+Measure the width of \fIargument\fR.
+For example
+.DM
+	\ew'stuff and nonsense'
+.DE
+.sp \n(pDu
+measures the width of the phrase \fBstuff and nonsense\fR; or
+.DM
+	\ew'\e$1'
+.DE
+.sp \n(pDu
+measures the width of the first argument passed to a macro,
+whatever that argument might happen to be.
+Therefore, the command \fB.in \ew'\e$1'\fR will indent
+a line by the width of argument 1.
+.IP \fB\eX\fIdd\fR
+Output the character with hexadecimal value
+.IR dd ,
+where
+.I dd
+are two hexadecimal digits.
+Users can use this option to encode characters that are not part of the
+English-language character set.
+The hexadecimal values to which characters map depend upon the character
+set that you (or your printer) use.
+Please note
+.B nroff
+reserves the following values for its internal use:
+.DS
+.ta 0.5i 1.5i 2.0i 2.5i
+	<Ctrl-SP>	X00	Ignored
+	<Ctrl-A>	X01	Leader dots, same as ``\ea''
+	<Ctrl-I>	X09	Tab, same as ``\et''
+	<Ctrl-J>	X10	Newline
+.DE
+.IP
+This escape sequence is unique to the \*(CO implementation of
+.B nroff
+and
+.BR troff .
+Code that uses it will behave differently when ported to other implementations.
+.IP \fB\ez\fIc\fR
+Print character
+.I c
+with zero width.
+.IP \fB\e<newline>\fR
+Ignore this \fB<newline>\fR character.
+.IP \fB\e{\fR
+Begin conditional commands;
+used after an \fB.if\fR, an \fB.ie\fR, or an \fB.el\fR command.
+.IP \fB\e{\e\fR
+Begin conditional commands,
+and ignore the following carriage return.
+.IP \fB\e}\fR
+End conditional commands.
+.SH "Dedicated Number Registers"
+The following lists the number registers that are predefined in \fBnroff\fR.
+You can read or reset these registers to suit
+the need of any special formats that you wish to devise.
+.IP \fB$$\fR 0.4i
+Process identifier of the current
+.B nroff
+process.
+This usually is used with the primitive
+.B .sy
+to name temporary files.
+.IP \fB.$\fR
+Number of arguments passed to a macro.
+.IP \fB%\fR
+Present page number.
+.IP \fB.c\fR
+Number of lines read from the current input file.
+This can be used to help set an input-line trap.
+.IP \fB.d\fR
+Current vertical position in the current diversion.
+If no diversion is opened, this register's contents equal those of the
+\fBnl\fR register, described below.
+.IP \fBdl\fR
+Maximum width of last completed diversion.
+.IP \fBdn\fR
+Height of last completed diversion.
+.IP \fBdw\fR
+Day of the week (one through seven; one indicates Sunday).
+.IP \fBdy\fR
+Day of the month, as set by \*(OS.
+.IP \fB.F\fR
+Name of input file being read.
+This is very useful for printing error messages.
+This register applies only the \*(CO implementation of
+.BR nroff .
+Code that uses it is not portable to other implementations.
+.IP \fB.h\fR
+Vertical position of the current line's base-line.
+This number register gives you the best idea of your current vertical
+position on the page.
+.IP \fBhp\fR
+Horizontal position on current
+input line.
+.IP \fB.i\fR
+Present amount of indentation.
+.IP \fB.j\fR
+Current type and mode of text adjustment.
+.IP \fB.l\fR
+Present line length.
+.IP \fBln\fR
+Current line number in the output.
+.IP \fBmo\fR
+Month, as set by \*(OS.
+.IP \fB.n\fR
+Width of the text portion of the previously printed line.
+Useful for underlining, shading, or otherwise modifying the
+previous line of text.
+For example
+.DM
+	\el'\en(.nu'
+.DE
+.sp \n(pDu
+draws a line under the previously printed line of text.
+.IP \fBnl\fR
+Vertical position of the base-line of the last printed line of text.
+.IP \fB.o\fR
+Present page offset.
+.IP \fB.p\fR
+Page length.
+.IP \fB.s\fR
+Size of the type currently being printed, in points.
+.IP \fBsb\fR
+Depth to which a string hangs below its base line.
+This is generated by the width function.
+.IP \fBst\fR
+Height to which a string extends above its base line.
+This is generated by the width function.
+.IP \fB.t\fR
+Distance to the next trap.
+Check this register to see if the object you wish to print on a page
+will fit.
+.IP \fB.v\fR
+Size of a line, in points.
+This is set by the \fBvs\fR primitive.
+.IP \fByr\fR
+Last two digits of the year, as set by \*(OS.
+.IP \fB.z\fR
+Name of the current diversion.
+.SH "Printer Configuration"
+.B nroff
+reads several files in directory
+.B /usr/lib/roff/nroff
+to find printer-specific information.
+It reads special character definitions from file
+.B specials.r.
+If file
+.B fonts.r
+exists,
+.B nroff
+reads font information from it;
+.B nroff
+understands only
+Roman, bold and italic fonts, but
+.B .rf
+requests may define alternative font names.
+If file
+.B .pre
+exists,
+.B nroff
+copies it at the beginning of the output.
+If file
+.B .post
+exists,
+.B nroff
+copies it at the end of the output.
+In landscape mode,
+.B nroff
+looks for files
+.B .pre_land
+and
+.B .post_land
+instead.
+You can change these files as desired to
+include printer-specific commands in
+.B nroff
+output.
+.SH Miscellaneous
+The \fB\-ms\fR macro package is
+kept in file
+.B /usr/lib/tmac.s.
+The macros in this package are more than sufficient
+for most ordinary text processing.
+Beginners should work through this macro package rather
+than trying to deal at once with the basic program.
+.PP
+The tutorial to
+.BR nroff ,
+which is included with this manual, provides a detailed introduction to
+.BR nroff .
+Error messages for
+.B nroff
+appear in the appendix to this manual.
+.SH Files
+.nf
+\fB/tmp/rof*\fR \(em Temporary files
+\fB/usr/lib/tmac.*\fR \(em Standard macro packages
+\fB/usr/lib/roff/nroff/\fR \(em Support files directory
+\fB/usr/lib/roff/nroff/.pre\fR \(em  Output prefix
+\fB/usr/lib/roff/nroff/.pre_land\fR \(em Output prefix, landscape mode
+\fB/usr/lib/roff/nroff/.post\fR \(em Output suffix
+\fB/usr/lib/roff/nroff/.post_land\fR \(em Output suffix, landscape mode
+\fB/usr/lib/roff/nroff/fonts.r\fR \(em Alternative font name definitions
+\fB/usr/lib/roff/nroff/specials.r\fR \(em Special character definitions
+.SH "See Also"
+.Xr "col," col
+.Xr "commands," commands
+.Xr "deroff," deroff
+.Xr "man," man
+.Xr "ms," ms
+.Xr "printer," printer
+.Xr "troff" troff
+.br
+\fInroff, The Text-Formatting Language\fR, tutorial
+.SH Diagnostics
+.B nroff
+returns the following error messages.
+Most are self-explanatory.
+.Ip "\-f option requires file argument \fI(fatal)\fR"
+.Is "\&.bd not implemented yet"
+.Is "\&.co: unexpected EOF before \fIstring\fR \fI(error)\fR"
+.Is "\&.dt not implemented yet"
+.Is "\&.el without .ie \fI(error)\fR"
+.Is "\&.fc not implemented yet"
+.Is "\&.hc not implemented yet"
+.Is "\&.hw not implemented yet"
+.Is "\&.hy not implemented yet"
+.Ip "\&.ie nested more than \fIN\fR levels \fI(error)\fR"
+The \fB.ie/.el\fR combination can be nested only 15 levels deep.
+.Ip "\&.ie without matching .el \fI(error)\fR"
+Every \fB.ie\fR must be followed by an \fB.el\fR.
+.Ip "\&.lf: \fIstring\fR, file ``\fIstring\fR'' \fI(error)\fR"
+.B troff
+could not load a font-width table from file
+.IR string .
+.Ip "\&.lf: ``\fIstring\fR'' is not a PCL font width table \fI(error)\fR"
+.B troff
+expects a PCL font-width table, but file
+.I string
+is not in the PCL font-width format.
+.Ip "\&.lf: ``\fIstring\fR'' is not a PostScript font width table \fI(error)\fR"
+.B troff
+expects a PostScript font-width table, but file
+.I string
+is not in the PostScript font-width format.
+.Ip "\&.lf: cannot load more than \fIN\fR fonts \fI(error)\fR"
+.B troff
+has a static limit on the number of font-width tables that can be loaded
+at one time.
+.Ip "\&.lf: cannot open file ``\fIstring\fR'' \fI(error)\fR"
+.Is "\&.lf: requires fontname and filename \fI(error)\fR"
+.Is "\&.nm not implemented yet"
+.Is "\&.nn not implemented yet"
+.Is "\&.pi not implemented yet"
+.Is "\&.rb: cannot open file \fIstring\fR \fI(error)\fR"
+.Is "\&.rb: no file specified \fI(error)\fR"
+.Is "\&.rf: requires name and new name \fI(error)\fR"
+.Ip "\e} without matching \e{ \fI(error)\fR"
+Every \fB\e}\fR must be preceded by a \fB\e{\fR.
+.Ip "arguments too long \fI(error)\fR"
+.Is "attempted zero divide \fI(error)\fR"
+.Is "attempted zero modulus \fI(error)\fR"
+.Is "bad adjustment type \fI(error)\fR"
+.Is "bad argument reference \fI(error)\fR"
+.Is "bad directive \fIN\fR \fI(fatal)\fR"
+.Is "bad font \fIN\fR \fI(fatal)\fR"
+.Is "bad font \fIN\fR at dev_font, nfonts=\fIN\fR \fI(fatal)\fR"
+.Is "bad font \fIN\fR, nfonts=\fIN\fR \fI(fatal)\fR"
+.Is "bad pattern \fI(fatal)\fR"
+.Is "bad tab stop \fI(error)\fR"
+.Is "bad tab stop \fI(error)\fR"
+.Ip "botch: fontname(\fIN\fR) \fI(fatal)\fR"
+.B nroff
+cannot handle font
+.I N
+and must abort processing.
+.Ip "botch: swdmul=\fIN\fR psz=\fIN\fR swddiv=\fIN\fR \fI(fatal)\fR"
+An undefined error has occurred within
+.BR nroff .
+The printed numbers give the value of
+.BR nroff 's
+internal registers.
+If such an error occurs regularly when you process a given piece of
+text, please send the text in question and a copy of the
+error message to Mark Williams technical support.
+.Ip "bracket building not implemented yet"
+.Is "cannot create temp file \fI(fatal)\fR"
+.Is "cannot dehyphenate \fI(fatal)\fR"
+.Ip "cannot end diversion \fI(error)\fR"
+You attempted to close a diversion without first opening one.
+.Is "cannot find current file \fI(error)\fR"
+.Ip "cannot find font \fIXX\fR \fI(error)\fR"
+Font
+.I XX
+has not been opened; therefore
+.B [nt]roff
+cannot use it.
+To open a font, use the load-font primitive
+.BR .lf .
+.Ip "cannot find font \fIN\fR \fI(error)\fR"
+.Ip "cannot find register \fIstring\fR \fI(error)\fR"
+You attempted to read a number register without first loading a value
+into it.
+.Ip "cannot open \fIstring\fR \fI(error)\fR"
+.Is "cannot open file ``\fIstring\fR'' \fI(error)\fR"
+.Ip "cannot pop environment \fI(error)\fR"
+You popped an environment without first pushing one.
+.Ip "cannot read environment \fI(fatal)\fR"
+.Is "cannot remove \fIstring\fR \fI(error)\fR"
+.Is "cannot reopen temp file \fI(fatal)\fR"
+.Is "cannot write environment \fI(fatal)\fR"
+.Is "delimiter argument too large \fI(error)\fR"
+.Is "diversion buffer odd alignment \fI(fatal)\fR"
+.Is "environment does not exist \fI(error)\fR"
+.Is "environments stacked too deeply \fI(error)\fR"
+.Is "field with too large \fI(error)\fR"
+.Is "file ``\fIstring\fR'' not found \fI(error)\fR"
+.Is "flushd -- current diversion null \fI(fatal)\fR"
+.Is "font position out of range \fI(error)\fR"
+.Ip "fonts.r not found \fI(fatal)\fR"
+.B nroff
+and
+.B troff
+read the list of fonts to use from a file named
+.BR fonts.r .
+If you do not have such a file in your current directory,
+.B nroff
+and
+.B troff
+read the one out of their home directories:
+.BR /usr/lib/roff/nroff ,
+.BR /usr/lib/roff/troff_pcl ,
+or
+.BR /usr/lib/roff/troff_ps ,
+depending which variety of output you have requested.
+This error message means that your current directory does not hold a file
+named
+.BR fonts.r ,
+and that
+.B [nt]roff
+cannot open the
+.B fonts.r
+file in its appropriate home directory.
+.Ip "illegal hex digit \fI(error)\fR"
+The escape sequence \fB\eX\fINN\fR prints a character by its literal
+hexadecimal value.
+This should be used when processing characters that are not normally
+printable on the terminal screen.
+Digit
+.I N
+can be the numerals `0' through `9', the letters `a' through `f', or
+the letters `A' through `F'.
+All other characters will trigger this error.
+.Ip "illegal option: \fIstring\fR \fI(fatal)\fR"
+.Ip "incomplete macro in trap \fI(fatal)\fR"
+A trap has jumped to a macro, but that macro does not terminate,
+for whatever reason.
+Usually this indicates that you have opened a diversion but failed
+to close it.
+.Ip "line buffer overflow \fI(fatal)\fR"
+.Is "no room for new font name \fIXX\fR \fI(error)\fR"
+.Is "out of space - memory \fIstring\fR \fI(fatal)\fR"
+.Is "request '\fIstring\fR' not found \fI(error)\fR"
+.Is "section \fIN\fR of title too large \fI(error)\fR"
+.Is "special character \fIXX\fR not found \fI(error)\fR"
+.Ip "syntax error \fI(error)\fR"
+This message any number of errors with your
+.B nroff
+source.
+Check the line number given in the message.
+.Ip "temporary file write error \fI(fatal)\fR"
+.B nroff
+cannot write a temporary file, for whatever reason.
+This usually indicates that you lack permission to write into the directory
+into which
+.B nroff
+is attempt to write its temporary files.
+.Ip "too many tab stops \fI(error)\fR"
+.B nroff
+allows a maximum of nine tab stops in one line.
+It ignores all tab stops that exceed that limit.
+.Ip "unexpected end of file \fI(fatal)\fR"
+This error indicates that
+.B nroff
+is in the middle of processing a macro when the file ends.
+This error usually occurs when you open a diversion and fail to close it.
+.Ip "unknown macro/register type \fIN\fR \fI(fatal)\fR"
+.Is "vertical line drawing not implemented yet \fI(error)\fR"
+.Is "word buffer overflow \fI(fatal)\fR"

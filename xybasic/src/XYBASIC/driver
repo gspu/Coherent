@@ -1,0 +1,296 @@
+;DRIVER 10/22/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;interpreter driver
+
+
+;The interpreter driver has several entry points.
+;DMOD2, after errors, resets SP and falls through to...
+;DMODE, after execution, prints OK prompt, then...
+;DMOD3 is the driver itself.  Gets a line of user text, tokenizes it and
+;either executes it (no line #) or adds it to source text, then gets another.
+
+	if	compl		;return to DMODE boots in COMPL version
+dmod2	equ	boot
+dmodc	equ	boot
+dmode	equ	boot
+	else
+dmod2:	lxi	sp,stack	;reset SP
+dmode:	call	prtm0		;print OK message
+	if	epstn
+	db	cr, lf, 13H, 'OK', 12H, cr, lf or 80H
+	else
+	db	cr, lf, 'OK', cr, lf or 80H
+	endif
+	xra	a
+	sta	gchar		;clear GET character
+	sta	tracl		;clear tracing status
+	if	strng
+	sta	stemp		;clear # string temps in use
+	endif
+dmod3:	call	lnnu0		;reset LNNUM to 0 in case ^C typed
+	call	gtlin		;get a line from user
+	call	tkize		;tokenize it
+	jc	xsta1		;execute it if no line #
+	cnz	addln		;else add to source text unless <cr>
+	jmp	dmod3		;and get another line
+	endif			;end of COMPL conditional
+
+;NEXTC scans to next command, resets SP and falls through to NEXTS.
+nextc:	lhld	cstkp
+	shld	estkp		;reset ESTACK in case error within expr
+	call	gtdel		;scan to delimiter
+	lxi	sp,stack	;reset SP and fall through to NEXTS
+
+;NEXTS is branched to with TEXTP pointing to a delimiter (: ' <cr>), else it
+;issues a SN error.  Performs break char and interrupt tests.
+;Returns to DMOD1 if at eof.  Moves TEXTP to first char
+;of next statement, updates LNNUM and performs break test.  Then falls through
+;to XSTAT for statement execution.
+nexts:	if	camac and nonst and (not rtpak)
+	in	1
+	ani	2
+	cnz	ctst0		;read char if present
+	else
+	call	cstat		;test console for break char
+	rrc
+	cc	ctst0		;read char if present
+	endif
+	if	not wild
+	lda	intad
+	rlc			;test whether interrupt table empty
+	cc	itest		;no, check if interrupt occurs
+	endif
+	lhld	textp
+	shld	savtp		;save textp
+	mov	a,m		;inline CALL GTCH1 to get next char
+	inx	h
+	cpi	' '
+	jz	$-4
+	shld	textp
+	cpi	':'
+	jz	xstat		;another statement on same line
+	if	rtpak or not compl	;comments are removed if compiled
+	cpi	''''
+	cz	rem		;on-line comment
+	endif
+	cpi	cr
+	jnz	snerr		;syntax error -- garbage after statement
+	mov	a,m		;fetch length byte of next line
+	ora	a
+	jz	dmode		;end of source text
+	inx	h
+	shld	lnnum		;save line number address
+	inx	h
+	inx	h
+	mov	a,m		;fetch break byte
+	inx	h		;point to first text byte
+	shld	textp		;set text pointer
+	if	not compl
+	rar			;NB carry was reset above!
+	cc	btest		;test for break if bit 0 was set
+
+;XSTAT is branched to with TEXTP pointing to first char of a statement.
+;Performs trace mode test, then falls through to XSTA1 for
+;actual statement execution.
+;XSTA1 is entry point from direct mode, to avoid trace checks.
+;XSTA2 is entry point for THENpart of an IF statement.
+xstat:	lda	trace
+	sta	tracl		;set tracing status of current statement
+	ora	a
+	cnz	tprnt		;print trace line # if traceon
+	endif			;skip trace tests in COMPL version
+xsta1:	lxi	b,nexts
+	if	compl
+xstat	equ	xsta1
+	endif
+	push	b		;stack normal return address to allow RET
+xsta2:	lhld	textp		;inline CALL GTCHA follows to get next token
+	mov	a,m
+	inx	h
+	cpi	' '
+	jz	$-4
+	shld	textp
+	ora	a
+	jp	let0		;not token, must be LET or null statement
+	if	wild
+	cpi	wbuft
+	jz	wletb		;BUFFER legal lhs in WILD version
+	endif
+	sui	cmdtk		;subtract min token value
+	jc	snerr		;too small, not a command token
+	cpi	ncmds		;compare to number of commands
+	jnc	snerr		;too big
+	lxi	h,cmdta		;command branch table address to HL
+	add	a		; * 2 bytes per entry
+	mov	c,a
+	mvi	b,0
+	dad	b		;add offset to base address
+	mov	a,m		;low order address to A, temporarily
+	inx	h
+	mov	h,m		;high order addr to H
+	mov	l,a		;low order addr to L
+	pchl			;branch to address
+
+;BTEST checks for line breakpoints.
+;Called before XSTAT, so TRACL is not yet reinitialized.
+;Call:	A	line break byte, RARed once.
+	if	not compl
+btest:	ora	a		;test further if more bits set
+	lxi	h,xsta1		;replace XSTAT return addr with XSTA1 to
+	xthl			;	avoid resetting TRACL on return
+	jz	tprnt		;print break line and return if only bit 0 set
+	rrc			;bit 1 of break byte to carry
+	jnc	btst2		;no count or variables, check for DMODE break
+	push	psw		;save break byte, rotated twice
+;Now the symbol table entry containing line break info must be found.
+	lhld	lnnum
+	call	bknam		;break entry 'name' to BUFAD
+	mvi	a,brkst
+	call	stlk0		;look up break entry
+	jc	exerr		;not found -- EX error
+;Next the count (# times before next break) is fetched.
+	mov	e,m
+	inx	h
+	mov	d,m		;count to DE
+	dcx	d		;decrement count
+	mov	a,d
+	ora	e
+	jnz	btst3		;nonzero -- return
+;Counted to zero, so reset count to original value and print break info.
+	mov	b,h
+	mov	c,l
+	dcx	b		;BC points to count
+	inx	h		;HL points to reset
+	mov	a,m
+	stax	b
+	inx	b
+	inx	h
+	mov	a,m
+	stax	b		;copy reset to count
+	call	tprnt		;print break [<line #>]
+	pop	psw		;restore break byte
+	rrc			;bit 2 of break byte to Carry
+	jnc	btst1		;skip var printing
+;The break specified a <var list>, so variable values must be printed.
+	push	psw		;save break byte, RRCed 3 times
+	inx	h		;point to var list addr
+	mov	a,m
+	inx	h
+	mov	h,m
+	mov	l,a		;varlist address to HL
+	shld	txtp2
+	call	flip		;scan var list
+	lxi	h,trace
+	mov	a,m
+	push	psw		;save TRACE
+	mvi	m,255		;and set TRACE to true
+btst0:	call	gtlhs		;get var ref
+	mov	b,a		;save type
+	call	trva1		;print = value
+	call	gtcom		;look for another
+	jnc	btst0		;print more vars
+	pop	psw
+	sta	trace		;restore trace
+	call	flip		;restore textp
+	pop	psw
+;BTEST returns or breaks to DMODE, depending on whether BREAK specified $.
+btst1:	rlc
+btst2:	ani	2		;test bit 3 (after two rotates)
+	rz			;no $ -- continue
+	mvi	a,cslbk		;line break entry token to A
+	jmp	stop1		;$
+btst3:	mov	m,d
+	dcx	h
+	mov	m,e		;new value to count
+	pop	psw		;restore break byte
+	pop	h		;POP the RETurn to XSTA1
+	jmp	xstat		;and return to XSTAT for TRACL initialization
+
+;BPRNT prints <tab>[<line #>] if not TRACL, and is called by NEXT and TRSET.
+;TPRNT prints <tab>[<line #>] and sets TRACL to TRUE.
+;Both preserve BC,DE,HL and clobber A.
+bprnt:	lda	tracl
+	ora	a
+	rnz			;suppress break printout if traced
+tprnt:	push3
+	call	wcrlf		;write crlf
+	mvi	a,'['
+	call	writc		;write [
+	lhld	lnnum		;line number address to HL
+	call	prntl		;print the line
+	mvi	a,']'		;write ]
+	call	writc
+	if	wild
+	call	wrtsp		;write a space (no tab routine)
+	else
+	call	prco1		;tab to next tab stop
+	endif
+	mvi	a,255
+	sta	tracl		;set TRACL to indicate line traced already
+	jmp	pop3
+
+	endif			;end of NOT COMPL conditional
+
+;ITEST determines whether interrupt occurs and then returns or interrupts.
+;If no interrupt:
+;Retn:	A,BC,DE	clobbered
+;	HL	address of interrupt table eof
+;If interrupt occurs, ITEST's return address is POPed, a normal statement
+;return address is PUSHed, and a GOSUB to the appropriate line # is executed.
+	if	not wild
+itest:	lxi	h,intad		;first byte address to HL
+itst1:	rlc			;test enable/suspend bit
+	jnc	itst3		;suspended -- look for more
+	mov	c,a		;save $ bit in sign bit of C
+	mov	d,h
+	mov	e,l		;save first byte address in DE
+	inx	h		;point to port # byte
+	mov	a,m
+	call	rdp1		;read the port
+	inx	h		;point to mask byte
+	ora	m
+	inx	h		;point to value byte
+	xra	m		;compare & clear carry
+	jz	itst2
+	stc			;carry set iff compare not zero
+itst2:	rar			;carry to sign bit of A
+	xra	c		;sign bit set iff no interrupt
+	jp	itst4		;interrupt occurs
+	xchg			;restore first byte address to HL
+itst3:	lxi	d,8
+	dad	d		;address next entry
+	mov	a,m		;first byte of table entry to A
+	rlc			;test on/off bit
+	rnc			;no more table entries -- return
+	jmp	itst1		;and check it
+itst4:	call	linbc		;zero set iff direct mode
+	rz			;no interrupts from direct mode
+	xchg			;restore first byte address to HL
+	xthl			;pop ITEST return, push first byte address
+	mvi	a,csint
+	call	cpush		;token, textp, lnnum to control stack
+	pop	d
+	call	mvmde
+	xchg			;  and to HL
+	mov	a,m		;fetch first byte
+	ani	0BFH		;suspend interrupt entry
+	mov	m,a
+	lxi	d,7
+	dad	d		;address byte 8 of entry
+	call	mvdem
+	push	h		;save entry ptr
+	call	findl		;look for ENABLE line # address
+	jc	enerr		;none, EN error
+	inx	h		;point to line # byte
+	xthl			;push ENABLE line # address, recover ptr
+	call	mvdem		;desired interrupt routine line # to DE
+	lxi	h,nexts
+	xthl			;pop ENABLE line # address, push return addr
+	shld	lnnum		;set lnnum in case line not found
+	jmp	goto2		;find line #, continue from there
+	endif			;end of NOT WILD conditional
+
+
+;end of DRIVER
+	page

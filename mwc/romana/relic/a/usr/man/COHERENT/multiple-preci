@@ -1,0 +1,330 @@
+
+
+multiple-precision mathematicsOverviewmultiple-precision mathematics
+
+
+
+
+The COHERENT  system includes  the library libmp,  whose routines
+allow  you  to  perform  multiple  precision  arithmetic.   These
+functions manipulate  a data structure  called a mint,  or ``mul-
+tiple-precision integer,'' which  the header file mprec.h defines
+as follows:
+
+
+typedef struct {
+        unsigned len;
+        char *val;
+} mint;
+
+
+You should  not depend on the details  of this structure, because
+on  some machines  a different representation  may be  more effi-
+cient.  Using the listed functions is always safe.
+
+The following gives the multiple-precision routines:
+
+ggccdd()     Set variable to greatest common divisor
+iissppooss()   Return if variable is positive or negative
+iittoomm()    Create a multiple-precision integer
+mmaadddd()    Add multiple-precision integers
+mmccmmpp()    Compare multiple-precision integers
+mmccooppyy()   Copy a multiple-precision integer
+mmddiivv()    Divide multiple-precision integers
+mmiinn()     Read multiple-precision integer from stdin
+mmiinniitt()   Condition global or auto multiple-precision integer
+mmiinnttffrr()  Free a multiple-precision integer
+mmiittoomm()   Reinitialize a multiple-precision integer
+mmnneegg()    Negate multiple-precision integer
+mmoouutt()    Write multiple-precision integer to stdout
+mmssqqrrtt()   Compute square root of multiple-precision integer
+mmssuubb()    Subtract multiple-precision integers
+mmttooii()    Convert multiple-precision integer to integer
+mmttooss()    Convert multiple-precision integer to string
+mmuulltt()    Multiple multiple-precision integers
+mmvvffrreeee()  Free multiple-precision integer
+ppooww()     Raise multiple-precision integer to power
+rrppooww()    Raise multiple-precision integer to power
+ssddiivv()    Divide multiple-precision integers
+ssmmuulltt()   Multiply multiple-precision integers
+ssppooww()    Raise multiple-precision integer to power
+xxggccdd()    Extended greatest-common-divisor function
+zzeerroopp()   Indicate if multi-precision integer is zero
+
+itom() creates  a new mint, initializes it  to the signed integer
+value n,  and returns a  pointer to it.   Storage used by  a mint
+created with itom may be reclaimed using mintfr().
+
+A mint that already exists may be reinitialized by mitom(), which
+sets a to  the value n.  If the mint  was declared as a global or
+automatic variable,  it must be  conditioned before first  use by
+minit(), which prevents garbage values in the mint structure from
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+multiple-precision mathematicsOverviewmultiple-precision mathematics
+
+
+
+causing  chaos.  A  mint  conditioned by  minit()  has no  value;
+however, it  may be used  to receive the result  of an operation.
+For mints automatic to a function, mvfree() should be used before
+the function is exited to free  the storage used by the val field
+of  the mint  structure.  Otherwise, this  storage will  never be
+reclaimed.
+
+madd(),  msub(), and  mult()  set c  to the  sum, difference,  or
+product of a and b.  mdiv  divides a by b and writes the quotient
+and remainder  in q and r.   b must not be  zero.  The results of
+the operation are defined by the following conditions:
+
+11. _a=_q*_b+_r
+
+22. The sign of _r equals the sign of q
+
+33. The absolute value of r < the absolute value of b.
+
+smult() is like mult(),  except the second argument is an integer
+in the  range 0 <= n  <= 127.  sdiv() is  like mdiv(), except the
+second argument is an integer in the range 1 <= n <= 128, and the
+remainder argument points to an int instead of a mint().
+
+pow() sets c to a raised to the b power reduced modulo m.  rpow()
+sets c to a raised to the b power.  spow() is like rpow(), except
+the exponent is an integer.  In no case may the exponent be nega-
+tive.
+
+mcopy() sets b equal to a.  mneg() sets b equal to negative a.
+
+msqrt() sets  b to  the integral  portion of the  positive square
+root of  a; r is set  to the remainder.  a  must not be negative.
+The result of the operation is defined by the condition
+
+
+     _a = _b * _b + _r
+
+
+gcd() sets c  to the greatest common divisor of  a and b.  xgcd()
+is an  extended gcd  routine that sets  g to the  greatest common
+divisor of a and b, and sets r and s so the relation
+
+
+               _g = _a * _r + _b * _s
+
+
+holds.  For xgcd(), r, s and g must all be distinct.
+
+mints may be compared with mcmp(), which returns a signed integer
+less than, equal to, or  greater than zero according to whether a
+is less than, equal to,  or greater than b.  ispos() returns true
+(nonzero) if  a is not  negative, false (zero) if  a is negative.
+zerop returns true if a is zero, false otherwise.
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+multiple-precision mathematicsOverviewmultiple-precision mathematics
+
+
+
+mtoi() returns an  integer equal to the value of  a.  a should be
+in the allowable range for a signed integer.
+
+The external  integers ibase and  obase govern the  I/O and ASCII
+conversion routines.   Allowable bases run from  two to 16.  Per-
+missible digits are 0 through  9 and A through F (lower-case let-
+ters are not  allowed).  min reads a mint in  base ibase from the
+standard input  and sets a to that value.   Leading blanks and an
+optional leading minus sign are allowed; the number is terminated
+by the  first non-legal digit.  mout() outputs  a on the standard
+output  in base  obase.  mtos() performs  the same  conversion as
+mout(), but the result is placed in a character string instead of
+being output; a pointer to the string is returned.  The string is
+actually allocated by malloc(), and may be freed by free().
+
+mzero()  and mone()  point  to mints  with values  zero and  one.
+mminint() and mmaxint() point to mints containing the minimum and
+maximum values  that will  fit in  a signed integer.   These con-
+stants should never be used as the result of an operation.
+
+All the  necessary declarations for  these constants and  for the
+library functions are contained in the header file mprec.h.  They
+need not be repeated.
+
+To link  mp modules with  an executable object,  use the argument
+-lmp with the cc or ld commands.
+
+***** Example *****
+
+The following  example converts  a string into  a multi-precision
+integer.
+
+
+#include <stdio.h>
+#include <mprec.h>
+#include <ctype.h>
+
+
+
+/*
+ * "ibase" is an int which contains the input base used by "stom".
+ * It should be between 2 and 16.
+ */
+int ibase = 10;
+
+
+
+/*
+ * stom() reads in a number in base ibase from string 'a' and returns
+ * pointer to multiple-precision integer.
+ */
+mint *stom(s)
+register char *s;
+{
+          char cval;
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+multiple-precision mathematicsOverviewmultiple-precision mathematics
+
+
+
+          mint c = {1, &cval};
+          register int ch;
+          char mifl = 0;/* leading minus flag */
+          static mintnumber;
+
+
+
+          mcopy(mzero, &number);/* set number to zero */
+          if ((ch = *s) == '-') {/* skip leading '-' */
+          mifl = 1;
+          ch = *++s;
+          }
+
+
+
+          /* scan thru string 's', building result in "number" */
+          while (isascii(ch) && isdigit(ch)) {
+          cval = (isdigit(ch) ? ch - '0': ch - 'A');
+          smult(&number, ibase, &number);
+          madd(&number, &c, &number);
+          ch = *++s;
+          }
+
+
+
+          if (mifl)/* adjust sign of a "number" */
+          mneg(&number, &number);
+          return(&number);
+}
+
+
+
+/* simple test for "stom" */
+main()
+{
+          charbuffer[80];
+
+
+
+          printf("Input string ? ");
+          gets(buffer);
+          mout(stom(buffer)); /* Print in stdout multiple-precision int */
+}
+
+
+***** Files *****
+
+<mprec.h>
+/usr/lib/libmp.a
+
+***** See Also *****
+
+bc, dc, libraries, malloc, mprec.h
+
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+multiple-precision mathematicsOverviewmultiple-precision mathematics
+
+
+
+***** Diagnostics *****
+
+On any error,  such as division by zero, running  out of space or
+taking the square root  of a negative number, an appropriate mes-
+sage is printed on the  standard error stream and the program ex-
+its with a nonzero status.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 5
+
+

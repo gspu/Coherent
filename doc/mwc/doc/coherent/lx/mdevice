@@ -1,0 +1,124 @@
+.TH mdevice "" "" "System Administration"
+.PC "Describe drivers that can be linked into kernel"
+.B "/etc/conf/mdevice"
+.PP
+File
+.B mdevice
+describes each device driver that can be linked into the \*(CO kernel.
+The command
+.B idmkcoh
+uses the information in this file when it builds and configures a new
+kernel.
+.PP
+.B mdevice
+contains one line for each driver or kernel component that can be
+linked into the kernel.
+Each line, in turn, consists of ten fields.
+The following describes the ten fields in order, from left to right:
+.IP "\fB1. \fIName\fR"
+This field gives the name of the driver or component.
+Each name must uniquely identify the driver or component within the kernel.
+This field cannot be longer than eight characters.
+.IP "\fB2. \fIFunction Flags\fR"
+This field holds a flag for each function (that is, entry point) within
+the driver or component.
+This field is used only by drivers or components that use the \*(ST or
+DDI/DKI interfaces; drivers that use the internal-kernel interface should
+place a hyphen `-' in this field.
+The legal flags are as follows:
+.DS
+	\fBo\fR	Open
+	\fBc\fR	Close
+	\fBr\fR	Read
+	\fBw\fR	Write
+	\fBi\fR	Ioctl
+	\fBs\fR	Startup
+	\fBx\fR	Exit
+	\fBI\fR	Init
+	\fBh\fR	Halt
+	\fBp\fR	Poll \(em that is, \fBchpoll()\fR
+.DE
+.IP "\fB3. \fIMiscellaneous Flags\fR"
+These flags give information about the device.
+They are set by most varieties of driver; the only exception is a \*(ST
+driver, for which only the flag
+.B S
+matters.
+The legal flags are as follows:
+.DS
+	\fBc\fR	Character device
+	\fBb\fR	Block device
+	\fBf\fR	Driver conforms to the DDI/DKI
+	\fBo\fR	Driver has only one entry in \fB/etc/conf/sdevice\fR
+	\fBr\fR	Driver is required in all configurations of the kernel
+	\fBS\fR	\*(ST module; or \*(ST device when used with the `c' flag
+	\fBH\fR	Device driver controls hardware
+	\fBC\fR	Driver uses interal-kernel (\fBCON\fR) interface
+.DE
+.IP
+Note that the `C' flag is unique to \*(CO, and cannot be used under other
+operating systems.
+.IP "\fB4. \fICode Prefix\fR"
+This gives the ``magic prefix'' by which the kernel identifies the
+entry-point routines for this driver.
+.\"This cannot exceed four characters.
+In most instances, this is identical with the driver's name.
+.IP "\fB5. \fIBlock Major-Device Number\fR"
+This gives the major-device number of this driver when it is accessed in
+block mode.
+In most instances, this and the following field are identical.
+.IP "\fB6. \fICharacter Major-Device Number\fR"
+This gives the major-device number of this driver when it is accessed in
+character (raw) mode.
+In most instances, this and the preceding field are identical.
+.IP "\fB7. \fIMinor Device Numbers, Minimum\fR"
+This gives the smallest number that can be held by a minor-device number
+under this driver.
+Most drivers set this field to the lowest legal value, which is zero.
+.IP "\fB8. \fIMinor Device Numbers, Maximum\fR"
+This gives the largest number that can be held by a minor-device number
+under this driver.
+Most drivers set this field to the highest legal value, which is 255.
+.IP "\fB9. \fIDMA Channel\fR"
+This gives the DMA channel by which the device is accessed.
+Under \*(CO, this is always set to \-1.
+.IP "\fB10. \fICPU ID\fR"
+This gives the CPU that controls this driver, should the driver be running
+in a multiprocessor environment and be dedicated to a particular processor.
+Under \*(CO, this is always set to \-1.
+.PP
+For an example of modifying this file, see the entry for
+.BR "device drivers" .
+.SH Example
+The following gives some example entries from
+.BR mdevice :
+.DM
+\fI1	2	3	4	5	6	7	8	9	10\fP
+###
+# Example of an kernel components:  floating-point emulator and STREAMS
+###
+em87	-	-	em87	0	0	0	0	-1	-1
+streams	I	-	streams	0	0	0	0	-1	-1
+.sp \n(pDu
+###
+# Example of a STREAMS driver:  note flags `c' and `S' both set in field 3
+###
+echo	-	cSf	echo	0	33	0	255	-1	-1
+.sp \n(pDu
+###
+# Example DDI/DKI character driver:  Note that field 2 is initialized.
+###
+trace	ocriI	cfo	tr	0	34	0	255	-1	-1
+.sp \n(pDu
+###
+# Example IK driver:  Note flag `C' in field 3
+###
+at	-	CGHo	at	11	11	0	255	-1	-1
+.DE
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "device drivers," device_dr
+.Xr "idmkcoh," idmkcoh
+.Xr "mtune," mtune
+.Xr "sdevice," sdevice
+.Xr "stune" stune

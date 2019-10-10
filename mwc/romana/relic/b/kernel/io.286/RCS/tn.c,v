@@ -1,0 +1,1399 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.07.17.15.24.51;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * Tiac ARCNET PC-234 Device Driver
+ *
+ * True support for up to 4 network cards through minor devices 0-3.
+ * Up to 4 protocols now supported.  Novell access is through normal
+ * minor device.  Netbios access is through novell minor device + 16.
+ */
+
+#include <sys/coherent.h>
+#include <sys/con.h>
+#include <sys/devices.h>
+#include <sys/sched.h>
+#include <sys/seg.h>
+#include <sys/stat.h>
+#include <sys/tnioctl.h>
+#include <errno.h>
+
+/*
+ * External functions.
+ */
+extern int  wakeup();
+extern void pollwake();
+extern void defer();
+
+/*
+ * Driver functions.
+ */
+void	tnopen();
+void	tnclose();
+int	tnread();
+int	tnwrite();
+int	tnioctl();
+void	tncycle();
+void	tnload();
+void	tnuload();
+int	tnpoll();
+int 	nonedev();
+int	nulldev();
+void	tn0intr();
+void	tn1intr();
+void	tn2intr();
+void	tn3intr();
+void	tnintr();
+
+/*
+ * Driver Configuration.
+ */
+CON
+tncon = {
+	DFCHR|DFPOL,			/* Flags	*/
+	TN_MAJOR,			/* Major Index	*/
+	tnopen,				/* Open		*/
+	tnclose,			/* Close	*/
+	nonedev,			/* Block	*/
+	tnread,				/* Read		*/
+	tnwrite,			/* Write	*/
+	tnioctl,			/* Ioctl	*/
+	nulldev,			/* Power fail	*/
+	tncycle,			/* Timeout	*/
+	tnload,				/* Load		*/
+	tnuload,			/* Unload	*/
+	tnpoll				/* Poll		*/
+};
+
+/*
+ * Interrupt Entry Points.
+ */
+void (*tnintf[4])() = {
+	tn0intr,
+	tn1intr,
+	tn2intr,
+	tn3intr
+};
+
+#define	BIT(n)		(1 << (n))
+
+/*
+ * Bitmask, indexed by bit numbers 0..7.
+ */
+static unsigned char bitm[8] = { BIT(0), BIT(1), BIT(2), BIT(3),
+				 BIT(4), BIT(5), BIT(6), BIT(7) };
+
+/*
+ * Patchable parameters - Cards 0-3.
+ */
+		/* Card    0       1       2      3  */
+int	TNIRQ [4] = {      2,      7,      4,      0 };
+saddr_t	TNSEL [4] = { 0xD000, 0x0000, 0x0000, 0x0000 };
+int	TNPORT[4] = {  0x2E0,  0x220,  0x240,  0x000 };
+
+/*
+ * Patchable parameters - Prefix Byte.
+ * Indexed by high nibble of minor device.
+ */
+int	TNPREFIX[4] = { 0x00,   0xF3,   0x00,   0x00 };
+
+/*
+ * Patchable variables.
+ * TNTIME = Transmit watchdog timer in seconds.
+ */
+int TNTIME = 5;
+
+/*
+ * Register addresses.
+ */
+#define	NIR		(tp->tnport)	/* Network Interrupt Mask Reg (w)  */
+#define	NSR		(tp->tnport)	/* Network Status Register    (r)  */
+#define	NCR		(tp->tnport+1)	/* Network Command Register   (w)  */
+#define	NZR		(tp->tnport+8)	/* Network Zap (reset) Reg    (w)  */
+
+/*
+ * Network Interrupt Register (NIR).
+ */
+#define	NI_Tx		BIT(0)		/* Enable Transmitter Avail Intr   */
+#define	NI_RECON	BIT(2)		/* Enable Reconfiguration   Intr   */
+#define	NI_Rx		BIT(7)		/* Enable Receiver Full     Intr   */
+
+/*
+ * Network Status Register (NSR).
+ */
+#define	NS_TxRDY	BIT(0)		/* Transmitter Available	   */
+#define	NS_TxACK	BIT(1)		/* Transmit Message Acknowledged   */
+#define	NS_RECON	BIT(2)		/* Network Reconfiguration	   */
+#define	NS_TEST		BIT(3)		/* Test				   */
+#define	NS_POR		BIT(4)		/* Power on Reset		   */
+#define	NS_ETS1		BIT(5)		/* Extended Timeout Status 1	   */
+#define	NS_ETS2		BIT(6)		/* Extended Timeout Status 2	   */
+#define	NS_RxRDY	BIT(7)		/* Packet Received - Receiver Off  */
+
+/*
+ * Network Command Register (NCR).
+ */
+#define	NC_TxDIS	(((0)<<3) + 1)	/* Disable Transmitter		   */
+#define	NC_RxDIS	(((0)<<3) + 2)	/* Disable Receiver		   */
+#define	NC_TxENA(n)	(((n)<<3) + 3)	/* Enable Transmitter on Page n	   */
+#define	NC_RxENA(n)	(((n)<<3)+0x84)	/* Enable Receiver    on Page n    */
+#define	NC_DFC		(((1)<<3) + 5)	/* Define Configuration (2k buf)   */
+#define	NC_POR		(((1)<<3) + 6)	/* Clear NS_POR flag		   */
+#define	NC_RECON	(((2)<<3) + 6)	/* Clear NS_RECON flag		   */
+
+/*
+ * Packet Control.
+ */
+struct tnet_s {
+
+	/*
+	 * Four buffers per card - 2 receive, 2 transmit.
+	 */
+	struct tnbuf_s {		/* tnget*,tnput* use tn_sel:tn_off */
+		unsigned	tn_off;	/* tn_sel:tn_off  = current byte   */
+		saddr_t		tn_sel;	/* network buffer selector	   */
+		struct tnbuf_s *tn_next;/* pointer to next pkt in queue	   */
+		unsigned	tn_ena;	/* Command to enable packet	   */
+		unsigned	tn_base;/* tn_sel:tn_base = pkt address	   */
+		unsigned	tn_xnid;/* Transmit node id		   */
+		unsigned	tn_xlen;/* Transmit length		   */
+	} tnbuf [4];
+
+	struct tnbuf_s *	RxBusy[4];/* Queues of full receive packets*/
+	struct tnbuf_s *	RxIdle;	/* Queue of empty receive packets  */
+
+	struct tnbuf_s *	TxBusy;	/* Queue of full transmit packets  */
+	struct tnbuf_s *	TxIdle;	/* Queue of empty transmit packets */
+
+	event_t			RxPoll[4];/* Polls for input packets	   */
+	event_t			TxPoll;	/* Polls for empty output packets  */
+
+	char			RxReq[4];/* 1 = Proc waiting for recv buf  */
+	char			TxReq;	/* 1 = Proc waiting for xmit buf   */
+	char			refc[4];/* # opens, indexed by prefix code */
+
+	unsigned		tnmask;	/* Interrupt enable mask	   */
+	unsigned		tnport;	/* Base I/O port		   */
+	char			tnaddr[8];/* ARC-NET Node ID, low byte 1st */
+
+	unsigned		tntime;	/* transmit watchdog timer	   */
+	unsigned		recon;	/* number of long reconfigurations */
+	unsigned		pri;	/* priority event occurred	   */
+	long			rbolt;	/* lbolt at last reconfiguration   */
+	unsigned char		bad[32];/* bit mask of bad nodes	   */
+	unsigned char		mod[32];/* bit mask of changed nodes	   */
+	long			recons;	/* reconfiguration statistic	   */
+	SEG *			statseg;/* Segment containing stats	   */
+
+} tnet [4];
+
+/*
+ * Load Routine.
+ */
+void
+tnload()
+{
+	register struct tnet_s  * tp;
+	register struct tnbuf_s * np;
+	faddr_t faddr;
+	paddr_t paddr;
+	int i;
+	int nid;
+	long delay;
+
+	for ( tp = &tnet[0], i = 0; i < 4; i++, tp++ ) {
+
+		/*
+		 * Validate patchable parameters.
+		 */
+		if ( (TNSEL[i] == 0) || (TNPORT[i] == 0) || (TNIRQ[i] == 0) ) {
+			TNPORT[i] = 0;
+			TNSEL[i]  = 0;
+			TNIRQ[i]  = 0;
+			continue;
+		}
+
+		tp->tnport = TNPORT[i];
+
+		/*
+		 * Clear Power-On-Reset Flag.
+		 */
+		outb( NCR, NC_POR );
+
+		/*
+		 * Validate card presence.
+		 * NOTE: tp->tnport must be programmed before using NIR macro.
+		 */
+		if ( inb(NSR) & (NS_TEST|NS_POR) ) {
+			tp->tnport = 0;
+			continue;
+		}
+
+		/*
+		 * Convert physical address into virtual address.
+		 */
+		paddr = TNSEL[i] << 4L;
+		faddr = ptov( paddr, (fsize_t) 2048 );
+
+		/*
+		 * Verify dual-port memory existence.
+		 * NOTE: Do not overwrite first two bytes [0xD1,nid].
+		 */
+		sfword( faddr+8, 0x1234 );
+		if ( ffword( faddr+8 ) != 0x1234 ) {
+			vrelse( faddr );
+			tp->tnport = 0;
+			continue;
+		}
+
+		/*
+		 * Allocate statistics segment.
+		 */
+		tp->statseg = salloc( (fsize_t) (256*NTNST*4), SFSYST|SFHIGH );
+
+		/*
+		 * Out of memory.
+		 */
+		if ( ! tp->statseg ) {
+			printf( "tn%d: out of memory\n", i );
+			vrelse( faddr );
+			tp->tnport = 0;
+			continue;
+		}
+
+		tp->tnbuf[0].tn_sel =
+		tp->tnbuf[1].tn_sel =
+		tp->tnbuf[2].tn_sel =
+		tp->tnbuf[3].tn_sel = FP_SEL(faddr);
+
+		tp->tnbuf[0].tn_ena  = NC_TxENA(0);
+		tp->tnbuf[1].tn_ena  = NC_TxENA(1);
+		tp->tnbuf[2].tn_ena  = NC_RxENA(2);
+		tp->tnbuf[3].tn_ena  = NC_RxENA(3);
+
+		tp->tnbuf[0].tn_base = 0 * 512;
+		tp->tnbuf[1].tn_base = 1 * 512;
+		tp->tnbuf[2].tn_base = 2 * 512;
+		tp->tnbuf[3].tn_base = 3 * 512;
+
+		/*
+		 * Initialize transmit idle queue.
+		 */
+		tp->TxIdle		= &tp->tnbuf[0];
+		tp->tnbuf[0].tn_next	= &tp->tnbuf[1];
+
+		/*
+		 * Initialize receive idle queue.
+		 */
+		tp->RxIdle		= &tp->tnbuf[2];
+		tp->tnbuf[2].tn_next	= &tp->tnbuf[3];
+
+		/*
+		 * Validate Node Id.
+		 */
+		np = &tp->tnbuf[0];
+		np->tn_off = 0;
+		if ( tngetc(np) != 0xD1 ) {
+
+			/*
+			 * Initiate Power On Reset.
+			 */
+			outb( NZR, 1 );
+
+			/*
+			 * Wait minimimum of 180 [suggest 250] milli-seconds.
+			 * Should function properly up to at least 16 Mhz clock.
+			 */
+			for ( delay = 250000L; --delay != 0; )
+				;
+		}
+
+		/*
+		 * Validate and Remember Node Id.
+		 */
+		np->tn_off = 0;
+		if ( tngetc(np) == 0xD1 )
+			tp->tnaddr[0] = tngetc( np );
+
+		/*
+		 * Record starting time of statistics collection.
+		 */
+		faddr = tp->statseg->s_faddr + TnELAPSED*4;
+		for ( nid = 0; nid < 256; nid++, faddr += NTNST*4 )
+			kfcopy( &lbolt, faddr, sizeof(lbolt) );
+
+		memset( tp->bad, -1, 32 );	/* Assume LAN is down	   */
+		memset( tp->mod,  0, 32 );	/* Assume no node changes  */
+		tp->tnmask = NI_Rx | NI_RECON;	/* Interrupts to enable    */
+		outb( NIR, 0 );			/* Disable Interrupts	   */
+		outb( NCR, NC_POR );		/* Clear POR Flag	   */
+		outb( NCR, NC_DFC );		/* Define 2K buf config	   */
+		outb( NCR, NC_TxDIS );		/* Disable Transmitter	   */
+		outb( NCR, tp->RxIdle->tn_ena);	/* Enable receiver	   */
+		setivec( TNIRQ[i], tnintf[i] );	/* Seize Interrupt Vector  */
+		outb( NIR, tp->tnmask );	/* Enable Interrupts       */
+	}
+
+	/*
+	 * Enable watchdog timer
+	 */
+	drvl[TN_MAJOR].d_time = 1;
+}
+
+/*
+ * Unload Routine.
+ */
+void
+tnuload( dev )
+dev_t dev;
+{
+	register struct tnet_s  * tp;
+	register int i;
+	faddr_t faddr;
+
+	/*
+	 * Disable watchdog timer.
+	 */
+	drvl[TN_MAJOR].d_time = 0;
+
+	/*
+	 * Scan network adaptors.
+	 */
+	for ( tp = &tnet[0], i = 0; i < 4; i++, tp++ ) {
+
+		if ( tp->tnport == 0 )
+			continue;
+
+		/*
+		 * Disable Interrupts
+		 */
+		outb( NIR, 0 );
+
+		/*
+		 * Release interrupt vector.
+		 */
+		clrivec( TNIRQ[i] );
+
+		/*
+		 * Release virtual address AFTER disabling interrupts.
+		 */
+		if ( FP_SEL(faddr) = tp->tnbuf[0].tn_sel )
+			vrelse( faddr );
+
+		/*
+		 * Release stats segment.
+		 */
+		if ( tp->statseg != NULL )
+			sfree( tp->statseg );
+	}
+}
+
+/*
+ * Open Routine.
+ *
+ *	Low nibble  of minor device is card identifier 0 to 3.
+ *	High nibble of minor device is code identifier 0 to 3.
+ */
+void
+tnopen( dev, mode )
+dev_t dev;
+{
+	register struct tnet_s * tp;
+	int card = (dev & 0x0F);
+	int code = (dev & 0xF0) >> 4;
+
+	/*
+	 * Validate minor device and card existence.
+	 */
+	if ( (card > 3) || (code > 3) || (tnet[card].tnport == 0)) {
+		u.u_error = ENXIO;
+		return;
+	}
+
+	/*
+	 * Code identifiers 1 to 3 are only valid if a prefix code is known.
+	 */
+	if ( (code > 0) && (TNPREFIX[code] == 0) ) {
+		u.u_error = ENXIO;
+		return;
+	}
+
+	/*
+	 * Access network information.
+	 */
+	tp = &tnet[card];
+
+	/*
+	 * Increment reference count (# opens).
+	 */
+	tp->refc[code]++;
+}
+
+/*
+ * Close Routine.
+ */
+void
+tnclose( dev )
+dev_t dev;
+{
+	register struct tnet_s  * tp =tp = &tnet[ dev & 3];
+	register struct tnbuf_s * np;
+	int code = (dev & 0x30) >> 4;
+	int s;
+
+	/*
+	 * Decrement reference count.
+	 */
+	if ( --tp->refc[code] != 0 )
+		return;
+
+	/*
+	 * Last close.
+	 * Release all queued packets.
+	 */
+	while ( np = tp->RxBusy[code] ) {
+		s = sphi( );
+		tp->RxBusy[code] = np->tn_next;
+		tn_rxena( tp, np );
+		spl( s );
+	}
+}
+
+/*
+ * Watchdog Timing Routine
+ *
+ *	If transmit has been enabled for 1-2 seconds:
+ *		Abort transmission of packet, forcing interrupt.
+ */
+void
+tncycle( )
+{
+	register struct tnet_s * tp;
+	register int code;
+	int s;
+
+	/*
+	 * Scan all network cards.
+	 */
+	for ( tp = &tnet[0]; tp <= &tnet[3]; tp++ ) {
+
+		if ( ! tp->tnport )
+			continue;
+
+		/*
+		 * Disable interrupts.
+		 */
+		s = sphi();
+
+		/*
+		 * Enable broadcasts after 5 seconds without reconfiguration.
+		 */
+		if ( (tp->recon > 0) && ((lbolt - tp->rbolt) > (5*HZ)) ) {
+			/*
+			 * LAN was previously down.
+			 */
+			if ( tp->bad[0] & 1 ) {
+				faddr_t fp = tp->statseg->s_faddr;
+				aflong( fp+TnSTATMOD*4, 1 );
+				tp->mod[0] |= 1;
+				tp->pri = 1;
+			}
+			tp->bad[0] &= ~1;
+			tp->recon   =  0;
+		}
+
+		/*
+		 * Discard bad packet on transmit watchdog timeout.
+		 */
+		if ( (tp->tntime > 0) && (--(tp->tntime) == 0) )
+			outb( NCR, NC_TxDIS );
+
+		/*
+		 * Enable interrupts.
+		 */
+		spl( s );
+
+		/*
+		 * LAN/DEVICE UP/DOWN event has occurred.
+		 */
+		if ( tp->pri == 1 ) {
+
+			tp->pri = 2;
+
+			for ( code = 0; code < 4; code++ )
+				if ( tp->RxPoll[code].e_procp )
+					pollwake( &tp->RxPoll[code] );
+		}
+	}
+}
+
+static
+tnioctl( dev, com, arg )
+dev_t dev;
+int com;
+register tnattr_t * arg;
+{
+	register struct tnet_s * tp = &tnet[dev & 3];
+	faddr_t fp;
+	int nid;
+	long t;
+	tnattr_t local;			/* to avoid fucopy() problems */
+
+	switch ( com ) {
+
+	case TNGETA:
+	case TNGETAF:
+		/*
+		 * Access node statistics.
+		 */
+		nid = getubd( &arg->host[5] );
+		fp  = tp->statseg->s_faddr + nid * (NTNST*4);
+
+		/*
+		 * Disable interrupts to avoid race condition with tnintr().
+		 */
+		sphi();
+
+		/*
+		 * Copy node status.
+		 */
+		if ( tp->bad[nid/8] & bitm[nid%8] )
+			putubd( &arg->bad, 1 );
+		else
+			putubd( &arg->bad, 0 );
+
+		/*
+		 * Copy network reconfigurations to user space.
+		 * NOTE: This is not a node statistic, but a network stat.
+		 */
+		kucopy( &tp->recons, &arg->recons, sizeof(tp->recons) );
+
+		/*
+		 * Copy node statistics to user space.
+		 */
+		fkcopy( fp, &local.stats[0], sizeof(local.stats) );
+		kucopy( &local.stats[0], &arg->stats[0], sizeof(arg->stats) );
+
+		/*
+		 * Copy true elapsed time of statistics collection.
+		 */
+		fkcopy( fp+TnELAPSED*4, &t, sizeof(t) );
+		t = lbolt - t;
+		kucopy( &t, &arg->stats[TnELAPSED], sizeof(arg->stats[0]) );
+
+		/*
+		 * Clear node statistics.
+		 * NOTE: Elapsed time statistic is time of last clear.
+		 */
+		if ( com == TNGETAF ) {
+			fclear( fp, NTNST * 4 );
+			kfcopy( &lbolt, fp+TnELAPSED*4, sizeof(lbolt) );
+			if ( nid == 0 )
+				tp->recons = 0;
+		}
+
+		/*
+		 * Enable interrupts.
+		 */
+		splo();
+
+		return( 0 );
+
+	default:
+		u.u_error = EINVAL;
+	}
+}
+
+/*
+ * Polling Routine.
+ *
+ *	Note:	Double-looks are performed to prevent critical race with
+ *		interrupt handlers,  without having to disable interrupts.
+ */
+static
+tnpoll( dev, ev, msec )
+dev_t dev;
+int ev;
+int msec;
+{
+	register struct tnet_s * tp = &tnet[dev & 3];
+	int code = (dev & 0x30) >> 4;
+	int rev = 0;
+
+	/*
+	 * Fast check for priority, input, and output polls.
+	 * Priority poll checks for LAN UP/DOWN transition.
+	 * Input    poll checks for a full receive buffer.
+	 * Output   poll checks for an empty transmit buffer, or LAN down.
+	 */
+	if ( (ev & POLLPRI) && (tp->pri != 0) )
+		rev |= POLLPRI;
+	if ( (ev & POLLIN) && (tp->RxBusy[code] != NULL) )
+		rev |= POLLIN;
+	if ( (ev & POLLOUT) && ((tp->TxIdle != 0) || (tp->bad[0] & 1)) )
+		rev |= POLLOUT;
+
+	/*
+	 * Fast check found an event, or this is a non-blocking poll.
+	 */
+	if ( (rev != 0) || (msec == 0) )
+		return( rev );
+
+	/*
+	 * Blocking Input poll.
+	 */
+	if ( ev & POLLIN ) {
+
+		pollopen( &tp->RxPoll[code] );
+
+		/*
+		 * Second look to avoid interrupt race.
+		 */
+		if ( tp->RxBusy[code] )
+			return( POLLIN );
+	}
+
+	/*
+	 * Blocking Output poll.
+	 */
+	if ( ev & POLLOUT ) {
+
+		pollopen( &tp->TxPoll );
+
+		/*
+		 * Second look to avoid interrupt race.
+		 * NOTE: When the LAN is down broadcasts [nid 0] are disabled.
+		 */
+		if ( (tp->TxIdle != 0) || (tp->bad[0] & 1) )
+			return( POLLOUT );
+	}
+
+	return( rev );
+}
+
+/*
+ * Interrupt Entry Point - Card 0.
+ */
+void
+tn0intr()
+{
+	tnintr( &tnet[0] );
+}
+
+/*
+ * Interrupt Entry Point - Card 1.
+ */
+void
+tn1intr()
+{
+	tnintr( &tnet[1] );
+}
+
+/*
+ * Interrupt Entry Point - Card 2.
+ */
+void
+tn2intr()
+{
+	tnintr( &tnet[2] );
+}
+
+/*
+ * Interrupt Entry Point - Card 3.
+ */
+void
+tn3intr()
+{
+	tnintr( &tnet[3] );
+}
+
+/*
+ * Interrupt Handler.
+ *
+ *	Process transmit/receive interrupts.
+ */
+void
+tnintr( tp )
+register struct tnet_s * tp;
+{
+	register struct tnbuf_s * np;
+	register int csr;
+	int nid;
+	int n;
+	int bit;
+
+	/*
+	 * Read interrupt status.
+	 * Disable interrupts to ensure edge occurs later.
+	 */
+	csr = inb( NSR );
+	tp->tnmask = NI_RECON;
+	outb( NIR, 0 );
+
+	/*
+	 * Reconfigurations with a period of 840 msec [600-1100]
+	 * increment tp->recon.  Other periods clear tp->recon.
+	 * After 5 reconfigurations at 840 msecs, the network is down.
+	 * After 1 reconfiguration at another interval, the network is up.
+	 * Network also comes up in tncycle() 5 seconds after last reconfig.
+	 */
+	if ( csr & NS_RECON ) {
+
+		outb( NCR, NC_RECON );
+		nid = (unsigned) (lbolt - tp->rbolt) * (1000/HZ);
+		tp->rbolt = lbolt;
+		tp->recons++;
+
+		/*
+		 * Not a chained reconfiguration.
+		 * Assume the network is up.
+		 * NOTE: Expect 840 msecs, but allow interrupt latency slip.
+		 */
+		if ( (nid < 700) || (nid > 1000) ) {
+			if ( tp->bad[0] & 1 ) {
+				tp->mod[0] |=  1;
+				tp->bad[0] &= ~1;
+				tp->pri = 1;
+			}
+			tp->recon   =  0;
+		}
+
+		/*
+		 * Chained reconfiguration - threshold exceeded.
+		 */
+		else if ( (++(tp->recon) == 5) && ((tp->bad[0] & 1) == 0) ) {
+			faddr_t fp = tp->statseg->s_faddr;
+			aflong( fp+TnSTATMOD*4, 1 );
+			memset( tp->bad, -1, sizeof(tp->bad) );
+			tp->mod[0] |= 1;
+			tp->pri = 1;
+		}
+	}
+
+	/*
+	 * Service Power on Resets.
+	 */
+	if ( csr & NS_POR ) {
+
+		csr &= ~(NS_RxRDY|NS_TxRDY);	/* Ignore receive/transmit */
+		outb( NCR, NC_DFC );		/* Define 2K buf config	   */
+		outb( NCR, NC_POR );		/* Clear POR flag	   */
+
+		/*
+		 * Enable receiver
+		 */
+		if ( np = tp->RxIdle )
+			outb( NCR, np->tn_ena );
+
+		/*
+		 * Enable transmitter
+		 */
+		if ( np = tp->TxBusy )
+			outb( NCR, np->tn_ena );
+	}
+
+	/*
+	 * Service transmit interupts if transmit is pending.
+	 */
+	if ( np = tp->TxBusy ) {
+
+		tp->tnmask |= NI_Tx;
+
+		/*
+		 * Check for transmission completed.
+		 */
+		if ( csr & NS_TxRDY ) {
+
+			/*
+			 * Destination Node Id is in 2nd byte of packet.
+			 */
+			np->tn_off = np->tn_base + 1;
+			nid = tngetc( np );
+
+			/*
+			 * Get length of short/long packets.
+			 */
+			n = 256 - tngetc(np);
+			if ( n == 256 )
+				n = 512 - tngetc(np);
+
+			/*
+			 * Transmitted packet was acknowledged.
+			 */
+			if ( csr & NS_TxACK ) {
+				/*
+				 * Adjust global and node statistics.
+				 */
+				faddr_t fp = tp->statseg->s_faddr;
+				aflong( fp+TnTxPACKS*4, 1 );
+				aflong( fp+TnTxBYTES*4, n );
+				fp += nid * (NTNST * 4);
+				aflong( fp+TnTxPACKS*4, 1 );
+				aflong( fp+TnTxBYTES*4, n );
+			}
+
+			/*
+			 * Transmitted packet was discarded.
+			 * NOTE: Do not flag broadcast [nid 0] as bad.
+			 */
+			else if ( nid != 0 ) {
+				/*
+				 * Adjust global and node statistics.
+				 */
+				faddr_t fp = tp->statseg->s_faddr;
+				aflong( fp+TnDISCARD*4, 1 );
+				fp += nid * (NTNST * 4);
+				aflong( fp+TnDISCARD*4, 1 );
+				aflong( fp+TnSTATMOD*4, 1 );
+
+				/*
+				 * Flag node as being bad.
+				 */
+				bit = bitm[ nid % 8 ];
+				tp->bad[ nid / 8 ] |= bit;
+				tp->mod[ nid / 8 ] |= bit;
+				tp->pri = 1;
+			}
+
+			/*
+			 * Move packet buffer to idle transmit queue.
+			 */
+			tp->TxBusy  = np->tn_next;
+			np->tn_next = tp->TxIdle;
+			tp->TxIdle  = np;
+
+			/*
+			 * Check for another packet to transmit.
+			 */
+			if ( np = tp->TxBusy ) {
+
+				/*
+				 * Enable transmitter, start watchdog timer.
+				 */
+				outb( NCR, np->tn_ena );
+				tp->tntime = TNTIME;
+			}
+
+			/*
+			 * Disable Transmit Interrupt, clear watchdog timer.
+			 */
+			else {
+				tp->tnmask &= ~NI_Tx;
+				tp->tntime  =  0;
+			}
+
+			/*
+			 * Wake processes waiting to transmit.
+			 */
+			if ( tp->TxReq ) {
+				tp->TxReq = 0;
+				defer( wakeup, &tp->TxReq );
+			}
+
+			if ( tp->TxPoll.e_procp )
+				defer( pollwake, &tp->TxPoll );
+		}
+	}
+
+	/*
+	 * Check for receive request.
+	 */
+	if ( np = tp->RxIdle ) {
+
+		tp->tnmask |= NI_Rx;
+
+		/*
+		 * Check for packet received.
+		 */
+		if ( csr & NS_RxRDY ) {
+
+			/*
+			 * Remove first packet from receive ready queue.
+			 * Re-enable receiver or disable receive interrupts.
+			 */
+			if ( tp->RxIdle = np->tn_next ) {
+				outb( NCR, np->tn_next->tn_ena );
+				np->tn_next = 0;
+			}
+			else
+				tp->tnmask &= ~NI_Rx;
+
+			/*
+			 * Source Node Id is in 1st byte of packet.
+			 */
+			np->tn_off = np->tn_base;
+			nid = tngetc( np );
+
+			/*
+			 * Try to establish our Node Id if not already set.
+			 * Destination Node Id (our station)
+			 * is in 2nd byte of the received packet.
+			 * NOTE: Always read node id byte.
+			 *	 This ensures offset bytes can be read.
+			 */
+			if ( (n = tngetc(np)) && (tp->tnaddr[0] == 0) )
+				tp->tnaddr[0] = n;
+
+			/*
+			 * Get offset to first data byte in short/long packet.
+			 * Short packet offset is in 3rd byte of packet.
+			 * Long  packet offset is in 4th byte of packet.
+			 */
+			if ( n = tngetc(np) )
+				np->tn_off = np->tn_base + n;
+			else
+				np->tn_off = np->tn_base + tngetc(np);
+
+			/*
+			 * LAN has come up.
+			 * Clear bad flag for the broadcast node.
+			 */
+			if ( tp->bad[0] & 1 ) {
+				tp->bad[ 0 ] &= ~1;
+				tp->mod[ 0 ] |=  1;
+				tp->pri = 1;
+			}
+
+			/*
+			 * Node has come up.
+			 * Clear bad flag for the Source Node.
+			 */
+			bit = bitm[ nid % 8 ];
+			if ( tp->bad[ nid / 8 ] & bit ) {
+				faddr_t fp = tp->statseg->s_faddr;
+				aflong( fp+TnSTATMOD*4, 1 );
+				fp += nid * (NTNST * 4);
+				aflong( fp+TnSTATMOD*4, 1 );
+				tp->bad[ nid / 8 ] &= ~bit;
+				tp->mod[ nid / 8 ] |=  bit;
+				tp->pri = 1;
+			}
+
+			/*
+			 * Get first data byte from packet.
+			 */
+			bit = tngetc( np );
+
+			/*
+			 * Determine prefix code associated with packet.
+			 */
+			for ( n = 3; n > 0; n-- ) {
+				if ( TNPREFIX[n] == bit )
+					break;
+			}
+
+			/*
+			 * Interface is open.
+			 */
+			if ( tp->refc[n] ) {
+
+				/*
+				 * Append received packet to received queue.
+				 * NOTE: At most 2 packets in any queue.
+				 */
+				if ( tp->RxBusy[n] )
+					tp->RxBusy[n]->tn_next = np;
+				else
+					tp->RxBusy[n] = np;
+	
+				/*
+				 * Wake processes waiting to read.
+				 */
+				if ( tp->RxReq[n] ) {
+					tp->RxReq[n] = 0;
+					defer( wakeup, &tp->RxReq[n] );
+				}
+	
+				if ( tp->RxPoll[n].e_procp )
+					defer( pollwake, &tp->RxPoll[n] );
+			}
+
+			/*
+			 * Interface is closed.
+			 * Return packet to end of receive idle queue.
+			 */
+			else
+				tn_rxena( tp, np );
+		}
+	}
+
+	/*
+	 * Restore interrupt mask.
+	 */
+	outb( NIR, tp->tnmask );
+}
+
+/*
+ * Read Routine.
+ *
+ *	Wait for a packet to be received.
+ *	Transform packet header and copy packet body.
+ *	Place packet buffer on receive idle queue.
+ *	If receiver was inhibited, enable receiver.
+ */
+
+
+tnread ( dev, iop )
+
+dev_t dev;
+register IO * iop;
+
+{
+	register struct tnet_s  * tp = &tnet[ dev & 3 ];
+	register struct tnbuf_s * np;
+	int code = (dev & 0x30) >> 4;
+	unsigned len;
+	unsigned cnt;
+	unsigned srcid;
+	int s;
+
+	/*
+	 * Driver information requested.
+	 */
+	if ( iop->io_ioc <= 2 + sizeof(tp->bad) + sizeof(tp->mod) ) {
+
+		/*
+		 * Supply null byte, then our node id.
+		 */
+		ioputc( 0, iop );
+		ioputc( tp->tnaddr[0], iop );
+
+		/*
+		 * Bad and modified node bit masks requested.
+		 * Disable interrupts during transfer to prevent
+		 * critical race with tnintr().
+		 */
+		if ( iop->io_ioc == sizeof(tp->bad) + sizeof(tp->mod) ) {
+			sphi();
+			iowrite( iop, tp->bad, sizeof(tp->bad) );
+			iowrite( iop, tp->mod, sizeof(tp->mod) );
+			kclear( tp->mod, sizeof(tp->mod) );
+			tp->pri = 0;
+			splo();
+		}
+
+		/*
+		 * Bad node bit mask requested.
+		 */
+		else if ( iop->io_ioc == sizeof(tp->bad) )
+			iowrite( iop, tp->bad, sizeof(tp->bad) );
+
+		return;
+	}
+
+	/*
+	 * Wait for packet reception.
+	 */
+	for ( ; ; ) {
+
+		s = sphi( );
+
+		/*
+		 * Check for received packet.
+		 */
+		if ( np = tp->RxBusy[code] ) {
+			tp->RxBusy[code] = np->tn_next;
+			np->tn_next = 0;
+			spl( s );
+			break;
+		}
+
+		/*
+		 * Non-blocking reads.
+		 */
+		if ( iop->io_flag & IONDLY ) {
+			u.u_error = EAGAIN;
+			spl( s );
+			return;
+		}
+
+		tp->RxReq[code] = 1;
+
+		sleep( &tp->RxReq[code], CVTTIN, IVTTIN, SVTTIN );
+		spl( s );
+
+		/*
+		 * Check for pending signal.
+		 */
+		if ( nondsig() ) {
+			u.u_error = EINTR;
+			return;
+		}
+	}
+
+	/*
+	 * Copy source and destination node ids
+	 */
+	np->tn_off = np->tn_base;
+	ioputc( srcid = tngetc(np), iop );
+	ioputc( tngetc(np), iop );
+
+	/*
+	 * Check for short packet.
+	 */
+	if ( cnt = tngetc(np) ) {
+
+		np->tn_off = np->tn_base + cnt;
+		len = 256 - cnt;
+	}
+
+	/*
+	 * Check for long packet.
+	 */
+	else if ( cnt = tngetc(np) ) {
+
+		np->tn_off = np->tn_base + cnt;
+		len = 512 - cnt;
+	}
+
+	/*
+	 * Check for non-empty packet.
+	 */
+	if ( cnt != 0 ) {
+
+		/*
+		 * Truncate packet if necessary.
+		 */
+		if ( iop->io_ioc < len )
+			len = iop->io_ioc;
+
+		/*
+		 * Copy packet body.
+		 */
+		tucopy( np, iop->io_base, len );
+		iop->io_ioc  -= len;
+		iop->io_base += len;
+	}
+
+	/*
+	 * Adjust received data statistics.
+	 */
+	if ( tp->statseg != NULL ) {
+		faddr_t fp = tp->statseg->s_faddr;
+		aflong( fp+TnRxPACKS*4, 1 );
+		aflong( fp+TnRxBYTES*4, len );
+		fp += srcid * (NTNST * 4);
+		aflong( fp+TnRxPACKS*4, 1 );
+		aflong( fp+TnRxBYTES*4, len );
+	}
+
+	/*
+	 * Enable packet reception with buffer.
+	 */
+	tn_rxena( tp, np );
+}
+
+
+/*
+ * Write Routine.
+ *
+ *	Wait for a empty transmit buffer to become available.
+ *	Format the buffer and place on transmit queue.
+ *	If transmit queue was empty, start transmitter.
+ */
+
+tnwrite ( dev, iop )
+
+dev_t dev;
+register IO * iop;
+
+{
+	register struct tnet_s  * tp = &tnet[ dev & 3 ];
+	register struct tnbuf_s * np;
+	unsigned len, cnt;
+	int dstid;
+	int s;
+
+	/*
+	 * Validate size of write.
+	 */
+	if ( ( iop->io_ioc < 3 ) || ( iop->io_ioc > 510 ) ) {
+		u.u_error = EINVAL;
+		return;
+	}
+
+	/*
+	 * Destination Node Id is 2nd byte of write.
+	 */
+	iogetc( iop );
+	dstid = iogetc( iop );
+
+	/*
+	 * Wait for empty transmit buffer.
+	 */
+	for ( ; ; ) {
+
+		/*
+		 * If Destination Node appears bad, set errno to EDATTN.
+		 */
+		if ( tp->bad[ dstid / 8 ] & (1 << (dstid % 8)) ) {
+			u.u_error = EDATTN;
+			return;
+		}
+
+		s = sphi( );
+
+		/*
+		 * Check for empty transmit buffer.
+		 */
+		if ( np = tp->TxIdle ) {
+
+			tp->TxIdle  = np->tn_next;
+			np->tn_next = 0;
+			spl( s );
+			break;
+		}
+
+		/*
+		 * Non-blocking writes.
+		 */
+		if ( iop->io_flag & IONDLY ) {
+			/*
+			 * Adjust delayed write stats.
+			 */
+			faddr_t fp = tp->statseg->s_faddr;
+			aflong( fp+TnWRTDLYS*4, 1 );
+			fp += dstid * (NTNST * 4);
+			aflong( fp+TnWRTDLYS*4, 1 );
+
+			u.u_error = EAGAIN;
+			spl( s );
+			return;
+		}
+
+		tp->TxReq = 1;
+		sleep( &tp->TxReq, CVTTOUT, IVTTOUT, SVTTOUT );
+		spl( s );
+
+		/*
+		 * Check for pending signal.
+		 */
+		if ( nondsig() ) {
+			u.u_error = EINTR;
+			return;
+		}
+	}
+
+	/*
+	 * Copy source and destination node ids
+	 * NOTE: Hardware inserts source node id automatically.
+	 */
+	np->tn_off = np->tn_base;
+	tnputc( np, 0 );
+	tnputc( np, dstid );
+
+	len = iop->io_ioc;
+
+	/*
+	 * Check for long packet.
+	 */
+	if ( len > 253 ) {
+		tnputc( np, 0 );
+		tnputc( np, cnt = 512 - len );
+		np->tn_off = np->tn_base + cnt;
+	}
+
+	/*
+	 * Short packet.
+	 */
+	else {
+		tnputc( np, cnt = 256 - len );
+		np->tn_off = np->tn_base + cnt;
+	}
+
+	/*
+	 * Copy packet body.
+	 */
+	utcopy( iop->io_base, np, len );
+	iop->io_base += len;
+	iop->io_ioc  -= len;
+
+	/*
+	 * Record length in header structure.
+	 */
+	np->tn_xlen = iop->io_ioc;
+
+	sphi();
+
+	/*
+	 * Put packet on transmit ready queue, prime transmitter if necessary.
+	 */
+	if ( ! tp->TxBusy ) {
+		tp->TxBusy = np;
+		outb( NCR, np->tn_ena );	 /* enable transmitter	*/
+		outb( NIR, tp->tnmask |= NI_Tx); /* enable xmit intr	*/
+		tp->tntime = TNTIME;		 /* restart watchdog	*/
+	}
+	else
+		tp->TxBusy->tn_next = np;
+
+	spl(s);
+}
+
+/*
+ * Enable packet reception with buffer.
+ */
+tn_rxena( tp, np )
+register struct tnet_s  * tp;
+register struct tnbuf_s * np;
+{
+	int s;
+
+	s = sphi( );
+
+	/*
+	 * Put packet on receive ready queue, prime receiver if necessary.
+	 */
+	if ( tp->RxIdle == NULL ) {
+		tp->RxIdle = np;
+		outb( NCR, np->tn_ena );
+		outb( NIR, tp->tnmask |= NI_Rx );
+	}
+	else
+		tp->RxIdle->tn_next = np;
+
+	np->tn_next = 0;
+	spl( s );
+}
+
+/*
+ * Adjust far long.
+ */
+static
+aflong( fp, i )
+faddr_t fp;
+int i;
+{
+	long lw;
+
+	fkcopy( fp, &lw, sizeof(lw) );
+	lw += i;
+	kfcopy( &lw, fp, sizeof(lw) );
+}
+@

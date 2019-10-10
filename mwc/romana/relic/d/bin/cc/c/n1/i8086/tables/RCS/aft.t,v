@@ -1,0 +1,141 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.29.19.07.51;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/////////
+/
+/ Postfix increment and decrement.
+/ These are just like the prefix forms with respect to the right hand
+/ operands. My heart says there is a better way to do the field versions
+/ of this operator with a clever sequence of XCHG and XOR. However, I can
+/ not think of it and neither can Trevor.
+/
+/////////
+
+INCAFT:
+DECAFT:
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	*	TEMP
+		ADR		WORD
+		1|MMX		*
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		ADR		WORD
+		1|MMX		*
+		[IFV]	[ZMOV]	[R],[AL]
+			[OP1]	[AL]
+
+#ifndef ONLYSMALL
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ADR		LPTX
+		1|MMX		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+			[OP1]	[AL]
+
+%	PLVALUE|PEFFECT
+	LPTX		ANYL	*	*	TEMP
+		ADR		LPTX
+		1|MMX		*
+		[IFV]	[ZLDES]	[LO R],[AL]
+			[OP1]	[AL]
+#endif
+
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	*	TEMP
+		ADR		WORD
+		IMM|MMX		WORD
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		ADR		WORD
+		IMM|MMX		WORD
+		[IFV]	[ZMOV]	[R],[AL]
+			[OP0]	[AL],[AR]
+
+#ifndef ONLYSMALL
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ADR		LPTX
+		IMM|MMX		WORD
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+			[OP0]	[AL],[AR]
+
+%	PEFFECT|PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ADR		LPTX
+		IMM|MMX		WORD
+		[IFV]	[ZLDES]	[LO R],[AL]
+			[OP0]	[AL],[AR]
+#endif
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	*	AX
+		ADR		FS8
+		1|MMX		*
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+			[TL OP1]	[AL]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	*	AX
+		ADR		FU8
+		1|MMX		*
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+			[TL OP1]	[AL]
+
+%	PEFFECT|PRVALUE
+	LONG		ANYR	*	*	TEMP
+		ADR		LONG
+		1|MMX		*
+		[IFV]	[ZMOV]	[LO R],[LO AL]
+		[IFV]	[ZMOV]	[HI R],[HI AL]
+			[OP0]	[LO AL],[CONST 1]
+			[OP2]	[HI AL],[CONST 0]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FFLD16
+		IMM|MMX		WORD
+			[ZMOV]	[LO R],[AL]
+			[ZMOV]	[HI R],[LO R]
+			[OP0]	[HI R],[AR]
+			[ZAND]	[HI R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[HI R]
+		[IFV]	[ZAND]	[LO R],[LO EMASK]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FFLD8
+		IMM|MMX		WORD
+			[ZMOVB]	[LO LO R],[AL]
+			[ZMOV]	[HI R],[LO R]
+			[OP0]	[HI R],[AR]
+			[ZAND]	[HI R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO HI R]
+		[IFV]	[ZAND]	[LO R],[LO EMASK]
+@

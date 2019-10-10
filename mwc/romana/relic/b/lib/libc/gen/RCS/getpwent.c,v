@@ -1,0 +1,200 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4; strict;
+comment  @ * @;
+
+
+1.4
+date     93.05.03.09.53.19;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     93.03.01.08.58.12;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.01.11.17.55.46;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     93.01.11.17.54.58;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 1/11/93
+Initial MWC RCS revision.
+@
+
+
+1.4
+log
+@steve: changes to only scan passwd entries with EXACTLY 6 separators.
+@
+text
+@/*
+ * libc/gen/getpwent.c
+ * Coherent I/O Library.
+ * Get password file entry.
+ * Searches by next entry, name or numerical id.
+ */
+
+#include <stdio.h>
+#include <pwd.h>
+
+#define field(x)	{ x=cp; while (*cp++); }
+#define	NPWLINE	120
+#define	PWFILE	"/etc/passwd"
+
+static	char	pwline[NPWLINE];
+static	struct	passwd pw;
+static	FILE	*pwfile	= { NULL };
+
+struct passwd *
+getpwnam(name)
+char *name;
+{
+	register struct passwd *pwp;
+
+	setpwent();
+	while ((pwp = getpwent()) != NULL)
+		if (streq(name, pwp->pw_name))
+			return pwp;
+	return NULL;
+}
+
+struct	passwd *
+getpwuid(uid)
+{
+	register struct passwd *pwp;
+
+	setpwent();
+	while ((pwp = getpwent()) != NULL)
+		if (uid == pwp->pw_uid)
+			return pwp;
+	return NULL;
+}
+
+struct passwd *
+getpwent()
+{
+	register char *cp, *xp;
+	register int c, nseps;
+
+	if (pwfile == NULL)
+		if ((pwfile = fopen(PWFILE, "r")) == NULL)
+			return NULL;
+again:
+	cp = pwline;
+	for (nseps = 0; (c = getc(pwfile))!=EOF && c!='\n'; ) {
+		if (c == ':') {
+			c = '\0';
+			++nseps;
+		}
+		if (cp < &pwline[NPWLINE-1])
+			*cp++ = c;
+	}
+	if (c == EOF)
+		return NULL;
+	if (nseps != 6)
+		goto again;		/* accept only lines with six ':'s */
+	*cp = '\0';
+	cp = pwline;
+	field(pw.pw_name);
+	field(pw.pw_passwd);
+	field(xp);
+	pw.pw_uid = atoi(xp);
+	field(xp);
+	pw.pw_gid = atoi(xp);
+	field(pw.pw_comment);
+	pw.pw_gecos = pw.pw_comment;
+	field(pw.pw_dir);
+	field(pw.pw_shell);
+	return &pw;
+}
+
+setpwent()
+{
+	if (pwfile != NULL)
+		rewind(pwfile);
+}
+
+endpwent()
+{
+	if (pwfile != NULL) {
+		fclose(pwfile);
+		pwfile = NULL;
+	}
+}
+
+/* end of getpwent.c */
+@
+
+
+1.3
+log
+@steve: fixes for pw->gecos and pw->comment
+@
+text
+@d48 1
+a48 1
+	register c;
+d53 1
+d55 2
+a56 2
+	while ((c = getc(pwfile))!=EOF && c!='\n') {
+		if (c == ':')
+d58 2
+d65 2
+@
+
+
+1.2
+log
+@steve 1/11/93
+Set pw_comment field where old source incorrectly set pw_gecos field.
+Minor cosmetic changes.
+@
+text
+@d71 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+d4 2
+a5 2
+ * Routines to get the password file entry.
+ * (searches by next entry, name or numerical id).
+d28 2
+a29 2
+			return (pwp);
+	return (NULL);
+d40 2
+a41 2
+			return (pwp);
+	return (NULL);
+d52 1
+a52 1
+			return (NULL);
+d61 1
+a61 1
+		return (NULL);
+d70 1
+a70 1
+	field(pw.pw_gecos);
+d73 1
+a73 1
+	return (&pw);
+d89 2
+@

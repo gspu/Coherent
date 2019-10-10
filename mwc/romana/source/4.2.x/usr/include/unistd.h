@@ -1,0 +1,206 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__UNISTD_H__
+#define	__UNISTD_H__
+
+#include <common/feature.h>
+#include <common/ccompat.h>
+#include <common/__pid.h>
+#include <common/__off.h>
+#include <common/_imode.h>
+#include <common/_size.h>
+#include <common/_ssize.h>
+#include <common/_uid.h>
+#include <common/whence.h>
+
+/* Access modes. */
+#define	F_OK		_PERM_EXIST
+#define	X_OK		_PERM_EXEC
+#define	W_OK		_PERM_WRITE
+#define	R_OK		_PERM_READ
+
+/* lockf() commands. */
+#define	F_ULOCK		0	/* unlock region */
+#define	F_LOCK		1	/* sleep until available and lock */
+#define	F_TLOCK		2	/* lock if available, EAGAIN if not */
+#define	F_TEST		3	/* return 0 if available, EAGAIN if not	*/
+
+/* File descriptors for standard FILEs. */
+#define	STDIN_FILENO	0
+#define	STDOUT_FILENO	1
+#define	STDERR_FILENO	2
+
+
+/*
+ * Names for pathconf () and fpathconf ().
+ */
+
+#if	_SYSV4
+
+#define	_PC_LINK_MAX		1
+#define	_PC_MAX_CANON		2
+#define	_PC_MAX_INPUT		3
+#define	_PC_NAME_MAX		4
+#define	_PC_PATH_MAX		5
+#define	_PC_PIPE_BUF		6
+#define	_PC_NO_TRUNC		7
+#define	_PC_VDISABLE		8
+#define	_PC_CHOWN_RESTRICTED	9
+
+#else
+
+#define	_PC_LINK_MAX		0
+#define	_PC_MAX_CANON		1
+#define	_PC_MAX_INPUT		2
+#define	_PC_NAME_MAX		3
+#define	_PC_PATH_MAX		4
+#define	_PC_PIPE_BUF		5
+#define	_PC_CHOWN_RESTRICTED	6
+#define	_PC_NO_TRUNC		7
+#define	_PC_VDISABLE		8
+
+#endif
+
+
+/*
+ * Names for sysconf ().
+ */
+
+#if	_SYSV4
+
+#define	_SC_ARG_MAX		1
+#define	_SC_CHILD_MAX		2
+#define	_SC_CLK_TCK		3
+#define	_SC_NGROUPS_MAX		4
+#define	_SC_OPEN_MAX		5
+#define	_SC_JOB_CONTROL		6
+#define	_SC_SAVED_IDS		7
+#define	_SC_VERSION		8
+#define	_SC_PASS_MAX		9
+#define	_SC_LOGNAME_MAX		10
+#define	_SC_PAGESIZE		11
+#define	_SC_XOPEN_VERSION	12
+
+#else	/* ! _SYSV4 */
+
+#define	_SC_ARG_MAX		0
+#define	_SC_CHILD_MAX		1
+#define	_SC_CLK_TCK		2
+#define	_SC_NGROUPS_MAX		3
+#define	_SC_OPEN_MAX		4
+#define	_SC_JOB_CONTROL		5
+#define	_SC_SAVED_IDS		6
+#define	_SC_VERSION		7
+
+#endif
+
+
+/*
+ * POSIX parameters.
+ */
+
+#if	_SYSV4
+#define	_POSIX_JOB_CONTROL	1
+#define	_POSIX_VDISABLE		0
+#endif
+
+#define	_POSIX_SAVED_IDS	1
+
+
+__EXTERN_C_BEGIN__
+
+__NO_RETURN__	_exit		__PROTO ((int _status));
+int		access		__PROTO ((__CONST__ char * _path,
+					  int _mode));
+unsigned int	alarm		__PROTO ((unsigned int _seconds));
+int		chdir		__PROTO ((__CONST__ char * _path));
+int		chown		__PROTO ((__CONST__ char * _path, 
+					  __uid_t _owner, __gid_t _group));
+int		close		__PROTO ((int _fildes));
+char	      *	ctermid		__PROTO ((char * _s));
+int		dup		__PROTO ((int _fildes));
+int		dup2		__PROTO ((int _fildes, int _fildes2));
+int		execl		__PROTO ((__CONST__ char * _path,
+					  __CONST__ char * _arg, ...));
+int		execle		__PROTO ((__CONST__ char * _path,
+					  __CONST__ char * _arg, ...));
+int		execlp		__PROTO ((__CONST__ char * _file,
+					  __CONST__ char * _arg, ...));
+int		execv		__PROTO ((__CONST__ char * _path,
+					  char * __CONST__ _argv []));
+int		execve		__PROTO ((__CONST__ char * _path,
+					  char * __CONST__ _argv [],
+					  char * __CONST__ _envp []));
+int		execvp		__PROTO ((__CONST__ char * _file,
+					  char * __CONST__ _argv []));
+__pid_t		fork		__PROTO ((void));
+char	      *	getcwd		__PROTO ((char * _buf, size_t _size));
+__gid_t		getegid		__PROTO ((void));
+__uid_t		geteuid		__PROTO ((void));
+__gid_t		getgid		__PROTO ((void));
+int		getgroups	__PROTO ((int _gidsetsize,
+					  __gid_t * _grouplist));
+char	      *	getlogin	__PROTO ((void));
+__pid_t		getpgrp		__PROTO ((void));
+__pid_t		getpid		__PROTO ((void));
+__pid_t		getppid		__PROTO ((void));
+__uid_t		getuid		__PROTO ((void));
+int		isatty		__PROTO ((int _fildes));
+int		link		__PROTO ((__CONST__ char * _existing,
+					  __CONST__ char * _new));
+__off_t		lseek		__PROTO ((int _fildes, __off_t _offset,
+					  int _whence));
+long		pathconf	__PROTO ((__CONST__ char * _path, int _name));
+int		pause		__PROTO ((void));
+int		pipe		__PROTO ((int _fildes [2]));
+int		read		__PROTO ((int _fildes, __VOID__ * _buf,
+					  size_t _nbyte));
+int		rmdir		__PROTO ((__CONST__ char * _path));
+int		setgid		__PROTO ((__gid_t _gid));
+int		setpgid		__PROTO ((__pid_t _pid, __pid_t _pgid));
+__pid_t		setsid		__PROTO ((void));
+int		setuid		__PROTO ((__uid_t _uid));
+unsigned int	sleep		__PROTO ((unsigned int _seconds));
+long		sysconf		__PROTO ((int _name));
+char	      *	ttyname		__PROTO ((int _fildes));
+int		unlink		__PROTO ((__CONST__ char * _path));
+int		write		__PROTO ((int _fildes,
+					  __CONST__ __VOID__ * _buf,
+					  size_t _nbyte));
+
+#if	0		/* not supported */
+__pid_t		tcgetpgrp	__PROTO ((int _fildes));
+int		tcsetpgrp	__PROTO ((int _fildes, __pid_t _pgrp_id));
+#endif	/* 0 */
+
+#if	_POSIX_C_SOURCE != 1
+
+int		getopt		__PROTO ((int _argc, char * __CONST__ * _argv,
+					  __CONST__ char * _optstring));
+
+extern	int		opterr;
+extern	int		optopt;
+extern	int		optind;
+extern	char	      *	optarg;
+
+#endif	/* _POSIX_C_SOURCE != 1 */
+
+#if	! _POSIX_C_SOURCE
+
+int		brk		__PROTO ((__VOID__ * _endds));
+long		fpathconf	__PROTO ((int _fildes, int _name));
+__VOID__      *	sbrk		__PROTO ((int _incr));
+int		setgroups	__PROTO ((int _ngroups,
+					  __CONST__ __gid_t * _grouplist));
+__pid_t		setpgrp		__PROTO ((void));
+
+#endif
+
+__EXTERN_C_END__
+
+#endif	/* ! defined (__UNISTD_H__) */

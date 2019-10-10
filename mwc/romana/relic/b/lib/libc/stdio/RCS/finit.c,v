@@ -1,0 +1,206 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     92.07.27.17.35.44;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.23.23.24.24;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.23.23.22.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@steve 7/27/92
+Preserve errno in finit(); isatty() sets it to ENOTTY if false.
+@
+text
+@/*
+ * libc/stdio/finit.c
+ * Standard i/o library internals.
+ * Initialize file for i/o:
+ *	decide if buffered
+ *	allocate buffer if required
+ *	stuff appropriate get/put functions
+ *	reset char count
+ */
+
+#include <stdio.h>
+#include <errno.h>
+
+extern	long	lseek();
+
+extern	int	_fgetc();
+extern	int	_fputc();
+extern	int	_fgetb();
+extern	int	_fputb();
+extern	int	_fputt();
+
+void
+finit(fp) register FILE *fp;
+{
+	register int tty, sav;
+
+	sav = errno;			/* because isatty() can set errno */
+	if (fp->_bp == NULL
+	 && (fp->_ff&_FSTBUF || (tty=isatty(fileno(fp))) && fp!=stdout
+	    || (fp->_bp = malloc(BUFSIZ)) == NULL)) {
+		fp->_gt = &_fgetc;
+		fp->_pt = &_fputc;
+	} else if ((fp->_ff&_FSTBUF)==0 && tty && fp==stdout) {
+		fp->_gt = &_fgetb;
+		fp->_pt = &_fputt;
+		fp->_dp = fp->_cp = fp->_bp;
+		fp->_cc = 0;
+	} else {
+		fp->_gt = &_fgetb;
+		fp->_pt = &_fputb;
+		fp->_dp = fp->_cp = fp->_bp + boffset(fileno(fp));
+		fp->_cc = 0;
+	}
+	errno = sav;
+}
+
+static
+int
+boffset(fd) int fd;
+{
+	register long off;
+
+	if ((off=lseek(fd, 0L, SEEK_CUR))==-1L)
+		return 0;
+	else
+		return (unsigned)off%BUFSIZ;
+}
+
+int
+_fginit(fp) register FILE *fp;
+{
+	finit(fp);
+	return (*fp->_gt)(fp);
+}
+
+int
+_fpinit(c, fp) register char c; register FILE *fp;
+{
+	finit(fp);
+	return (*fp->_pt)(c, fp);
+}
+
+
+/*
+ * Close all files.
+ * Called from exit().
+ */
+void
+_finish()
+{
+	register FILE **fpp;
+
+	for (fpp = &_fp[_NFILE-1]; fpp>=&_fp[0]; --fpp)
+		if (*fpp != NULL)
+			fclose(*fpp);
+}
+
+/* end of libc/stdio/finit.c */
+@
+
+
+1.2
+log
+@steve 4/23/90
+Replaced lseek parameter 1 with manifest constant SEEK_CUR.
+@
+text
+@d2 3
+a4 2
+ * Standard I/O Library Internals
+ * initialize file for I/O
+d12 1
+d14 1
+d16 6
+d23 1
+a23 2
+finit(fp)
+register FILE	*fp;
+d25 1
+a25 6
+	register int	tty;
+	extern	int	_fgetc();
+	extern	int	_fputc();
+	extern	int	_fgetb();
+	extern	int	_fputb();
+	extern	int	_fputt();
+d27 1
+d44 1
+d49 1
+a49 2
+boffset(fd)
+int	fd;
+d51 1
+a51 2
+	extern	long	lseek();
+	register long	off;
+d54 1
+a54 1
+		return (0);
+d56 1
+a56 1
+		return ((unsigned)off%BUFSIZ);
+d60 1
+a60 2
+_fginit(fp)
+register FILE	*fp;
+d63 1
+a63 1
+	return ((*fp->_gt)(fp));
+d67 1
+a67 3
+_fpinit(c, fp)
+register char	c;
+register FILE	*fp;
+d70 1
+a70 1
+	return ((*fp->_pt)(c, fp));
+d75 2
+a76 1
+ * Close all files (called from exit)
+a77 1
+
+d81 1
+a81 1
+	register FILE	**fpp;
+d84 1
+a84 1
+		if (*fpp!=NULL)
+d87 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d50 1
+a50 1
+	if ((off=lseek(fd, 0L, 1))==-1L)
+@

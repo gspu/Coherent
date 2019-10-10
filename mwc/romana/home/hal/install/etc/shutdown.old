@@ -1,0 +1,119 @@
+# /etc/shutdown originally 8/11/93 by Udo Munk (udo@umunk.GUN.de)
+# Revised at MWC.
+# Tue Nov  9 09:19:16 1993 CST
+
+. /usr/lib/shell_lib.sh
+
+cleanup () {
+	echo "Shutdown aborted."
+	/bin/rm -f /etc/nologin
+}
+
+# Unmount devices mounted by /etc/rc.
+# Take the system down to a safe state, single user mode or reboot.
+
+#
+# some variables
+#
+time=0
+USAGE="usage: shutdown level(reboot | halt | single | powerfail) time(0-30 minutes)"
+WARN="WARNING: system remains multi user, do not switch power off!"
+DOWN="System going down in"
+MINUTE="minute!\007"
+MINUTES="minutes!\007"
+DOWNNOW="System is going down now!\007"
+
+# Check arguments.
+#
+if [ $# -ne 2 ]; then
+  /bin/echo "$0: wrong number of arguments"
+  /bin/echo $USAGE
+  /bin/echo $WARN
+  /bin/sync
+  exit 1
+fi
+
+if [ $2 -lt 0 -o $2 -gt 30 ]; then
+  /bin/echo "$0: shutdown time out of range"
+  /bin/echo $USAGE
+  /bin/echo $WARN
+  /bin/sync
+  exit 1
+fi
+
+# Write the shutdown level into file /etc/shutdown.lvl
+#
+case $1 in
+  powerfail)
+    /bin/echo "powerfail" >/etc/shutdown.lvl
+    ;;
+  reboot)
+    /bin/echo "reboot" > /etc/shutdown.lvl
+    ;;
+  halt)
+    /bin/echo "halt" > /etc/shutdown.lvl
+    ;;
+  single)
+    /bin/rm -f /etc/shutdown.lvl
+    ;;
+  *)
+    /bin/echo "$0: shutdown level $1 unknown"
+    /bin/echo $USAGE
+    /bin/echo $WARN
+    /bin/sync
+    exit 1
+    ;;
+esac
+
+# Don't allow logins anymore.
+# NOTICE: Be sure to tell /etc/rc to remove /etc/nologin.
+>/etc/nologin
+trap "cleanup" 1 2 3
+
+# Count down shutdown time.
+#
+if [ $2 -gt 0 -a $1 != "powerfail" ]; then
+  time=$2
+  while [ $time -gt 0 ]; do
+    if [ $time -gt 1 ]; then
+      /bin/echo $DOWN $time $MINUTES
+      /bin/echo $DOWN $time $MINUTES | /etc/wall
+    else
+      /bin/echo $DOWN $time $MINUTE
+      /bin/echo $DOWN $time $MINUTE | /etc/wall
+    fi
+    /bin/sleep 60
+    time=`/bin/echo "$time - 1" | /bin/bc`
+  done
+fi
+
+# Give users a last chance to logout.
+#
+if [ $1 != "powerfail" ]; then
+  /bin/echo $DOWNNOW | /etc/wall
+  /bin/echo $DOWNNOW
+  /bin/sleep 10
+else
+  /bin/echo "Power failure, emergency shutdown!" | /etc/wall
+fi
+
+# Ignore signals.
+trap "" 1 2 3
+
+# Unmount all mounted filesystems.
+/etc/umount.all || {
+	echo -n "Some file systems remain mounted.  "
+	read_input "Proceed with shutdown" ANS "y" require_yes_or_no
+	is_yes $ANS || {
+		cleanup
+		exit 1
+	}
+}
+
+# Shut down daemon(s).
+/usr/bin/lpshut
+
+# Take system to single user mode.
+# /etc/.profile will pick up from there, reading /etc/shutdown.lvl
+#
+exec /bin/kill -1 1

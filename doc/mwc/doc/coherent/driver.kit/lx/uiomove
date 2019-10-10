@@ -1,0 +1,96 @@
+.TH uiomove() "" "" "DDI/DKI Kernel Routine"
+.PC "Use a uio structure to copy data"
+.B "#include <sys/types.h>"
+.B "#include <sys/uio.h>"
+\fBint uiomove(\fIaddress\^\fB, \fIbytes\^\fB, \fIflag\^\fB, \fIuioptr\^\fB)\fR
+\fBcaddr_t \fIaddress\^\fB; long \fIbytes\^\fB; uio_rw_t \fIflag\^\fB; uio_t *\fIuioptr\^\fB;\fR
+.PP
+.B uiomove()
+copies
+.I bytes
+of data between
+.I address
+and the space defined by the
+.B uio
+structure to which
+.I uioptr
+points.
+.PP
+.I address
+always gives a location within kernel space.
+.I uioptr
+can describe an area in either kernel space or user
+space, depending upon the value of its field
+.BR uio_segflg :
+.B UIO_SYSSPACE
+indicates kernel space, whereas
+.B UIO_USERSPACE
+indictes user space.
+The system will panic if
+.I address
+lies within user space, or if
+.B uio_segflg
+is not consistent with the space that
+.B uio
+defines.
+.PP
+.I flag
+gives the direction of the copy:
+.B UIO_READ
+moves data from
+.I address
+to
+.IR uioptr ,
+whereas
+.B UIO_WRITE
+does the opposite.
+.PP
+If
+.B uiomove()
+copies
+.I bytes
+of data,
+it updates the appropriate fields within the structures
+.B uio
+and
+.B iovec
+and returns zero.
+If it could not copy all of the requested data,
+it updates
+.B uio
+to record the number of bytes not transferred
+and returns an appropriate error code.
+.SH "See Also"
+.B
+bcopy(),
+copyin(),
+copyout(),
+DDI/DKI kernel routines,
+iovec,
+uio,
+ureadc(),
+uwritec()
+.R
+.SH Notes
+If
+.B uio_segflg
+equals
+.BR UIO_USERSPACE ,
+.B uiomove()
+has base level only and can sleep;
+if it equals
+.BR UIO_SYSSPACE ,
+the function has base or interrupt level and cannot sleep.
+.PP
+If
+.B uio_segflg
+equals
+.BR UIO_SYSSPACE ,
+a driver can hold a
+driver-defined basic lock or read/write lock across a call to this function;
+if it equals
+.B UIO_USERSPACE ,
+it cannot.
+In either case, a driver can hold a driver-defined sleep lock.
+When it holds a lock across a call to this function, a driver must be
+careful not to create a deadlock.

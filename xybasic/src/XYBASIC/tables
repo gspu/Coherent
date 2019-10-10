@@ -1,0 +1,744 @@
+;TABLES 01/12/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;tables
+
+
+;symbol table type token EQUates
+intst	equ	1		;integer variable
+sngst	equ	2		;single precision floating point variable
+strst	equ	3		;string variable
+ufnst	equ	4		;user-defined function
+brkst	equ	5		;break entry
+camst	equ	6		;camac variable
+
+;control stack token EQUates
+csgos	equ	25H		;gosub
+csfor	equ	47H+2*fbyts	;for
+csbrk	equ	65H		;break (and stop)
+csint	equ	87H		;interrupt
+cslbk	equ	0A5H		;line break
+
+;expr stack type byte EQUates
+tmask	equ	0F0H		;type mask
+pmask	equ	00FH		;precedence mask
+;first characters
+isdel	equ	10H		;delimiter
+islp	equ	20H		;left parenthesis
+isrp	equ	30H		;right parenthesis
+iscom	equ	40H		;comma
+;then 0-ary and user-defined functions
+isfn0	equ	50H		;0-ary function
+isufn	equ	60H		;user-defined function
+;then ops and fns, op1 first
+isop1	equ	70H		;unary op
+isop2	equ	80H		;binary op
+isfn1	equ	90H		;unary function
+isfn2	equ	0A0H		;binary function
+
+;branch addresses for command execution, in order of table position
+cmdta:	dw	let
+	dw	ifcom
+	dw	for
+	dw	next
+	dw	goto
+	dw	gosub
+	dw	print
+	dw	input
+	dw	read
+	dw	retrn
+	dw	def
+	dw	dim
+	dw	gtdel
+	dw	restr
+	dw	stop
+	dw	endcm
+	if	not wild
+	dw	null
+	endif
+	dw	calcm
+	dw	scall
+	if	not wild
+	dw	put
+	dw	poke
+	dw	wait
+	endif
+	dw	tcoff
+	dw	tcon
+	dw	tpoff
+	dw	tpon
+	dw	break
+	dw	unbrk
+	if	not wild
+	dw	enabl
+	dw	dsabl
+	dw	rndiz
+	endif
+	dw	rem
+	dw	delay
+	dw	save
+	dw	load
+	dw	list
+	dw	clear
+	dw	newcm
+	dw	run
+	dw	cont
+	if	not camac
+	dw	auto
+	dw	delet
+	dw	edit
+	dw	renum
+	endif
+	if	not wild
+	dw	move
+	endif
+	dw	exec
+	if	epstn
+	dw	plot
+	endif
+	if	sdisk and not c3885
+	dw	open
+	dw	close
+	dw	linpt
+	dw	margn
+	if	bendx
+	dw	bmsos
+	dw	bname
+	dw	bzap
+	else
+	dw	dircm
+	dw	scrat
+	endif
+	endif
+	if	bendx
+	dw	bfils
+	endif
+	if	camac
+	dw	camcd
+	dw	declr
+	dw	drivr
+	dw	xenab
+	dw	rstat
+	dw	camcl
+	dw	cinit
+	dw	cinhi
+	dw	loopc
+	dw	bypas
+	dw	onlin
+	dw	pulse
+	dw	open
+	dw	close
+	if	not c3885
+	dw	creat
+	endif
+	dw	lampa
+	dw	bkset
+	dw	block
+	dw	cenab
+	dw	cdsab
+	dw	sttim
+	else
+	if	wild
+	dw	wgbuf
+	else
+	dw	assig
+	endif
+	if	realt
+	dw	sttim
+	else
+	dw	time
+	endif
+	endif
+	if	packi
+	dw	onlin
+	dw	oflin
+	dw	field
+	endif
+	dw	on			;must follow ONLINE
+
+;type / precedence bytes for functions and ops
+;ms four bits type, ls four bits precedence
+typta:	db	isufn					;fn
+	db	isop1 + 6				;not
+	db	isop2 + 8, isop2 + 8			;+, -
+	db	isop2 + 9, isop2 + 9			;*, /
+	if	float
+	db	isop2 + 9, isop2 + 10			;\, ^
+	endif
+	db	isop2 + 7, isop2 + 7, isop2 + 7, isop2 + 7, isop2 + 7
+	db	isop2 + 7, isop2 + 7, isop2 + 7		;relations
+	db	isop2 + 5, isop2 + 4, isop2 + 4		;and, xor, or
+	db	isop2 + 9 				;mod
+	if	not wild
+	db	isop2 + 11				;join
+	endif
+	db	isfn0, isfn0				;get, fre
+	if	not wild
+	if	float
+	db	isfn1+2					;rnd
+	else
+	db	isfn0
+	endif
+	endif
+	if	wild
+	db	isfn0					;buffer
+	else
+	if	not camac
+	db	isfn0					;pos
+	endif
+	db	isfn0, isfn0				;first, last
+	endif
+	if	packi
+	db	isfn0					;flag
+	endif
+	if	sdisk and not c3885
+	db	isfn1+2					;eof
+	endif
+	if	float
+	if	not wild
+	db	isfn1 + 2				;UNS
+	endif
+	db	isfn1 + 2, isfn1 + 2, isfn1 + 2, isfn1 + 2
+	db	isfn1 + 2, isfn1 + 2, isfn1 + 2		;unary functions
+	if	not camac
+	db	isfn1 + 2				;ATN
+	endif
+	endif
+	if	strng
+	db	isfn1 + 2, isfn1 + 2, isfn1 + 2, isfn1 + 2
+	db	isfn1 + 2, isfn1 + 2, isfn1 + 2, isfn1 + 2
+	db	isfn2 + 2, isfn2 + 2, isfn2 + 2, isfn2 + 2
+	endif
+	if	camac
+	db	isfn0, isfn0
+	if	c3885
+	db	isfn1 + 2
+	else
+	db	isfn0
+	endif
+	else
+	if	not wild
+	db	isfn0					;iobyte
+	endif
+	if	realt
+	db	isfn0					;time$
+	db	isfn1 + 2				;time
+	endif
+	endif
+	db	isfn1 + 2, isfn1 + 2
+	if	not wild
+	db	isfn1 + 2, isfn1 + 2
+	db	isfn1 + 2, isfn1 + 2, isfn1 + 2		;unary functions
+	db	isfn2 + 2, isfn2 + 2, isfn2 + 2, isfn2 + 2, isfn2 + 2
+	db	isfn2 + 2, isfn2 + 2			;binary functions
+	db	isfn1 + 2				;in
+	endif
+
+;argument and result type information table for fns and ops
+;FN is a macro building a five-byte table entry for a function.
+;The first byte gives the type of arg2.
+;The second byte gives the type of arg1.
+;The third and fourth bytes give the function address.
+;The fifth byte gives the type of the result.
+;Unused arguments are indicated by 0, ambiguous entries by AMBST.
+;E.g.:	fn	sgn, ambst, 0, intst
+;indicates that the routine to compute SGN is at location SGN, the first arg
+;ambiguous (integer or float), no second arg, and the result integer.
+ambst	equ	0
+fn	macro	addr, a1typ, a2typ, rtype
+	db	a2typ, a1typ
+	dw	addr
+	db	rtype
+	endm
+;NB unary minus first, in place of fn
+funta:	fn	aumin, ambst, 0, ambst
+	fn	opnot, intst, 0, intst
+	fn	aadd, ambst, ambst, ambst
+	fn	asub, ambst, ambst, ambst
+	fn	amul, ambst, ambst, ambst
+	if	float
+	fn	fdivd, sngst, sngst, sngst	;floating /
+	fn	idivd, intst, intst, intst	;integer \
+	fn	fatox, sngst, sngst, sngst
+	else
+	fn	idivd, intst, intst, intst	;/ is integer divide if nonfloating
+	endif
+	fn	leq, ambst, ambst, intst
+	fn	leq, ambst, ambst, intst
+	fn	geq, ambst, ambst, intst
+	fn	geq, ambst, ambst, intst
+	fn	neq, ambst, ambst, intst
+	fn	equal, ambst, ambst, intst
+	fn	lthan, ambst, ambst, intst
+	fn	gthan, ambst, ambst, intst
+	fn	opand, intst, intst, intst
+	fn	opxor, intst, intst, intst
+	fn	opor, intst, intst, intst
+	fn	opmod, intst, intst, intst
+	if	not wild
+	fn	join, intst, intst, intst
+	endif
+	fn	get, 0, 0, ambst
+	fn	frefn, 0, 0, intst
+	if	not wild
+	if	float
+	fn	rnd, sngst, 0, sngst
+	else
+	fn	rnd, 0, 0, intst
+	endif
+	endif
+	if	wild
+	fn	wbuff, 0, 0, strst
+	else
+	if	not camac
+	fn	pos, 0, 0, intst
+	endif
+	fn	first, 0, 0, intst
+	fn	last, 0, 0, intst
+	endif
+	if	packi
+	fn	flag, 0, 0, intst
+	endif
+	if	sdisk and not c3885
+	fn	eoffn, intst, 0, intst
+	endif
+	if	float
+	if	not wild
+	fn	unsfn, intst, 0, sngst
+	endif
+	if	f9511
+	fn	int, sngst, 0, sngst
+	else
+	fn	int, sngst, 0, ambst
+	endif
+	fn	fsqr, sngst, 0, sngst
+	fn	fexp, sngst, 0, sngst
+	fn	fln, sngst, 0, sngst
+	fn	fsin, sngst, 0, sngst
+	fn	fcos, sngst, 0, sngst
+	fn	ftan, sngst, 0, sngst
+	if	not camac
+	fn	fatan, sngst, 0, sngst
+	endif
+	endif
+	if	strng
+	fn	binfn, intst, 0, strst
+	fn	hexfn, intst, 0, strst
+	fn	octfn, intst, 0, strst
+	fn	chrs, intst, 0, strst
+	if	float
+	fn	strs, sngst, 0, strst
+	else
+	fn	strs, intst, 0, strst
+	endif
+	fn	asc, strst, 0, intst
+	fn	len, strst, 0, intst
+	fn	val, strst, 0, ambst
+	fn	lefts, strst, intst, strst
+	fn	right, strst, intst, strst
+	fn	mids, strst, intst, strst
+	fn	instr, ambst, strst, intst
+	endif
+	if	camac
+	fn	camqf, 0, 0, intst
+	fn	timed, 0, 0, strst
+	if	c3885
+	fn	eoffn, intst, 0, intst
+	else
+	fn	typfn, 0, 0, intst
+	endif
+	else
+	if	not wild
+	fn	iobyf, 0, 0, intst
+	endif
+	if	realt
+	fn	timed, 0, 0, strst			;TIME$
+	fn	time, intst, 0, intst			;TIME
+	endif
+	endif
+	fn	sgn, ambst, 0, intst
+	fn	aabs, ambst, 0, ambst
+	if	not wild
+	fn	msbyt, intst, 0, intst
+	fn	lsbyt, intst, 0, intst
+	fn	bcd, intst, 0, intst
+	fn	bin, intst, 0, intst
+	fn	peek, intst, 0, intst
+	fn	rotat, intst, intst, intst
+	fn	test, intst, intst, intst
+	fn	sense, intst, intst, intst
+	fn	rshft, intst, intst, intst
+	fn	lshft, intst, intst, intst
+	fn	reset, intst, intst, intst
+	fn	setfn, intst, intst, intst
+	fn	inp, intst, 0, intst
+	endif
+
+;keyword table EQUates
+ncmds	equ	(typta-cmdta)/2		;number of commands
+nfuns	equ	funta-typta		;number of functions
+nrwds	set	3			;number of reserved words
+	if	not wild
+nrwds	set	nrwds+1
+	if	not camac
+nrwds	set	nrwds+5
+	endif
+	endif
+	if	float
+nrwds	set	nrwds+1
+	else
+nrwds	set	nrwds+1
+	if	strng
+nrwds	set	nrwds+1
+	endif
+	endif
+	if	strng
+nrwds	set	nrwds+1
+	else
+nrwds	set	nrwds+1
+	endif
+	if	not wild
+nrwds	set	nrwds+1
+	endif
+	if	key80
+nkeys	equ	ncmds+nfuns		;number of keywords
+	else
+nkeys	equ	ncmds+nfuns+nrwds
+	endif
+
+;keyword table
+;Adding or deleting a keyword always requires changing the KEYword table.
+;In addition, adding a command requires changing the branch table at CMDTA.
+;Adding a fn/op requires changing the type/prec table at TYPTA and the arg/result
+;table at FUNTA.  Adding a reserved word requires changing the NRWDS EQUates.
+
+;KEY is a macro to define keyword table entries and corresponding token values.
+key	macro	f, l, tval
+	if	not nul tval
+tval	equ	token			;;equate token value if desired
+	endif
+token	set	token+1			;;increment token value
+	if	wild or not compl
+	db	'&F', '&L' or 80H	;;keyword
+	endif
+	endm
+;NOKEY is a macro to leave holes in table for commands not included in
+;a non-ROMSQ or non-EDITC version, for token compatibility.
+nokey	macro	n
+	if	wild or not compl
+	rept	n
+	db	0FFH		;;token is <rubout> or 80H
+	endm
+	endif
+token	set	token+n
+	endm
+token	set	-nkeys and 0FFH	;first token value
+
+;commands
+keyta:	key	LE, T, cmdtk
+	key	I, F
+	key	FO, R, fort
+	key	NEX, T, nextt
+	key	GOT, O, gotot
+	key	GOSU, B, gsubt
+	key	PRIN, T, prntt
+	key	INPU, T
+	key	REA, D
+	key	RETUR, N
+	key	DE, F
+	key	DI, M
+	key	DAT, A, datat
+	key	RESTOR, E, rstrt
+	key	STO, P
+	key	EN, D
+	if	not wild
+	key	NUL, L
+	endif
+	key	CAL, L
+	key	SCAL, L
+	if	not wild
+	key	OU, T
+	key	POK, E
+	key	WAI, T
+	endif
+	key	UNTRAC, E
+	key	TRAC, E
+	key	UNTRA, P
+	key	TRA, P
+	key	BREA, K, brkt
+	key	UNBREA, K, unbkt
+	if	not wild
+	key	ENABL, E, enabt
+	key	DISABL, E, dsabt
+	key	RANDOMIZ, E
+	endif
+	key	RE, M, remt
+	key	DELA, Y
+	key	SAV, E
+	key	LOA, D
+	key	LIS, T, listt
+	key	CLEA, R
+	key	NE, W
+	key	RU, N, runt
+	key	CON, T
+	if	not camac
+	if	editc
+	key	AUT, O
+	key	DELET, E
+	key	EDI, T
+	key	RENU, M
+	else
+	nokey	4
+	endif
+	endif
+	if	romsq
+	if	not wild
+	key	MOV, E
+	endif
+	key	EXE, C
+	else
+	nokey	2
+	endif
+	if	epstn
+	key	PLO, T
+	endif
+	if	sdisk and not c3885
+	key	OPE, N
+	key	CLOS, E
+	key	LINPU, T
+	key	MARGI, N
+	if	bendx
+	key	MSO, S
+	key	NAM, E
+	key	ZA, P
+	else
+	key	DI, R
+	key	SCRATC, H
+	endif
+	endif
+	if	bendx
+	key	FILE, S
+	endif
+	if	camac
+	key	CAMA, C
+	key	DECLAR, E
+	key	DRIVE, R, drivt
+	key	XENABL, E
+	key	RSTATU, S
+	key	CAMCL, R
+	key	INI, T
+	key	INHIBI, T
+	key	LOOPCO, L
+	key	BYPAS, S
+	key	ONLIN, E
+	key	PULS, E
+	key	OPE, N
+	key	CLOS, E
+	if	not c3885
+	key	CREAT, E
+	endif
+	key	LAMPA, T
+	key	BKSE, T
+	key	BLOC, K
+	key	ENA, B
+	key	DISA, B
+	key	SETTIM, E
+	else
+	if	wild
+	key	GETBU, F
+	else
+	key	ASSIG, N
+	endif
+	if	realt
+	key	SETTIM, E
+	else
+	key	TIM, E
+	endif
+	endif
+	if	packi
+	key	ONLIN, E
+	key	OFFLIN, E
+	key	FIEL, D
+	endif
+	key	O, N
+
+;functions and ops
+	key	F, N, udfnt
+	key	NO, T
+	key	, +, plust
+	key	, -, mint
+	key	, *, multt
+	key	, /
+	if	float
+	key	, \
+	key	, ^^
+	endif
+	key	^<, =
+	key	=, ^<
+	key	=, ^>
+	key	^>, =
+	key	^<, ^>
+	key	, =, eqult
+	key	, ^<
+	key	, ^>
+	key	AN, D
+	key	XO, R
+	key	O, R
+	key	MO, D
+	if	not wild
+	key	JOI, N
+	endif
+	key	GE, T
+	key	FR, E
+	if	not wild
+	key	RN, D
+	endif
+	if	wild
+	key	BUFFE, R, wbuft
+	else
+	if	not camac
+	key	PO, S
+	endif
+	if	romsq
+	key	FIRS, T
+	key	LAS, T
+	else
+	nokey	2
+	endif
+	endif
+	if	packi
+	key	FLA, G
+	endif
+	if	sdisk and not c3885
+	key	EO, F
+	endif
+	if	float
+	if	not wild
+	key	UN, S
+	endif
+	key	IN, T, intt
+	key	SQ, R
+	key	EX, P
+	key	LO, G
+	key	SI, N
+	key	CO, S
+	key	TA, N
+	if	not camac
+	key	AT, N
+	endif
+	endif
+	if	strng
+	key	BIN, $
+	key	HEX, $
+	key	OCT, $
+	key	CHR, $
+	key	STR, $
+	key	AS, C
+	key	LE, N
+	key	VA, L
+	key	LEFT, $
+	key	RIGHT, $
+	key	MID, $, midst
+	key	INST, R, instt
+	endif
+	if	camac
+	key	CA, M, camt
+	key	TIME, $
+	if	c3885
+	key	EO, F
+	else
+	key	TY, P
+	endif
+	else
+	if	not wild
+	key	IOBYT, E
+	endif
+	if	realt
+	key	TIME, $
+	key	TIM, E
+	endif
+	endif
+	key	SG, N
+	key	AB, S
+	if	not wild
+	key	MSBYT, E
+	key	LSBYT, E
+	key	BC, D
+	key	BI, N
+	key	PEE, K
+	key	ROTAT, E
+	key	TES, T
+	key	SENS, E
+	key	RSHIF, T
+	key	LSHIF, T
+	key	RESE, T
+	key	SE, T
+	key	I, N
+	endif
+
+;reserved words and PRINT functions
+	if	key80
+rwdtk	equ	0EH		;first reserved word token
+token	set	rwdtk
+	endif
+rwdta:	key	THE, N, thent
+	key	T, O, tot
+	key	STE, P, stept
+	if	not wild
+	key	TA, B, tabt
+	if	not camac		;no devices in CAMAC version
+	key	SP, C, spct
+	key	CON, #, contk
+	key	RDR, #
+	key	PUN, #
+	key	LST, #
+	endif
+	endif
+	if	float
+	key	SN, G, sngt		;for DEF SNG
+	else
+	key	UN, S, unst		;UNS is print fn if nonfloating
+	if	strng
+	key	IN, T, intt		;for DEF INT
+	endif
+	endif
+	if	strng
+	key	ST, R, strgt		;for DEF STR
+	else
+	key	CHR, $, chrst		;CHR$ is print fn if nonstring
+	endif
+	if	not wild
+	if	romsq
+	key	FRO, M, fromt		;for MOVE FROM
+	else
+	nokey	1
+	endif
+	endif
+
+;end of keyword table
+
+;table of keywords after which <line #>s may occur, for RENUM
+	if	editc and not compl
+klnta:	db	gotot, gsubt, thent, runt, rstrt
+	db	listt, brkt, unbkt
+	if	not wild
+	db	enabt, dsabt
+	endif
+klnct	equ	$-klnta
+	endif
+
+;copyright message
+;not in module INITIAL to prevent overlaying
+mwcma:	db	'COPYRIGHT 1978, 1979, 1980, 1981'
+	if	epstn
+	db	13H
+	endif
+	db	' BY MARK WILLIAMS COMPANY, CHICAGO'
+	if	epstn
+	db	12H, cr, lf, lf, 'PREPARED FOR ', 16H
+	db	'EPSTEIN & BERGHORN', 12H, ', NORTHBROOK IL', cr, lf
+	endif
+	db	cr, lf or 80H
+
+;end of TABLES
+	page

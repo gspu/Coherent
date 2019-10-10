@@ -1,0 +1,1684 @@
+head     1.8;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.8;
+comment  @ * @;
+
+
+1.8
+date     93.07.02.12.32.28;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.03.11.08.33.16;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     93.02.24.08.59.11;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.10.12.12.04.38;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.05.26.10.40.11;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.05.14.13.56.02;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.02.28.11.08.09;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.21.09.31.11;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.8
+log
+@steve: fixed bogosity dealing with _s at the end of a filename
+@
+text
+@/*
+ * ld/pass1.c
+ *
+ * One Pass Coff Loader.
+ * By Charles Fiterman 3/31/92 for Mark Williams.
+ */ 
+#include "ld.h"
+
+mod_t *sysHead;
+static int  ifd;
+static char *fname;
+
+/*
+ * Reverse bytes on the 80386 for archive pointers.
+ */
+#ifdef GEMDOS
+#include <osbind.h>
+#define flipbytes(x)
+#else
+flipbytes(c)
+register char *c;
+{
+	register char t;
+
+	t = c[0]; c[0] = c[3]; c[3] = t;
+	t = c[1]; c[1] = c[2]; c[2] = t;
+}
+#endif
+
+/*
+ * Symbol name.
+ */
+char *
+symName(sym, work)
+register SYMENT *sym;
+register char *work;
+{
+	if (1 == sym->n_zeroes) {	/* pointer to table record */
+		sym_t *s;
+
+		s = (sym_t *)sym->n_offset;
+		sym = &(s->sym);
+	}
+
+	if (!sym->n_zeroes)		/* pointer to long symbol */
+		return ((char *)sym->n_offset);
+
+	/*
+	 * Name in record may need terminator.
+	 * Profiling shows this gets used a lot so do it quick
+	 * even at the cost of some readability.
+	 */
+	((long *)work)[0] = sym->n_zeroes;
+	((long *)work)[1] = sym->n_offset;
+/*	memcpy(work, sym->n_name, SYMNMLEN); */
+	work[SYMNMLEN] = '\0';
+	return (work);
+}
+
+/*
+ * complain about redefined symbol
+ */
+void
+symredef(sp, mp)
+sym_t	*sp;
+mod_t	*mp;
+{
+	/*
+	 * Simple module.
+	 */
+	if (mp->mname[0] == '\0')
+		spmsg(sp, "redefined in file '%s'", mp->fname);
+	/* A symbol is defined in incompatible ways in different files. */
+
+	else
+		spmsg(sp, "redefined in file '%s': module '%.*s'",
+			mp->fname, DIRSIZ, mp->mname );
+	/* A symbol is defined in incompatible ways in different files. */
+}
+
+/*
+ * Return undefined reference to given symbol if any.
+ */
+sym_t *
+symref(name)
+char *name;
+{
+	char work[SYMNMLEN + 1];
+	register sym_t	*sp;
+	register SYMENT *sym;
+
+	/* Scan internal symbol table for undefined reference. */
+	for (sp=symtable[crc16(name) % NHASH]; sp != NULL; sp=sp->next) {
+		sym = &(sp->sym);
+		if (undefined(sym) && !strcmp(symName(sym, work), name))
+			break;
+	}
+	return(sp); /* Return reference, or NULL. */
+}
+
+/*
+ * Read input files.
+ */
+readFile(fn, loadsw, p)
+char *fn;	/* file name */
+int  loadsw;	/* 1 = load this file, 0 = use its symbol table */
+register char *p;
+{
+	struct stat st;
+
+	fname = fn;
+
+	if (NULL == p) {	/* not forced */
+		/*
+		 * Look for rename entrys.
+		 * con=atcon
+		 * is not a filename with an =
+		 * it means rename con to atcon.
+		 * This is a drvld requirment.
+		 */
+		if (NULL != (p = strchr(fname, '='))) {
+			ren_t	*new;
+	
+			new = alloc(sizeof(*new));
+			new->next = rhead;
+			rhead = new;
+			new->from = fname;
+			*p = '\0';
+			new->to = p + 1;
+			return;
+		}
+
+		/* all names must be *.[ao] */
+		if (NULL == (p = strrchr(fname, '.')) || p[2])
+			p = ".?";
+		if (!loadsw)	/* drvld's read of the system */
+			p = "_s.o" + 2;
+#if	0
+/* This is bogus, e.g. it suppresses the ld of a_s.o in "cc a_s.o". */
+		/* shared libs have names like libc_s.a */
+		if ((p[-2] == '_') && (p[-1] == 's'))
+			loadsw = 0;
+#endif
+	}
+#ifdef GEMDOS
+	stat(fname, &st);
+	ifd = qopen(fname, 0);
+#else
+	ifd = qopen(fname, 0);
+	fstat(ifd, &st);
+#endif
+	switch(p[1]) {
+	case 'a':
+		archive(loadsw);
+		break;
+	case 'o':
+		object("", st.st_size, loadsw);
+		break;
+	default:
+		message("unlikely input file name '%s'", fname);
+		/* Input file names must end \fB.o\fR for object or \fB.a\fR
+		 * for archive. */
+	}
+	close(ifd);
+}
+
+/*
+ * Add item to correct common
+ */
+static void
+addComm(v)
+long v;
+{
+	switch ((int)v & 3) {
+	case 0:
+		comnl += v;	/* Long aligned commons */
+		break;
+	case 2:
+		comns += v;	/* Short aligned commons */
+		break;
+	default:
+		comnb += v;	/* Byte aligned commons */
+	}
+}
+
+/*
+ * add a symbol to the symbol table.
+ */
+addsym(s, mp)
+register SYMENT *s;
+mod_t *mp;
+{
+	register sym_t *sp;
+	ren_t *ren;
+	enum state {
+		local, gdef, gref, comm
+	} new, old;
+	int h, sec;
+	char has_fsize, has_fcn, nodata;
+	char *name;
+	char w1[SYMNMLEN + 1], w2[SYMNMLEN + 1];
+
+	sec = s->n_scnum;
+	switch (s->n_sclass) {
+	case C_EXTDEF:
+		s->n_sclass = C_EXT;
+		sec = s->n_value = s->n_scnum = 0;
+	case C_EXT:
+		if (sec)
+			new = gdef;
+		else if (s->n_value)
+			new = comm;
+		else
+			new = gref;
+		break;
+	case C_STAT:
+		new = local;
+		break;
+	default:
+		if (!debflg)
+			return;
+		new = local;
+	}
+
+	name = symName(s, w1);
+
+	/* check rename entrys */
+	for (ren = rhead; NULL != ren; ren = ren->next) {
+		if (!strcmp(ren->from, name)) {
+			s->n_zeroes = 0;
+			name = ren->to;
+			s->n_offset = (long)name;
+			break;
+		}
+	}
+	h = crc16(name) % NHASH;
+
+	/* Make symbols segment relative, if mp == NULL than sec == 0 */
+	if (sec > 0)
+		s->n_value += secth[sec - 1].s_size - mp->s[sec - 1].s_vaddr;
+				
+	if (local == new && 
+	    (nolcl ||
+	     (noilcl && (name[0] == '.') && (name[1] == 'L'))))
+		return;
+
+	for (sp = ((local == new) ? NULL : symtable[h]);
+	     sp != NULL;
+	     sp = sp->next) {
+		if ((sp->sym.n_sclass != C_EXT) ||
+		    (strcmp(symName(&(sp->sym), w2), name)))
+			continue;
+	
+		if (sp->sym.n_scnum)
+			old = gdef;
+		else if (sp->sym.n_value)
+			old = comm;
+		else
+			old = gref;
+
+		switch (new) {
+		/* case local: can't get here */
+
+		case gref:
+			s->n_offset = (long)sp;
+			s->n_zeroes = 1;
+			return;
+
+		case gdef:
+			switch (old) {
+			case comm:
+				spwarn(sp,
+			"symbol defined as a common then a global");
+			/* A symbol was defined as a common and a globl, eg
+			 * .DM
+			 *	int x;		// a common in one module
+			 *	int x = 5;	// a globl in another module
+			 * .DE
+			 * Read your code and think about variable usage.
+			 * We redefined the common as an external to match
+			 * the UNIX linker, which fails to flag this.
+			 */
+				addComm(- sp->sym.n_value); /* zonk common */
+				memcpy(&(sp->sym), s, sizeof(*s));
+				sp->mod = mp;
+				s->n_offset = (long)sp;
+				s->n_zeroes = 1;
+				return;
+
+			case gref:
+				nundef--;
+				memcpy(&(sp->sym), s, sizeof(*s));
+				sp->mod = mp;
+				s->n_offset = (long)sp;
+				s->n_zeroes = 1;
+				return;
+
+			default:
+				symredef(sp, mp);
+				return;
+			}
+
+		case comm:
+			switch (old) {
+			case comm:
+				s->n_offset = (long)sp;
+				s->n_zeroes = 1;
+
+				if (sp->sym.n_value == s->n_value)
+					return;
+
+				spwarn(sp,  "defined with lengths %ld and %ld",
+					sp->sym.n_value,
+					s->n_value);
+				/* A common was defined with different lengths,
+				 * while this is legal it is very unusual in
+				 * C programs. This warning may be turned off
+				 * with the -q flag */
+
+				addComm(- sp->sym.n_value);
+				if (sp->sym.n_value < s->n_value) {
+					sp->sym.n_value = s->n_value;
+					sp->mod = mp;
+				}
+				sp->sym.n_value += 3;
+				sp->sym.n_value &= ~3L;
+				addComm(sp->sym.n_value);
+				return;
+
+			case gref:
+				addComm(s->n_value);
+				nundef--;
+				memcpy(&(sp->sym), s, sizeof(*s));
+				sp->mod = mp;
+				s->n_offset = (long)sp;
+				s->n_zeroes = 1;
+				return;
+
+			case gdef:
+				spwarn(sp, "Defined as a global then a common");
+					/* NODOC */
+				s->n_offset = (long)sp;
+				s->n_zeroes = 1;
+				return;
+			}
+		}
+	}
+
+	/* symbol local or not found */
+	sp = alloc(sizeof(*sp));
+	memcpy(&(sp->sym), s, sizeof(*s));
+	sp->next = symtable[h];
+	symtable[h] = sp;
+
+	switch (new) {
+	case comm:
+		addComm(s->n_value);
+	case local:
+		break;
+	case gref:
+		nundef++;
+	}
+	
+	sp->mod = mp;
+	s->n_offset = (long)sp;
+	s->n_zeroes = 1;
+}
+
+/*
+ * Read input file.
+ */
+static void
+xread(loc, size)
+char *loc;
+unsigned size;
+{
+	if (size != read(ifd, loc, size))
+		fatal("error reading '%s'", fname); /**/
+}
+
+/*
+ * Inhale object file.
+ */
+object(mname, size, loadsw)
+char *mname;
+long size;
+{
+	register SYMENT *sym;
+	register SCNHDR *s;
+	SYMENT *endSym;
+	mod_t *mp;
+	char *endmod;
+	long i, j, k;
+
+	if (watch) {
+		errCount--;
+		modmsg(fname, mname, "adding");	/* NODOC */
+	}
+	if (size < sizeof(FILEHDR)) {
+		modmsg(fname, mname, "not an object file - length %d", size);
+		/* This cannot be an object file */
+		exit(1);
+	}
+	mp    = alloc(sizeof(*mp));	/* allocate our header */
+	mp->f = alloc((int)size);	/* allocate space for file */
+	endmod = mp->f + size;		/* end of space for file */
+	xread(mp->f, (int)size);	/* inhale file */
+
+	if (mp->f->f_magic != C_386_MAGIC) {
+		modmsg(fname, mname, "not an object file - header starts %x", mp->f->f_magic);
+		/* Coff headers are expected to start 0x14C,
+		 * which is called the magic number.
+		 * This started with the stated hex number. */
+		exit(1);
+	}
+
+	mp->fname = newcpy(fname);
+	if (*mname)
+		mp->mname = newcpy(mname);
+	else
+		mp->mname = "";
+
+	if (loadsw) {	/* put modules on load list */
+		if (head == NULL)
+			head = mp;
+		else
+			tail->next = mp;
+		tail = mp;
+		fileh.f_magic = C_386_MAGIC;
+	}
+	else {		/* put modules on linkto list */
+		if (xhead == NULL)
+			xhead = mp;
+		else
+			xtail->next = mp;
+		xtail = mp;
+	}
+
+	/*
+	 * Turn disk pointers into ram pointers.
+	 */
+	j = ((long)(mp->f));
+	mp->s = (SCNHDR *)(sizeof(FILEHDR) + j + mp->f->f_opthdr);
+	mp->f->f_symptr += j;
+	mp->l = (char *)(mp->f->f_symptr + (mp->f->f_nsyms * sizeof(SYMENT)));
+	if ((mp->f->f_symptr > (long)endmod) ||
+	    (mp->l > endmod) ||
+	    (mp->f->f_nsyms < 0))
+		corrupt(mp);
+
+	/* Setup all sections */
+	for (i = 0; i < mp->f->f_nscns; i++) {
+		s = mp->s + i;
+
+		if (nosym && (STYP_INFO == s->s_flags))
+			continue;	/* -s strips comments */
+
+		/* Test disk pointers for sanity and make them char pointers */
+#define tst(x) if ((s->x > size) || (s->x < 0)) corrupt(mp); s->x += j;
+		tst(s_scnptr);
+		tst(s_relptr);
+		tst(s_lnnoptr);
+#undef tst
+
+		for (k = 0; k < osegs; k++) {
+			if (!strncmp(secth[k].s_name, s->s_name, 8)) {
+				s->s_paddr = k;	/* remember outseg number */
+				break;
+			}
+		}
+
+		if ((k == osegs) && loadsw) {	/* New segment */
+			if (++osegs == MAXSEG)
+			   fatal("Max segment limit of %s exceeded", MAXSEG);
+			w_message("adding segment '%s'", s->s_name);
+			memcpy(secth + k, s, sizeof(*s));
+			s->s_paddr = k;
+			secth[k].s_size = secth[k].s_nreloc = 0;
+
+			/* extra segments go to four places */
+			switch(s->s_flags) {
+			case STYP_TEXT:
+				segMap[k] = S_TEXT;
+				break;
+			case STYP_DATA:
+				segMap[k] = S_DATA;
+				break;
+			case STYP_BSS:
+				segMap[k] = S_BSSD;
+				break;
+			case STYP_INFO:
+				segMap[k] = S_COMM;
+				break;
+			default:
+				segMap[k] = S_COMM;
+				fprintf(stderr, 
+			"warning: segment '%s' treated as comment\n",
+					s->s_name);
+			}
+		}
+	}
+
+	/* Do all symbols */
+	sym = (SYMENT *)mp->f->f_symptr;
+	endSym =  sym + mp->f->f_nsyms;
+	for (; sym < endSym; sym += sym->n_numaux + 1) {
+		if (sym->n_numaux < 0)
+			corrupt(mp);
+		if (!sym->n_zeroes)
+			sym->n_offset += (long)(mp->l);
+		addsym(sym, mp);
+	}
+
+	if (loadsw) {
+		/* Add to all sections */
+		for (i = 0; i < mp->f->f_nscns; i++) {
+			s = mp->s + i;
+
+			if (nosym && (STYP_INFO == s->s_flags))
+				continue;	/* -s strips comments */
+
+			for (k = 0; k < osegs; k++)
+				if (!strncmp(secth[k].s_name, s->s_name, 8))
+					break;
+
+			secth[k].s_size  += s->s_size;
+			secth[k].s_nlnno += s->s_nlnno;
+			if (reloc)
+				secth[k].s_nreloc += s->s_nreloc;
+		}
+	}
+}
+
+/*
+ * Read archive.
+ */
+archive(loadsw)
+{
+	struct old_hdr {
+		char	ar_name[DIRSIZ];	/* Member name */
+		time_t	ar_date;		/* Time inserted */
+		short	ar_gid;			/* Group id */
+		short	ar_uid;			/* User id */
+		short	ar_mode;		/* Mode */
+		fsize_t	ar_size;		/* File size */
+	} arh;
+
+	struct  ar_hdr in_arh;
+	fsize_t	count, size, *ptrs;
+	char	magic[SARMAG], *p;
+	int	found;
+	unsigned i;
+	char 	*names, *name;
+
+	xread(magic, sizeof(magic));	/* read archive magic string */
+
+	if (memcmp(ARMAG, magic, SARMAG))
+		fatal("'%s' is not a COFF archive", fname);
+		/* All files ending \fB.a\fR should be COFF archives. */
+
+	xread(&in_arh, sizeof(in_arh));	/* read archive header */
+
+	memset(&arh, '\0', sizeof(arh));
+	memcpy(arh.ar_name, in_arh.ar_name, DIRSIZ);
+	if (NULL != (p = strchr(arh.ar_name, '/')))
+		*p = '\0';
+
+	sscanf(in_arh.ar_date, "%ld %d %d %o %ld",
+		&arh.ar_date, &arh.ar_uid,
+		&arh.ar_gid, &arh.ar_mode, &arh.ar_size);
+
+	if (arh.ar_name[0])
+		fatal("Library must be created with ar -s option");
+		/* The \fBar \-s\fR option gives libraries a symbol table
+		 * for the use of \fBld\fR. */
+
+	/*
+	 * read random libraries symbol table.
+	 */
+	xread(&count, sizeof(count));	/* read pointer count */
+	flipbytes(&count);
+
+	/* read file pointers */
+	i = size = count * sizeof(count);
+	if (i != size)
+		fatal("archive '%s' is corrupt", fname);
+		/* This file makes no sense as a COFF archive. */
+	ptrs = alloca(i);
+	xread(ptrs, i);
+
+	/* read symbol names corresponding to pointers */
+	i = size = arh.ar_size - size - sizeof(count);
+	if (i != size)
+		fatal("archive '%s' is corrupt", fname); /* NODOC */
+	names = alloca(i);
+	xread(names, i);
+
+	w_message("reading archive '%s' nundef %d", fname, nundef);
+
+	/* search symbol table unitl nothing found */
+	do {
+		for (found = i = 0, name = names;
+		     (i < count) && nundef;
+		     i++, name = strchr(name, '\0') + 1) {
+			if(!ptrs[i] || symref(name, 0) == NULL)
+				continue;
+
+			found = 1;	/* found something this pass */
+			flipbytes(ptrs + i);
+			lseek(ifd, ptrs[i], 0);
+			xread(&in_arh, sizeof(in_arh));
+
+			sscanf(in_arh.ar_date,
+				"%ld %d %d %o %ld",
+				&arh.ar_date, &arh.ar_uid,
+				&arh.ar_gid, &arh.ar_mode,
+				&arh.ar_size);
+
+			in_arh.ar_date[0] = '\0';
+			if (NULL != (p = strchr(in_arh.ar_name,'/')))
+				*p = '\0';
+
+			object(in_arh.ar_name, arh.ar_size, loadsw);
+
+			ptrs[i] = 0;	/* don't find this again */
+		}
+	} while (found);
+}
+@
+
+
+1.7
+log
+@cef: changes to printed messaged
+@
+text
+@d138 2
+d143 1
+@
+
+
+1.6
+log
+@cef: errors now written to stderr
+@
+text
+@d396 5
+d407 1
+a407 1
+		modmsg(fname, mname, "bad header - %x found", mp->f->f_magic);
+@
+
+
+1.5
+log
+@update by cef for post 401a (fixed -I (or was that -L))
+@
+text
+@d82 1
+a82 1
+ * Return reference to given symbol if any
+d104 1
+a104 1
+readFile(fn, loadsw)
+d107 1
+a108 1
+	register char *p;
+a111 9
+	/*
+	 * Look for rename entrys.
+	 * con=atcon
+	 * is not a filename with an =
+	 * it means rename con to atcon.
+	 * This is a drvld requirment.
+	 */
+	if (NULL != (p = strchr(fname, '='))) {
+		ren_t	*new;
+d113 28
+a140 7
+		new = alloc(sizeof(*new));
+		new->next = rhead;
+		rhead = new;
+		new->from = fname;
+		*p = '\0';
+		new->to = p + 1;
+		return;
+a141 10
+
+	/* all names must be *.[ao] */
+	if (NULL == (p = strrchr(fname, '.')) || p[2])
+		p = ".?";
+	if (!loadsw)	/* drvld's read of the system */
+		p = "_s.o" + 2;
+	/* shared libs have names like libc_s.a */
+	if ((p[-2] == '_') && (p[-1] == 's'))
+		loadsw = 0;
+
+d223 1
+d457 3
+a459 2
+		for (k = 0; k < osegs; k++)
+			if (!strncmp(secth[k].s_name, s->s_name, 8))
+d461 2
+d465 2
+a467 3
+			if (NULL == (secth = 
+			    realloc(secth, ++osegs * sizeof(*secth))))
+				fatal("out of space"); /* NODOC */
+d469 1
+d471 21
+d590 2
+@
+
+
+1.4
+log
+@cef: Made ld do various consistency checks on object modules. This was triggered
+by what may be an OS bug which corrupts files.
+@
+text
+@d48 8
+a55 2
+	/* name in record but may need terminator */
+	memcpy(work, sym->n_name, SYMNMLEN);
+d194 1
+d215 3
+a217 1
+		return;
+d235 1
+a235 1
+		
+d267 1
+a267 1
+			"symbol defined as a common and a global");
+d277 1
+d334 1
+a334 2
+				addComm(- sp->sym.n_value);
+				spwarn(sp, "Defined as a common and a global");
+a335 1
+				sp->mod = mp;
+d357 1
+d367 3
+a369 3
+xread(to, len)
+char *to;
+int len;
+d371 1
+a371 3
+	int got;
+
+	if (len != (got = read(ifd, to, len)))
+d403 1
+a403 3
+		free(mp->f);
+		free(mp);
+		return;
+d444 2
+a445 10
+		if ((s->s_scnptr > size) ||
+		    (s->s_scnptr < 0)    ||
+		    (s->s_relptr > size) ||
+		    (s->s_relptr < 0)	 ||
+		    (s->s_lnnoptr > size) ||
+		    (s->s_lnnoptr < 0))
+			corrupt(mp);
+		s->s_scnptr += j;
+		s->s_relptr += j;
+		s->s_lnnoptr += j;
+d447 7
+d455 1
+a455 1
+			if (!strcmp(secth[k].s_name, s->s_name))
+d484 3
+d488 1
+a488 1
+				if (!strcmp(secth[k].s_name, s->s_name))
+d491 2
+a492 1
+			secth[k].s_size += s->s_size;
+d553 1
+a553 1
+	ptrs = alloc(i);
+d560 1
+a560 1
+	names = alloc(i);
+a590 3
+
+	free(ptrs);
+	free(names);
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@d67 1
+a67 1
+	/* A symbol is defined in incompatable ways in different files. */
+d72 1
+a72 1
+	/* A symbol is defined in incompatable ways in different files. */
+d150 1
+a150 1
+		/* Input file names must end .o for object or .a
+d259 9
+a267 7
+			/* A symbol was defined as a common for example
+			 * int x; and a global for example int x = 5;
+			 * There is no good way to fix this without reading
+			 * the code and thinking about the variable usage.
+			 * The linker turned the global into an external.
+			 * That is it turned int x; into extern int x;
+			 * This matches the INIX linker. */
+d302 1
+a302 1
+				 * with the -c flag */
+d365 1
+a365 2
+		fatal("error reading '%s' expected %d bytes got %d",
+			fname, len, got); /**/
+d379 1
+d388 1
+d392 4
+a395 1
+		modmsg(fname, mname, "bad header");
+d430 4
+d438 8
+d468 2
+d516 1
+a516 1
+		/* All files ending .a should be COFF archives. */
+d531 1
+a531 1
+		/* The \fBar \-s\fR option gives librarys a symbol table
+@
+
+
+1.2
+log
+@comment changes by cef
+@
+text
+@d1 7
+a7 1
+/* ld/pass1.c */
+d9 3
+a11 1
+#include "data.h"
+a12 4
+static char *str_tab;
+static long str_length;
+extern char *strchr(), *realloc();
+
+d14 1
+a14 1
+ * reverse bytes on 80386.
+d17 1
+d21 1
+a21 1
+char *c;
+d23 1
+a23 1
+	char t;
+d33 4
+a36 3
+static char *
+symName(sym)
+SYMENT *sym;
+d38 2
+a39 1
+	static char work[SYMNMLEN + 1];
+d41 3
+a43 2
+	if (!sym->n_zeroes)
+		return (str_tab + sym->n_offset - 4);
+d45 4
+d55 1
+a55 1
+ * Load long symbols
+d58 3
+a60 3
+loadExtra(fp, fname, mname)
+FILE *fp;
+char *fname, *mname;
+d62 6
+a67 1
+	unsigned len;
+d69 5
+a73 6
+	if (NULL != str_tab) {
+		free(str_tab);
+		str_tab = NULL;
+	}
+	if (1 != fread(&str_length, sizeof(str_length), 1, fp))
+		str_length = 0;
+d75 10
+a84 8
+	if (str_length) {
+		len = str_length -= 4;
+		if (len != str_length) {
+			modmsg(fname, mname, "file is corrupt");
+			/* This file makes no sense as a COFF file. */
+			return;
+		}
+		str_tab = alloc(len);
+d86 5
+a90 4
+		if (1 != fread(str_tab, len, 1, fp)) {
+			modmsg(fname, mname, "can't read");	/**/
+			return;
+		}
+d92 1
+d96 1
+a96 5
+ * Read input file
+ * If not archive, add it to module list
+ * If archive, add all modules that satisfy global references
+ * iterating until no more can be satisfied
+ * If it is not a ranlib, this must be done the hard way
+d98 3
+a100 3
+int
+rdfile(fname)
+char  * fname;
+d102 2
+a103 8
+	struct old_hdr {
+		char	ar_name[DIRSIZ];	/* Member name */
+		time_t	ar_date;		/* Time inserted */
+		short	ar_gid;			/* Group id */
+		short	ar_uid;			/* User id */
+		short	ar_mode;		/* Mode */
+		fsize_t	ar_size;		/* File size */
+	} arh;
+d105 10
+a114 7
+	struct ar_hdr coff_arh, in_arh;
+	fsize_t	arhend, count, size, *ptrs, tabpos;
+	char	magic[SARMAG], *p;
+	FILE	*ifp, *xfp;
+	int	found;
+	unsigned i, got, sz, c;
+	char *buf = NULL;
+d116 8
+a123 2
+	if ((ifp = fopen(fname, "r")) == NULL)
+		return (0);
+d125 8
+a132 2
+	if (fread(magic, sizeof(magic), 1, ifp) != 1)
+		fatal("can't read %s", fname);	/* NODOC */
+d134 18
+a151 3
+	if (memcmp(ARMAG, magic, SARMAG)) {
+		rewind(ifp);
+		addmod(ifp, (fsize_t)0, fname, "", (fsize_t)0);
+d153 2
+a155 239
+	/*
+	 * Library header extracted.
+	 */
+	else if (fread( &coff_arh, sizeof(coff_arh), 1, ifp) == 1) {
+		memset(&arh, '\0', sizeof(arh));
+		memcpy(arh.ar_name, coff_arh.ar_name, DIRSIZ);
+		if (NULL != (p = strchr(arh.ar_name, '/')))
+			*p = '\0';
+
+		sscanf(coff_arh.ar_date, "%ld %d %d %o %ld",
+			&arh.ar_date, &arh.ar_uid,
+			&arh.ar_gid, &arh.ar_mode, &arh.ar_size);
+
+		arhend = SARMAG + sizeof(coff_arh) + arh.ar_size;
+
+		/*
+		 * Not random library.
+		 */
+		if (arh.ar_name[0])
+			fatal("Library must be created with ar -s option");
+			/* The ar -s option gives librarys a symbol table
+			 * for the use of ld. */
+
+		/*
+		 * Perform exhaustive search of random libraries symbol table.
+		 */
+		xfp = fopen(fname, "rb");
+		fseek(xfp, ftell(ifp), 0);
+		if (1 != fread(&count, sizeof(count), 1, xfp))
+			fatal("read error in %s", fname); /**/
+		flipbytes(&count);
+		i = size = count * sizeof(count);
+		if (i != size)
+			fatal("archive %s is corrupt", fname);
+			/* This file makes no sense as a COFF archive. */
+		ptrs = alloc(i);
+		buf  = alloc(sz = 16);
+		if (1 != fread(ptrs, i, 1, xfp))
+			fatal("read error in %s", fname); /* NODOC */
+
+		tabpos = ftell(xfp);
+
+		for (;;) {
+			for (found = i = 0; i < count; i++) {
+				got = 0; /* read symbol */
+				do {
+					if (got >= sz &&
+					    NULL == (buf= realloc(buf, sz += 16)))
+						fatal("out of space");
+						/* NODOC */
+					buf[got++] = c = fgetc(xfp);
+				} while(c);
+
+				if(!ptrs[i] || symref(buf, 0) == NULL)
+					continue;
+
+				flipbytes(ptrs + i);
+				fseek(ifp, ptrs[i], 0);
+				if (fread(&in_arh, sizeof(in_arh), 1, ifp) != 1)
+					fatal("can't read %s", fname); /* NODOC */
+
+				sscanf(in_arh.ar_date,
+					"%ld %d %d %o %ld",
+					&arh.ar_date, &arh.ar_uid,
+					&arh.ar_gid, &arh.ar_mode,
+					&arh.ar_size);
+
+				in_arh.ar_date[0] = '\0';
+				if (NULL != (p = strchr(in_arh.ar_name,'/')))
+					*p = '\0';
+
+				found |= addmod(ifp,
+						ptrs[i] + sizeof(coff_arh),
+						fname,
+						in_arh.ar_name,
+						arh.ar_size);
+				ptrs[i] = 0;
+			}
+
+			if (nundef && found)	/* rescan archive */
+				fseek(xfp, tabpos, 0);
+			else
+				break;		/* done with archive */
+		}
+
+		free(ptrs);
+		free(buf);
+		fclose(xfp);
+	}
+
+	fclose(ifp);
+	return (1);
+}
+
+/*
+ * Allocate module descriptor and add to end of list.
+ */
+int
+addmod(fp, offs, fname, mname, arsize)
+FILE	*fp;
+fsize_t	offs;
+char	*fname, mname[];
+fsize_t arsize;
+{
+	sym_t *tmsym;
+	mod_t	*mp;
+	FILEHDR	head;
+	SCNHDR	scn;
+	SYMENT  sym;
+	unsigned int len, nsym;
+	long	i, aux;
+
+	if (watch) {
+		errCount--;
+		modmsg(fname, mname, "adding");	/* NODOC */
+	}
+
+	if (1 != fread(&head, sizeof(head), 1, fp)) {
+		modmsg(fname, mname, "can't read");	/* NODOC */
+		return (0);
+	}
+
+	if (head.f_magic != C_386_MAGIC) {
+		modmsg(fname, mname, "bad header");	/* NODOC */
+		return (0);
+	}
+	
+	fileh.f_magic = C_386_MAGIC;
+	nsym = head.f_symptr;
+
+	if (mdisk) {	/* module struct of disk */
+		mp = mtemp;
+		nmod++;
+		fseek(mfp, (long)sizeof(mod_t), 1);
+	}
+	else {		/* module struct in ram */
+		len =  sizeof(sym_t *) * head.f_nsyms;
+		mp = alloc(sizeof(mod_t) + len);
+
+		if (modhead == NULL)
+			modhead = mp;
+		else
+			modtail->next = mp;
+		modtail = mp;
+		mp->next = NULL;
+	}
+
+	mp->fname = fname;
+
+	for (i = 0; i < DIRSIZ; i++)
+		mp->mname[i] = mname[0] ? mname[i] : 0;
+
+	for (i = 0; i < head.f_nscns; i++) {
+		register seg_t *s;
+		int j;
+
+		if (1 != fread(&scn, sizeof(scn), 1, fp)) {
+			modmsg(fname, mname, "can't read");	/* NODOC */
+			return(0);
+		}
+		if (!strcmp(_TEXT, scn.s_name))
+			j = S_TEXT;
+		else if (!strcmp(_DATA, scn.s_name))
+			j = S_DATA;
+		else if (!strcmp(_BSS, scn.s_name))
+			j = S_BSSD;
+		else
+			continue;
+
+		s = mp->seg + j;
+		s->vbase = scn.s_vaddr;
+		s->daddr = scn.s_scnptr + offs;
+		s->size = scn.s_size;
+		s->relptr = scn.s_relptr + offs;
+		s->nreloc = scn.s_nreloc;
+	}
+
+	if (head.f_nsyms) {	/* load extra */
+		i = head.f_symptr + (SYMESZ * head.f_nsyms);
+		/*
+		 * Coff design error. If there are no long syms
+		 * there is no length of long syms, the problem
+		 * is archives. arsize is the length of this item
+		 * if in an archive.
+		 */
+		if (!arsize || (i < arsize)) {
+			fseek (fp, i + offs, 0);
+			loadExtra(fp, fname, mname);
+		}
+	}
+	fseek(fp, mp->symptr = head.f_symptr + offs, 0);
+	
+	mp->nsym = head.f_nsyms;
+	for (aux = i = 0; i < head.f_nsyms; i++) {
+		if (1 != fread(&sym, SYMESZ, 1, fp)) {
+			modmsg(fname, mname, "error reading symbols");
+			/* NODOC */
+			return (0);
+		}
+		if (aux) {	/* bypass aux symbols */
+			/* add stuff to build void entry */
+			aux--;
+			continue;
+		}
+		aux = sym.n_numaux;
+
+		if (sym.n_scnum > NLSEG || sym.n_scnum < N_ABS)
+			continue;
+
+		if (mdisk) {
+			tmsym = addsym(&sym, mp);
+
+			if (fwrite(&tmsym, sizeof(tmsym), 1, mfp) != 1)
+				fatal("temporary file write error"); /**/
+		}
+		else
+			mp->sym[i] = addsym(&sym, mp);
+	}
+
+	for (i = 0; i < NLSEG; i++) {
+		oseg[i].size += mp->seg[i].size;
+		oseg[i].nreloc += mp->seg[i].nreloc;
+	}
+
+
+	if ( mdisk ) {
+		if ( mxmsym < mp->nsym )
+			mxmsym = mp->nsym;
+
+		fseek( mfp,(long)-(sizeof(mod_t))-(mp->nsym*sizeof(tmsym)),1 );
+
+		if(fwrite(mtemp, sizeof(mod_t), 1, mfp ) != 1 )
+			fatal("temporary file write error"); /* NODOC */
+
+		fseek( mfp, (long) mp->nsym * sizeof(tmsym), 1 );
+	}
+	return (1);
+}
+
+d157 1
+a157 1
+ * Add item to correct common.
+d160 2
+a161 2
+addComm(value)
+long value;
+d163 10
+a172 6
+	if (value & 1)
+		comnb += value;
+	else if (value & 2)
+		comns += value;
+	else
+		comnl += value;
+d176 1
+a176 6
+ * Add symbol to symbol table
+ * If match, resolve references and definitions
+ * otherwise, create new symbol entry.
+ * Keep track of number of undefined symbols,
+ * amount of space required by commons,
+ * size of output symbol segment.
+d178 2
+a179 3
+sym_t *
+addsym(sym, mp)
+register SYMENT *sym;
+d183 1
+d187 1
+a187 1
+	int h;
+d189 4
+a192 2
+	
+	switch (sym->n_sclass) {
+d194 2
+a195 2
+		sym->n_sclass = C_EXT;
+		sym->n_value = sym->n_scnum = 0;
+d197 1
+a197 1
+		if (sym->n_scnum)
+d199 1
+a199 1
+		else if (sym->n_value)
+d208 1
+a208 1
+		return(NULL);
+d211 11
+a221 6
+	/*
+	 * Make symbols segment relative.
+	 */
+	if (sym->n_scnum > 0)
+		sym->n_value += oseg[sym->n_scnum - 1].size - 
+				mp->seg[sym->n_scnum - 1].vbase;
+d223 8
+a230 1
+	h = hash(name = symName(sym)) % NHASH;
+d232 13
+a244 3
+	/* discard local symbols if required to */
+	if (new == local && (nolcl || noilcl && (name[0] == 'L')))
+		return(NULL);
+d246 2
+a247 13
+	else for(sp = symtable[h]; sp != NULL; sp = sp->next) {
+		switch (sp->sclass) {
+		case C_EXT:
+			if (sp->scnum)
+				old = gdef;
+			else if (sp->value)
+				old = comm;
+			else
+				old = gref;
+			break;
+		case C_STAT:
+			old = local;
+		}
+d249 7
+a255 19
+		/* old symbol is global and matches */
+		if (old != local  && eq(sp->name, name)) {
+			switch (new) {
+			case gdef:
+				switch (old) {
+				case comm:
+					symredef(sp, mp);
+					break;
+				case gref:
+					nundef--;
+					sp->scnum  = sym->n_scnum;
+					sp->sclass = sym->n_sclass;
+					sp->value  = sym->n_value;
+					sp->mod    = mp;
+					break;
+				default:
+					symredef(sp, mp);
+				}
+				break;
+d257 14
+a270 31
+				switch (old) {
+				case comm:
+					/*
+					 * Where a common is defined as
+					 * different sizes choose the larger
+					 * but to avoid alignment trouble
+					 * force all such values to a
+					 * fours boundary.
+					 */
+					if (sp->value != sym->n_value) {
+						if (!comflag) {
+							errCount--;
+							spmsg(sp,
+				"warning defined with lengths %ld and %ld",
+								sp->value,
+								sym->n_value);
+				/* A common was defined with two different
+				 * lengths, while quite legal this is very
+				 * unusual in C programs. This warning may
+				 * be turned off with the -c flag. */
+						}
+						addComm(- sp->value);
+						if (sp->value < sym->n_value) {
+						    sp->value = sym->n_value;
+						    sp->mod = mp;
+						}
+						sp->value += 3;
+						sp->value &= ~3L;
+						addComm(sp->value);
+					}
+					break;
+d272 7
+a278 7
+				case gref:
+					nundef--;
+					sp->sclass = sym->n_sclass;
+					sp->value  = sym->n_value;
+					addComm(sp->value);
+					sp->mod    = mp;
+					break;
+d280 26
+a305 2
+				case gdef:
+					symredef(sp, mp);
+d307 22
+a329 1
+			return(sp);
+d332 4
+a335 2
+	/* symbol not found or local */
+	sp = newsym(name);
+d338 9
+a346 3
+	sp->sclass = sym->n_sclass;
+	sp->scnum  = sym->n_scnum;
+	sp->value  = sym->n_value;
+d348 3
+a350 2
+	if (new == comm)
+		addComm(sp->value);
+a351 14
+	/* Note reference to internal symbol 'etext', 'edata', or 'end'. */
+	/* Note reference to global symbol. */
+	if (eq(name, etext_id))
+		etext_s = sp;
+	else if (eq(name, edata_id))
+		edata_s = sp;
+	else if (eq(name, end_id))
+		end_s = sp;
+	else if (new == gref)
+		nundef++;
+
+	return (sp);
+}
+
+d353 1
+a353 1
+ * Allocate a new sym_t.
+d355 4
+a358 3
+sym_t *
+newsym(name)
+char *name;
+d360 1
+a360 1
+	register sym_t *s;
+d362 3
+a364 3
+	s = alloc(sizeof(*s) + strlen(name));
+	strcpy(s->name, name);
+	return(s);
+d368 1
+a368 2
+ * Add system symbols to symbol table
+ * Make definitions absolute
+d370 3
+a372 3
+void
+rdsystem( sysnam )
+char * sysnam;
+d374 5
+a378 5
+	FILE	*fp;
+	FILEHDR	head;
+	SYMENT  sym;
+	sym_t	*sp;
+	int	i, aux;
+d380 7
+a386 2
+	if ( (fp = fopen(sysnam, "r")) == NULL )
+		fatal("can't open '%s'", sysnam);	/* NODOC */
+d388 4
+a391 4
+	/*
+	 * Allow null input file
+	 */
+	if ( fread( &head, sizeof(head), 1, fp ) != 1 )
+d393 1
+d395 22
+d418 1
+a418 1
+	 * Not a program.
+d420 24
+a443 3
+	if (head.f_magic != C_386_MAGIC) {
+		filemsg(sysnam, "bad header"); /* NODOC */
+		return;
+a444 1
+	fseek (fp, head.f_symptr + (SYMESZ * head.f_nsyms), 0);
+d446 8
+a453 1
+	loadExtra(fp, sysnam, "");
+d455 4
+a458 1
+	fseek (fp, head.f_symptr, 0);
+d460 7
+a466 4
+	for (aux = i = 0; i < head.f_nsyms; i++) {
+		if (1 != fread(&sym, SYMESZ, 1, fp)) {
+			modmsg(sysnam, "", "error reading symbols"); /* NODOC */
+			return;
+a467 15
+		if (aux) { /* bypass aux symbols */
+			aux--;
+			continue;
+		}
+		aux = sym.n_numaux;
+		/*
+		 * If system symbol is global and is referenced,
+		 *	update reference offset.
+		 */
+		if ((sym.n_sclass == C_EXT)
+		  && ((sp = symref(&sym)) != NULL)) {
+			sp->scnum = N_ABS;
+			sp->value = sym.n_value;
+			nundef--;
+		}
+a470 1
+
+d472 1
+a472 1
+ * complain about redefined symbol
+d474 1
+a474 4
+void
+symredef(sp, mp)
+sym_t	*sp;
+mod_t	*mp;
+d476 8
+a483 13
+	/*
+	 * Simple module.
+	 */
+	if (mp->mname[0] == '\0')
+		spmsg(sp, "redefined in file %s", mp->fname);
+		/* Symbol defined in incompatable ways in different files. */
+	/*
+	 * Library module.
+	 */
+	else
+		spmsg(sp, "redefined in file %s: module %.*s", /* NODOC */
+			mp->fname, DIRSIZ, mp->mname );
+}
+d485 29
+a513 9
+/*
+ * Return reference to given symbol if any
+ */
+sym_t *
+symref(name)
+char *name;
+{
+	register sym_t	*sp;
+
+d515 1
+a515 1
+	 * Scan internal symbol table.
+d517 2
+a518 8
+	for ( sp=symtable[hash(name) % NHASH]; sp != NULL; sp=sp->next ) {
+		/*
+		 * Reference to given [global] symbol found.
+		 */
+		if ((sp->sclass == C_EXT) && !sp->value && !sp->scnum &&
+		     eq(sp->name, name))
+			break;
+	}
+d520 7
+a526 16
+	/*
+	 * Return reference, or NULL.
+	 */
+	return( sp );
+}
+
+/*
+ * Tables for the table-driven CRC16 algorithm.
+ * This should be relatively uniform statistically.
+ */
+static	unsigned short crctab1[] = {
+	0000000,	0140301,	0140601,	0000500,
+	0141401,	0001700,	0001200,	0141101,
+	0143001,	0003300,	0003600,	0143501,
+	0002400,	0142701,	0142201,	0002100
+};
+d528 6
+a533 6
+static	unsigned short crctab2[] = {
+	0000000,	0146001,	0154001,	0012000,
+	0170001,	0036000,	0024000,	0162001,
+	0120001,	0066000,	0074000,	0132001,
+	0050000,	0116001,	0104001,	0043000
+};
+d535 7
+a541 11
+/*
+ * Read a string return the hash value computed using CRC-16 methods.
+ * usefull for various kinds of hashing including diff programs
+ * and symbol tables.
+ */
+unsigned short
+hash(p)
+register char *p;
+{
+	register unsigned char tmp, c;
+	register unsigned short h;
+d543 23
+a565 5
+	for (h = 0; c = *p; p++) {
+		tmp = c ^ h;
+		h = (h >> 8) ^ crctab1[tmp & 15] ^ crctab2[tmp >> 4];
+	}
+	return (h);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d135 1
+a135 2
+			 * for the use of ld.
+			 */
+d148 1
+a148 1
+			/* This file makes no sense as a COFF archive */
+d156 10
+a165 9
+rescan:		for (found = i = 0; i < count; i++) {
+			got = 0; /* read symbol */
+			do {
+				if (got >= sz &&
+				    NULL == (buf=realloc(buf,sz+=16)))
+					fatal("out of space");
+					/* A malloc() failed during the link. */
+				buf[got++] = c = fgetc(xfp);
+			} while(c);
+d167 2
+a168 2
+			if(!ptrs[i] || symref(buf, 0) == NULL)
+				continue;
+d170 4
+a173 4
+			flipbytes(ptrs + i);
+			fseek(ifp, ptrs[i], 0);
+			if (fread(&in_arh, sizeof(in_arh), 1, ifp) != 1)
+				fatal("can't read %s", fname); /* NODOC */
+d175 5
+a179 5
+			sscanf(in_arh.ar_date,
+				"%ld %d %d %o %ld",
+				&arh.ar_date, &arh.ar_uid,
+				&arh.ar_gid, &arh.ar_mode,
+				&arh.ar_size);
+d181 3
+a183 3
+			in_arh.ar_date[0] = '\0';
+			if (NULL != (p = strchr(in_arh.ar_name,'/')))
+				*p = '\0';
+d185 12
+a196 6
+			found |= addmod(ifp,
+					ptrs[i] + sizeof(coff_arh),
+					fname,
+					in_arh.ar_name,
+					arh.ar_size);
+			ptrs[i] = 0;
+a198 5
+		if (nundef && found) {
+			fseek(xfp, tabpos, 0);
+			goto rescan;
+		}
+
+a201 2
+		fclose(ifp);
+		return (1);
+d203 3
+d555 1
+a555 1
+		fatal("can't open %s", sysnam);	/* NODOC */
+@

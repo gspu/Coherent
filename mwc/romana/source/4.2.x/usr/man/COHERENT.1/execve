@@ -1,0 +1,75 @@
+eexxeeccvvee() -- System Call (libc)
+
+Execute a load module
+#iinncclluuddee <uunniissttdd.hh>
+eexxeeccvvee(_f_i_l_e, _a_r_g_v, _e_n_v)
+cchhaarr *_f_i_l_e, *_a_r_g_v[], *_e_n_v[];
+
+The  function eexxeeccvvee()  executes a  program.  It  specifies arguments  as a
+single, NULL-terminated array  of parameters, called _a_r_g_v. The argument _e_n_v
+is  the address  of an  array  of pointers  to strings  that define  _f_i_l_e's
+environment.  This allows eexxeeccvvee() to pass a new environment to the program
+being executed.  For more information on program execution, see eexxeeccuuttiioonn.
+
+_E_x_a_m_p_l_e
+The following example demonstrates eexxeeccvvee(), as well as ttmmppnnaamm(), ggeetteennvv(),
+and ppaatthh().  It finds all lines  with more than LLIIMMIITT  characters and calls
+MicroEMACS to edit them.
+
+#include <stdio.h>
+#include <path.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#define LIMIT 70
+
+extern **environ, *tempnam();
+
+main(argc, argv)
+int argc; char *argv[];
+{
+    /*                me     -e   tmp   file */
+    char *cmda[5] = { NULL, "-e", NULL, NULL, NULL };
+    FILE *ifp, *tmp;
+    char line[256];
+    int  ct, len;
+
+    if ((NULL == (cmda[3] = argv[1])) ||
+        (NULL == (ifp = fopen(argv[1], "r")))) {
+        fprintf(stderr, "Cannot open %s\n", argv[1]);
+        exit(EXIT_FAILURE);
+    }
+
+    if ((cmda[0] = path(getenv("PATH"), "me", X_OK)) == NULL) {
+        fprintf(stderr, "Cannot locate me\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (NULL == (tmp = fopen((cmda[2] = tempnam(NULL, "lng")), "w"))) {
+        fprintf(stderr, "Cannot open tmpfile\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (ct = 1; NULL != fgets(line, sizeof(line), ifp); ct++)
+        if (((len = strlen(line)) > LIMIT) ||
+            ('\n' != line[len -1]))
+            fprintf(tmp, "%d: %d characters long\n", ct, len);
+
+    fclose(tmp);
+    fclose(ifp);
+
+    if (execve(cmda[0], cmda, environ) < 0) {
+        fprintf(stderr, "cannot execute me\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+_S_e_e _A_l_s_o
+eennvviirroonn, eexxeeccuuttiioonn, lliibbcc, uunniissttdd.hh
+POSIX Standard, section 3.1.2
+
+_D_i_a_g_n_o_s_t_i_c_s
+eexxeeccvvee() does not return if successful.   It returns -1 for errors, such as
+_f_i_l_e being  nonexistent, not accessible  with execute permission,  having a
+bad format, or too large to fit in memory.

@@ -1,0 +1,1257 @@
+/* (-lgl
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * This is a driver for the
+ * Archive SC-400 Series Tape Controller.
+ */
+#include	<sys/coherent.h>
+#include	<sys/buf.h>
+#include	<sys/con.h>
+#include	<sys/const.h>
+#include	<sys/devices.h>
+#include	<sys/inode.h>
+#include 	<sys/mtioctl.h>
+#include	<sys/sched.h>
+#include	<sys/seg.h>
+#include	<sys/stat.h>
+#include	<sys/uproc.h>
+#include	<errno.h>
+
+/*
+ * Fixed parameters.
+ */
+#define	NCMDS	8			/* Max # chained commands */
+
+/*
+ * Configurable parameters
+ */
+int	STIRQ	= 3;			/* IRQ Level 3 */
+int	STPORT	= 0x200;		/* I/O Port    */
+int	STDMA	= 1;			/* DMA Channel */
+
+#define	BIT(n)		(1 << (n))
+
+/*
+ * Forward referenced functions.
+ */
+void	stcache();
+void	stflush();
+void	stinvoke();
+void	ststart();
+void	stintr();
+void	strecov();
+void	stnext();
+void	stdiag();
+void	stspin();
+
+/*
+ * Driver configuration.
+ */
+int	stload();
+int	stuload();
+int	stopen();
+int	stclose();
+int	stread();
+int	stwrite();
+int	stioctl();
+void	stwatch();
+int	nulldev();
+int	nonedev();
+
+CON	stcon	= {
+	DFCHR,				/* Flags	*/
+	ST_MAJOR,				/* Major index	*/
+	stopen,				/* Open		*/
+	stclose,			/* Close	*/
+	nonedev,			/* Block	*/
+	stread,				/* Read		*/
+	stwrite,			/* Write	*/
+	stioctl,			/* Ioctl	*/
+	nulldev,			/* Powerfail	*/
+	stwatch,			/* Timeout	*/
+	stload,				/* Load		*/
+	stuload				/* Unload	*/
+};
+
+/*
+ * I/O Port Addresses
+ */
+#define	DATA_REG	(STPORT+0)	/* Data register */
+#define	CTRL_REG	(STPORT+1)	/* Control/Status register */
+#define	DMAGO_REG	(STPORT+2)	/* DMA Go register */
+#define	DMARST_REG	(STPORT+3)	/* DMA reset register */
+
+/*
+ * Control Register
+ */
+#define	CR_RSTSAC	BIT(7)		/* 1 -> reset control micro	*/
+#define	CR_REQ		BIT(6)		/* 1 -> request to LSI chip	*/
+#define	CR_IEN		BIT(5)		/* 1 -> enables interrupts	*/
+#define	CR_DNIEN	BIT(4)		/* 1 -> enable DONE interrupts	*/
+
+/*
+ * Status Register
+ */
+#define	SR_IRQF		BIT(7)		/* 1 -> Interrupt Request Flag	*/
+#define	SR_NRDY		BIT(6)		/* 0 -> Ready			*/
+#define	SR_NEXC		BIT(5)		/* 0 -> Exception		*/
+#define	SR_DONE		BIT(4)		/* 1 -> DMA Done		*/
+#define	SR_TO_PC	BIT(3)		/* 1 -> Direction is to PC	*/
+
+/*
+ * Controller Commands.
+ */
+#define	CC_SELECT	0x01		/* Select Drive 0 		*/
+#define	CC_LOCK		0x11		/* Select Drive 0 and Lock	*/
+#define	CC_BOT		0x21		/* Rewind to beginning of tape	*/
+#define	CC_ERASE	0x22		/* Completely erase cartridge	*/
+#define	CC_TENSION	0x24		/* Wind tape to BOT, EOT, BOT	*/
+#define	CC_AUTO		0x25		/* Select auto-initialization	*/
+#define	CC_QIC11	0x26		/* Select QIC-11 media format	*/
+#define	CC_QIC24	0x27		/* Select QIC-24 media format	*/
+#define	CC_WRITE	0x40		/* Write to tape		*/
+#define	CC_WFM		0x60		/* Write file mark		*/
+#define	CC_READ		0x80		/* Read from tape		*/
+#define	CC_RFM		0xA0		/* Skip past next file mark	*/
+#define	CC_SENSE	0xC0		/* Read controller status	*/
+
+/*
+ * Sense Status Bytes 0 and 1.
+ */
+#define	SS0_FIL		BIT(0)		/* File Mark Detected		*/
+#define	SS0_BNL		BIT(1)		/* Bad Block Not located	*/
+#define	SS0_UDA		BIT(2)		/* Unrecoverable data error	*/
+#define	SS0_EOM		BIT(3)		/* End of media			*/
+#define	SS0_WRP		BIT(4)		/* Write Protected Cartridge	*/
+#define	SS0_USL		BIT(5)		/* Unselected Drive		*/
+#define	SS0_CNI		BIT(6)		/* Cartridge Not In Place	*/
+#define	SS0_ERR		(SS0_BNL+SS0_UDA+SS0_USL+SS0_CNI)
+
+#define	SS1_POR		BIT(0)		/* Power on Reset Occurred	*/
+#define	SS1_BOM		BIT(3)		/* Beginning of media		*/
+#define	SS1_MBD		BIT(4)		/* Marginal Block Detected	*/
+#define	SS1_NDT		BIT(5)		/* No Data Detected		*/
+#define	SS1_ILL		BIT(6)		/* Illegal Command		*/
+#define	SS1_ERR		(SS1_NDT+SS1_ILL)
+
+/*
+ * Device States.
+ */
+#define	SDEAD	0		/* controller not found    */
+#define	SIDLE	1		/* controller idle	   */
+#define	SCMD	2		/* initiating command	   */
+#define	SRUN	3		/* performing command	   */
+#define	SRDWR	4		/* starting read/write	   */
+#define	SBLOCK	5		/* performing read/write   */
+#define	SBLEND	6		/* concluding block i/o	   */
+#define	SSENSE	7		/* reading status bytes	   */
+#define	SSDONE	8		/* concluding status sense */
+
+/*
+ * Driver State Information.
+ */
+struct st_s {
+	int	st_state;
+	int	st_mode;		/* IPR or IPW			*/
+	int	st_iocmd;		/* CC_READ or CC_WRITE		*/
+	int	st_cmd;			/* last command	executed	*/
+	int	st_cmds[NCMDS];		/* list of chained commands	*/
+	int	st_ncmds;		/* num of chained commands	*/
+	int	st_iswr;
+	int	st_wasio;
+	int	st_iseof;
+	int	st_error;
+	paddr_t	st_paddr;
+	fsize_t	st_resid;
+	fsize_t	st_size;
+	saddr_t	st_sel;
+	SEG *	st_seg;
+	char	st_status[6];
+	int	st_nstat;
+	int	st_rdys;		/* number of ready watchdogs	*/
+	int	st_nlost;		/* number of lost interrupts	*/
+} st;
+
+/**
+ *
+ * void
+ * stload()		-- initialize tape device
+ *
+ *	Action:	Reset tape controller and drive.
+ *		Seize tape interrupt vector.
+ *
+ *	Note:	If the tape controller is present and operational,
+ *		a interrupt will occur and set st.st_state to SIDLE.
+ */
+static
+stload()
+{
+	/*
+	 * Paranoia - Turn off DMA.
+	 * Should already be turned off.
+	 */
+	dmaoff( STDMA );
+
+	/*
+	 * Reset tape controller and drive
+	 */
+	outb( CTRL_REG, CR_RSTSAC );
+
+	/*
+	 * Wait at least 25 microseconds
+	 */
+	stspin( 25 );
+
+	/*
+	 * Terminate reset condition
+	 */
+	outb( CTRL_REG, CR_IEN );
+
+	/*
+	 * Seize tape interrupt vector.
+	 */
+	setivec( STIRQ, &stintr );
+}
+
+/**
+ *
+ * stuload( dev )		-- Unload tape device.
+ * dev_t dev;
+ */
+stuload( dev )
+dev_t dev;
+{
+	/*
+	 * Turn off DMA.
+	 */
+	dmaoff( STDMA );
+
+	/*
+	 * Release tape interrupt vector.
+	 */
+	clrivec( STIRQ );
+
+	/*
+	 * Disable tape interrupts.
+	 */
+	outb( CTRL_REG, 0 );
+}
+
+/**
+ *
+ * stopen( dev, mode )		-- open tape device
+ * dev_t dev;
+ * int mode;
+ *
+ *	Input:	dev  = tape device to be opened.
+ *		mode = desired access mode.
+ *
+ *	Action:	Refuse access if tape drive does not exist or is in use.
+ *		Refuse simultaneous read and write access.
+ *		Refuse access if cartridge is not inserted in tape drive.
+ *		Refuse write access to a write protected cartridge.
+ *		Allocate tape cache.
+ *		Initialize device state.
+ *		Lock tape cartridge.
+ */
+static
+stopen( dev, mode )
+register dev_t	dev;
+register int	mode;
+{
+	int s;
+
+	/*
+	 * Refuse access if no tape drive.
+	 */
+	if ( st.st_state == SDEAD ) {
+		u.u_error = ENXIO;
+		return;
+	}
+
+	/*
+	 * Refuse access if tape drive is already open.
+	 */
+	if ( st.st_mode != 0 ) {
+		u.u_error = EDBUSY;
+		return;
+	}
+
+	/*
+	 * Access must be read-only or write-only.
+	 */
+	if ( (mode != IPR) && (mode != IPW) ) {
+		u.u_error = EINVAL;
+		return;
+	}
+
+	/*
+	 * Wait for tape drive to become idle.
+	 */
+	if ( stwait() < 0 ) {
+		u.u_error = EINTR;
+		return;
+	}
+
+	/*
+	 * Initialize tape interface.
+	 */
+	s = sphi();
+	outb( DMARST_REG, 0 );
+	outb( CTRL_REG, CR_IEN );
+	spl( s );
+
+	/*
+	 * Obtain tape status.
+	 */
+	stinvoke( CC_SENSE );
+
+	/*
+	 * Wait for tape status.
+	 */
+	if ( stwait() < 0 ) {
+		u.u_error = EINTR;
+		return;
+	}
+
+	/*
+	 * Refuse access if no cartridge.
+	 */
+	if ( st.st_status[0] & (SS0_CNI|SS0_USL) ) {
+		u.u_error = EDATTN;
+		return;
+	}
+
+	/*
+	 * Refuse write access to a write protected cartridge.
+	 */
+	if ( (mode == IPW) && (st.st_status[0] & SS0_WRP) ) {
+		u.u_error = EROFS;
+		return;
+	}
+
+	/*
+	 * Calculate desired cache size in Kbytes.
+	 */
+	st.st_size = minor(dev) & ~0x80;
+	if ( st.st_size == 0 )
+		st.st_size = 256;
+
+	/*
+	 * Allocate cache
+	 */
+	for ( st.st_size *= 1024; st.st_size != 0; st.st_size -= 1024 )
+		if ( st.st_seg = salloc( st.st_size, SFSYST|SFNSWP|SFNCLR ) )
+			break;
+
+	/*
+	 * Refuse access if couldn't allocate cache.
+	 */
+	if ( st.st_seg == 0 ) {
+		u.u_error = ENOMEM;
+		return;
+	};
+
+	/*
+	 * Initialize device state.
+	 */
+	st.st_sel   = FP_SEL(st.st_seg->s_faddr);
+	st.st_iswr  = (mode == IPW);
+	st.st_paddr = st.st_seg->s_paddr;
+	st.st_resid = (mode == IPW) ? st.st_size : 0 ;
+	st.st_iocmd = (mode == IPW) ? CC_WRITE : CC_READ ;
+	st.st_mode  = mode;
+	st.st_iseof = 0;
+	st.st_wasio = 0;
+	st.st_error = 0;
+	st.st_rdys  = 0;
+	st.st_nlost = 0;
+
+	/*
+	 * Lock cartridge if at beginning of media.
+	 */
+	if ( st.st_status[1] & SS1_BOM )
+		stinvoke( CC_LOCK );
+}
+
+/**
+ *
+ * stclose( dev, mode )		-- close tape device
+ * dev_t dev;
+ * int mode;
+ *
+ *	Input:	dev  = tape device to be closed.
+ *		mode = access mode.
+ *
+ *	Action:	If access mode was for writing, flush the tape cache.
+ *		If data was written to tape, write a file mark.
+ *		If data was read from tape on the non rewinding device,
+ *		read until end of file or an error is encountered.
+ *		Rewind the tape if the rewinding device is open.
+ *		Unlock the tape cartridge.
+ *		Clear tape state and release tape cache memory.
+ */
+static
+stclose( dev, mode )
+register dev_t dev;
+{
+	/*
+	 * Check if tape was opened for writing.
+	 */
+	if ( st.st_iswr ) {
+
+		/*
+		 * Flush the tape cache.
+		 */
+		stflush();
+
+		/*
+		 * Write a file mark if data was written to tape.
+		 */
+		if ( st.st_wasio )
+			stinvoke( CC_WFM );
+	}
+
+	/*
+	 * Check if non-rewinding device was opened for reading.
+	 */
+	else if ( st.st_wasio && (dev & 0x80 ) ) {
+
+		/*
+		 * Read file mark if not just past one.
+		 */
+		if ( (st.st_status[0] & SS0_FIL) == 0 )
+			stinvoke( CC_RFM );
+	}
+
+	/*
+	 * Rewinding device.
+	 */
+	if ( (dev & 0x80) == 0 ) {
+
+		/*
+		 * Wait for controller to idle.
+		 */
+		while ( stwait() < 0 )
+			;
+
+		/*
+		 * Initiate rewind.
+		 */
+		stinvoke( CC_BOT   );
+
+		/*
+		 * Unlock the drive [turn off the light].
+		 */
+		stinvoke( CC_SELECT );
+	}
+
+	/*
+	 * Clear tape state, releasing tape cache.
+	 */
+	sfree( st.st_seg );
+	st.st_seg  = 0;
+	st.st_mode = 0;
+}
+
+/**
+ *
+ * stread( dev, iop )	-- tape device read
+ * dev_t dev;
+ * IO * iop;
+ *
+ *	Input:	dev = tape device to be read from.
+ *		iop = pointer to IO structure.
+ *
+ *	Action:	Transfer data from tape cache to user memory,
+ *		filling the cache as required by initiating reads from tape.
+ */
+
+static
+stread( dev, iop )
+dev_t	dev;
+register IO * iop;
+{
+	register int n;
+	register int ioc;
+
+	ioc = iop->io_ioc;
+	
+	while ( iop->io_ioc > 0 ) {
+
+		/*
+		 * Check for empty cache.
+		 */
+		while ( st.st_resid == 0 ) {
+
+			/*
+			 * Special handling if end of file was encountered.
+			 */
+			if ( st.st_iseof ) {
+
+				/*
+				 * Clear EOF if no data was transferred yet.
+				 */
+				if ( ioc == iop->io_ioc )
+					st.st_iseof = 0;
+
+				return;
+			}
+
+			/*
+			 * Abort on I/O error.
+			 */
+			if ( u.u_error = st.st_error ) {
+				stdiag();
+				return;
+			}
+
+			/*
+			 * Fill the cache from tape.
+			 */
+			stcache();
+		}
+
+		/*
+		 * Determine max data transferable in one chunk.
+		 */
+		n = iop->io_ioc;
+		if ( n > st.st_resid )
+			n = st.st_resid;
+
+		/*
+		 * Transfer some data from cache to user memory.
+		 */
+		if ( pucopy( st.st_paddr, iop->io_base, n ) != n )
+			return;
+
+		/*
+		 * Update addresses and counts.
+		 */
+		iop->io_base += n;
+		iop->io_ioc  -= n;
+		st.st_resid  -= n;
+		st.st_paddr  += n;
+	}
+}
+
+/**
+ *
+ * stwrite( dev, iop )	-- write to tape device
+ * dev_t dev;
+ * IO * iop;
+ *
+ *	Input:	dev = tape device to be written to.
+ *		iop = pointer to IO structure.
+ *
+ *	Action:	Transfer data from user memory to tape cache,
+ *		flushing the cache as required by initiating writes to tape.
+ */
+
+static
+stwrite( dev, iop )
+dev_t	dev;
+register IO *iop;
+{
+	register int n;
+
+	while ( iop->io_ioc > 0 ) {
+
+		/*
+		 * Determine max data transferable in one chunk.
+		 */
+		n = iop->io_ioc;
+		if ( n > st.st_resid )
+			n = st.st_resid;
+
+		/*
+		 * Transfer some data from user memory to cache.
+		 */
+		if ( upcopy( iop->io_base, st.st_paddr, n ) != n )
+			break;
+
+		/*
+		 * Update addresses and counts.
+		 */
+		iop->io_base += n;
+		iop->io_ioc  -= n;
+		st.st_paddr  += n;
+		st.st_resid  -= n;
+
+		/*
+		 * Flush the cache to tape if full.
+		 */
+		if ( st.st_resid == 0 )
+			stflush();
+
+		/*
+		 * Abort on I/O error.
+		 */
+		if ( u.u_error = st.st_error ) {
+			stdiag();
+			return;
+		}
+	}
+}
+
+/**
+ *
+ * stioctl( dev, cmd, arg )	-- service tape I/O control requests
+ * int dev;
+ * int cmd;
+ * int arg;
+ *
+ *	Input:	dev = tape device to be serviced
+ *		cmd = ioctl command
+ *		arg = argument to ioctl command
+ *
+ *	Action:	Service tape I/O control request.
+ */
+
+static
+stioctl( dev, cmd, arg )
+{
+	if ( st.st_iswr )
+		stflush();
+
+	st.st_error = EINVAL;
+
+	switch ( cmd ) {
+
+	case MTERASE:
+		stinvoke( CC_ERASE );
+		break;
+
+	case MTTENSE:
+		stinvoke( CC_TENSION );
+		break;
+
+	case MTREWIND:
+		if ( st.st_iswr && st.st_wasio ) {
+			stinvoke( CC_WFM );
+			st.st_wasio = 0;
+		}
+		stinvoke( CC_BOT );
+		break;
+
+	case MTWEOF:
+		if ( st.st_iswr ) {
+			stinvoke( CC_WFM );
+			st.st_wasio = 0;
+		}
+		break;
+
+	case MTFSKIP:
+		if ( ! st.st_iswr ) {
+			if ( ! st.st_iseof )
+				stinvoke( CC_RFM );
+			st.st_iseof = 0;
+			st.st_resid = 0;
+		}
+		break;
+	}
+
+	/*
+	 * Record tape error code.
+	 */
+	u.u_error = st.st_error;
+}
+
+/**
+ *
+ * void
+ * stcache()	-- read from tape into cache
+ *
+ *	Action:	Read as much data as possible into the tape cache.
+ *		Set st.st_paddr to the cache address.
+ *		Set st.st_resid to the number of data bytes in the cache.
+ */
+static void
+stcache()
+{
+	/*
+	 * Try to fill cache from tape.
+	 */
+	st.st_paddr = st.st_seg->s_paddr;
+	st.st_resid = st.st_size;
+	ststart();
+
+	/*
+	 * Update cache information.
+	 */
+	st.st_paddr = st.st_seg->s_paddr;
+	st.st_resid = st.st_size - st.st_resid;
+
+	/*
+	 * Clear the cache on I/O error.
+	 */
+	if ( st.st_error )
+		st.st_resid = 0;
+}
+
+/**
+ *
+ * void
+ * stflush()	-- flush cache to tape
+ *
+ *	Action:	Ensure tape cache is block aligned.
+ *		Write cache to the tape.
+ *		Set st.st_paddr to the cache address.
+ *		Set st.st_resid to the number of cache bytes available.
+ */
+static void
+stflush()
+{
+	static char zc;
+
+	/*
+	 * Check for empty cache.
+	 */
+	if ( st.st_resid == st.st_size )
+		return;
+
+	/*
+	 * Block align the cache.
+	 */
+	while ( st.st_resid % BSIZE ) {
+		kpcopy( &zc, st.st_paddr, 1 );
+		st.st_paddr++;
+		st.st_resid--;
+	}
+
+	/*
+	 * Flush the cache to tape.
+	 */
+	st.st_paddr = st.st_seg->s_paddr;
+	st.st_resid = st.st_size - st.st_resid;
+	ststart();
+
+	/*
+	 * Update cache information.
+	 */
+	st.st_paddr = st.st_seg->s_paddr;
+	st.st_resid = st.st_size;
+}
+
+/**
+ *
+ * void
+ * stinvoke()	-- start tape control operation
+ *
+ *	Action:	Initiate tape control operation.
+ */
+static void
+stinvoke( cmd )
+int cmd;
+{
+	register int s;
+
+	/*
+	 * Disable interrupts.
+	 */
+	s = sphi();
+
+	/*
+	 * Wait for controller to become idle.
+	 */
+	while ( st.st_state != SIDLE ) {
+
+		/*
+		 * Create chained command if possible.
+		 */
+		if ( st.st_ncmds < NCMDS ) {
+			st.st_cmds[ st.st_ncmds++ ] = cmd;
+			spl( s );
+			return;
+		}
+
+		sleep( &st, CVTTOUT, IVTTOUT, SVTTOUT );
+	}
+
+	/*
+	 * Setup for tape operation.
+	 */
+	drvl[ST_MAJOR].d_time = 1;
+	st.st_state = SCMD;
+	st.st_error = 0;
+	st.st_rdys  = 0;
+	stspin( 100 );
+
+	/*
+	 * Request tape operation.
+	 * Do NOT wait for results.
+	 */
+	outb( DATA_REG, st.st_cmd = cmd );
+	outb( CTRL_REG, CR_IEN+CR_REQ );
+
+	/*
+	 * Enable interrupts.
+	 */
+	spl( s );
+}
+
+/**
+ *
+ * void
+ * ststart()	-- start tape read/write operation
+ *
+ *	Action:	Initiate tape read/write operation.
+ *		Wait for tape operation to complete.
+ */
+static void
+ststart()
+{
+	register int s;
+
+	/*
+	 * Disable interrupts.
+	 */
+	s = sphi();
+
+	/*
+	 * Wait for controller to become idle.
+	 */
+	while ( st.st_state != SIDLE )
+		sleep( &st, CVTTOUT, IVTTOUT, SVTTOUT );
+
+	/*
+	 * Setup for tape read/write.
+	 */
+	drvl[ST_MAJOR].d_time = 1;
+	st.st_state = SRDWR;
+	st.st_error = 0;
+	st.st_rdys  = 0;
+	stspin( 100 );
+
+	/*
+	 * Tape read/write was last command executed.
+	 */
+	if ( st.st_cmd == st.st_iocmd ) {
+		/*
+		 * Resume tape i/o operation.
+		 * Simulate RDY interrupt.
+		 */
+		stintr();
+	}
+	else {
+		/*
+		 * Request tape operation.
+		 */
+		outb( DATA_REG, st.st_cmd = st.st_iocmd );
+		outb( CTRL_REG, CR_IEN+CR_REQ );
+	}
+
+	/*
+	 * Wait for tape operation to complete.
+	 */
+	while ( st.st_state != SIDLE )
+		sleep( &st, CVTTOUT, IVTTOUT, SVTTOUT );
+
+	/*
+	 * Enable interrupts.
+	 */
+	spl( s );
+}
+
+/**
+ *
+ * void
+ * stintr()	-- tape interrupt handler
+ *
+ *	Action:	Service tape interrupts.
+ *		Perform transitions to new tape states.
+ *		Wake sleeping processes if appropriate.
+ */
+static void
+stintr()
+{
+	register int csr;
+	register int s;
+
+	s   = sphi();
+	csr = inb( CTRL_REG );
+
+	/*
+	 * Initiate exception recovery.
+	 */
+	if ( (csr & SR_NEXC) == 0 ) {
+		strecov();
+		spl( s );
+		return;
+	}
+
+	/*
+	 * Clear ready watchdog count.
+	 */
+	st.st_rdys = 0;
+
+	/*
+	 * Process normal operations.
+	 */
+	switch ( st.st_state ) {
+
+	case SCMD:
+		/*
+		 * Command has been acknowledged.
+		 * Wait for command completion.
+		 */
+		outb( CTRL_REG, CR_IEN );
+ 		st.st_state = (st.st_cmd == CC_SENSE) ? SSENSE : SRUN;
+ 		st.st_nstat = 0;
+		break;
+
+	case SRUN:
+		/*
+		 * Command has completed.
+		 * Chain a sense status command if no other chained commands.
+		 */
+		if ( st.st_ncmds == 0 )
+			st.st_cmds[ st.st_ncmds++ ] = CC_SENSE;
+
+		/*
+		 * Initiate next chained command.
+		 */
+		stnext();
+		break;
+
+	case SRDWR:
+		/*
+		 * Read/Write command had been acknowledged.
+		 * Clear tape request, enable done interrupt.
+		 */
+		outb( CTRL_REG, CR_IEN+CR_DNIEN );
+
+		/*
+		 * Define direct memory access parameters.
+		 */
+		dmaon( STDMA, st.st_paddr, BSIZE, st.st_iswr );
+
+		/*
+		 * If tape read command, wait for interface to switch direction
+		 */
+		if ( st.st_iocmd == CC_READ )
+			while ( (inb(CTRL_REG) & SR_TO_PC) != SR_TO_PC )
+				;
+
+		/*
+		 * Enable DMA transfer on tape interface and at DMA controller chip.
+		 */
+		st.st_state = SBLOCK;
+		outb( DMAGO_REG, 0 );
+		dmago( STDMA );
+		break;
+
+	case SBLOCK:
+		/*
+		 * Perform Block I/O.
+		 * Ignore RDY interrupt, wait for [DMA] DONE interrupt.
+		 */
+		if ( (csr & SR_DONE) == 0 )
+			break;
+
+		/*
+		 * Turn off DMA.
+		 */
+		dmaoff( STDMA );
+
+		/*
+		 * If more data remains to be transferred, reenable DMA.
+		 * NOTE: do -= BEFORE if() to avoid potential compiler bug.
+		 */
+		st.st_resid -= BSIZE;
+		if ( st.st_resid > 0 ) {
+			st.st_paddr += BSIZE;
+			dmaon( STDMA, st.st_paddr, BSIZE, st.st_iswr );
+			outb( DMAGO_REG, 0 );
+			dmago( STDMA );
+			break;
+		}
+
+		/*
+		 * Disable done interrupt.
+		 * Wait for I/O completion.
+		 */
+		outb( CTRL_REG, CR_IEN );
+		st.st_state = SBLEND;
+		break;
+
+	case SBLEND:
+		/*
+		 * Completion of Block I/O.
+		 * Clear the file mark and beginning of media indicators.
+		 * Record the fact that data has been transferred.
+		 */
+		st.st_status[0] &= ~SS0_FIL;
+		st.st_status[1] &= ~SS1_BOM;
+		st.st_wasio = 1;
+		stnext();
+		break;
+
+	case SSENSE:
+		/*
+		 * Sense Status Byte.
+		 * Wait for availability.
+		 */
+		do {
+			csr = inb(CTRL_REG) & (SR_NRDY|SR_TO_PC);
+		} while ( csr != SR_TO_PC );
+
+		/*
+		 * Save status byte.
+		 */
+		st.st_status[st.st_nstat] = inb(DATA_REG);
+
+		/*
+		 * Acknowledge reception.
+		 * CR_REQ must be present for at least 20 microseconds.
+		 */
+		outb( CTRL_REG, CR_IEN+CR_REQ );
+		stspin( 20 );
+		outb( CTRL_REG, CR_IEN );
+
+		/*
+		 * Change state to status completion if all bytes saved.
+		 */
+		if ( ++(st.st_nstat) == 6 )
+			st.st_state = SSDONE;
+		break;
+
+	case SSDONE:
+		/*
+		 * Completion of Sense Status Command.
+		 * Check for file mark.
+		 */
+		if ( st.st_status[0] & SS0_FIL ) {
+			outb( DMARST_REG, 0 );
+			st.st_iseof = 1;
+		}
+
+		/*
+		 * Check for I/O error.
+		 */
+		else if ( (st.st_status[0] & SS0_ERR) ||
+			  (st.st_status[1] & SS1_ERR) ) {
+			st.st_error = EIO;
+		}
+
+		/*
+		 * Check for write protected cartridge.
+		 */
+		else if ( (st.st_iocmd == CC_WRITE) &&
+			  (st.st_status[0] & SS0_WRP) ) {
+			st.st_error = EROFS;
+		}
+
+		stnext();
+		break;
+	}
+
+	spl( s );
+}
+
+/**
+ *
+ * void
+ * strecov()	-- initiate recovery from exception conditions
+ *
+ *	Action:	Invoked when the tape controller asserts EXCEPTION.
+ *		A sense status command is initiated to clear the exception.
+ */
+static void
+strecov()
+{
+	/*
+	 * Ensure tape interface is idle.
+	 */
+	outb( CTRL_REG, CR_IEN );
+	stspin( 100 );
+
+	/*
+	 * Turn off DMA on read/write exception.
+	 */
+	if ( st.st_cmd == st.st_iocmd )
+		dmaoff( STDMA );
+
+	/*
+	 * Initiate sense status command.
+	 */
+	outb( DATA_REG, st.st_cmd = CC_SENSE );
+	outb( CTRL_REG, CR_IEN+CR_REQ );
+	drvl[ST_MAJOR].d_time = 1;
+	st.st_state = SCMD;
+	st.st_error = 0;
+	st.st_rdys  = 0;
+}
+
+/**
+ *
+ * static void
+ * stnext()	-- initiate next chained command.
+ */
+static void
+stnext()
+{
+	/*
+	 * Ensure tape interface is idle.
+	 */
+	outb( CTRL_REG, CR_IEN );
+	drvl[ST_MAJOR].d_time = 0;
+	st.st_state = SIDLE;
+	stspin( 100 );
+
+	/*
+	 * Initiate a chained command.
+	 */
+	if ( st.st_ncmds ) {
+		outb( DATA_REG, st.st_cmd = st.st_cmds[ --st.st_ncmds ] );
+		outb( CTRL_REG, CR_IEN+CR_REQ );
+		drvl[ST_MAJOR].d_time = 1;
+		st.st_state = SCMD;
+		st.st_error = 0;
+		st.st_rdys  = 0;
+		return;
+	}
+
+	/*
+	 * Wake waiting processes.
+	 */
+	wakeup( &st );
+}
+
+/**
+ *
+ * void
+ * stwatch()	-- periodic [1 sec] watchdog
+ *
+ *	Action:	If an exception condition exists, initate recovery actions.
+ *		If ready condition exists for 1-2 seconds, simulate interrupt.
+ *
+ *	Notes:	If an exception condition occurs after a ready interrupt has
+ *		been serviced, but before the ready condition is cleared,
+ *		the exception interrupt will not occur, and is simulated here.
+ */
+static void
+stwatch()
+{
+	register int csr;
+	register int s;
+
+	/*
+	 * Disable interrupts, preventing critical race with stintr().
+	 */
+	s   = sphi();
+	csr = inb(CTRL_REG);
+
+	/*
+	 * Initiate recovery from exception conditions.
+	 */
+	if ( (csr & SR_NEXC) == 0 )
+		strecov();
+
+	/*
+	 * Reset ready watchdog if not ready.
+	 */
+	else if ( csr & SR_NRDY ) 
+		st.st_rdys = 0;
+
+	/*
+	 * Simulate lost ready interrupts after 2 seconds.
+	 */
+	else if ( ++st.st_rdys >= 2 )
+		stintr();
+
+	/*
+	 * Enable interrupts.
+	 */
+	spl( s );
+}
+
+/**
+ * 
+ * void
+ * stdiag()	- Report tape status.
+ *
+ *	Action:	Identify and report the highest priority tape error.
+ *		There will normally only be one valid error present.
+ *		The USL error can invalidate most remaining flags.
+ *		The CNI error can invalidate cartridge related flags.
+ *
+ *	Notes:	Never called from interrupt level, but always from background.
+ */
+static void
+stdiag()
+{
+	if ( st.st_status[0] & SS0_USL )
+		printf( "st: Unselected Drive\n" );
+
+	else if ( st.st_status[0] & SS0_CNI )
+		printf( "st: Cartridge missing\n" );
+
+	else if ( st.st_status[1] & SS1_NDT )
+		printf( "st: No data detected\n" );
+
+	else if ( st.st_status[0] & SS0_BNL )
+		printf( "st: Bad block not located\n" );
+
+	else if ( st.st_status[0] & SS0_UDA )
+		printf( "st: Unrecoverable data error\n" );
+
+	else if ( st.st_status[1] & SS1_ILL )
+		printf( "st: Illegal command\n" );
+
+	else
+		printf( "st: %x\n", (st.st_status[1] << 8) + st.st_status[0] );
+}
+
+/**
+ *
+ * int
+ * stwait()	-- wait for tape controller to idle.
+ *
+ *	Return:	0  = tape controller idle.
+ *		-1 = signal received.
+ */
+static int
+stwait()
+{
+	int s;
+
+	s = sphi();
+	while ( st.st_state != SIDLE ) {
+
+		sleep( &st, CVTTOUT, IVTTOUT, SVTTOUT );
+
+		if ( SELF->p_ssig ) {
+			spl( s );
+			return -1;
+		}
+	}
+	spl( s );
+
+	return 0;
+}
+
+/**
+ *
+ * void
+ * stspin( usec )	-- delay execution
+ * int usec;
+ *
+ *	Input:	usec = number of micro-seconds to delay.
+ *
+ *	Action:	Wait at least 'usec' micro-seconds.
+ *
+ *	Notes:	Provides minimum delay required at times by tape controller.
+ *		Should function properly up to at least 16 Mhz system clock.
+ */
+
+static void
+stspin( usec )
+register int usec;
+{
+	while ( --usec >= 0 )
+		;
+}

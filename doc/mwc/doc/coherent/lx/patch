@@ -1,0 +1,228 @@
+.TH patch "" "" Command
+.PC "Patch a variable or flag within the kernel"
+\fB/conf/patch \fB[-k] \fIimage symbol=value ...\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB\-k\fR"
+Patch the kernel's data memory of the running system via device \fB/dev/kmem\fR
+.IC "\fB\-K\fR
+Patch \fB/dev/kmem\fR only
+.IC "\fB\-p\fR
+``Peek'' \(em display current values
+.IC "\fB\-v\fR
+Verbose output \(em display values before and after patching
+.HE
+The command
+.B patch
+alters the value of datum
+.I symbol
+to
+.I value
+in executable
+.IR image .
+In general, you should use
+.B patch
+to alter configuration data (constants) in programs, in device drivers,
+and in the \*(CO kernel.
+For
+.B patch
+to work with a symbolic constant,
+.I image
+must have a symbol table that includes information about
+.IR symbol .
+Therefore, executables that have been processed by the command
+.B strip
+cannot be
+.BR patch ed.
+.SH Options
+.B patch
+recognizes the following command-line options:
+.IP \fB\-k\fR
+Patch
+.IR image ,
+and patch
+the kernel memory of the running \*(CO system via device
+.BR /dev/kmem .
+Only the superuser
+.B root
+can use
+.B patch
+to access kernel memory.
+.IP \fB\-K\fR
+Patch
+.B /dev/kmem
+only.
+Refer to
+.I image
+for its symbol table, but do not change it.
+.IP \fB\-p\fR
+``Peek'' \(em just display current values; change nothing.
+.IP \fB\-v\fR
+Verbose \(em display values before and after patching.
+.SH "Variable Names"
+.I symbol
+and
+.I value
+can be either a numeric constant or a symbol from the symbol table of
+.IR image .
+.I symbol
+and
+.I value
+expressions can include a numeric offset.
+In addition,
+.I value
+can be composed of the construct
+\fBmakedev(\fImajor\fP,\fPminor\fP)\fR, where
+.I major
+and
+.I minor
+are the ``major'' and ``minor'' device numbers, respectively, resulting in a
+.BR dev_t \-sized
+device type.
+No spaces can appear around the equal sign in the \fBsymbol\fB=\fIconstant\fR
+construct.
+.PP
+Numeric constants default to decimal,
+but may be specifyed with a leading
+.B 0
+prefix to specify an octal number or a
+.B 0x
+prefix to specify a hexadecimal number.
+.PP
+The size of the altered
+.I symbol
+field is, by default, \fBsizeof(int)\fR.
+.B patch
+recognizes the following explicit size overrides:
+.IP "\fB:c\fR" 0.3i
+The size of the altered field is
+.BR sizeof(char) .
+.IP "\fB:i\fR"
+The size of the altered field is
+.BR sizeof(int) .
+.IP "\fB:l\fR"
+The size of the altered field is
+.BR sizeof(long) .
+.IP "\fB:s\fR"
+The size of the altered field is
+.BR sizeof(short) .
+.SH Example
+.II "panic^redirect output"
+.II "register dump^redirect output"
+.II "cmn_err()
+The following example gives technique that allows kernel display \(em
+that is, the output of the routines
+.B cmn_err()
+and the kernel's version of
+.B printf()
+\(em to go to a serial port.
+With this, you can save the panic messages and register dumps
+on a terminal screen or printer page
+while you reboot and try to track down what went wrong.
+To do so, plug a terminal into a serial port, and then do the following.
+.IP \fB1.\fR 0.3i
+Find the major and minor numbers of a working serial port.
+Do not configure the port for modem control or flow control;
+use something simple like
+.BR com2l .
+Make sure you can send data out the port;
+for example see that the command
+.DM
+	date > /dev/com2l
+.DE
+.IP
+sends data to the terminal's screen.
+The baud rate for the port will be whatever is specified for the default
+in file
+.B /etc/default/async
+\(em 9600 unless you have changed it.
+.IP \fB2.\fR
+Make sure the port is
+.I not
+enabled.
+.IP \fB3.\fR
+Create a test kernel around that you can modify.
+Call it something easily remembered, such as
+.BR /testcoh .
+.IP \fB4.\fR
+Patch the kernel with the command
+.DM
+	/conf/patch -v /testcoh \fIcondev=makedev(\fImajor\fP,\fIminor\fP):s
+.DE
+.IP
+where
+.I major
+is the major number for the serial port, and
+.I minor
+is its minor number.
+.IP \fB5.\fR
+Boot the patched kernel.
+.PP
+With this change, you will not be able to control kernel output with
+XON and XOFF, nor will you seen kernel output from very early startup
+(before the page tables are working) appear on the serial device.
+.SH Example
+.II "console^redirect error messages"
+.II "error messages^redirect to a terminal"
+.II "messages^redirect to a terminal"
+The following example patches the kernel to redirect error messages to a
+terminal device on a serial port, instead of displaying them on the console:
+.DM
+	/conf/patch -v /\Ikernel_name\fP "condev=makedev(\fImaj\fP, \fImin\^\fP):s"
+.DE
+.PP
+where
+.I kernel_name
+names the kernel you wish to patch, and
+.I maj
+and
+.I min
+are, respectively, the major and minor device numbers of the serial port to
+which you wish to redirect messages.
+.PP
+Note that
+.B condev
+is a short integer, so the ``:s'' is essential.
+The patch is made to the file on disk.
+You must reboot before it can work \(em chaos results if you
+try to switch console devices in a running kernel.
+.SH "See Also"
+.Xr "commands," commands
+.Xr "device drivers," device_dr
+.Xr "kernel" kernel
+.R
+.SH Notes
+It is extremely dangerous to patch the \*(CO kernel.
+Almost all changes that you may wish to make the kernel can be accomplished
+more safely by using the commands
+.B idtune
+and
+.BR idmkcoh .
+For details on how to use the commands, see their entries in the Lexicon.
+.\" As the Goons put it,
+.\" "This exercise should be performed only by certified idiots."
+Therefore, do not use
+.B /conf/patch
+to patch the kernel unless you know
+.I exactly
+what you are doing.
+\fICaveat utilitor!\fR
+.PP
+Beginning with release 4.2 of \*(CO, the symbol table has been removed from
+the kernel, and is kept in its own file.
+The symbol-table file is named after its corresponding kernel; for example,
+the symbol table for a kernel named
+.B /coherent
+is kept in file
+.BR /coherent.sym .
+This complicates using
+.B patch
+to hot-patch a kernel.
+As noted above, you are well advised to use commands
+.B idtune
+and
+.B idenable
+to modify your kernel configuration, than using
+.B patch
+to hot-patch an existing kernel.

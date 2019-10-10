@@ -1,0 +1,263 @@
+.TH "C preprocessor" "" "" Overview
+.II cpp
+.PC
+.PP
+.I Preprocessing
+encompasses all tasks that logically precede the translation
+of a program.
+The preprocessor processes headers, expands macros,
+and conditionally includes or excludes source code.
+.SH Directives
+The C preprocessor recognizes the following directives:
+.LB
+\fB#if\fR	Include code if a condition is true
+\fB#elif\fR	Include code if directive is true
+\fB#else\fR	Include code if preceding directives fail
+\fB#endif\fR	End of code to be included conditionally
+.LB
+\fB#ifdef\fR	Include code if a given macro is defined
+\fB#ifndef\fR	Include code if a given macro is not defined
+.LB
+\fB#define\fR	Define a macro
+\fB#undef\fR	Undefine a macro
+\fB#include\fR	Read another file and include it
+\fB#line\fR	Reset current line number
+.PP
+The \*(CO preprocessor also recognizes the directive
+.BR #pragma ,
+which performs implementation-specific tasks.
+See the Lexicon entry on
+.B #pragma
+for details.
+.PP
+A preprocessing directive is always introduced by the \*(Ql#\*(Qr character.
+The \*(Ql#\*(Qr must be the first non-white space character on a line, but
+it may be preceded by white space and it may be separated from
+the directive name that follows it by one or more white space characters.
+.SH "Preprocessing Operators"
+The Standard defines two operators that are recognized by the
+preprocessor:
+the \*(QLstringize\*(QR operator
+.BR # ,
+and the \*(QLtoken-paste\*(QR operator
+.BR ## .
+It also defines a new keyword associated with preprocessor statements:
+.BR defined .
+.PP
+The operator
+.B #
+indicates that the following argument is to be replaced by a
+string literal; this literal names the preprocessing token that replaces
+the argument.
+For example, consider the macro:
+.DM
+	#define display(x) show((long)(x), #x)
+.DE
+.PP
+When the preprocessor reads the line
+.DM
+	display(abs(-5));
+.DE
+.PP
+it replaces it with the following:
+.DM
+	show((long)(abs(-5)), "abs(-5)");
+.DE
+.PP
+The
+.B ##
+operator performs \*(QLtoken pasting\*(QR \(em that is, it joins two
+tokens together, to create a single token.
+For example, consider the macro:
+.DM
+	#define printvar(x) printf("%d\en", variable ## x)
+.DE
+.PP
+When the preprocessor reads the line
+.DM
+	printvar(3);
+.DE
+.PP
+it translates it into:
+.DM
+	printf("%d\en", variable3);
+.DE
+.PP
+In the past, token pasting had been performed
+by inserting a comment between the tokens to be pasted.
+This no longer works.
+.SH "Predefined Macros"
+The
+ANSI Standard describes the following macros that must be recognized by the
+preprocessor:
+.DS
+.ta 0.4i 1.35i
+	\fB__DATE__\fR	Date of translation
+	\fB__FILE__\fR	Source-file name
+	\fB__LINE__\fR	Current line within source file
+	\fB__STDC__\fR	Conforming translator and level
+	\fB__TIME__\fR	Time of translation
+.DE
+.PP
+For more information on any one of these macros, see its entry.
+.SH "Conditional Inclusion"
+The preprocessor will conditionally include lines of code within a program.
+The directives that include code conditionally are defined in such a way
+that you can construct a chain of inclusion directives
+to include exactly the material you want.
+.PP
+The preprocessor keyword
+.B defined
+determines whether a symbol is defined to the
+.B #if
+preprocessor directive.
+For example,
+.DM
+	#if defined(SYMBOL)
+.DE
+.PP
+or
+.DM
+	#if defined SYMBOL
+.DE
+.PP
+is equivalent to
+.DM
+	#ifdef SYMBOL
+.DE
+.PP
+except that it can be used in more complex expressions, such as
+.DM
+	#if defined FOO && defined BAR && FOO==10
+.DE
+.PP
+.B defined
+is recognized only in lines beginning with
+.B #if
+or
+.BR #elif .
+.PP
+Note that
+.B defined
+is a preprocessor keyword, not a preprocessor directive or a C keyword.
+You could, for example, write a function called
+.B defined()
+without any complaint from the C compiler.
+.PP
+.II __COHERENT__
+.II __MWC__
+.II __IEEE__
+.II __I386__
+The \*(CO preprocessor implicitly defines the following macros:
+.DM
+	__COHERENT__
+	__MWC__
+	__IEEE__
+	__I386__
+.sp \n(pDu
+	_IEEE
+	_I386
+	MWC 
+	COHERENT
+.DE
+.PP
+These can be used to include conditionally code that applies
+to a specific edition of \*(CO.
+\*(CO 286 uses DECVAX floating-point code;
+whereas \*(CO 386 uses IEEE.
+If you were writing code that intensively used
+floating-point numbers and you wanted to
+compile the code under both editions of \*(CO, you could write code of
+the form:
+.DM
+	#ifdef _DECVAX
+		...
+	#elif _IEEE
+		...
+	#endif
+.DE
+.PP
+The C preprocessor under each edition of \*(CO would ensure that the
+correct code was included for compilation.
+.SH "Macro Definition and Replacement"
+The preprocessor performs simple types of macro replacement.
+To define a macro, use the preprocessor directive
+\fB#define \fIidentifier value\fR.
+The preprocessor scans the translation unit for preprocessor tokens
+that match
+.IR identifier ;
+when one is found, the preprocessor substitutes
+.I value
+for it.
+.SH "Inclusion of Macros or Functions"
+The ANSI standard demands that every routine implemented as a macro also be
+implemented as a function, with the exception of the macro
+.BR va_arg() .
+For example, \*(CO implements the STDIO routines
+.B toupper()
+and
+.B tolower()
+both as macros and functions.
+.PP
+By default, \*(CO uses the macro version of routines.
+To force it to use the function of a routine, you must undefine the macro
+version.
+You can do that either by using the preprocessor instruction
+.B #undef
+in your code, or by using the option
+.B \-U
+on the
+.B cc
+command line.
+For example, to compel \*(CO to use the function version of
+.BR tolower() ,
+include the statement
+.DM
+	#undef tolower
+.DE
+.PP
+in your program, or include the argument
+.DM
+	-Utolower
+.DE
+.PP
+on the
+.B cc
+command line.
+.SH "cpp"
+Under \*(CO, C preprocessing is done by the program
+.BR cpp .
+The
+.B cc
+command runs
+.B cpp
+as the first step in compiling a C program.
+.B cpp
+can also be run by itself.
+.PP
+.B cpp
+reads each input
+.IR file ;
+it processes directives, and writes its product on \fBstdout\fR.
+.PP
+If its
+.B \-E
+option is not used,
+.B cpp
+also writes into its output statements of the form
+\fB#line \fIn filename\^\fR,
+so that the parser
+.B cc0
+can connect its error messages and
+debugger output with the original line numbers in your source files.
+.PP
+See the Lexicon entry on
+.B cpp
+for more information.
+.SH "See Also"
+.Xr "C language," c_languag
+.Xr cc, cc
+.Xr cpp, cpp
+.Xr defined, defined
+.Xr macro, macro
+.Xr "manifest constant," manifestc

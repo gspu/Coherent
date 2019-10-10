@@ -1,0 +1,164 @@
+# $Header: /newbits/usr/lib/libcurses/RCS/Makefile,v 1.5 92/02/17 13:39:49 bin Exp $
+#
+# Copyright (c) 1987 Regents of the University of California.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms are permitted
+# provided that the above copyright notice and this paragraph are
+# duplicated in all such forms and that any documentation,
+# advertising materials, and other materials related to such
+# distribution and use acknowledge that the software was developed
+# by the University of California, Berkeley.  The name of the
+# University may not be used to endorse or promote products derived
+# from this software without specific prior written permission.
+# THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+# WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+#	@(#)Makefile	5.4 (Berkeley) 6/30/88
+#
+# Modifications Copyright INETCO Systems Ltd. (c) 1989
+#
+# $Log:	Makefile,v $
+# Revision 1.5  92/02/17  13:39:49  bin
+# update by steve for new make macros
+#
+# Revision 1.3	89/11/07  17:47:19 	src
+# Bug:	Make install would always update modification times of include files.
+# Fix:	Now use "cpdir -d" to avoid updating modification times (ABC).
+# 
+# Revision 1.2	89/08/25  14:56:45 	src
+# Updated dependencies.
+# 
+# Mar 21, 1989: bcopy.c, beep.c, getkey.c, and need.c are INETCO additions.
+#
+
+RCSPATH=$${CMDPATH-/usr/src/lib}/libcurses
+
+DESTDIR=/interim/usr/lib/
+DESTDIR386=/bin386/usr/lib/
+DESTDIRNDP=/bin386/usr/lib/ndp/
+
+CC=exec /bin/cc
+
+LIBC=/lib/libc.a
+INCDIR=/usr/include
+
+CFLAGS=-O -I$(SRCPATH) -VNDP
+
+OBJS=\
+	copyright.o \
+	addbytes.o \
+	addch.o \
+	addstr.o \
+	bcopy.o \
+	beep.o \
+	box.o \
+	clear.o \
+	clrtobot.o \
+	clrtoeol.o \
+	cr_put.o \
+	cr_tty.o \
+	curses.o \
+	delch.o \
+	deleteln.o \
+	delwin.o \
+	endwin.o \
+	erase.o \
+	fullname.o \
+	getch.o \
+	getkey.o \
+	getstr.o \
+	id_subwins.o \
+	idlok.o \
+	initscr.o \
+	insch.o \
+	insertln.o \
+	longname.o \
+	move.o \
+	mvprintw.o \
+	mvscanw.o \
+	mvwin.o \
+	need.o \
+	newwin.o \
+	overlay.o \
+	overwrite.o \
+	printw.o \
+	putchar.o \
+	refresh.o \
+	scanw.o \
+	scroll.o \
+	standout.o \
+	tflgtab.o \
+	tkeytab.o \
+	toucholap.o \
+	touchwin.o \
+	tstp.o \
+	tstrtab.o \
+	unctrl.o
+
+libcurses.a: $(OBJS)
+	: rm -f libcurses.a
+	$(AR) rcvks $(DESTDIR)libcurses.a $(OBJS)
+
+libtermcap.NDP: $(OBJS)
+	: rm -f $(DESTDIRNDP)libtermcap.a
+	$(AR) rcvks $(DESTDIRNDP)libtermcap.a $(OBJS) /newbits/usr/lib/libterm/objndp/*.o
+
+libtermcap: $(OBJS)
+	: rm -f $(DESTDIR386)libtermcap.a
+	$(AR) rcvks $(DESTDIR386)libtermcap.a $(OBJS) /newbits/usr/lib/libterm/obj386/*.o
+
+install: libcurses.a curses.h unctrl.h
+	su root cp -d libcurses.a /usr/lib
+	su root cp -d `srcpath curses.h unctrl.h` $(INCDIR)
+
+addbytes.o:	addbytes.c curses.ext curses.h
+addch.o:	addch.c	curses.ext curses.h
+addstr.o:	addstr.c curses.ext curses.h
+bcopy.o:	bcopy.c
+beep.o:		beep.c
+box.o:		box.c curses.ext curses.h
+clear.o:	clear.c curses.ext curses.h
+clrtobot.o:	clrtobot.c curses.ext curses.h
+clrtoeol.o:	clrtoeol.c curses.ext curses.h
+cr_put.o:	cr_put.c curses.ext curses.h
+cr_tty.o:	cr_tty.c curses.ext curses.h
+curses.o:	curses.c curses.h
+delch.o:	delch.c curses.ext curses.h
+deleteln.o:	deleteln.c curses.ext curses.h
+delwin.o:	delwin.c curses.ext curses.h
+endwin.o:	endwin.c curses.ext curses.h
+erase.o:	erase.c curses.ext curses.h
+fullname.o:	fullname.c
+getch.o:	getch.c curses.ext curses.h
+getkey.o:	getkey.c curses.h
+getstr.o:	getstr.c curses.ext curses.h
+idlok.o:	idlok.c curses.ext curses.h
+id_subwins.o:	id_subwins.c curses.ext curses.h
+initscr.o:	initscr.c curses.ext curses.h
+insch.o:	insch.c curses.ext curses.h
+insertln.o:	insertln.c curses.ext curses.h
+longname.o:	longname.c
+move.o:		move.c curses.ext curses.h
+mvprintw.o:	mvprintw.c curses.ext curses.h
+mvscanw.o:	mvscanw.c curses.ext curses.h
+mvwin.o:	mvwin.c curses.ext curses.h
+need.o:		need.c curses.ext
+newwin.o:	newwin.c curses.ext curses.h
+overlay.o:	overlay.c curses.ext curses.h
+overwrite.o:	overwrite.c curses.ext curses.h
+printw.o:	printw.c curses.ext curses.h
+putchar.o:	putchar.c curses.ext curses.h
+refresh.o:	refresh.c curses.ext curses.h
+scanw.o:	scanw.c curses.ext curses.h
+scroll.o:	scroll.c curses.ext curses.h
+tflgtab.o:	tflgtab.c curses.h
+copyright.o:	copyright.c
+tstrtab.o:	tstrtab.c curses.h
+toucholap.o:	toucholap.c curses.ext curses.h
+standout.o:	standout.c curses.ext curses.h
+touchwin.o:	touchwin.c curses.ext curses.h
+tstp.o:		tstp.c curses.ext curses.h
+tkeytab.o:	tkeytab.c curses.h
+unctrl.o:	unctrl.c

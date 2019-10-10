@@ -1,0 +1,88 @@
+//////////
+/ i8086 general utilities library.
+/ ldiv()
+/ ANSI 4.10.6.4.
+/ Long division and remainder.
+//////////
+
+#include "larges.h"
+
+//////////
+/ #include <stdlib.h>
+/ ldiv_t ldiv(long int numer, long int denom)
+/
+/ Compute quotient and remainder of 'numer' by 'denom'.
+/ Return a pointer to a statically allocated ldiv_t object.
+//////////
+
+	.prvd
+quot:	.word	0
+	.word	0
+rem:	.word	0
+	.word	0
+
+numer	=	6+RASIZE
+denom	=	4+numer
+
+	.shri
+	.globl	ldiv_, vdiv
+
+ldiv_:
+	push	di
+	push	si
+	push	bp
+	mov	bp, sp
+
+	mov	ax, numer(bp)
+	mov	dx, 2+numer(bp)		/ Dividend to DX:AX
+	mov	cx, denom(bp)
+	mov	bx, 2+denom(bp)		/ Divisor to BX:CX
+
+	mov	bp, dx
+	xor	bp, bx
+	and	bp, $0x8000		/ Quotient sign to sign bit of BP
+
+	or	bx, bx
+	jns	0f
+	not	bx			/ Force divisor positive
+	neg	cx
+	sbb	bx, $-1
+0:
+	or	dx, dx
+	jns	0f
+	or	bp, $1			/ Remainder sign to low bit of BP
+	not	dx			/ Force dividend positive
+	neg	ax
+	sbb	dx, $-1
+0:
+	Gcall	vdiv			/ Quotient to SI:DI, rem to DX:AX
+	or	bp, bp
+	jns	0f
+	not	si			/ Negate quotient
+	neg	di
+	sbb	si, $-1
+0:
+	and	bp, $1
+	je	0f
+	not	dx			/ Negate remainder
+	neg	ax
+	sbb	dx, $-1
+0:
+	Map	(ds, bx, $@quot)
+	mov	bx, $quot		/ Destination to DS:BX
+	mov	(bx), di
+	mov	2(bx), si		/ Store quotient
+	mov	4(bx), ax
+	mov	6(bx), dx		/ Store remainder
+
+#if	LARGE
+	mov	dx, ds
+#endif
+	mov	ax, bx			/ Return pointer in DX:AX
+
+	pop	bp
+	pop	si
+	pop	di
+	Gret
+
+/ end of ldiv.m

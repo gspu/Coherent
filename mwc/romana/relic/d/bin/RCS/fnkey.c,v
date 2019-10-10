@@ -1,0 +1,389 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.10.02.09.41.36;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.06.13.12.39.21;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.03.18.20.07.30;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@brought over init ver from the hp (dated March 14, 1990)
+@
+
+
+1.3
+log
+@update by norm: now senses if the new or old keyboard driver is in use.
+@
+text
+@/*
+ *	fnkey.c
+ *	9/30/91
+ *	Usage:  fnkey [ n [ string ] ]
+ *	Sets/prints IBM AT console function keys.
+ *	Revised for COHERENT 3.2
+ */
+#include <stdio.h>
+#include <sgtty.h>
+#include <ctype.h>
+#include <sys/kb.h>
+#include <errno.h>
+
+#define	VERSION	"3.0"			/* version number */
+/*
+ * The following constants were hard coded into the original kb.c driver
+ * and have to be duplicated here to support both drivers on demand.
+ */
+#define	NFKEY	20			/* kb: number of function keys */
+#define	NFCHAR	150			/* kb: function key storage */
+#define	NFBUF	(2*NFKEY+NFCHAR+1)	/* kb: total buffer size */
+
+FNKEY	*okeys;				/* old key bindings */
+FNKEY	*nkeys;				/* new key bindings */
+int	old;				/* true: kb driver, false: nkb */
+KBTBL	kbt[MAX_KEYS];			/* key mapping table for TIOCGETKBT */
+
+main(argc, argv)
+int argc;
+char **argv;
+{
+	unsigned c;
+	register int i;
+	register unsigned char *cp, *ncp;
+	int n, fd, max_fchar, max_fkeys;
+
+	fd = open("/dev/console", 2);
+	if (fd == -1)
+		fatal("cannot open /dev/console");
+	okeys = (FNKEY *) malloc(sizeof(FNKEY) + MAX_FCHAR);
+	nkeys = (FNKEY *) malloc(sizeof(FNKEY) + MAX_FCHAR);
+	if (okeys == (FNKEY *)0 || nkeys == (FNKEY *)0)
+		fatal("out of memory");
+	cp =  &okeys->k_fnval[0];
+	ncp = &nkeys->k_fnval[0];
+
+	/* Print version number if -V. */
+	if (*++argv != NULL && strcmp(*argv, "-V") == 0) {
+		--argc;
+		++argv;
+		fprintf(stderr, "fnkey:  V%s\n", VERSION);
+	}
+	if (argc > 3)
+		usage();
+
+	ioctl(fd, TIOCGETKBT, kbt);		/* See if nkb driver present */
+	if (errno)
+		++old;				/* No, kb assumed */
+
+	errno = 0;
+	if (old) {				/* get current key bindings */
+		ioctl(fd, TIOCGETF, okeys->k_fnval);	/* kb */
+		max_fchar = NFBUF;
+		max_fkeys = NFKEY;
+	} else {
+		ioctl(fd, TIOCGETF, okeys);		/* nkb */
+		max_fchar = MAX_FCHAR;
+		max_fkeys = MAX_FKEYS;
+	}
+	if (errno)
+		fatal("couldn't read current function key settings");
+
+	/* Print current values if no args, then exit */
+	if (*argv == NULL ) {
+		if (old)
+			kb_print();
+		else
+			nkb_print();
+		exit(0);
+	}
+
+	/* First arg must be digit. */
+	if (!isdigit(**argv))
+		usage();
+	n = atoi(*argv++);
+	if ((old && n > NFKEY) || (!old && n >= MAX_FKEYS))
+		usage();
+	if (old)
+		--n;
+	/* Set Fn to given value. */
+	for (i = 0; i < max_fkeys; i++) {
+		if (i == n) {
+			if (*argv != NULL)
+				while (c = *(*argv)++)
+					if (ncp < &nkeys->k_fnval[max_fchar]-1)
+						*ncp++ = c;
+			while ((c = *cp++)!=DELIM && cp < &okeys->k_fnval[max_fchar])
+				;
+		} else {
+			while ((c = *cp++)!=DELIM && cp < &okeys->k_fnval[max_fchar])
+				if (ncp < &nkeys->k_fnval[max_fchar]-1)
+					*ncp++ = c;
+		}
+		*ncp++ = DELIM;
+		if (ncp >= &nkeys->k_fnval[max_fchar])
+			break;
+	}
+	if (old) {
+		ioctl(fd, TIOCSETF, nkeys->k_fnval);	/* kb */
+	} else {
+		nkeys->k_nfkeys = i;
+		ioctl(fd, TIOCSETF, nkeys);		/* nkb */
+	}
+	if (errno)
+		fatal("couldn't set function keys");
+
+	exit(0);
+}
+
+printchar(c)
+register unsigned c;
+{
+	if (c == '\\')
+		printf("\\\\");
+	else if ((c >= ' ' && c <= '~') || c >= 0200)
+		putchar(c);
+	else switch (c) {
+	case '\n':	printf("\\n");
+			break;
+	case '\t':	printf("\\t");
+			break;
+	case '\b':	printf("\\b");
+			break;
+	case '\r':	printf("\\r");
+			break;
+	default:	printf("\\%03o", c);
+			break;
+	}
+}
+
+usage()
+{
+	fprintf(stderr, "Usage:	fnkey [ n [ string ] ]\n");
+	exit(1);
+}
+
+fatal(arg)
+char	*arg;
+{
+	fprintf(stderr, "fnkey:\t%r\n", &arg);
+	exit(1);
+}
+
+/*
+ * Print out current settings of function key bindings.
+ * We do this two ways to support kb and nkb.
+ */
+kb_print()
+{
+	int i;
+	unsigned c;
+	unsigned char *cp;
+
+	cp = &okeys->k_fnval[0];
+	for (i = 1; i <= NFKEY && cp < &okeys->k_fnval[NFBUF]; i++)  {
+		if ((c = *cp) == DELIM) {
+			cp++;
+			continue;
+		}
+		printf ("F%d:  ", i);
+		while ((c = *cp++) != DELIM && cp < &okeys->k_fnval[NFBUF]) 
+			printchar(c);
+		putchar('\n');
+	}
+}
+
+nkb_print()
+{
+	int i;
+	unsigned c;
+	unsigned char *cp;
+
+	cp = &okeys->k_fnval[0];
+	for (i = 0; i<okeys->k_nfkeys && cp<&okeys->k_fnval[MAX_FCHAR]; i++)  {
+		if ((c = *cp) == DELIM) {
+			cp++;
+			continue;
+		}
+		printf ("F%d:  ", i);
+		while ((c = *cp++)!=DELIM && cp<&okeys->k_fnval[MAX_FCHAR]) 
+			printchar(c);
+		putchar('\n');
+	}
+}
+/* end of fnkey.c */
+@
+
+
+1.2
+log
+@version 3.20 fnkey. No longer has the 150 character limit. Escape
+sequences no longer wipe out function key programming.
+@
+text
+@d1 3
+a3 2
+/*	fnkey.c
+ *	6/10/91
+d14 8
+a21 1
+#define	VERSION	"2.0"			/* version number */
+d25 2
+d35 1
+a35 1
+	int n, fd;
+d56 1
+a56 1
+	ioctl(fd, TIOCGETF, okeys);		/* get current key bindings */
+d58 13
+d73 1
+a73 1
+	/* Print current values if no args. */
+d75 4
+a78 10
+		for (i=0; i<okeys->k_nfkeys && cp<&okeys->k_fnval[MAX_FCHAR]; i++)  {
+			if ((c = *cp) == DELIM) {
+				cp++;
+				continue;
+			}
+			printf ("F%d:  ", i);
+			while ((c = *cp++)!=DELIM && cp<&okeys->k_fnval[MAX_FCHAR]) 
+				printchar(c);
+			putchar('\n');
+		}
+d85 2
+a86 1
+	if ((n = atoi(*argv++)) >= MAX_FKEYS)
+d88 2
+a89 1
+
+d91 1
+a91 1
+	for (i = 0; i < MAX_FKEYS; i++) {
+d95 1
+a95 1
+					if (ncp < &nkeys->k_fnval[MAX_FCHAR]-1)
+d97 1
+a97 1
+			while ((c = *cp++)!=DELIM && cp < &okeys->k_fnval[MAX_FCHAR])
+d100 2
+a101 2
+			while ((c = *cp++)!=DELIM && cp < &okeys->k_fnval[MAX_FCHAR])
+				if (ncp < &nkeys->k_fnval[MAX_FCHAR]-1)
+d105 1
+a105 1
+		if (ncp >= &nkeys->k_fnval[MAX_FCHAR])
+d108 6
+a113 2
+	nkeys->k_nfkeys = i;
+	ioctl(fd, TIOCSETF, nkeys);
+d153 42
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 5
+a5 9
+/*
+ * fnkey.c
+ * 3/4/87
+ * Usage: fnkey [ -n ] [ keyname newvalue ] ...
+ * Reassign special function keys under MS-DOS.
+ * Assumes device ANSI.SYS installed.
+ * References: DOS Technical Reference, pp. 2-11, 2-12; DOS BASIC, p. G-6.
+ * This could easily recognize e.g. "\n" and "^Z" but currently does not.
+ * It could also remap other keys but currently does not.
+d7 5
+d13 1
+a13 34
+#include <stdio.h>
+#define	ESCAPE	0x1B			/* ASCII ESCape */
+
+/* Key names and representations as ASCII digit sequences. */
+struct key {
+	char	*key_name;
+	char	*key_value;
+} keys[] = {
+	{ "F1",		"59"	},
+	{ "F2",		"60"	},
+	{ "F3",		"61"	},
+	{ "F4",		"62"	},
+	{ "F5",		"63"	},
+	{ "F6",		"64"	},
+	{ "F7",		"65"	},
+	{ "F8",		"66"	},
+	{ "F9",		"67"	},
+	{ "F10",	"68"	},
+	{ "HOME",	"71"	},
+	{ "UP",		"72"	},
+	{ "PGUP",	"73"	},
+	{ "LEFT",	"75"	},
+	{ "RIGHT",	"77"	},
+	{ "END",	"79"	},
+	{ "DOWN",	"80"	},
+	{ "PGDN",	"81"	},
+	{ "DEL",	"83"	},
+	{ "CPRTSC",	"114"	},
+	{ "CLEFT",	"115"	},
+	{ "CRIGHT",	"116"	},
+	{ "CEND",	"117"	},
+	{ "CHOME",	"119"	}
+};
+#define	NKEYS	(sizeof(keys) / sizeof(struct key))
+d15 6
+a20 1
+main(argc, argv) int argc; char *argv[];
+d22 4
+a25 3
+	register struct key *kp;
+	register char *name, *value;
+	char *nflag;
+d27 13
+a39 2
+	if (argc > 1 && strcmp(*++argv, "-n") == 0) {
+		nflag = "";
+d41 1
+a41 1
+		--argc;
+d43 13
+a55 12
+	else
+		nflag = ";13";
+	if (argc % 2 == 0) {
+		fprintf(stderr, "Usage: fnkey [ -v ] [ keyname value ] ...\n");
+		exit(1);
+	}
+	while ((name = *argv++) != NULL && (value = *argv++) != NULL) {
+		for (kp = &keys[0]; kp < &keys[NKEYS]; kp++)
+			if (strcmp(name, kp->key_name) == 0) {
+				printf("%c[0;%s;\"%s\"%sp",
+					ESCAPE, kp->key_value, value, nflag);
+				break;
+d57 4
+a60 3
+		if (kp == &keys[NKEYS]) {
+			fprintf(stderr, "fnkey: unrecognized key name \"%s\"\n", name);
+			exit(1);
+d62 1
+d64 30
+d97 33
+@

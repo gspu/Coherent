@@ -1,0 +1,573 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.08.10.12.43.41;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@#define	_DDI_DKI	1
+#define	_SYSV4		1
+
+/*
+ * STREAMS memory management code.
+ *
+ * This is layered on top of the fast first-fit heap allocator whose
+ * implementation is described in <sys/st_alloc.h>. The particulars of how
+ * STREAMS memory is allocated (including synchronisation and watermarks)
+ * is kept here so that the generic allocator is just that, generic.
+ */
+
+/*
+ *-IMPORTS:
+ *	<common/ccompat.h>
+ *		__USE_PROTO__
+ *		__ARGS ()
+ *	<common/ccompat.h>
+ *		__LOCAL__
+ *	<sys/debug.h>
+ *		ASSERT ()
+ *	<sys/types.h>
+ *		_VOID
+ *		size_t
+ *	<sys/ksynch.h>
+ *		lock_t
+ *		LOCK_ALLOC ()
+ *		LOCK ()
+ *		UNLOCK ()
+ *	<sys/cmn_err.h>
+ *		CE_WARN
+ *		cmn_err ()
+ */
+
+#include <common/ccompat.h>
+#include <kernel/ddi_lock.h>
+#include <sys/types.h>
+#include <sys/debug.h>
+#include <sys/ksynch.h>
+#include <sys/cmn_err.h>
+
+#include <sys/kmem.h>
+#include <kernel/strmlib.h>
+#include <string.h>
+
+
+/*
+ * Number of segments in the streams memory heap.
+ *
+ * For now, we'll just specify 256 segments, but this should probably be based
+ * on the log of the total number of words available.
+ */
+
+enum { str_segments = 256 };
+
+
+/*
+ * Here we'll define the actual instance of the streams memory control
+ * structure.
+ */
+
+struct streams_mem str_mem [1];
+
+
+/*
+ * We need to define information structures for the various locks and
+ * synchronization variables used in the above.
+ */
+
+__LOCAL__ lkinfo_t _stream_heap_lkinfo = {
+	"STREAMS message memory lock", INTERNAL_LOCK
+};
+
+__LOCAL__ lkinfo_t _stream_seq_lkinfo = {
+	"STREAMS log sequence-number lock", INTERNAL_LOCK
+};
+
+__LOCAL__ lkinfo_t _stream_proc_lkinfo = {
+	"STREAMS qprocsoff () lock", INTERNAL_LOCK
+};
+
+__LOCAL__ lkinfo_t _stream_dir_lkinfo = {
+	"STREAM directory read/write lock", INTERNAL_LOCK
+};
+
+
+/*
+ *-STATUS:
+ *	DDI/DKI
+ *
+ *-NAME:
+ *	kmem_alloc ()	Allocate space from kernel free memory.
+ *
+ *-SYNOPSIS:
+ *	#include <sys/types.h>
+ *	#include <sys/kmem.h>
+ *
+ *	void * kmem_alloc (size_t size, int flag);
+ *
+ *-ARGUMENTS:
+ *	size		Number of bytes to allocate.
+ *
+ *	flag		Specifies whether the caller is willing to sleep
+ *			waiting for memory. If "flag" is set to KM_SLEEP, the
+ *			caller will sleep if necessary until the specified
+ *			amount of memory is available. If "flag" is set to
+ *			KM_NOSLEEP, the caller will not sleep, but
+ *			kmem_alloc () will return NULL if the specified amount
+ *			of memory is not immediately available.
+ *
+ *-DESCRIPTION:
+ *	kmem_alloc () allocates "size" bytes of kernel memory and returns a
+ *	pointer to the allocated memory.
+ *
+ *-RETURN VALUE:
+ *	Upon successful completion, kmem_alloc () returns a pointer to the
+ *	allocated memory. If KM_NOSLEEP is specified and sufficient memory is
+ *	not immediately available, kmem_alloc () returns a NULL pointer. If
+ *	"size" is set to 0, kmem_alloc () always returns NULL regardless of
+ *	the value of "flag".
+ *
+ *-LEVEL:
+ *	Base only if "flag" is set to KM_SLEEP. Base or interrupt if "flag" is
+ *	set to KM_NOSLEEP.
+ *
+ *-NOTES:
+ *	May sleep if "flag" is set to KM_SLEEP.
+ *
+ *	Driver-defined basic locks and read/write locks may be held across
+ *	calls to this function if "flag" is KM_NOSLEEP but may not be held if
+ *	"flag" is KM_SLEEP.
+ *
+ *	Driver-defined sleep locks may be held across calls to this function
+ *	regardless of the value of "flag".
+ *
+ *	Kernel memory is a limited resource and should be used judiciously.
+ *	Memory allocated using kmem_alloc () should be freed as soon as
+ *	possible. Drivers should not use local freelists for memory or similar
+ *	schemes that cause the memory to be held for longer than necessary.
+ *
+ *	The address returned by a successful call to kmem_alloc () is word-
+ *	aligned.
+ *
+ *-SEE ALSO:
+ *	kmem_free (), kmem_zalloc ()
+ */
+
+#if	__USE_PROTO__
+_VOID * (kmem_alloc) (size_t size, int flag)
+#else
+_VOID *
+kmem_alloc __ARGS ((size, flag))
+size_t		size;
+int		flag;
+#endif
+{
+	_VOID	      *	mem;
+	pl_t		prev_pl;
+
+	ASSERT (flag == KM_SLEEP || flag == KM_NOSLEEP);
+
+	ASSERT (ATOMIC_FETCH_UCHAR (str_mem->sm_init) ||
+		str_mem->sm_other_lock != NULL);
+
+	if (size == 0)
+		return NULL;
+
+	for (;;) {
+		/*
+		 * Lock the basic lock protecting access to the memory pool
+		 * and attempt to acquire the memory we desire.
+		 */
+
+		if (str_mem->sm_other_lock != NULL)
+			prev_pl = LOCK (str_mem->sm_other_lock, str_other_pl);
+
+		if ((mem = st_alloc (str_mem->sm_other_heap, size)) != NULL ||
+		    flag == KM_NOSLEEP) {
+			OTHER_ALLOCED (size);
+			break;
+		}
+
+		/*
+		 * Since we cannot acquire the memory, but the caller is
+		 * willing to wait, we wait on a synchronization variable
+		 * for sufficient memory to be available. We record the
+		 * minimum amount that will satisfy any outstanding wait so
+		 * that kmem_free () need not perform broadcasts in a
+		 * totally needless fashion.
+		 *
+		 * We have arbitrarily chosen a low scheduling priority for
+		 * SV_WAIT ().
+		 */
+		/*
+		 * RESEARCH NOTE: This policy is a guess, no more. We need to
+		 * do some profiling to find out what effect other policies
+		 * might have. In particular, the wakeup heuristic could be
+		 * altered to broadcast when we can satisfy the largest
+		 * request.
+		 */
+
+		if (str_mem->sm_other_needed == 0 ||
+		    str_mem->sm_other_needed > size)
+			str_mem->sm_other_needed = size;
+
+		SV_WAIT (str_mem->sm_other_sv, prilo, str_mem->sm_other_lock);
+	}
+
+	if (str_mem->sm_other_lock != NULL)
+		UNLOCK (str_mem->sm_other_lock, prev_pl);
+
+	return mem;
+}
+
+
+
+/*
+ *-STATUS:
+ *	DDI/DKI
+ *
+ *-NAME:
+ *	kmem_free ()	Free previously allocated kernel memory.
+ *
+ *-SYNOPSIS:
+ *	#include <sys/types.h>
+ *	#include <sys/kmem.h>
+ *
+ *	void kmem_free (void * addr, size_t size);
+ *
+ *-ARGUMENTS:
+ *	addr		Address of the allocated memory to be returned. "addr"
+ *			must specify the same address that was returned by the
+ *			corresponding call to kmem_alloc () or kmem_zalloc ()
+ *			which allocated the memory.
+ *
+ *	size		Number of bytes to free. The "size" parameter must
+ *			specify the same number of bytes as was allocated by
+ *			the corresponding call to kmem_alloc () or\
+ *			kmem_zalloc ().
+ *
+ *-DESCRIPTION:
+ *	kmem_free () returns "size" bytes of previously allocated kernel
+ *	memory to the free pool. The "addr" and "size" arguments must specify
+ *	exactly one complete area of memory that was allocated by a call to
+ *	kmem_alloc () or kmem_zalloc () (that is, the memory cannot be freed
+ *	piecemeal).
+ *
+ *-RETURN VALUE:
+ *	None.
+ *
+ *-LEVEL:
+ *	Base or Interrupt.
+ *
+ *-NOTES:
+ *	Does not sleep.
+ *
+ *	Driver-defined basic locks, read/write locks and sleep locks may be
+ *	held across calls to this function.
+ *
+ *-SEE ALSO:
+ *	kmem_alloc (), kmem_zalloc ()
+ */
+
+#if	__USE_PROTO__
+void (kmem_free) (_VOID * addr, size_t size)
+#else
+void
+kmem_free __ARGS ((addr, size))
+_VOID	      *	addr;
+size_t		size;
+#endif
+{
+	pl_t		prev_pl;
+	int		free_ok;
+
+	ASSERT (addr != NULL);
+	ASSERT (size > 0);
+
+	ASSERT (ATOMIC_FETCH_UCHAR (str_mem->sm_init) ||
+		str_mem->sm_other_lock != NULL);
+
+	/*
+	 * Acquire the basic lock protecting access to the memory and free
+	 * the caller's area. If there are processes waiting on memory
+	 * becoming available, wake them up via a synchronization variable
+	 * broadcast.
+	 */
+
+	if (str_mem->sm_other_lock != NULL)
+		prev_pl = LOCK (str_mem->sm_other_lock, str_other_pl);
+
+	OTHER_FREED (size);
+
+	free_ok = st_free (str_mem->sm_other_heap, addr, size);
+
+	if (str_mem->sm_other_needed > 0 &&
+	    str_mem->sm_other_needed <= st_maxavail (str_mem->sm_other_heap)) {
+		/*
+		 * Wake up *all* the waiting processes and clear the marker
+		 * to indicate that there are no waiting processes.
+		 */
+
+		SV_BROADCAST (str_mem->sm_other_sv, 0);
+		str_mem->sm_other_needed = 0;
+	}
+
+	if (str_mem->sm_other_lock != NULL)
+		UNLOCK (str_mem->sm_other_lock, prev_pl);
+
+	if (free_ok != 0) {
+		/*
+		 * The heap manager has a problem with freeing the block that
+		 * was passed to it, display a console diagnostic. For
+		 * simplicity we display addresses as longs.
+		 */
+
+		cmn_err (CE_WARN,
+			 "kmem_free : st_free () complained with %d freeing %d bytes at %lx",
+			 free_ok, size, (long) addr);
+	}
+}
+
+
+
+/*
+ *-STATUS:
+ *	DDI/DKI
+ *
+ *-NAME:
+ *	kmem_zalloc ()	Allocate and clear space from kernel free memory.
+ *
+ *-SYNOPSIS:
+ *	#include <sys/types.h>
+ *	#include <sys/kmem.h>
+ *
+ *	void * kmem_zalloc (size_t size, int flag);
+ *
+ *-ARGUMENTS:
+ *	size		Number of bytes to allocate.
+ *
+ *	flag		Specifies whether the caller is willing to sleep
+ *			waiting for memory. If "flag" is set to KM_SLEEP, the
+ *			caller will sleep if necessary until the specified
+ *			amount of memory is available. If "flag" is set to
+ *			KM_NOSLEEP, the caller will not sleep, but
+ *			kmem_zalloc () will return NULL if the specified
+ *			amount of memory is not immediately available.
+ *
+ *-DESCRIPTION:
+ *	kmem_zalloc () allocates "size" bytes of kernel memory, clears the
+ *	memory by filling it with zeros, and returns a pointer to the
+ *	allocated memory.
+ *
+ *-RETURN VALUE:
+ *	Upon successful completion, kmem_zalloc () returns a pointer to the
+ *	allocated memory. If KM_NOSLEEP is specified and sufficient memory is
+ *	not immediately available, kmem_zalloc () returns a NULL pointer. If
+ *	"size" is set to 0, kmem_zalloc () always returns NULL regardless of
+ *	the value of "flag".
+ *
+ *-LEVEL:
+ *	Base only if "flag" is set to KM_SLEEP. Base or interrupt if "flag" is
+ *	set to KM_NOSLEEP.
+ *
+ *-NOTES:
+ *	May sleep if "flag" is set to KM_SLEEP.
+ *
+ *	Driver-defined basic locks and read/write locks may be held across
+ *	calls to this function if "flag" is KM_NOSLEEP but may not be held if
+ *	"flag" is KM_SLEEP.
+ *
+ *	Driver-defined sleep locks may be held across calls to this function
+ *	regardless of the value of "flag".
+ *
+ *	Kernel memory is a limited resource and should be used judiciously.
+ *	Memory allocated using kmem_zalloc () should be freed as soon as
+ *	possible. Drivers should not use local freelists for memory or similar
+ *	schemes that cause the memory to be held for longer than necessary.
+ *
+ *	The address returned by a successful call to kmem_zalloc () is word-
+ *	aligned.
+ *
+ *-SEE ALSO:
+ *	kmem_alloc (), kmem_free ()
+ */
+
+#if	__USE_PROTO__
+_VOID * (kmem_zalloc) (size_t size, int flag)
+#else
+_VOID *
+kmem_zalloc __ARGS ((size, flag))
+size_t		size;
+int		flag;
+#endif
+{
+	_VOID	      *	mem;
+
+	if ((mem = kmem_alloc (size, flag)) != NULL)
+		memset (mem, 0, size);
+	return mem;
+}
+
+
+/*
+ *-STATUS:
+ *	Initialisation
+ *
+ *-DESCRIPTION:
+ *	This function initializes the memory subsystem given a region of
+ *	kernel virtual memory space to manage.
+ */
+
+__EXTERN_C__
+#if	__USE_PROTO__
+int (KMEM_INIT) (_VOID * addr, size_t size)
+#else
+int
+KMEM_INIT __ARGS ((addr, size))
+_VOID	      *	addr;
+size_t		size;
+#endif
+{
+	int		i;
+
+	/*
+	 * We use a test-and-set lock operation on the streams memory
+	 * structure so that the initialisation process is multiprocessor-
+	 * safe. We don't use a basic lock since we don't know whether basic
+	 * locks exist yet.
+	 */
+
+	if (ATOMIC_TEST_AND_SET_UCHAR (str_mem->sm_init) != 0) {
+		/*
+		 * Presumably we are on a separate processor waiting for the
+		 * initialization to be completed by someone else. To make
+		 * this processor's call to STRMEM_INIT () behave with the
+		 * right semantics, we wait for the other instance to complete
+		 * the setup process.
+		 */
+
+		while (ATOMIC_FETCH_UCHAR (str_mem->sm_init) != 0) {
+#ifdef	__UNIPROCESSOR__
+			cmn_err (CE_PANIC, "Init startup deadlock???");
+#endif
+		}
+		return 0;
+	}
+
+	if (str_mem->sm_other_lock != NULL) {
+		/*
+		 * The init has already been done, thanks!
+		 */
+
+		ATOMIC_CLEAR_UCHAR (str_mem->sm_init);
+		return 0;
+	}
+
+#ifdef	SPLIT_STREAMS_MEMORY
+#endif
+
+	/*
+	 * Now initialize the fast-first-fit heap manager.
+	 *
+	 * For now, we'll just specify 256 segments, but this
+	 * should probably be based on the log of the total
+	 * number of words available.
+	 */
+
+	str_mem->sm_msg_heap = (_ST_HEAP_CONTROL_P) addr;
+
+	addr = (_VOID *) ((char *) addr +
+			  _ST_HEAP_CONTROL_SIZE (str_segments));
+
+	size -= _ST_HEAP_CONTROL_SIZE (str_segments);
+
+	st_ctor (str_mem->sm_msg_heap, str_segments,
+		 size / sizeof (_ST_WORD_T), (_ST_ADDR_T) addr);
+
+	str_mem->sm_msg_lock =
+			LOCK_ALLOC (stream_heap_hierarchy, str_other_pl,
+				    & _stream_heap_lkinfo, KM_NOSLEEP);
+
+	str_mem->sm_msg_sv = SV_ALLOC (KM_NOSLEEP);
+
+
+	/*
+	 * If either of the above allocations failed, we have some kind of
+	 * major problem, so we exit without unlocking the initialization flag
+	 * with an error indication.
+	 */
+
+	if (str_mem->sm_msg_lock == NULL || str_mem->sm_msg_sv == NULL) {
+
+init_error:
+		cmn_err (CE_PANIC, "Could not initialize STREAMS subsystem");
+		return -1;
+	}
+
+
+	/*
+	 * Now we can calculate the watermarks... start at the
+	 * top and make each lower one some percentage of the
+	 * next higher one (say, 15/16 or 93%, so that it's
+	 * easy to calculate).
+	 */
+
+	for (i = N_PRI_LEVELS ; i -- > 0 ;) {
+
+		str_mem->sm_max [i] = size;
+		size -= size >> 4;	/* - 1/16 */
+	}
+
+
+	/*
+	 * Do other kinds of initialization for the "str_mem" structure.
+	 */
+
+	for (i = N_PRI_LEVELS ; i -- > 0 ; ) {
+
+		if (SELIST_INIT (& str_mem->sm_bcevents [i],
+				 KM_SLEEP) == NULL)
+			goto init_error;
+	}
+
+
+	str_mem->sm_seq_lock = LOCK_ALLOC (stream_seq_hierarchy, plstr,
+					   & _stream_seq_lkinfo, KM_SLEEP);
+
+	str_mem->sm_head_lock = RW_ALLOC (stream_dir_hierarchy, plstr,
+					  & _stream_dir_lkinfo, KM_SLEEP);
+
+	str_mem->sm_proc_lock = LOCK_ALLOC (stream_proc_hierarchy, plstr,
+					    & _stream_proc_lkinfo, KM_SLEEP);
+
+	str_mem->sm_proc_sv = SV_ALLOC (KM_SLEEP);
+
+	if (SCHED_INIT (str_mem->sm_sched, KM_SLEEP) == NULL ||
+	    str_mem->sm_seq_lock == NULL || str_mem->sm_head_lock == NULL ||
+	    str_mem->sm_proc_lock == NULL || str_mem->sm_proc_sv == NULL)
+		goto init_error;
+
+	/*
+	 * All OK, let other CPUs proceed and return success to the caller.
+	 */
+
+	ATOMIC_CLEAR_UCHAR (str_mem->sm_init);
+	return 0;		/* all OK */
+}
+@

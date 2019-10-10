@@ -1,0 +1,61 @@
+//////////
+/ libc/string/i386/strcpy.s
+/ i386 C string library.
+/ ANSI 4.11.2.3, 4.11.2.4.
+//////////
+
+//////////
+/ char *
+/ strcpy(char *To, char *From)
+/ Copy From to To until NUL.
+/
+/ char *
+/ strncpy(char *To, char *From, size_t Count)
+/ Copy up to Count bytes from From to To.
+/ NUL-pad the output if Count not reached.
+//////////
+
+To	.equ	12
+From	.equ	To+4
+Count	.equ	From+4
+
+	.globl	strcpy
+	.globl	strncpy
+
+strncpy:
+	movl	%ecx, Count-8(%esp)	/ Count to ECX
+	jecxz	quit			/ Copy nothing
+	subl	%edx, %edx		/ EDX zero to indicate strncpy
+	jmp	strcpy0
+
+strcpy:
+	movl	%ecx, $-1		/ max Count to ECX
+	movl	%edx, %ecx		/ EDX nonzero to indicate strcpy
+
+strcpy0:
+	push	%esi
+	push	%edi
+
+	movl	%esi, From(%esp)	/ From address to ESI
+	movl	%edi, To(%esp)		/ To address to EDI
+	cld
+
+?loop:
+	lodsb				/ From character to AL
+	stosb				/ and stored through To
+	orb	%al, %al
+	loopne	?loop			/ Continue if AL!=0 && ECX!=0
+	orl	%edx, %edx
+	jnz	?done			/ Done if strcpy
+	rep				/ Store more NULs
+	stosb				/ (does nothing if ECX==0)
+
+?done:
+	pop	%edi
+	pop	%esi
+
+quit:
+	movl	%eax, To-8(%esp)	/ Return the destination
+	ret
+
+/ end of libc/string/i386/strcpy.s

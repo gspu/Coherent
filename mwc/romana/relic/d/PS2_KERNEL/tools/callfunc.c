@@ -1,0 +1,54 @@
+/*
+ * Call a kernel function with the NLCALL ioctl on /dev/kmem.
+ */
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/null.h>
+
+/*
+ * Set FUNC to the address of the routine you want called.
+ */
+#define FUNC   0xFFC02610	/* vptop()	*/
+/* #define FUNC   0xFFC02590	/* vtop()	*/
+/* #define FUNC   0xFFC0267C	/* vtovp()	*/
+
+main()
+{
+	int fd;
+	unsigned vec[7];
+
+	if ((fd = open("/dev/kmem", O_RDONLY)) == -1) {
+		printf("Can't open /dev/kmem.\n");
+	}
+	
+	/*
+	 * The first element of this vector gives the length for the
+	 * whole vector.  The kernel will copy in this many unsigneds.
+	 * Because extra arguments are ignored by any function, I
+	 * usually just leave this at the maximum value of 7.
+	 * Setting this element to something larger than 7 results in
+	 * a return value of -1 with errno set to EINVAL.
+	 *
+	 * The ioctl() will put the return value of the function in element
+	 * 0.
+	 *
+	 * The second element is the address of the function to be
+	 * called.
+	 *
+	 * Successive elements are arguments to be passed to the
+	 * function.  Only the first 5 will be passed.
+	 */
+	vec[0] = 7;
+	vec[1] = FUNC;
+ 	vec[2] = 0xF3B0E8;	/* virtual-physical */
+	vec[3] = 0;
+	vec[4] = 0;
+	vec[5] = 0;
+	vec[6] = 0;
+
+	ioctl(fd, NLCALL, vec);
+
+	printf("retval: 0x%x\n", vec[0]);
+
+	close(fd);
+} /* main() */

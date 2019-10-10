@@ -1,0 +1,83 @@
+mmaalllloocc() -- General Function (libc) (libc)
+
+Allocate dynamic memory
+#iinncclluuddee <ssttddlliibb.hh>
+cchhaarr *mmaalllloocc(_s_i_z_e) uunnssiiggnneedd _s_i_z_e;
+
+mmaalllloocc()  helps  to  manage  a  program's  free-space arenas.   It  uses  a
+circular, first-fit  algorithm to select  an unused block of  at least _s_i_z_e
+bytes,  marks the  portion  it uses,  and  returns a  pointer  to it.   The
+function ffrreeee() returns allocated memory to the free memory pool.
+
+Each arena allocated  by mmaalllloocc() is rounded up to  the nearest even number
+and preceded  by an uunnssiiggnneedd iinntt  that contains the true  length.  Thus, if
+you ask  for three bytes you  get four, and the  uunnssiiggnneedd that precedes the
+newly allocated arena is set to four.
+
+When  an arena  is freed,  its low  order bit  is turned  on; consolidation
+occurs when  mmaalllloocc() passes over an  arena as it searches  for space.  The
+end of  each arena contains  a block with  a length of zero,  followed by a
+pointer to the next arena.  Arenas point in a circle.
+
+The most  common problem with mmaalllloocc() occurs when  a program modifies more
+space than  it allocates with  mmaalllloocc(). This can cause  later mmaalllloocc()s to
+crash with a message that indicates that the arena has been corrupted.  You
+can use the function mmeemmookk() to isolate these problems.
+
+_E_x_a_m_p_l_e
+This example  reads from  the standard  input up to  _N_I_T_E_M_S items,  each of
+which is up to _M_A_X_L_E_N long, sorts them, and writes the sorted list onto the
+standard output.  It  demonstrates the functions qqssoorrtt(), mmaalllloocc(), ffrreeee(),
+eexxiitt(), and ssttrrccmmpp().
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define NITEMS 512
+#define MAXLEN 256
+char *data[NITEMS];
+char string[MAXLEN];
+
+main()
+{
+    register char **cpp;
+    register int count;
+    extern int compare();
+
+    for (cpp = &data[0]; cpp < &data[NITEMS]; cpp++) {
+        if (gets(string) == NULL)
+            break;
+        if ((*cpp = malloc(strlen(string) + 1)) == NULL)
+            exit(1);
+        strcpy(*cpp, string);
+    }
+
+    count = cpp - &data[0];
+    qsort(data, count, sizeof(char *), compare);
+
+    for (cpp = &data[0]; cpp < &data[count]; cpp++) {
+        printf("%s\n", *cpp);
+        free(*cpp);
+    }
+    exit(0);
+}
+
+compare(p1, p2)
+register char **p1, **p2;
+{
+    extern int strcmp();
+    return(strcmp(*p1, *p2));
+}
+
+_S_e_e _A_l_s_o
+aallllooccaa(),  aarreennaa,  ccaalllloocc(), ffrreeee(),  lliibbcc,  mmeemmookk(), rreeaalllloocc(),  sseettbbuuff(),
+ssttddlliibb.hh
+ANSI Standard, section 7.10.3.3
+POSIX Standard, section 8.1
+
+_D_i_a_g_n_o_s_t_i_c_s
+mmaalllloocc() returns NULL if insufficient memory is available.
+
+_N_o_t_e_s
+The function aallllooccaa() allocates space on the stack.  The space so allocated
+does not need to be freed when the function that allocated the space exits.

@@ -1,0 +1,113 @@
+divert(-1)
+define(`_')
+define(`reset',`divert(
+	_i(_t(0,1,2),R) _i(_t(0,2,1),W) _i(_t(1,0,2),O)
+	_i(_t(1,2,0),Y) _i(_t(2,0,1),B) _i(_t(2,1,0),G)
+)')
+define(`_i',`
+	define(`_$1',$6)
+	define(`_$1$2',$6) define(`_$1$2$5',$6)
+	define(`_$1$3',$6) define(`_$1$3$2',$6)
+	define(`_$1$4',$6) define(`_$1$4$3',$6)
+	define(`_$1$5',$6) define(`_$1$5$4',$6)
+')
+define(`_R',`0,1,2,0,1,2')
+define(`p',`_d(_R,`_e')')
+define(`P',`_d(_R,`_f')')
+define(`_d',``
+          '$7(_$6$5$1$2$4$3)`'_$1$2$4$3$6$5`'$7(_$4$3$6$5$1$2)`
+     '$7(_$6$5$1$2)`'_$1$2$6$5`         '_$1$2$4$3`'$7(_$4$3$1$2)`
+'$7(_$6$5$3$4$1$2)`'_$1$2$6$5$3$4`         '_$1$2`         '_$1$2$5$6$4$3`'$7(_$4$3$1$2$5$6)`
+'_$3$4$1$2$6$5`     '_$1$2$3$4`         '_$1$2$5$6`     '_$5$6$4$3$1$2`
+     '_$3$4$1$2`     '_$1$2$3$4$5$6`     '_$5$6$1$2`
+'$7(_$6$5$3$4)`         '_$3$4$5$6$1$2` '_$5$6$1$2$3$4`         '$7(_$4$3$2$1)`
+'_$3$4$6$5`                     '_$5$6$4$3`
+     '_$3$4`           '_$5$6`
+'$7(_$6$5$2$1$3$4)`         '_$3$4$5$6` '_$5$6$3$4`         '$7(_$4$3$2$1$6$5)`
+'_$3$4$6$5$2$1`'$7(_$2$1$3$4$6$5)`                   '$7(_$2$1$4$3$5$6)`'_$5$6$2$1$4$3`
+     '_$3$4$2$1`'$7(_$2$1$3$4)`         '$7(_$2$1$5$6)`'_$5$6$2$1`
+          '_$3$4$2$1$5$6`'$7(_$2$1$5$6$3$4)`'_$5$6$3$4$2$1`
+'')
+define(`_e',` ')
+define(`_f',`translit($1,RBYOWG,rbyowg)')
+define(`_m',`$eval(($1+$2)%4+1)')
+define(`_r',`define(`_R',define(`_',``$$1,$$2,$$3,$$4,$$5,$$6'')_(_R))')
+define(`_s',`divert(_u(_t(define(`_',`$$1,$$2,eval(3-$$1-$$2)')_(_R)),$3))')
+define(`_t',`$1$2,$1$3,$2$3,$3$1,$3$2')
+define(`_u',`
+	_v($1$2,$1$3,$1$4,$1$5,$6)
+	_v($4$1,$5$1,$2$1,$3$1,$6)
+	_v($4$1$5,$5$1$2,$2$1$3,$3$1$4,$6)
+	_v($1$2$5,$1$3$2,$1$4$3,$1$5$4,$6)
+	_v($4$3$1,$5$4$1,$2$5$1,$3$2$1,$6)
+')
+define(`_v',`
+	define(`_',_m(0,$5)`,'_m(1,$5)`,'_m(2,$5)`,'_m(3,$5))
+	_w(_(_$1,_$2,_$3,_$4),$1,$2,$3,$4)
+')
+define(`_w',`
+	define(`_$5',$1) define(`_$6',$2) define(`_$7',$3) define(`_$8',$4)
+')
+define(`clt',`_r(3,4,2,1,5,6)')
+define(`ctl',`_r(4,3,1,2,5,6)')
+define(`crt',`_r(5,6,3,4,2,1)')
+define(`ctr',`_r(6,5,3,4,1,2)')
+define(`cr', `_r(1,2,6,5,3,4)')
+define(`cl', `_r(1,2,5,6,4,3)')
+define(`tr', `_s(1,2,1)')
+define(`tt', `_s(1,2,2)')
+define(`tl', `_s(1,2,3)')
+define(`ld', `_s(3,4,3)')
+define(`lt', `_s(3,4,2)')
+define(`lu', `_s(3,4,1)')
+define(`rd', `_s(5,6,1)')
+define(`rt', `_s(5,6,2)')
+define(`ru', `_s(5,6,3)')
+define(`bl', `_s(2,1,1)')
+define(`bt', `_s(2,1,2)')
+define(`br', `_s(2,1,3)')
+define(`lbu',`_s(6,5,1)')
+define(`lbt',`_s(6,5,2)')
+define(`lbd',`_s(6,5,3)')
+define(`rbu',`_s(4,3,3)')
+define(`rbt',`_s(4,3,2)')
+define(`rbd',`_s(4,3,1)')
+define(`ml', `tr()br()cl()')
+define(`mt', `tt()bt()cl()cl()')
+define(`mr', `tl()bl()cr()')
+define(`lmu',`lbd()rd()clt()')
+define(`lmt',`lbt()rt()clt()clt()')
+define(`lmd',`lbu()ru()ctl()')
+define(`rmu',`rbd()ld()crt()')
+define(`rmt',`rbt()lt()crt()crt()')
+define(`rmd',`rbu()lu()ctr()')
+define(`save',`syscmd(`/bin/cat >> $2 << \#
+define(`$1','dumpdef(`$1')`)
+#
+')')
+define(`help',``
+To turn the:		Type:
+top, middle, bottom:	tl	ml	bl	(left)
+			tr	mr	br	(right)
+			tt	mt	bt	(twice)
+left and right faces:	lu	ru		(up)
+			ld	rd		(down)
+			lt	rt		(twice)
+back faces:		lbu	rbu		(up)
+			lbd	rbd		(down)
+			lbt	rbt		(twice)
+left and right middles:	lmu	rmu		(up)
+			lmd	rmd		(down)
+			lmt	rmt		(twice)
+entire cube:		cr			(to the right)
+			cl			(to the left)
+			clt			(left face to top)
+			crt			(right face to top)
+			ctr			(top face to right)
+			ctl			(top face to left)
+To reset the faces:	reset
+To save a macro:	save(`name',`file')	(appends a `define' command)
+To display the cube:	p			(or P to see around edges)'')
+reset
+divert(0)p
+`Type help for commands.'

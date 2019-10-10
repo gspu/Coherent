@@ -1,0 +1,101 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.47.44;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+	for (n=0; n<10; n++)
+		brctab[n] = NULL;
+	while ((c=*bp++) != '\0') {
+		switch (c) {
+		case '_':
+			*cp++ = LOLD;
+			continue;
+		case '-':
+			*cp++ = LHYP;
+			continue;
+		case '+':
+			*cp++ = LCON;
+			continue;
+		case '!':
+			*cp++ = LBRS;
+			continue;
+		case '.':
+			*cp++ = LBRF;
+			continue;
+		case '?':
+			*cp++ = LNEW;
+			goto lab;
+		case '>':
+			*cp++ = LCBT;
+			goto brc;
+		case '<':
+			*cp++ = LCBF;
+		brc:
+			if (!isascii(c=*bp++) || !islower(c))
+				printe("Bad literal");
+			*cp++ = c;
+		lab:
+			if ((c=*bp++) == '!') {
+				*cp++ = 1;
+				continue;
+			}
+			if (c == '.') {
+				*cp++ = 1;
+				continue;
+			}
+			if (isdigit(c)) {
+				if (brctab[c-='0'] != NULL)
+					printe("Label %d multiply defined", c);
+				brctab[c] = cp++;
+			}
+			printe("Bad label %c", c);
+		case ':':
+			if (!isascii(c=*bp++) || !isdigit(c))
+				printe("Bad label %c", c);
+			if (brctab[c-='0'] == NULL)
+				printe("Undefined label %c", c);
+			*brctab[c] = cp;
+			continue;
+		}
+	}
+	*cp++ = LNUL;
+	for (n=0; n<10; n++)
+		if (brctab[n] != NULL)
+			printe("Label %d unused", n);
+	cp = codebuf;
+	while (*cp)
+		putb(*cp++);
+	putb(LNUL);
+@

@@ -1,0 +1,282 @@
+.TH FileNominator "" "" "Technical Information"
+.PC "A file-selector widget"
+Application header file \(em <FileNominator.h>
+Class header file \(em <FileNominatorP.h>
+Class \(em fileNominatorWidgetClass
+Class Name \(em FileNominator
+Superclass \(em Core
+.PP
+The widget
+.B FileNominator
+is a directory browser and file selector.
+It consists of a scrollable list
+(List widget [instance name = list] inside
+a Viewlist [R5] or Viewport [R4] widget [viewport])
+of directory entries; a button (Command widget) [Filter:];
+two one-line input areas (ScrollingText widget [filter]; 
+and ScrollingText widget [filename]);
+and three buttons:
+the Command button
+.K select
+for selecting the nominated file or directory,
+the MenuButton button
+.K path
+whose defualt menu contains the
+elements of the path of the directory whose contents are displayed in
+the List widget,
+and the Command button
+.K cancel
+for cancelling use of the widget.
+.PP
+You can nominate a file by choosing from the list using mouse
+button 1 (the left-mouse button),
+which enters the name into the file-name input area;
+by typing into the file-name input area; or by doing both.
+All keyboard input is directed
+to the file-name widget when the
+.B FileNominator
+has the input focus, unless the pointer is in the filter widget,
+in which case it receives the input.
+.PP
+If the file-name input area does not contain an absolute path name,
+the widget assumes that its contents are relative to the directory
+currently displayed.
+The widget always takes the file name from the file-name input area.
+This occurs when you click the select button (left-mouse button)
+or press \*(RT.
+.PP
+If you wish to choose a file from the list of available files without
+modifying its name,
+then select that name from the List widget by
+double-clicking the left-mouse button or single-click the center-mouse
+button.
+To select immediately another directory in the path of the
+displayed directory, use the
+.K path
+button menu.
+.PP
+A tilde `~' used as the first character in the input area represents
+your home directory.
+A `$' used as the first character indicates that what follows names an
+environmental variable, which the widget then expands.
+.PP
+In addition, you can define  a list of potential nominations \(em
+either files or directories \(em to be added to the
+.I path
+button menu.
+(For details, see the description of
+.BR pathList ,
+below.)
+Because selecting an entry from the menu
+is equivalent to typing that entry into the input area and
+selecting it in the normal way \(em i.e., it is subject to the checks that
+would be applied had you typed the value as a nomination \(em then `~'
+and `$' can feature in the user-added entries.
+.PP
+When you select a directory, the widget filters
+its contents according to the pattern in the filter-input area,
+to display the subset of names that are of interest.
+To run a new filter on the current directory,
+press \*(RT
+in the filter-input area, or click the
+.K Filter:
+button.
+.SH Resources
+When creating an instance of the
+.B FileNominator
+widget, the following resources (in addition to those of Core)
+are retrieved from the argument list or from the resource data base:
+.DS
+.ta 2.25i 4.25i 6.25i
+\fIName	Class	Type	Default Value\fR
+.sp \n(pDu
+bellLevel	bellLevel	int	100
+cancelCallback	Callback	XtCallbackList	NULL
+initialDirectory	InitialDirectory	String	NULL
+filter	Filter	String	*
+margin	Margin	Dimension	10
+numberRows	NumberStrings	int	12
+selectCallback	Callback	XtCallbackList	NULL
+showDotFiles	ShowDotFiles	Boolean	True
+pathList	PathList	String	NULL
+userData	UserData	XtPointer	NULL
+.DE
+.IP \fBbellLevel\fR 1.5i
+How loud the keyboard bell should be rung.
+The value is passed unchanged to
+.BR XBell .
+.IP \fBcancelCallback\fR
+Call all functions on this list whenever the cancel buttons's
+.B notify
+action is invoked.
+.IP \fBinitialDirectory\fR
+The initial directory whose contents are to be displayed.
+The default, or if the supplied value is invalid,
+is the current working directory.
+.IP \fBfilter\fR
+An initial filter pattern to be applied to the contents of 
+.IR initialDirectory .
+The default is `*', i.e., all file names are displayed.
+.IP \fBmargin\fR
+The default distance between component widgets and between the edges of
+the widget and components.
+.IP \fBnumberRows\fR
+The number of rows of the
+.B List
+widget to display.
+.IP \fBselectCallback\fR
+All functions on this list are called whenever the select buttons's
+.B notify
+action is invoked.
+.IP \fBshowDotFiles\fR
+This value of this Boolean resource determines whether the names of `.'
+files are shown.
+The default is
+.BR True ,
+that is, `.' and ``..'' are always shown.
+.IP \fBpathList\fR
+The value of this resource is a colon-separated list of path names that
+the widget converts into menu entries and add to the path-button menu.
+.IP \fBuserData\fR
+This resource is provided to the programmer to use as she sees fit.
+.SH Actions
+The
+.B FileNominator
+widget supports the following actions:
+.IP \(bu 0.3i
+Process file or directory nominations in the
+.B List
+widget with
+.BR Nominate .
+.IP \(bu
+Construct a menu of path elements for the
+.B MenuButton
+widget.
+.IP \(bu
+Toggle the display of `.' files.
+.PP
+The
+.B FileNominator
+Widget defines the following default translation tables
+on its component widgets:
+.IP "List widget default translation table"
+.DM
+	<Btn1Up>(2): Set() Nominate() Unset()
+	<Btn1Down>,<Btn1Up>: Set() Notify()
+	<Btn2Up>: Set() Notify() Nominate() Unset()
+.DE
+.IP "Filter widget default translation table"
+.DM
+	<Key>Return: Filter()
+.DE
+.IP "File-name widget default translation table"
+.DM
+	<Key>Return: Nominate()
+.DE
+.IP "Select button default translation table"
+.DM
+	<Btn1Up>: Nominate() unset()
+.DE
+.IP "\fBMenuButton\fR default translation table"
+.DM
+	<BtnDown>: reset() MakeMenu() XawPositionSimpleMenu(menu)
+		MenuPopup(menu)
+.DE
+.PP
+The
+.B FileNominator
+widget supports the following actions:
+.IP \fBNominate\fR(\|) 1.5i
+Nominate the text in the text widget as the user's choice.
+If the nomination is a directory, then the contents of the
+.B List
+widget changes.
+If the nomination is a file \(em which need not exist \(em then
+callbacks on the
+.B selectCallback
+list are called.
+.IP \fBMakeMenu\fR(\|)
+Make a
+.B SimpleMenu
+consisting of the path elements of the path name of the current directory.
+.IP \fBToggleDotFiles\fR(\|)
+Toggle the value of the
+.B showDotFiles
+resource and causes the currently
+displayed directory to be rescanned with the new value effective.
+This action is bound to the
+.B <esc>
+key by default.
+.SH Callbacks
+All procedures on the
+.B FileNominator
+widget's
+.B selectCallback
+list will have a
+.B FileNominatorStruct
+passed to them as
+.IR call_data .
+The structure is defined in the
+.B FileNominator
+widget's application header file.
+.DM
+typedef struct {
+    String directoryPart;
+    int directoryStatus;
+    String filenamePart;
+    int filenameStatus;
+} FileNominatorStruct;
+.DE
+.PP
+The concatenation of
+.B directoryPart
+and
+.B filenamePart
+yield the path name of the nominated file.
+.B directoryStatus
+and
+.B filenameStatus
+provide information about the access that the user has to the separate parts.
+Their values are the symbolic constant
+.B FileNominatorNonexistent
+or logical OR combinations of
+.BR FileNominatorReadable ,
+.BR FileNominatorWritable ,
+and
+.BR FileNominatorExecutable .
+.PP
+Note that the data pointed to by the String fields are owned by the
+.B FileNominator
+and should
+.I not
+be freed by the callback routines.
+.SH "Convenience Routines"
+To change the directory that is displayed, use:
+.DM
+void FileNominatorSetDirectory(\fIw\fP, \fIdir\fP)
+     Widget \fIw\fP;
+     String * \fIdir\fP;
+.DE
+.IP \fIw\fR
+Specifies the
+.B FileNominator
+widget.
+.IP \fIdir\fR
+Specifies the new directory for the
+.B FileNominator
+widget to display.
+.PP
+To get the name of the directory that is displayed, use
+.DM
+	String FileNominatorGetDirectory()
+.DE
+.B FileNominatorGetDirectory
+returns the current directory of the 
+.B FileNominator
+widget.
+.SH "See Also"
+.SH "See Also"
+.B
+axe,
+technical information
+.R

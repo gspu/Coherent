@@ -1,0 +1,58 @@
+/*
+ * fonts.h
+ * Nroff/Troff.
+ * Font handling header.
+ */
+
+#define	NFNAMES	100			/* max number of font names	*/
+#define	NWIDTH	256			/* number of width entries	*/
+
+/*
+ * The font table contains the user name and font index of each font.
+ */
+typedef struct {
+	char	f_name[2];
+	int	f_font;
+} FTB;
+
+/*
+ * A font width table defines the widths of characters in a font.
+ * The entries in f_width * f_psz * f_num / f_den should
+ * be the widths in troff units; e.g., if the f_width table values are
+ * in 300ths of an inch, then f_psz * f_num / f_den should be 12/5.
+ * fwtable.c knows how to write one of these for PCL,
+ * fwtableps.c knows how to write one of these for PostScript, and
+ * fonts.c/load_font knows how to read one; they had better all agree.
+ * fonts.c also defines the three default troff FWTABs.
+ * Many of the members could be chars.
+ */
+typedef struct	fwtab {
+	char		*f_descr;	/* descriptive name for font	*/
+	char		*f_PSname;	/* PostScript font name		*/
+	short		f_flags;	/* flag bits			*/
+	short		f_fonttype;	/* font type			*/
+	short		f_orientation;	/* portrait=0, landscape=1	*/
+	short		f_spacing;	/* fixed=0, variable=1		*/
+	short		f_symset;	/* symbol set			*/
+	short		f_pitch;	/* pitch			*/
+	short		f_psz;		/* point size (internal units)	*/
+	short		f_style;	/* upright=0, italic=1		*/
+	short		f_weight;	/* stroke weight		*/
+	short		f_face;		/* typeface			*/
+	short		f_num;		/* width table numerator	*/
+	short		f_den;		/* width table denominator	*/
+	unsigned char	f_width[NWIDTH]; /* width table			*/
+} FWTAB;
+
+/* FWTAB f_flags bits */
+#define	F_PCL		1		/* PCL font width table		*/
+#define	F_PS		2		/* PostScript font width table	*/
+#define	F_USED		4		/* Font has been used		*/
+#define	F_FIXED		8		/* Font has fixed pointsize	*/
+
+/* Globals in fonts.c. */
+extern	FTB	fontab[];		/* Font table			*/
+extern	FWTAB	*fwptab[];		/* Font width table pointers	*/
+extern	int	nfonts;			/* Number of fonts		*/
+
+/* end of fonts.h */

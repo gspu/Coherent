@@ -1,0 +1,118 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     92.07.17.09.39.31;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.04.30.14.10.28;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@update bystevesf for profiling suppt
+@
+text
+@/*
+ * libc/crt/_prof.c
+ * Runtime profiling.
+ */
+
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+#if	_I386
+extern	_start();
+extern	__end_text();
+#define	BTEXT	_start
+#define	ETEXT	__end_text
+#else
+extern	etext();
+#define	BTEXT	(vaddr_t)1
+#define	ETEXT	etext
+#endif
+
+/*
+ * The profiling runtime start-off mcrts0.s
+ * enables profiling by calling _profon() before calling main().
+ */
+_profon()
+{
+#ifndef	Z8001
+	register unsigned	bufl;
+	register short		*buf;
+	static char		emsg[]	= "No room for profil buffer\n";
+
+	bufl = ((unsigned)ETEXT - (unsigned)BTEXT) / 2;
+	buf = (short *)sbrk(bufl * sizeof (short));
+	if (buf == NULL) {
+		write(STDERR_FILENO, emsg, sizeof emsg);
+		abort();
+	}
+	monitor((vaddr_t)BTEXT, (vaddr_t)ETEXT, buf, bufl);
+#else
+	monitor((vaddr_t)1);		/* dummy call to start things off */
+#endif
+}
+
+/*
+ * The profiling runtime start-off mcrts0.s
+ * disables profiling by calling _profoff() at _exit.
+ * It turns off profiling and writes out the final profiling information.
+ */
+_profoff()
+{
+	monitor(NULL);
+}
+
+/* end of libc/crt/_prof.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 2
+a3 2
+ * Called from the run-time start-off to enable profiling and to
+ * write out the final profiling information.
+d5 1
+d7 1
+d10 10
+d21 4
+a24 3
+#define	STDERR	2
+
+
+a29 1
+	extern			etext();
+d32 1
+a32 1
+	bufl = (unsigned)etext / 2;
+d35 1
+a35 1
+		write(STDERR, emsg, sizeof emsg);
+d38 1
+a38 1
+	monitor((vaddr_t)1, (vaddr_t)etext, buf, bufl);
+d44 5
+a48 1
+
+d54 1
+@

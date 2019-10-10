@@ -1,0 +1,127 @@
+head     2.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.2;
+comment  @ * @;
+
+
+2.2
+date     93.08.09.13.35.17;  author bin;  state Exp;
+branches ;
+next     2.1;
+
+2.1
+date     93.07.07.10.45.39;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+2.2
+log
+@Kernel 82 changes
+@
+text
+@/* $Header: /ker/coh.386/RCS/clocked.c,v 2.2 93/07/26 15:22:04 nigel Exp $ */
+/*
+ * clocked.c - support routines for alternate clock rate
+ *
+ *  altclk_in(hz, fn) - install routine with specified rate
+ *                      "hz" should be a multiple of system rate of 100 Hz
+ *			return 0 if completed ok, -1 otherwise
+ *
+ *  altclk_out()      - uninstall alternate clock routine and restore system rate
+ *			return old value of "altclk"
+ *
+ *  altclk_rate(hz)   - set clock interrupt rate
+ *			new rate must be an even multiple of system rate "HZ"
+ *			return 0 if completed ok, -1 otherwise
+ *
+ *  History:
+ *    90/08/08 hws	initial version, works with hs.c modified for com[1-4]
+ *    90/08/14 hws	make it more like a Unix system call
+ *
+ * $Log:	clocked.c,v $
+ * Revision 2.2  93/07/26  15:22:04  nigel
+ * Nigel's R80
+ * 
+ */
+
+#include	<sys/coherent.h>		/* altclk */
+
+#ifdef _I386
+#include	<kernel/param.h>		/* HZ */
+#else
+#include	<kernel/const.h>		/* HZ */
+#endif
+
+#define	PIT	0x40		/* 8253 port */
+#define	TMR0_M3	0x36		/* timer 0, mode 3 */
+#define	SYS_HZ	1193200L	/* rate of input clock to timer 0 */
+
+typedef int (*PFI)();		/* pointer to function returning int */
+
+altclk_rate(hz)
+unsigned int hz;
+{
+	int s;			/* to save CPU irpt flag */
+	unsigned int interval;	/* period for hz, in units of 1.19 MHz ticks */
+	int ret;
+
+	if (hz >= HZ && hz % HZ == 0) {		/* can't go slower than HZ! */
+		interval = SYS_HZ/hz;
+		s = sphi();			/* disable irpts */
+		outb(PIT+3, TMR0_M3);
+		outb(PIT, interval & 0xff);
+		outb(PIT, interval >> 8);	/* unsigned shift */
+		spl(s);				/* restore previous irpt state */
+		ret = 0;
+	} else {
+		ret = -1;
+	}
+	return ret;
+}
+
+int altclk_in(hz, fn)
+int hz;
+PFI fn;
+{
+	int ret;
+
+	if ((ret = altclk_rate(hz)) == 0)
+		altclk = fn;
+	return ret;
+}
+
+PFI altclk_out()
+{
+	PFI ret;
+
+	ret = altclk;
+	if (ret) {
+		altclk_rate(HZ);
+		altclk = 0;
+	}
+	return ret;
+}
+@
+
+
+2.1
+log
+@Last Pre-STREAMS kernel
+@
+text
+@d1 1
+d19 5
+d29 1
+a29 1
+#include	<sys/param.h>		/* HZ */
+d31 1
+a31 1
+#include	<sys/const.h>		/* HZ */
+@

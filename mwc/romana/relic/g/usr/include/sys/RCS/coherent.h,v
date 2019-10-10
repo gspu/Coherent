@@ -1,0 +1,386 @@
+head     1.10;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.10
+date     93.08.10.13.28.28;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     93.07.16.19.22.25;  author root;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.07.16.10.19.47;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.06.14.13.25.51;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     93.04.09.08.25.11;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     93.03.02.07.50.17;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.12.18.14.04.58;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.10.23.07.10.22;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.09.29.09.26.20;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.31.16.07.14;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.10
+log
+@Kernel 82 header update
+@
+text
+@/*
+ * /usr/include/sys/coherent.h
+ *
+ * Coherent-specific definitions, for linking kernels and related bits.
+ *
+ * Revised: Thu May 27 08:07:17 1993 CDT
+ */
+#ifndef	__SYS_COHERENT_H__
+#define	__SYS_COHERENT_H__
+
+#define	__KERNEL__	1
+
+#include <common/feature.h>
+#include <common/__paddr.h>
+#include <common/_null.h>
+#include <common/_time.h>
+#include <kernel/_sleep.h>
+#include <sys/types.h>
+#include <sys/mmu.h>
+#include <sys/uproc.h>
+#include <kernel/alloc.h>
+#if	_I386
+#include <kernel/reg.h>
+#include <kernel/param.h>
+#define v_sleep(a1,a2,a3,a4,a5)		w_sleep(a1,a2,a5)
+#else
+#include <kernel/machine.h>
+#include <kernel/const.h>
+#define v_sleep(a1,a2,a3,a4,a5)		sleep(a1,a2,a3,a4)
+#endif
+
+#ifdef TRACER
+#include <sys/mwc_coherent.h>
+#else
+#define SET_U_ERROR(errno, msg)		((void) (u.u_error = errno))
+#define T_HAL(f,c)			((void) 0)
+#define T_PIGGY(f,c)			((void) 0)
+#define T_VLAD(f,c)			((void) 0)
+#define T_CON(f,c)			((void) 0)
+#define T_MSGQ(f,c)			((void) 0)
+#define DV(v)				((void) 0)
+#endif /* TRACER */
+
+#if	_I386
+
+#define CHIRP(ch)		chirp(ch)
+#define _CHIRP(ch, locn)	_chirp(ch, locn)
+#define kclear(buf, nbytes)		memset(buf, 0, nbytes)
+#define kkcopy(src, dest, nbytes)	(memcpy(dest, src, nbytes),nbytes)
+
+#else
+
+#define CHIRP(ch)		((void) 0)
+#define _CHIRP(ch, locn)	((void) 0)
+
+#endif	/* ! _I386 */
+
+/*
+ * Storage management functions.
+ */
+
+#define	kalloc(n)	alloc(allkp, n)
+#define kfree(p)	free(p)
+
+/*
+ * Functions for copying between kernel and segments.
+ */
+#define kscopy(k, s, o, n)	kpcopy(k, s->s_paddr+o, n)
+#define skcopy(s, o, k, n)	pkcopy(s->s_paddr+o, k, n)
+
+/*
+ * Time of day structure.
+ */
+
+extern struct _TIME_OF_DAY {
+	time_t	t_time;			/* Time and date */
+	int	t_tick;			/* Clock ticks into this second */
+	int	t_zone;			/* Time zone */
+	int	t_dstf;			/* Daylight saving time used */
+} timer;
+
+/*
+ * General global variables.
+ */
+extern	int	 debflag;		/* General debug flag */
+extern	int	 batflag;		/* Turn on clock flag */
+extern	int	 outflag;		/* Device timeouts */
+extern	int	 ttyflag;		/* Console is present */
+extern	int	 mactype;		/* Machine type */
+extern	unsigned utimer;		/* Unsigned timer */
+extern	long	 lbolt;			/* Clock ticks since system startup */
+extern	TIM	stimer;			/* Swap timer */
+extern	unsigned msize;			/* Memory size in K */
+extern	unsigned asize;			/* Alloc size in bytes */
+extern	char	 *icodep;		/* Init code start */
+extern	int	 icodes;		/* Init code size */
+extern	dev_t	 rootdev;		/* Root device */
+extern	dev_t	 swapdev;		/* Swap device */
+extern	dev_t	 pipedev;		/* Pipe device */
+extern	__paddr_t	 corebot;	/* Bottom of core */
+extern	__paddr_t	 coretop;	 /* Top of core */
+extern	__paddr_t	 holebot;	/* Bottom of I/O memory */
+extern	__paddr_t	 holetop;	/* Top of I/O memory */
+extern	daddr_t	 swapbot;		/* Bottom of swap */
+extern	daddr_t	 swaptop;		/* Top of swap */
+extern	__paddr_t	 clistp;	/* Base of clists */
+extern	heap_t	      *	allkp;		/* Alloc space */
+extern	int	 NSLOT;			/* Num of loadable driver data slots */
+extern	int	 slotsz;		/* Size of loadable driver data slot */
+extern	int *	 slotp;			/* Loadable driver pids/data space */
+extern	int	 (*altclk)();		/* hook for polled devices */
+extern	UPROC	 u;			/* Current user area. */
+
+#if	_I386
+
+extern	unsigned total_mem;		/* Total physical memory in bytes.  */
+extern	SR	blockp;			/* Base of buffers */
+extern	SR	allocp;
+extern	int	dev_loaded;
+extern	int	DUMP_LIM;
+
+#else
+
+extern	char	 *idatap;		/* Init data start */
+extern	int	 idatas;		/* Init data size */
+extern	__paddr_t	 blockp;	/* Base of buffers */
+extern	int	 altsel;		/* for far polling, this is selector */
+					/* ... for altclk; for near polling, */
+					/* ... this is zero */
+extern	int 	is_ps;			/* 1 if running on a PS/2            */	
+
+#endif	/* ! _I386 */
+
+#endif	/* ! defined (__SYS_COHERENT_H__) */
+@
+
+
+1.9
+log
+@Hal: 2nd try at r79
+@
+text
+@a18 2
+#include <sys/param.h>
+#include <sys/fun.h>
+d21 1
+a21 1
+#include <sys/alloc.h>
+d23 2
+a24 1
+#include <sys/reg.h>
+d27 2
+a28 1
+#include <sys/machine.h>
+d35 7
+a41 7
+#define SET_U_ERROR(errno, msg)	{ u.u_error = errno; }
+#define T_HAL(f,c)
+#define T_PIGGY(f,c)
+#define T_VLAD(f,c)
+#define T_CON(f,c)
+#define T_MSGQ(f,c)
+#define DV(v)
+d53 2
+a54 2
+#define CHIRP(ch)
+#define _CHIRP(ch, locn)
+@
+
+
+1.8
+log
+@Kernel 79 w/streams
+@
+text
+@d107 1
+a107 1
+extern	ALL	 *allkp;		/* Alloc space */
+@
+
+
+1.7
+log
+@hal : revised for ker 78
+@
+text
+@d11 7
+a17 3
+#define	 KERNEL
+#define	__KERNEL__
+#include <sys/__paddr.h>
+a18 1
+#include <sys/_time.h>
+d23 2
+a24 1
+#ifdef _I386
+d44 2
+a45 1
+#ifdef _I386
+a47 1
+#if 1
+d50 1
+a50 1
+#endif
+d52 1
+a54 1
+#endif
+d56 2
+a58 7
+ * Null
+ */
+#ifndef	NULL		/* machine.h doesn't have any ideas */
+#define NULL	0
+#endif
+
+/*
+d61 1
+a61 1
+extern	char		*alloc();
+d107 1
+a107 1
+extern	struct	 all *allkp;		/* Alloc space */
+d114 1
+a114 1
+#ifdef _I386
+d132 3
+a134 2
+#endif
+#endif /* COHERENT_H */
+@
+
+
+1.6
+log
+@Hal: paddr_t cleanup, added greek kbd,allow more than 1 text section for coff execs, added core.h, __paddr.h
+@
+text
+@d6 1
+a6 1
+ * Revised: Wed Apr  7 15:07:47 1993 CDT
+d37 1
+@
+
+
+1.5
+log
+@hal: newupdates for kernel 73, several
+changes by Nigel for __COHERENT__
+@
+text
+@d2 5
+a6 1
+ * Some useful and miscellaneous things.
+d13 1
+d100 4
+a103 4
+extern	paddr_t	 corebot;		/* Bottom of core */
+extern	paddr_t	 coretop;	 	/* Top of core */
+extern	paddr_t	 holebot;		/* Bottom of I/O memory */
+extern	paddr_t	 holetop;		/* Top of I/O memory */
+d106 1
+a106 1
+extern	paddr_t	 clistp;		/* Base of clists */
+d126 1
+a126 1
+extern	paddr_t	 blockp;		/* Base of buffers */
+@
+
+
+1.4
+log
+@hal: update w/kernel 71
+@
+text
+@d4 2
+a5 2
+#ifndef	COHERENT_H
+#define	COHERENT_H	COHERENT_H
+d8 1
+d10 1
+d17 1
+d69 2
+a70 1
+typedef struct TIME {
+d75 1
+a75 1
+} TIME;
+a89 1
+extern	TIME	 timer;			/* Current time */
+@
+
+
+1.3
+log
+@vlad: changes for new msg system call
+@
+text
+@a8 1
+#include <sys/timeout.h>
+@
+
+
+1.2
+log
+@updated with kernel 63 src
+@
+text
+@d29 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d34 4
+@

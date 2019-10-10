@@ -1,0 +1,743 @@
+;TOKENIZE 10/22/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;tokenization and line editing
+
+	if	(not wild) or (not rtpak)	;WILD RTPAK uses GTLIN in WILD
+;GTLIN gets a line of source text from the user and sets TEXTP.
+;Uses:	B	temp storage
+;	C	unused
+;	D	LS byte of first text address
+;	E	LS byte of max text address
+;	HL	text address
+;Chars are read with READC and inserted starting at NLNAD, except:
+;	<rubout>	deletes last character
+;	<control-R>	retypes current line
+;	<control-U>	starts over
+;	<control-H>	deletes last char, echoes <cntl-h> to backspace cursor
+;	<cr>		echoes <lf> and returns
+;	<control-G>	accepted
+;	other <control>s	ignored (ASCII 0-1FH)
+;Chars typed when buffer is full echo <control-G> and are ignored.
+	if	not wild
+gtli0:	if	epstn
+	call	writc		;echo the ^K
+	else
+	call	echoc		;echo ^U
+	call	wcrlf		;write crlf after ^U
+	endif
+	if	editc
+	mvi	a,cr
+	sta	nlnad		;clobber old buffer contents in case ^E
+	endif
+	endif			;end of NOT WILD conditional
+gtlin:	lxi	d,nlnad+nlmax	;lsbyte of max address to E
+	lxi	h,nlnad		;first text byte address to HL
+	mov	d,l		;lsbyte of text address to D
+	if	editc
+	call	readc		;check first char in case ^E
+	cpi	cntle
+	if	wild
+	jnz	gtli2
+	else
+	jnz	gtl1d		;first char not ^E
+	endif
+	jmp	ledit		;enter line editor
+	endif
+gtli1:	call	readc		;get a character
+	if	not wild
+gtl1d:	cpi	rbout
+	jnz	gtli2
+	if	epstn
+	call	writc		;echo the <rub> in Epstein version
+	endif
+	mov	a,l		;rubout
+	cmp	d
+	jz	gtli1		;start over if line is empty
+	if	epstn
+	dcx	h
+	jmp	gtli1		;back up pointer and get next
+	else
+	mvi	a,'/'
+	call	writc		;echo slash first
+gtl1a:	dcx	h
+	mov	a,m		;get previous char
+	call	writc		;and echo it
+gtl1b:	call	readc		;read another from console
+	cpi	rbout		;see if still rubbing out
+	jnz	gtl1c		;no, echo end slash and continue
+	mov	a,l
+	cmp	d
+	jz	gtl1b		;at start of line
+	jmp	gtl1a
+gtl1c:	mov	b,a		;save new char
+	mvi	a,'\'
+	call	writc		;write end slash
+	mov	a,b		;restore new char
+	endif			;end of NOT EPSTN conditional
+	endif			;end of NOT WILD conditional
+gtli2:	mov	m,a		;insert the char
+	cpi	cr
+	jz	gtli5		;echo lf and return
+	if	not wild
+	cpi	cntlu
+	jz	gtli0		;crlf and start over if ^U
+	endif
+	if	not epstn
+	if	(not wild) or (not rtpak)
+	cpi	cntlh
+	jz	gtli7		;backspace if control-h
+	endif
+	if	editc
+	cpi	cntle
+	jz	gtli8		;edit already typed line if ^E
+	endif
+	if	not wild
+	cpi	cntlr
+	cz	echoc		;echo ^R
+	jz	gtli6		;retype line if ^R
+	endif
+	cpi	cntlg
+	cz	echoc		;echo ^G
+	jz	gtli3		;accept bell
+	cpi	20H
+	jc	gtli1		;ignore 0H - 1FH (controls)
+	endif
+gtli3:	mov	a,l
+	cmp	e		;check for line overflow
+	mov	a,m		;restore char to A
+	cz	gtli4		;replace with bell if line too long
+	if	epstn
+	cpi	escap
+	cz	gtli6		;echo escape as $ in Epstein version
+	endif
+	call	writc		;echo char
+	inx	h		;bump insertion pointer
+	jmp	gtli1		;and get next
+gtli4:	mvi	a,cntlg		;replace char with bell
+	dcx	h		;leave pointer unchanged
+	ret
+gtli5:	if	not compl
+	xra	a
+	sta	cstkd		;clear control stack direct count
+	endif
+	lxi	h,nlnad
+	shld	textp		;reset text pointer
+	jmp	wcrlf		;echo crlf and return
+	if	epstn
+gtli6:	mvi	a,'$'
+	ret
+	else
+	if	not wild
+gtli6:	call	wcrlf
+	push	d		;save DE
+	lxi	d,nlnad		;first addr to DE
+	mov	a,l
+	sub	e		;last+1 - first = # chars to A
+	call	prst0		;and print the line
+	pop	d		;restore DE
+	jmp	gtli1		;and wait for next char
+	endif
+	if	(not wild) or (not rtpak)
+gtli7:	mov	a,l
+	cmp	d
+	jz	gtli1		;ignore if at start of line
+	mvi	a,cntlh		;restore the ^H
+	call	writc		;and echo the ^H to backspace
+	dcx	h		;decrement position
+	jmp	gtli1
+	endif
+	if	editc
+gtli8:	call	wcrlf		;write crlf to get to new line
+	mvi	m,cr		;store cr
+	jmp	ledit		;line edit the line
+	endif
+	endif			;end of NOT EPSTN conditional
+
+;ECHOC echoes meaningful control chars as ^char.
+;Call:	A	control char value in ASCII
+;Retn:	PSW,A,BC,DE,HL	preserved
+echoc:	push	psw
+	mvi	a,'^'
+	call	writc		;write ^
+	pop	psw		;restore control char value
+	push	psw		;and resave
+	adi	40H		;add ASCII bias
+	call	writc		;write the char
+	pop	psw		;restore status bits and A
+	ret
+	endif			;end of NOT WILD and NOT RTPAK conditional
+
+	if	editc
+;LEDIT does the work of line editing.
+;Uses:	B	Chars left of cursor, initially 0
+;	C	Max # of chars to add without overflowing buffer
+;	HL	Cursor position, initially NLNAD
+;	NLNAD	Line currently being edited
+;	TLNAD	Original contents of line (in case ^U typed)
+;Retn:	NLNAD	contains edited line
+;	TEXTP	reset to NLNAD
+;	CSTKD	reset to 0
+;	GCHAR	reset to 0
+;	TLNAD	clobbered
+;	Registers	clobbered
+ledit:	lxi	h,nlnad		;input buffer address to HL
+	shld	textp		;reset TEXTP
+	lxi	d,tlnad		;tokenization buffer address to DE
+ledt0:	lxi	b,nlmax+3	;0 to B, NLMAX+3 to C
+ledt1:	mov	a,m		;fetch char from input buffer
+	stax	d		;and save in tokenization buffer
+	dcr	c		;decrement remaining char count
+	inx	d
+	inx	h
+	sui	cr		;check if at cr
+	jnz	ledt1		;no, keep copying
+	sta	cstkd		;clear CSTACK direct count
+	sta	gchar		;clear GCHAR
+	lxi	h,nlnad		;input buffer address to HL
+	call	ledi6		;type line
+ledt2:	call	readc		;get command character
+ledt3:	cpi	cr
+	jz	led11		;done if <cr>
+	cpi	cntlu
+	jz	led10		;^U
+	push	h
+	lxi	h,ledt2
+	xthl			;push LEDT2 to allow RETurn from routines
+	cpi	rbout
+	jz	ledi1		;<rubout>
+	cpi	20H
+	jnc	ledi0		;printable char
+	cpi	cntld
+	jz	ledi2		;^D
+	cpi	cntlf
+	jz	ledi3		;^F
+	cpi	cntlg
+	jz	ledi0		;^G, treat as printable
+	cpi	cntlh
+	jz	ledi4		;^H
+	cpi	cntlk
+	jz	ledi5		;^K
+	cpi	cntll
+	jz	ledi6		;^L
+	cpi	cntln
+	jz	ledi7		;^N
+	cpi	cntlr
+	jz	ledi8		;^R
+	cpi	cntlt
+	jz	ledi9		;^T
+	ret			;ignore any other chars
+
+;printable char or ^G is inserted.
+ledi0:	dcr	c		;decrement char count
+	jz	led0b		;too many chars
+	mov	d,m		;char right of cursor to D
+	mov	m,a		;insert new char
+	call	led9a		;incr chars left of cursor and echo char
+	push	h		;and save
+led0a:	mov	a,d		;fetch saved char
+	mov	d,m		;save next char
+	mov	m,a		;store current char
+	inx	h
+	cpi	cr
+	jnz	led0a
+	pop	h		;restore cursor loc
+	ret
+led0b:	inr	c		;undecrement count
+led0c:	mvi	a,cntlg
+	jmp	writc		;and write a bell
+
+;<rubout> erases the char left of cursor, echoing it within slashes.
+ledi1:	mov	a,b
+	ora	a
+	rz			;ignore if already at left margin
+	mvi	a,'/'
+	call	writc		;write initial /
+led1a:	dcx	h
+	mov	a,m
+	call	led4a		;write deleted char and move remainder of line
+	call	readc		;read next char
+	cpi	rbout
+	jnz	led1b		;no additional <rubout>s
+	mov	a,b
+	ora	a
+	jnz	led1a		;<rubout> another
+led1b:	mov	d,a		;save next char
+	mvi	a,'\'
+	call	writc		;write the end \
+	mov	a,d		;restore next char
+	pop	d		;pop the return to LEDIT
+	jmp	ledt3		;and return to LEDT1 instead
+
+;^D deletes the char right of cursor.
+ledi2:	mov	a,m		;fetch char right of cursor
+	cpi	cr
+	rz			;leave unchanged if at end of line
+	inr	c		;one more char is now available
+	push	h		;save cursor location
+	mov	d,h
+	mov	e,l
+led2a:	inx	h
+	mov	a,m		;fetch next char
+	stax	d		;and store
+	inx	d
+	cpi	cr
+	jnz	led2a		;continue until cr
+	pop	h		;restore cursor
+	ret
+
+;^F <char> searches for next occurence of <char>.
+ledi3:	call	readc		;get search character
+	sta	gchar		;and save
+led3a:	mov	d,a		;search char to D
+	push	h		;save cursor position
+led3b:	mov	a,m		;fetch next char
+	inx	h
+	cpi	cr		;check if at cr
+	jz	led3d		;not found
+	cmp	d		;check for match
+	jnz	led3b
+	xchg			;match location to DE
+	pop	h		;restore current loc
+led3c:	call	cmdhu		;compare current to desired
+	rz
+	mov	a,m
+	call	led9a		;move right and print
+	jmp	led3c
+led3d:	pop	h		;recover cursor location
+	jmp	led0c		;beep and continue
+
+;^H deletes char left of cursor and echoes ^H.
+ledi4:	mov	a,b
+	ora	a
+	rz			;no chars left of cursor
+	dcx	h
+	mvi	a,cntlh
+led4a:	call	writc		;echo the ^H
+	dcr	b		;decrement chars left of cursor
+	jmp	ledi2		;move remainder of chars
+
+;^K kills the chars right of the cursor.
+ledi5:	mov	a,m		;fetch next
+	cpi	cr
+	rz			;done if at cr
+	call	ledi2		;else delete a char
+	jmp	ledi5		;and repeat
+
+;^L prints remainder of line and moves cursor to left.
+ledi6:	mov	a,m
+	inx	h
+	call	writc		;write next char
+	cpi	cr
+	jnz	ledi6		;not at <cr> yet
+	lxi	h,nlnad		;cursor at left of line
+	mvi	b,0		;0 chars left of cursor
+	jmp	wlf		;write <lf> after <cr>
+
+;^N gets next occurence of ^F <char>.
+ledi7:	lda	gchar		;get previous ^F character
+	jmp	led3a		;and continue as for ^F
+
+;^R retypes the line, leaving cursor unchanged.
+ledi8:	mov	d,h
+	mov	e,l		;cursor position to DE
+	call	ledi6		;type remainder of line
+	jmp	led3c
+
+;^T moves the cursor one char right.
+ledi9:	mov	a,m		;fetch next
+	cpi	cr
+	rz			;done if no chars right of cursor
+led9a:	inx	h
+	inr	b		;increment chars to left count
+	jmp	writc		;echo char and return
+
+;^U restores the original contents of the buffer and retries.
+led10:	call	wcrlf		;write crlf
+	lxi	h,tlnad		;tokenization buffer address to HL
+	lxi	d,nlnad		;input buffer address to DE
+	jmp	ledt0		;and continue as above
+
+;<cr> resets GCHAR, prints the edited line and exits from line editor.
+led11:	xra	a
+	sta	gchar		;reset GET character
+	jmp	ledi6		;print line and return
+
+	endif			;end of EDITC conditional
+
+	if	wild or not compl
+;TKIZE tokenizes a line of text and computes its length.
+;Call:	(newln)	address of first text byte
+;Uses:	BC	address of next tokenized text line byte
+;	HL	address of next untokenized text line byte
+;Retn:	A,BC,DE	clobbered
+;	HL	address of first tokenized text line byte (i.e. (newln))
+;	(textp)	ditto
+;	(lnnum)	line #, 0 if none
+;	(lnlen)	length of tokenized line + overhead, 0 to delete
+;			(i.e. if line consists of [<line #>] <cr>)
+;	Carry	set iff no line # and line not <cr>
+;	Zero	set if <cr>
+;The tokenized line is identical to the original line, EXCEPT:
+;(1)  The line # (if any) and spaces preceding it are removed, and
+;(2)  Instances of keywords not inside " " or following # are replaced
+;	by the correponding tokens.
+;0 is stored in the byte after <cr> as a pseudo-eof for direct mode execution.
+tkize:	if	not (wild and rtpak)
+	call	lnnu0
+	endif
+	lxi	h,nlnad		;store text address in HL
+	lxi	b,tlnad		;tokenized line address to BC
+	push	b		;save for exit
+	call	gtdec		;look for decimal line #
+	jc	tkiz0		;none
+	mov	a,d
+	ora	e
+	jz	snerr		;SN error if zero or too big
+tkiz0:	push	psw		;carry set iff no line #
+	xchg
+	shld	lnnum		;line # to lnnum
+	xchg
+	mov	a,m		;next text char to A
+	sui	cr		;compare with sui (to use zero)
+	jnz	tkiz1
+	inx	h		;delete line by letting length = 0
+	mov	m,a		;store pseudo-eof
+	sta	lnlen
+	pop	psw
+	mov	a,d
+	ora	e		;carry reset, zero set iff <cr>
+	jmp	sttp1		;set textp and return
+tkiz1:	call	tkizb		;tokenize body of input line
+	xra	a
+	stax	b		;pseudo-eof for direct mode exec
+	lxi	h,tlnad
+	mov	a,l		;lsbyte of first address to A
+	cma			;- first text address - 1
+	add	c		;+ last address + 1 = actual length - 1
+	adi	5		;+ line overhead + 1 = length
+	sta	lnlen		;store tokenized line length
+	pop	psw		;carry set iff no line #
+	jnc	sttp1
+	dcx	h
+	shld	savtp		;initialize savtp for direct mode commands
+sttp1:	pop	h		;return first text byte addr in HL
+	shld	textp		;initialize text pointer
+	ret
+
+copyp:	mvi	a,prntt		;substitute PRINT token for ?
+tkiza:	stax	b
+	inx	b
+	inx	h
+	mvi	d,':'
+	cpi	datat
+	jz	tkza2		;do not tokenize DATA
+	cpi	remt
+	if	wild and rtpak	;suppress comments in WILD RTPAK tokenization
+	jz	wrem
+	cpi	''''
+	jnz	tkizb
+wrem:	mvi	a,cr
+	stax	b
+	inx	b
+	ret
+	else
+	jz	tkza1		;or REMarks (for ?)
+	cpi	''''
+	jnz	tkizb		;or on-line comments
+	endif			;end of NOT (WILD AND RTPAK) conditional
+tkza1:	mvi	d,cr
+tkza2:	call	cpyd1		;copy without tokenizing
+tkizb:	call	copys		;copy spaces
+	cpi	'"'
+	cz	copyq		;copy to close quote
+	cpi	'#'
+	jz	copyh		;watch for keywords after #
+	cpi	cr
+	jz	copya		;finished if cr -- copy and return
+	cpi	'?'
+	jz	copyp		;? abbreviation for PRINT
+	push	b		;save tokenized text pointer
+	mvi	c,-nkeys and 0FFH	;table length to C
+	lxi	d,keyta		;table address to DE
+	call	tlkup		;perform table lookup
+	if	key80
+	jnc	tkizc		;found it
+	mvi	c,-nrwds and 0FFH
+	lxi	d,rwdta
+	call	tlkup		;check for reserved word
+	jc	tkizc		;not a keyword nor a reserved word
+	adi	rwdtk+nrwds	;use tokens starting at RWDTK
+	endif
+tkizc:	pop	b		;restore text pointer
+	jmp	tkiza		;copy A and keep tokenizing
+
+
+;Tokenizer routines.
+;COPYA copies one char from A through BC.
+;COPYS copies successive spaces (if any) from M through BC.
+;COPYQ copies " from A through BC, then copies from M through BC until
+;	" (inclusive, incl. trailing spaces) or until <cr> (exclusive).
+;COPYH copies hex digits, so e.g. #DEF and #BIN tokenize correctly.
+;Call:	BC	address of next available destination
+;	HL	address of next available char (i.e. source)
+;Retn:	A	char copied for COPY1,COPYA
+;		first char not copied for COPYS, COPYQ
+;	BC	next available destination address
+;	DE	preserved
+;	HL	next available source address
+
+copya:	stax	b		;store through BC
+	inx	b
+	inx	h
+	ret
+
+copyq:	mov	d,a
+copyd:	stax	b
+	inx	b
+	inx	h		;copy current character
+cpyd1:	mov	a,m
+	cpi	cr
+	rz			;return without copying if cr
+	cmp	d
+	jnz	copyd		;keep copying if neither (D) nor cr
+cops0:	stax	b
+	inx	b
+cops1:	inx	h
+copys:	mov	a,m
+	cpi	' '
+	rnz			;return at first non-space
+	if	wild and rtpak
+	jmp	cops1		;suppress spaces in WILD RTPAK tokenization
+	else
+	jmp	cops0
+	endif
+
+copyh:	stax	b
+	inx	b
+	inx	h		;copy char and spaces
+	mov	a,m
+	call	ldtst		;test if letter or digit
+	jnc	cpyh1		;yes
+	sui	20H		;convert from possible lower case
+	call	ldtst
+	jc	tkizb		;not a letter or digit
+cpyh1:	cpi	'F'+1
+	jnc	tkizb		;letter but not legit hex digit
+	jmp	copyh		;ok, copy it
+
+;TLKUP performs table lookup for the tokenizer.
+;Call:	C	- number of table entries
+;	DE	address of first table byte
+;	HL	address of first text byte
+;Retn:	Carry	set if not found
+;	A	token (position of matched word from table bottom) if found,
+;			first text byte if not
+;	B	preserved
+;	C	token if found, zero if not
+;	DE	address of first text byte if found,
+;			of first byte following table if not
+;	HL	address of last matched text byte if found,
+;			of first text byte (i.e. unchanged) if not
+tlkup:	push	h		;save text pointer
+tlku0:	mov	a,m		;fetch text char
+	sui	20H		;convert lower case to upper
+	cpi	'A'
+	jc	tlku1		;char  < 'a'
+	cpi	'Z'+1
+	jnc	tlku1		;char > 'z'
+	mov	m,a		;store converted char
+tlku1:	ldax	d		;table byte to A
+	cmp	m		;compare to text byte
+	jnz	tlku2
+	inx	d		;matched -- try next byte
+	inx	h
+	jmp	tlku0
+tlku2:	ani	7FH		;reset sign bit of table byte
+	cmp	m		;compare again
+	jnz	tlku3		;failed -- no match
+	mov	a,c		;match -- return token in A, Carry reset
+	pop	d		;unstack the saved pointer
+	ret
+tlku3:	ldax	d		;failed
+	inx	d
+	ani	80H		;look at sign bit
+	jz	tlku3		;keep looking for end of entry
+	pop	h		;restore text pointer
+	inr	c		;increment count
+	jnz	tlkup		;try next table entry
+	mov	a,m		;return text char if no match
+	stc			;return Carry on failure
+	ret
+	endif			;end of WILD OR NOT COMPL conditional
+
+	if	not compl
+;ADDL adds a tokenized line to source text.
+;Call:	(lnnum)	line #
+;	(lnlen)	line length, 0 to delete
+;	(newln)	address of first byte of new line
+;	(eofad)	end of source file address
+;If line # is already in text, the old line is replaced with the new.
+;If not, the new line is simply inserted.
+;Branches out if memory full, i.e. if source top overlaps symbol table bottom.
+;Clobbers all registers.
+addln:	if	romsq
+	lxi	d,srcad
+	lhld	sourc
+	call	cmdhu		;Zero set iff addressing working space
+	cnz	lnnu0		;not in working space, reset LNNUM to 0
+	jnz	roerr		;and issue fatal RO error
+	endif
+	lhld	lnnum
+	xchg			;line # to DE
+	call	findl		;look for it
+	push	h		;save pointer for line insertion later
+	lxi	b,0		;length of old line to BC
+	jc	addl0		;0 if no such line,
+	mov	c,m		;  else length from pointer
+addl0:	dad	b		;address of next  line = old + length to HL
+	shld	temp		;save it for old > new case below
+	xchg
+	call	cplde		;- next line address to DE
+	lhld	eofad		;end of file address to HL
+	inx	h
+	dad	d		;eof - next line + 1 = count to HL
+	xchg			;count to DE for block move
+	lda	lnlen		;new line length to A, 0 to delete
+	sub	c		;new - old = offset
+	mov	c,a		;offset to c
+	jc	addl4		;old > new
+	jz	addl2		;old = new, so just insert it
+;block move text below longer new line
+	push	d		;old < new
+	lhld	symta
+	lxi	d,-9
+	dad	d		;leave enough room to compute trivial exprs
+	xchg			;symbol table address to DE
+	lhld	eofad
+	push	h
+	dad	b		;HL gets eofad + offset = destination
+	mov	b,h
+	mov	c,l
+	call	cmbdu		;compare destination to symbol table addr
+	cnc	lnnu0		;out of memory -- reset LNNUM to 0
+	jnc	omerr		;and issue fatal OM error
+	shld	eofad		;reset EOF address
+	pop	b		;BC gets old eof address = source
+	pop	d		;restore count
+addl1:	ldax	b		;fetch byte from BC
+	mov	m,a		;store through HL
+	dcx	b
+	dcx	h
+	dcx	d
+	mov	a,d
+	ora	e
+	jnz	addl1		;move more bytes
+;insert current line into source
+addl2:	pop	d		;recover insertion address
+	lda	lnlen
+	ora	a
+	jz	addl3		;done if length = 0
+	stax	d		;else store length
+	sui	4		;length - overhead = length to move
+	lxi	b,tlnad		;source address to BC
+	lhld	lnnum
+	if	editc
+	shld	errln		;set ERRLN
+	endif
+	xchg			;insertion addr to HL, lnnum to DE
+	call	momde		;store line #
+	inx	h
+	mvi	m,0		;store zero break byte
+	inx	h		;HL now has destination
+	mov	e,a		;actual length to E for insertion
+	call	movd0		;copy new line into text
+;reset stacks and return
+addl3:	lhld	eofad		;eof address to HL
+	jmp	new1		;reset stacks and return
+;block move text below shorter new line
+addl4:	lhld	temp		;recover next text line address
+	push	h
+	dcr	b		;B becomes 255, since offset in BC is < 0
+	dad	b		;HL gets next + offset = destination
+	pop	b		;BC gets next = source
+	call	moved		;move text down in memory
+	dcx	h
+	shld	eofad		;reset EOF address
+	jmp	addl2		;and insert current line
+
+;LNNU0 resets LNNUM to 0.
+lnnu0:	lxi	h,0
+	shld	lnnum
+	ret
+
+	endif			;end of NOT COMPL conditional
+
+;MOVED performs block move of memory Down.
+;Call:	BC	source address
+;	DE	count (# of bytes to move)
+;	HL	destination address
+;Retn:	A	clobbered
+;	BC	address of last source byte + 1
+;	DE	zero
+;	HL	address of last destination byte + 1
+;MOVEB moves 2 or 4 bytes with MOVED.
+moveb:	if	float		;byte count to DE
+	mvi	e,vbyts-1
+	else
+	mvi	e,2
+	endif			;and fall through to MOVD0
+movd0:	mvi	d,0
+moved:	ldax	b		;BC contains source
+	mov	m,a		;HL contains destination
+	inx	b
+	inx	h
+	dcx	d		;DE contains count
+	mov	a,d
+	ora	e		;test if (DE) = 0
+	jnz	moved
+	ret
+
+;FINDL finds line with given line # in user source text.
+;Call:	DE	desired line #
+;Retn:	A	clobbered
+;	BC	value of HL when called
+;	DE	preserved, i.e. desired line #
+;	HL	address of a user source line length byte, namely:
+;			Success, length byte of desired line # in source
+;			Failure, length byte of first greater line #, or EOF
+;	Carry	set iff not found
+;	Zero	set if found or if at end of table
+findl:	push	h
+	if	romsq
+	lhld	sourc
+	else
+	lxi	h,srcad		;search from start
+	endif
+fndl1:	mov	a,m		;length byte to A
+	ora	a
+	jz	fndl2		;not found if at end of table
+	inx	h
+	mov	c,m
+	inx	h
+	mov	b,m		;source line # to BC
+	dcx	h
+	dcx	h		;point to length byte again
+	call	cmbdu		;compare to desired line #
+	jz	fndl3		;equal -- success
+	jnc	fndl2		;greater -- failure
+	mov	c,m		;less, keep trying -- length to BC
+	mvi	b,0
+	dad	b		;let HL point to address of next entry
+	jmp	fndl1
+fndl2:	stc			;failure -- return with carry set
+fndl3:	pop	b		;return old HL in BC
+	ret
+
+;FDLNO does a FINDL, issues fatal US error if not found.
+fdlno:	call	findl
+	rnc
+	jmp	userr
+
+;end of TOKENIZE
+	page

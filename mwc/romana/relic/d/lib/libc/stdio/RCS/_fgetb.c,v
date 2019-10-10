@@ -1,0 +1,106 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.2
+date     92.02.25.13.48.52;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.22.18.18.18;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+1.2
+log
+@update by stevesf for preserving exit status
+@
+text
+@/*
+ * libc/stdio/_fgetb.c
+ * C Standard I/O Library internals.
+ * Buffered input: read a buffer.
+ */
+
+#include <stdio.h>
+#include <errno.h>
+
+extern	int	_fputt();
+
+int
+_fgetb(fp) register FILE *fp;
+{
+	register int n, oerrno;
+
+	if (fflush(fp))
+		return EOF;
+	if (stdout->_pt==&_fputt)	/* special kludge */
+		fflush(stdout);
+	oerrno = errno;			/* save old errno */
+	errno = 0;
+	n = fp->_cc = -read(fileno(fp), fp->_dp, _ep(fp) - fp->_dp);
+	if (errno == 0)
+		errno = oerrno;		/* preserve errno if no error */
+	if (n == 1) {			/* read() returned -1, i.e. error */
+		if (errno != EINTR)
+			fp->_ff |= _FERR;
+		fp->_cc = 0;
+		return EOF;
+	} else if (n == 0) {		/* read() returned 0, i.e. EOF */
+		fp->_ff |= _FEOF;
+		return EOF;
+	} else {			/* success */
+		fp->_dp -= fp->_cc++;
+		return (*fp->_cp++);
+	}
+}
+
+/* end of libc/stdio/_fgetb.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 3
+a4 2
+ * Standard I/O Library Internals
+ * Buffered Input; read a bufferfull
+d10 2
+d13 1
+a13 2
+_fgetb(fp)
+register FILE	*fp;
+d15 1
+a15 1
+	extern	int	_fputt();
+d18 1
+a18 1
+		return (EOF);
+d21 1
+d23 4
+a26 1
+	if ((fp->_cc = -read(fileno(fp), fp->_dp, _ep(fp) - fp->_dp)) == 1) {
+d30 2
+a31 2
+		return (EOF);
+	} else if (fp->_cc == 0) {
+d33 2
+a34 2
+		return (EOF);
+	} else {
+d39 2
+@

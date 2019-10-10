@@ -1,0 +1,645 @@
+head     1.9;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.9;
+comment  @ * @;
+
+
+1.9
+date     92.11.20.14.43.55;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     92.05.08.08.15.34;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.05.07.09.29.56;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     91.12.11.11.43.38;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.11.07.10.39.01;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.11.05.08.18.12;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.11.04.15.01.33;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.06.03.15.04.27;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.11.15.04.21;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver pulled from mango
+@
+
+
+1.9
+log
+@bob h: changed lock code. See comments in code.
+@
+text
+@/*
+ *  dial.c
+ *
+ *  Implement the dial(3) function calls.
+ *
+ *  Copyright 1987 (c) John F. Haugh II
+ *  Changes Copyright 1989-91 (c) Mark Williams Company
+ */
+
+#include <stdio.h>
+#include <signal.h>
+#include <fcntl.h>
+#include "modemcap.h"
+#include "dial.h"
+#include "dcp.h"
+#include "ldev.h"
+
+
+char	*devname = NULL;	/* Communications Device Name Connected	*/
+char	*rdevname = NULL;	/* Remote device name */
+
+static	char	login_lock[15];
+static	char	enableme[16];
+static	int	modemfd = -1;
+extern	char	*strtok();
+extern	int	hupcatch();
+
+/*
+ *  dial(cp)  CALL cp;
+ *
+ *  Dial and initiate the call specified via the given CALL data structure.
+ *  Returns the opened file descriptor to be used for reads and writes to
+ *  the determined device line.  If there is an error, then the return value
+ *  is less than zero, and the variable "merror" is set appropriately.
+ */
+
+dial(cp)
+CALL *cp;
+{
+	char	modemline[64];		/* device name			*/
+	char	*modemname = "\0";
+	char	*strcpy (),
+	*strcat ();
+	int	fd, err;
+	
+	fd = -1;		/* channel illegal until line is opened	*/
+	if ( (err=findline(cp, &modemname)) <= 0 )
+		goto error;
+	strcat(strcpy(modemline, DEVDIR), cp->line);
+	if ((fd = open (modemline, O_RDWR)) < 0) { /* can't open modem line */
+		err = M_L_PROB;
+		goto error;
+	}
+	if ( (err=ttyinit(fd, cp->baud)) != 0 )
+		goto error;
+
+	initmodem(modemname, fd);	/* setup modemcap variables */
+	if (cp->telno == NULL)     /* no phone number, connection complete */
+		goto okay;
+	if (! DI) {			/* modem has no ACU!!! */
+		/* plog("Says no acu to attatch to???"); */
+		err = M_A_PROB;		/* no ACU to attach to */
+		goto error;
+	}
+	if (BD != cp->baud) {	/* is connection desired at high speed? */
+		if (BL != cp->baud) {/* is connection desired at low speed? */
+			err = M_ILL_BD;	/* modem can't handle this speed */
+			goto error;
+		}
+		BD = BL;		/* set baud to low baud rate */
+		CO = CL;	/* set connect reply to low baud reply */
+	}
+	if (err = mdial (cp->telno, fd)) 	/* some error trying to dial */
+		goto error;
+
+okay:
+	return (modemfd = fd);
+error:
+	hangup(fd);
+	return (merrno = err);
+}
+
+/* undial()	
+ * removes the lock on the remote device if it exists and reenables
+ * the port. Undial() is called by hangup(), which was called by 
+ * sysend(). Bob H. 11/22/91.
+*/
+undial (fd)
+int	fd;
+{
+	close (fd); /* close the port */
+
+	/* If lock removal fails, print message. */
+
+	/* unlock the port. If it fails, note this in the logfiles, but don't
+	 * abort, we will want to continue through uucico so that uuxqt
+	 * gets invoked as uucico exits.
+	 */
+
+	if (lockttyexist(devname) && (unlocktty(devname) == -1) ){
+		printmsg(M_DEBUG,"Undial(): %s lock file removal failed.",devname);
+		plog(M_CALL,"%s lock file removal failed.",devname);
+	}
+
+	/* If lock removal failed, then do not re enable the port because we
+	 * no longer know who did what to the remote port. Re enabling the
+	 * port could result in a race condition we don't want.
+	*/
+
+	if ((enableme[0] != '\0') && (lockttyexist(devname) == 0)){
+		plog(M_CALL, "Enabling tty line %s", enableme);
+		exec_stat("enable", enableme);
+		strcpy(enableme, "");
+	}else{
+		if((enableme[0] != '\0') && (rdevname[0] != '\0') && (rdevname[0] != '-')){
+		printmsg(M_DEBUG,"Undial: Can not re-enable port due to tty lock file.");
+		plog(M_CALL,"Could not re-enable port due to tty lock file.");
+		}
+	}
+	rdevname = NULL;
+}
+
+static
+findline(callp, brand)
+CALL *callp;
+char **brand;
+{
+	int	exists = 0;		/* device exists at some baud rate */
+	int	tried = 0;		/* found a device but it was locked */
+	int	devflag, telflag;
+	char	*l_lline;		/* tty device local name */
+	char	*l_rline;		/* tty device remote name */
+	char	*l_type;		/* ACU, DIR, etc. */
+	char	*l_brand;		/* modemcap brand name */
+	int	l_baud;			/* tty baud rate */
+	int	retval;			/* Place to stash return of exec_stat */
+
+	ldev_open();
+	if ( ((devflag=(callp->line != NULL)) &&
+	      (telflag=(callp->telno != NULL))) || (!devflag && !telflag) )
+		return(M_DEV_TEL);
+
+	while ( ldev_next() ) {
+		l_type  = ldev_value(type_e);
+		l_lline = ldev_value(lline_e);
+		l_rline = ldev_value(rline_e);
+		l_baud  = atoi(ldev_value(baud_e));
+		l_brand = ldev_value(brand_e);
+
+		if ( strcmp(l_type, "ACU") == 0 ) {
+			if ( devflag )
+				continue;
+			exists++;
+			if (l_baud != callp->baud)
+				continue;
+		} else if ( strcmp(l_type, "DIR") == 0 ) {
+			if ( telflag )
+				continue;
+			if ( strcmp(l_lline, callp->line) )
+				continue;
+			callp->baud = l_baud;
+		} else {
+			continue;
+		}
+		++tried;		/* found device at desired baud rate */
+
+	/* July 29, 1992: I have removed the previous locking code. This code
+	 * looked for a remote device to enable and disable and would build a
+	 * lockfile if a remote device was specified. However, the advent of
+	 * locking kermit has changed our needs. Now we will always have to 
+	 * check for and lock the LOCAL device we are dialing out with. This
+	 * will, if anything, make things a bit more stable with regards to
+	 * locking. Bob H.
+	 */
+
+	if (lockttyexist(l_lline)){
+		plog(M_CALL,"Device %s already locked by another process", l_lline);
+		exit(1);
+	}
+
+	if (!locktty(l_lline)){
+		plog(M_CALL,"Attempt to create lock file failed.");
+		if(lockexist(rmtname)){
+			lockrm(rmtname);
+		}
+		exit(1);
+	}
+		
+	enableme[0] = '\0';
+	if(strcmp(l_rline,"-") !=0){
+	/* Disable the remote device.
+	 * Note that we will then sleep for 5 seconds to make sure that
+	 * the port gets closed after the disable.
+	 */
+
+	/* Note that disable could be terminated by
+	 * a SIGHUP when the port is disabled.
+	 */
+			if (0!=(retval=exec_stat("disable", l_rline)) &&
+			    SIGHUP<<8 != retval) {
+				plog(M_CALL,"Disable of tty line %s failed",
+				     l_rline);
+				continue;
+			}else{
+				plog(M_CALL,"Disabling tty line %s", l_rline);
+					sleep(5);
+					strcpy(enableme,l_rline);
+			}
+		}
+		devname = l_lline;
+		rdevname = l_rline;
+		*brand = l_brand;
+		ldev_close();
+		callp->line = l_lline;
+		return (1);
+	}
+	if (tried)
+		return (merrno = M_DV_NT_A);
+	else if (exists) {
+		return (merrno = M_ILL_BD);
+	} else {
+		/* plog("Device not known: %s", brand); */
+		return (merrno = M_DV_NT_K);
+	}
+}
+
+exec_stat(command, line)
+char	*command;
+char	*line;
+{
+	int	pid;
+	int	waitstat;
+	static	char	etccommand[32];
+
+	strcpy(etccommand, "/etc/");
+	strcat(etccommand, command);
+	/* plog("%s (%s) on line %s", command, etccommand, line);
+	 */
+	pid = fork();
+	if (pid == 0) {
+		execl(etccommand, command, line, NULL);
+		exit(1);
+	} else 
+		wait(&waitstat);
+	 
+	return waitstat;
+}
+
+@
+
+
+1.8
+log
+@bob h. removed unnecessary test for file descriptor in undial()
+@
+text
+@d12 1
+a12 1
+#include <sys/fcntl.h>
+d95 8
+a102 5
+	if ( (strcmp(rdevname,"-") != 0) && lockttyexist(rdevname) ){
+		if(unlocktty(rdevname) == -1){
+			printmsg(M_DEBUG,"Undial: tty lock file removal failed");
+			plog(M_CALL,"Undial: tty lock file removal failed");
+		}
+d104 1
+d110 1
+a110 1
+	if ((enableme[0] != '\0') && (lockttyexist(rdevname) == 0)){
+d115 1
+a115 1
+		if(enableme[0] != '\0'){
+d117 1
+a117 1
+		plog(M_CALL,"Undial: Could not re-enable port due to tty lock file.");
+d167 8
+d176 4
+a179 5
+		/* If the Ldev remote line is not a '-', then see if a lock
+		 * exists on the remote device. If a lock exists, then we don't
+		 * want to disable the remote before calling out on the local
+		 * local device for fear of booting off a logged in process.
+		*/
+d181 11
+a191 10
+		/* Check for a lock on the remote device */
+		if ((strcmp(l_rline,"-")!=0) && (0 != lockttyexist(l_rline))) {
+			plog(M_CALL,"Remote tty device %s locked, cannot disable.",
+				l_rline);
+			continue;
+		} else {
+			enableme[0] = '\0';
+			if(strcmp(l_rline,"-") !=0){
+	/* Disable the remote device and then create a lock on it.
+	 * If the lock fails, abort.
+a194 5
+				if (locktty(l_rline) < 0) {
+					plog(M_CALL,"Remote tty device %s locked, cannot disable.",
+						l_rline);
+					continue;
+				}
+d196 9
+a204 9
+				/* Note that disable could be terminated by
+				 * a SIGHUP when the port is disabled.
+				 */
+				if (0!=(retval=exec_stat("disable", l_rline)) &&
+				    SIGHUP<<8 != retval) {
+					plog(M_CALL,"Disable of tty line %s failed",
+					     l_rline);
+					continue;
+				}else{
+a207 1
+				}
+@
+
+
+1.7
+log
+@set enableme to NULL after calling enable command, since undial() might
+be called twice. This prevents a bogus 're-enable port' error from
+appearing in the log files.
+@
+text
+@d91 1
+a91 2
+	if (fd > 2)
+		close (fd);
+@
+
+
+1.6
+log
+@bob h and piggy added code/comments for port locking support.
+@
+text
+@d110 1
+d112 1
+d115 1
+@
+
+
+1.5
+log
+@bob h reordered the creation of a lock file vs. calling disable
+piggy added alarm code to catch init not deleting the lock file
+after disable has been called. 
+
+The portential for a race condition now exists because there can be enough
+time between a lock file being removed by init vs. creation of the new lock
+file before cico calls out where another process can grab the port.
+@
+text
+@a17 3
+#define	TRUE (1 == 1)
+#define FALSE (1 == 2)
+#define LCKTMOUT 10	/* Wait 10 seconds for init to blow away our lock.  */
+a21 1
+static  int	timed_out;	/* Has this wait timed out? */
+d83 1
+a83 1
+/* undial()
+d85 2
+a86 1
+ * the port.
+a92 2
+	if ( (strcmp(rdevname,"-") != 0) && lockexist(rdevname) )
+		lockrm(rdevname);
+d94 15
+a108 2
+	if (enableme[0] != '\0') {
+		plog(M_CALL, "Enabling line %s", enableme);
+d110 3
+a113 1
+
+d130 1
+a131 4
+	int lock_alarm();
+	int (*last_alarm)();	/* Previous alarm handling function.  */
+	unsigned last_time;	/* Time remaining on a previous alarm().  */
+
+a165 1
+		 * Bob H. 11/4/91.
+d169 2
+a170 2
+		if ((strcmp(l_rline,"-")!=0) && (0 != lockexist(l_rline))) {
+			plog(M_CALL,"Remote device %s locked, cannot disable.",
+d178 2
+a179 3
+	 * Note that init will remove the lock after we run disable,
+	 * so we have to create one lock, wait for init to remove it,
+	 * and then create another.
+d181 2
+a182 2
+				if (lockit(l_rline) < 0) {
+					plog(M_CALL,"Remote device %s locked, cannot disable.",
+d187 11
+a197 32
+				if (exec_stat("disable", l_rline) != 0){
+					plog(M_CALL,"Disabling line %s",l_rline);
+
+					/* Set up an alarm so we don't loop
+					 * forever.
+					 */
+					timed_out = FALSE;
+					last_alarm = signal(SIGALRM,lock_alarm);
+					last_time = alarm(LCKTMOUT);
+
+					/* Wait for init to remove
+					 * the lock file.
+					 */
+					while ((lockexist(l_rline)) &&
+					       (!timed_out)){
+						/* do nothing */
+					}
+					
+					/* Put back the old alarm stuff.  */
+					signal(SIGALRM, last_alarm);
+					alarm(last_time);
+
+					/* Only need to lock it if
+					 * our lock didn't get clobbered.
+					 */
+					if (!timed_out) {
+						if (lockit(l_rline) < 0){
+							plog(M_CALL,"Could not lock remote device %s",
+								l_rline);
+							continue;
+						}
+					}
+d237 1
+a237 2
+	/* plog("Command returned value of %d", waitstat);
+	 */
+a240 10
+
+/* Mark the appearance of an alarm signal.  This is an argument to signal.  */
+int
+lock_alarm()
+{
+	timed_out = TRUE;
+	return (0);	/* The return value of signal handlers
+			 * is not documented.
+			 */
+}
+@
+
+
+1.4
+log
+@bob h commented out unused locking code and reference to devname set to
+null was changed to rdevname.
+@
+text
+@d18 4
+d25 1
+d49 1
+a49 1
+
+d87 4
+d96 3
+d103 1
+a103 2
+	if ( (strcmp(rdevname,"-") != 0) && lockexist(rdevname) )
+		lockrm(rdevname);
+d121 4
+d153 2
+a154 6
+/*
+ *		strcpy(login_lock, l_lline);
+ *		strcat(login_lock, "+");
+ *		if (lockexist(login_lock))
+ *			continue;	 somebody is logged in there 
+*/
+d162 2
+a163 1
+		if((strcmp(l_rline,"-")!=0) && (0 != lockexist(l_rline))){
+d167 14
+a180 1
+		}
+d182 2
+a183 3
+		else if ((strcmp(l_rline,"-") != 0) && (lockit(l_rline) < 0) ){
+				continue;
+		}
+d185 31
+a215 6
+		enableme[0] = '\0';
+		if (strcmp(l_rline, "-") != 0) {
+			if (exec_stat("disable", l_rline) != 0) {
+				plog(M_CALL, "Disabling line %s", l_rline);
+				/* tty was enabled */
+				strcpy(enableme, l_rline);
+d257 11
+@
+
+
+1.3
+log
+@Bob H. changes:
+changed devname to rdevname. Now locks and tests for locks on Ldev
+REMOTE device instead of Ldev LINE device.
+@
+text
+@d91 1
+a91 1
+	if ( (rdevname != NULL) && lockexist(rdevname) )
+d93 1
+a93 1
+	devname = NULL;
+d138 6
+a143 5
+		strcpy(login_lock, l_lline);
+		strcat(login_lock, "+");
+		if (lockexist(login_lock))
+			continue;	/* somebody is logged in there */
+
+d152 1
+a152 1
+			plog(M_CALL,"Remote device %s enabled, cannot disable.",
+@
+
+
+1.2
+log
+@changes by epstein
+@
+text
+@d19 1
+d91 2
+a92 2
+	if ( (devname != NULL) && lockexist(devname) )
+		lockrm(devname);
+d142 11
+a152 1
+		if ( lockit(l_lline) < 0 )
+d154 1
+d156 4
+d169 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a72 3
+#ifdef CATCH
+	signal (SIGHUP, hupcatch);	/* set catcher for HANG UP */
+#endif CATCH
+d77 1
+a77 1
+	undial(fd);
+a85 3
+	if ( (devname != NULL) && lockexist(devname) )
+		lockrm(devname);
+	devname = NULL;
+d90 3
+d141 3
+a151 5
+		if ( lockit(l_lline) < 0 ) {
+			if (strlen(enableme) > 0) 
+				exec_stat("enable", enableme);
+			continue;
+		}
+a167 12
+#ifdef CATCH
+
+hupcatch ()
+{
+	close (modemfd);
+	printmsg(M_CALL, "Hanging up: %s", devname);
+	lockrm(devname);
+	devname = NULL;
+	signal (SIGHUP, SIG_DFL);
+}
+#endif CATCH
+
+@

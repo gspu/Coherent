@@ -1,0 +1,288 @@
+.TH readline() "" "" "Editing Function (libedit)"
+.PC "Read and edit a line of input"
+\fBchar *readline(\fIprompt\^\fB)\fR
+\fBchar *\fIprompt\^\fB;\fR
+.PP
+The function
+.B readline()
+displays on the standard output
+the text to which
+.I prompt
+points, then accepts what the user types.
+It lets the user type simple, EMACS-style commands to edit what she has typed;
+when the user types \*(RT,
+.B readline()
+returns the line of text with the trailing newline removed.
+.PP
+.B readline()
+returns a pointer to the newly entered line.
+This return value can be passed to the function
+.BR add_history() ,
+which adds it to an internal ``history'' buffer.
+The user can use a command within
+.B readline()
+recall a saved line, re-edit it, and re-submit it.
+.PP
+.B readline()
+returns NULL when the user types EOF, or if it cannot allocate space for
+the line of input.
+Otherwise, it returns the address of the edited string that the user input.
+.SH "Editing Commands"
+.B readline()
+provides a simple, EMACS-like editing interface.
+You can type control characters or escape sequences
+to edit a line before it is sent to the calling program, much like the
+EMACS editing feature of the Korn shell.
+.PP
+.B readline()
+recognizes the following editing commands:
+.IP \fB<ctrl-A>\fR 0.75i
+Move the cursor to the beginning of the line.
+.IS \fB<ctrl-B>\fR
+Move the cursor one character to the left (backwards).
+.IS \fB<ctrl-D>\fR
+Delete the character under which the cursor is positioned
+(the ``current character'').
+.IS \fB<ctrl-E>\fR
+Move the cursor to end of line.
+.IS \fB<ctrl-F>\fR
+Move the cursor one character to the right (forwards).
+.IS \fB<ctrl-G>\fR
+Ring the bell.
+.IS \fB<ctrl-H>\fR
+Delete the character to the left of the cursor.
+Note that
+.B <ctrl-H>
+is the character that normally is output by the
+.B <backspace>
+key.
+.IS \fB<ctrl-I>\fR
+Complete file name.
+Note that
+.B <ctrl-I>
+is the character that normally is output by the
+.B <tab>
+key.
+.IS \fB<ctrl-J>\fR
+Submit the line for processing.
+Note that
+.B <ctrl-J>
+is the character that normally is output by the \*(RT key.
+.IS \fB<ctrl-K>\fR
+Kill all text from the cursor to end of line.
+.IS \fB<ctrl-L>\fR
+Redisplay the line.
+.IS \fB<ctrl-M>\fR
+Submit the line for processing.
+Note that on some systems,
+.B <ctrl-M>
+is output by the \*(RT key.
+.IS \fB<ctrl-N>\fR
+Get the next line from the history buffer.
+.IS \fB<ctrl-P>\fR
+Get the previous line from the history buffer.
+.IS \fB<ctrl-R>\fR
+Search backwards through the history buffer for a given string.
+.IS \fB<ctrl-T>\fR
+Transpose the character over the cursor with the character to its left.
+.IS \fB<ctrl-V>\fR
+Insert next character into the line, even if it is a control character.
+Note that under MicroEMACS, this command is bound to
+.BR <ctrl-Q> .
+.IS \fB<ctrl-W>\fR
+Kill (wipe) all text from the cursor to the mark.
+.IS \fB<ctrl-X><ctrl-X>\fR
+Move the cursor from current position to the mark;
+reset the mark at the previous position of the cursor.
+.IS \fB<ctrl-Y>\fR
+Yank back the most recently killed text.
+.IS \fB<ctrl-]>\fIc\fR
+Move the cursor forward to next character
+.IR c .
+.IS \fB<ctrl-?>\fR
+Delete the character under which the cursor is positioned.
+This command is identical with
+.BR <ctrl-D> .
+Note that
+.B <ctrl-?>
+is the character that normally is output by the
+.B <del>
+key.
+.IS \fB<ctrl-[>\fR
+Begin an escape sequence.
+Note that
+.B <ctrl-[>
+is the character that normally is output by the
+.B <esc>
+key.
+.IS "\fB<esc><ctrl-H>\fR"
+Delete the previous word (the word to the left of the cursor).
+A word is delineated by white space.
+.IS "\fB<esc><del>\fR"
+Delete the current word \(em that is, from the cursor to the end of the
+word as delineated by white space or the end of the line.
+.IS "\fB<esc><space>\fR"
+Set the mark.
+.IS "\fB<esc>.\fR"
+Get the last (or \fIn\fR'th) word from previous line.
+.IS "\fB<esc>?\fR"
+Show possible completions.
+This feature is detailed below.
+.IS "\fB<esc><\fR"
+Move the cursor to the beginning of the history buffer.
+.IS "\fB<esc>>\fR"
+Move the cursor to the end of the history buffer.
+.IS "\fB<esc>B\fR"
+Move the cursor backwards (to the left) by one word.
+.IS "\fB<esc>D\fR"
+Delete the word under which the cursor is positioned.
+.IS "\fB<esc>F\fR
+Move the cursor forward (to the right) by one word.
+.IS "\fB<esc>L\fR"
+Make the current word lower case.
+.IS "\fB<esc>M\fR"
+Toggle displaying eight-bit characters normally (meta-mode),
+or displaying them prefixed with the string \fBM\-\fR.
+In the meta-mode, you can generate characters with the top bit set
+by pressing the
+.B <alt>
+key with an alphanumeric key;
+this is interpreted the same as \fB<esc><\fIkey\^\fB>\fR.
+.IS "\fB<esc>U\fR"
+Make the current word upper case.
+.IS "\fB<esc>Y\fR"
+Yank back the most recently killed text.
+.IS "\fB<esc>V\fR"
+Show the version of the library
+.BR libedit.a .
+.IS "\fB<esc>W\fR"
+Make yankable all text from the cursor to the mark.
+.IS "\fB<esc>\fIn\fR"
+Set the argument to integer
+.IR n .
+.IS "\fB<esc>\fIC\fR"
+Read input from environment variable \fB_\fIC\fR_\fR, where
+.I C
+is an upper-case letter.
+.PP
+Most editing commands can be given an argument
+.IR n ,
+where
+.I n
+is an integer.
+To enter a numeric argument, type
+.BR <esc> ,
+the number, and then the command to execute.
+For example,
+.DM
+    <esc> 4 <ctrl-F>
+.DE
+.PP
+moves the cursor four characters forward.
+.PP
+Note that you can type
+an editing command on the line of input, not just at the beginning.
+Likewise, you can type \*(RT to submit a line for processing,
+regardless of where on the line the cursor is positioned.
+.PP
+.B readline()
+has a modest macro facility.
+If you type \fB<esc>\fR followed by an upper-case letter, then
+.B readline()
+reads the contents of environment variable \fB_\fIC\fB_\fR
+as if you had typed them at the keyboard.
+.\"For example, if the environmental variable \fB_L_\fR
+.\"contains the following:
+.\".DM
+.\"	<ctrl-A> <ctrl-K> clear <ctrl-M>
+.\".DE
+.\"Typing \fB<esc>L\fR executes the contents of this variable:
+.\".B readline()
+.\"moves the cursor to the beginning of the line,
+.\"kills the line, executes the command
+.\".B clear
+.\"(which clears the screen), and send the line back to the shell.
+.PP
+.B readline()
+also can complete a file name.
+For example, suppose that the root directory contains the following files:
+.DM
+	coherent
+	coherent.old
+.DE
+.PP
+If you type 
+.DM
+	rm /c
+.DE
+.PP
+into
+.B readline()
+and then press the
+.B <tab>
+key,
+.B readline()
+completes as much of the name as it can \(em in this case, by adding
+.BR oherent .
+Because the name is not unique,
+.B readline()
+then beeps.
+If you press
+.BR <esc>? ,
+.B readline()
+displays the two choices.
+If you then enter a tie-break character (in this case, `.'), followed by the
+.B <tab>
+character,
+.B readline()
+completes the file name for you.
+.SH "Using Line Editing"
+To include
+.B readline()
+in your program, simply call it as you do any other function.
+You must link the library
+.B libedit.a
+into your program.
+.SH Example
+The following brief example lets you enter a line and edit it, and
+then displays it.
+.DM
+#include <stdlib.h>
+.DE
+.DM
+extern char *readline();
+extern void add_history();
+.DE
+.DM
+int main(ac, av)
+int ac; char *av[];
+{
+	char *p;
+.DE
+.DM
+	while ((p = readline ("Enter a line:")) != NULL) {
+		(void) printf ("%s\en", p);
+		add_history (p);
+		free (p);
+	}
+	return 0;
+}
+.DE
+.SH "See Also"
+.Xr "add_history()," add_histo
+.Xr "libedit" libedit
+.SH "Notes"
+.B readline()
+calls
+.B malloc()
+to allocate space for the text that the user enters.
+Therefore, an application must call
+.B free()
+to free this space when it has finished with it.
+.PP
+.B readline()
+cannot handle lines longer than 80 characters.
+.PP
+.II "Sanderson, David"
+The original manual page was written by David W. Sanderson
+<dws@ssec.wisc.edu>.

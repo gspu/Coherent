@@ -1,0 +1,294 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @/ @;
+
+
+1.1
+date     91.04.22.18.06.12;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@////////
+/
+/ Intel 8086 floating point.
+/ Double add and subtract.
+/ SMALL model.
+/
+////////
+
+	.globl	dradd
+	.globl	dladd
+	.globl	drsub
+	.globl	dlsub
+	.globl	_fpac_
+
+////////
+/
+/ dradd - double add (rvalue)
+/ dladd - double add (lvalue)
+/ drsub - double subtract (rvalue)
+/ dlsub - double subtract (lvalue)
+/
+/ compiler calling sequences:
+/	push	<right double argument>
+/	push	<left  double argument>
+/	call	dradd/drsub
+/	add	sp,16
+/
+/	mov	ax,offset <right double argument>
+/	push	ax
+/	push	<left  double argument>
+/	call	dladd/dlsub
+/	add	sp,10
+/
+/ outputs:
+/	_fpac_=result.
+/
+/ uses:
+/	ax, bx, cx, dx
+/
+////////
+
+l	=	8			/ left argument
+r	=	16			/ right argument (rvalue)
+rp	=	16			/ right argument (lvalue)
+
+signs	=	-2			/ signs
+ls	=	-2			/ left  sign (byte)
+rs	=	-1			/ right sign (byte)
+rexp	=	-4			/ right exponant
+lexp	=	-6			/ left  exponant
+rop	=	-14			/ right op
+lop	=	-22			/ left  op
+claim	=	22			/ stack claim size
+
+dradd:	push	si			/ standard
+	push	di			/ c
+	push	bp			/ function
+	mov	bp,sp			/ linkage
+
+	lea	bx,r(bp)		/ bx=pointer to right op.
+	jmp	L0			/ go to common code.
+
+dladd:	push	si			/ standard
+	push	di			/ c
+	push	bp			/ function
+	mov	bp,sp			/ linkage
+
+	mov	bx,rp(bp)		/ bx=pointer to right op.
+
+L0:	sub	ax,ax			/ ax=sign flip flag.
+	jmp	L2			/ go to common code.
+
+drsub:	push	si			/ standard
+	push	di			/ c
+	push	bp			/ function
+	mov	bp,sp			/ linkage.
+
+	lea	bx,r(bp)		/ bx=pointer to right op.
+	jmp	L1			/ go to common code.
+
+dlsub:	push	si			/ standard
+	push	di			/ c
+	push	bp			/ function
+	mov	bp,sp			/ linkage.
+
+	mov	bx,rp(bp)		/ bx=pointer to right op.
+
+L1:	mov	ax,$0x8000		/ ax=sign flip flag.
+
+L2:	sub	sp,$claim		/ get some autos.
+	mov	signs(bp),$0		/ ls=rs=0
+	cld				/ ascending direction.
+
+	add	ax,6(bx)		/ get highest word.
+	mov	dx,ax			/ save adjusted sign.
+	shl	ax,$1			/ save
+	rclb	rs(bp),$1		/ sign in rs.
+	stc				/ insert the hidden bit
+	rcrb	al,$1			/ into the number.
+	movb	rop+6(bp),al		/ save hi byte.
+	movb	rop+7(bp),$0		/ clear rest of word for add.
+	movb	al,ah			/ al=exponant.
+	and	ax,$0xFF		/ mask, test for zero.
+	jnz	L3			/ jump if non zero.
+	mov	dx,l+6(bp)		/ if right is zero,
+	mov	si,l+4(bp)		/ just return
+	mov	di,l+2(bp)		/ the left
+	mov	ax,l+0(bp)		/ operand to
+	jmp	L16			/ the caller.
+
+L3:	mov	rexp(bp),ax		/ save right exponant.
+	mov	si,bx			/ si=source.
+	lea	di,rop(bp)		/ di=destination.
+	movsw				/ copy 3 words from the argument
+	movsw				/ list to the
+	movsw				/ auto buffer.
+
+	mov	ax,l+6(bp)		/ ax=hi word of left operand
+	shl	ax,$1			/ slide
+	rclb	ls(bp),$1		/ sign into ls.
+	stc				/ insert
+	rcrb	al,$1			/ hidden bit.
+	movb	lop+6(bp),al		/ save top byte of left.
+	movb	lop+7(bp),$0		/ clear rest of word for add.
+	movb	al,ah			/ al=exponant.
+	and	ax,$0xFF		/ mask, test for zero.
+	jnz	L4			/ jump if not zero.
+	mov	si,4(bx)		/ just send
+	mov	di,2(bx)		/ the right operand
+	mov	ax,0(bx)		/ back to
+	jmp	L16			/ the caller.
+
+L4:	mov	lexp(bp),ax		/ save left exponant.
+	lea	si,l(bp)		/ si=source.
+	lea	di,lop(bp)		/ di=destination.
+	movsw				/ copy 3 words
+	movsw				/ to the
+	movsw				/ auto buffer.
+
+	mov	dx,rop+6(bp)		/ assume
+	mov	si,rop+4(bp)		/ rop
+	mov	di,rop+2(bp)		/ is
+	mov	ax,rop+0(bp)		/ smallest.
+
+	mov	cx,lexp(bp)		/ compute the difference
+	sub	cx,rexp(bp)		/ of the exponants.
+	jge	L5			/ the rop was the smallest.
+
+	mov	bx,rexp(bp)		/ reset
+	mov	lexp(bp),bx		/ le.
+	mov	bx,signs(bp)		/ swap
+	xchgb	bh,bl			/ the
+	mov	signs(bp),bx		/ signs.
+	neg	cx			/ fix shift count.
+
+	xchg	dx,lop+6(bp)		/ this sequence puts
+	xchg	si,lop+4(bp)		/ rop in lop,
+	xchg	di,lop+2(bp)		/ and loads the lop
+	xchg	ax,lop+0(bp)		/ into the regs.
+
+L5:	cmp	cx,$57			/ too many shifts ??
+	jle	L6			/ nope.
+	movb	dl,lop+6(bp)		/ load
+	mov	si,lop+4(bp)		/ up
+	mov	di,lop+2(bp)		/ the
+	mov	ax,lop+0(bp)		/ result
+	mov	cx,lexp(bp)		/ and its exponant
+	movb	bl,ls(bp)		/ and its sign.
+	shl	ax,$1			/ shift left one
+	rcl	di,$1			/ to properly
+	rcl	si,$1			/ position
+	rclb	dl,$1			/ hidden bit,
+	jmp	L15			/ and go pack up.
+
+L6:	jcxz	L8			/ jump if aligned.
+
+L7:	shr	dx,$1			/ do
+	rcr	si,$1			/ the
+	rcr	di,$1			/ big
+	rcr	ax,$1			/ shift.
+	loop	L7			/ do all of them.
+
+L8:	mov	cx,lexp(bp)		/ cx=result exponant.
+	mov	bx,signs(bp)		/ bx=signs.
+	cmpb	bh,bl			/ are they the same ??
+	je	L9			/ yes.
+	call	negreg			/ nope, negate.
+
+L9:	add	ax,lop+0(bp)		/ do
+	adc	di,lop+2(bp)		/ the
+	adc	si,lop+4(bp)		/ big
+	adc	dx,lop+6(bp)		/ add
+	cmpb	bh,bl			/ same signs.
+	jne	L11			/ nope, check for zero.
+	testb	dh,$0x01		/ hidden correct.
+	jz	L13			/ no, one left will fix it.
+	inc	cx			/ correct, fix exponant.
+	jmp	L14			/ done.
+
+L11:	or	dx,dx			/ zero ??
+	jnz	L12			/ nope.
+	or	si,si			/ zero ??
+	jnz	L13			/ nope.
+	or	di,di			/ zero ??
+	jnz	L13			/ nope.
+	or	ax,ax			/ zero ??
+	jz	L16			/ yes, return 0.0
+	jmp	L13			/ no
+
+L12:	jns	L13			/ jump if > 0.0
+	xchgb	bh,bl			/ swap signs.
+	call	negreg			/ negate.
+
+L13:	shl	ax,$1			/ shift
+	rcl	di,$1			/ one
+	rcl	si,$1			/ bit
+	rclb	dl,$1			/ left
+	jc	L14			/ jump if hidden shifted off.
+	dec	cx			/ fix exponant
+	jmp	L13			/ loop.
+
+L14:	add	ax,$1			/ round
+	adc	di,$0			/ up
+	adc	si,$0			/ the
+	adcb	dl,$0			/ number.
+	jnc	L15			/ jump if hidden bit valid.
+	shrb	dl,$1			/ the carry
+	rcr	si,$1			/ must have
+	rcr	di,$1			/ complemented the
+	rcr	ax,$1			/ hidden bit.
+	inc	cx			/ so shift and fix exp.
+
+L15:	movb	dh,cl			/ put exponant in result.
+	shrb	bl,$1			/ sign in carry.
+	rcr	dx,$1			/ put
+	rcr	si,$1			/ number
+	rcr	di,$1			/ back
+	rcr	ax,$1			/ together.
+
+L16:	mov	_fpac_+6,dx		/ store
+	mov	_fpac_+4,si		/ result
+	mov	_fpac_+2,di		/ in
+	mov	_fpac_+0,ax		/ _fpac_
+
+L17:	mov	sp,bp			/ do the
+	pop	bp			/ standard
+	pop	di			/ c
+	pop	si			/ function
+	ret				/ return.
+
+////////
+/
+/ negreg - negate the big register.
+/
+/ this local routine negates dx,si,di,ax
+/
+////////
+
+negreg:	not	dx			/ complement
+	not	si			/ all
+	not	di			/ of the
+	not	ax			/ bits.
+
+	add	ax,$1			/ then
+	adc	di,$0			/ increment
+	adc	si,$0			/ the
+	adc	dx,$0			/ result
+
+	ret				/ done
+@

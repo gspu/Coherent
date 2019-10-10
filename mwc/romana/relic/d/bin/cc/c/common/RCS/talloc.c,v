@@ -1,0 +1,119 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.29.19.00.07;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * C compiler.
+ * Tree space sub-allocator.
+ */
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * Tree space management.
+ */
+struct tree_space {
+	struct tree_space *ts_link;
+	char *ts_ptr;
+	char *ts_end;
+	char ts_base[];
+} *ts_bp, *ts_cp;
+int ts_size;
+
+/*
+ * Allocate some space from the tree area.
+ * Always allocate the size of a tree node,
+ * the other uses are too few and far between
+ * to bother with.
+ * Abort the compiler if no space to get.
+ * To make life a lot easier for the rest of the world,
+ * tree space is zeroed.
+ */
+extern char *malloc();
+char *talloc()
+{
+	register char *p;
+	register int n;
+
+	n = ts_size;
+	if (ts_cp->ts_ptr == ts_cp->ts_end) {
+	    if (ts_cp->ts_link == NULL) {
+		if ((ts_cp->ts_link = malloc(sizeof(*ts_bp)+n*128)) == NULL)
+		    cfatal("out of space in tree node allocator");
+		ts_cp->ts_link->ts_link = NULL;
+	    }
+	    ts_cp = ts_cp->ts_link;
+	    ts_cp->ts_ptr = ts_cp->ts_base;
+	    ts_cp->ts_end = ts_cp->ts_base+n*128;
+	}
+	p = ts_cp->ts_ptr += n;
+	while (--n >= 0) *--p = 0;
+	return (p);
+}
+
+/*
+ * Clear tree space.
+ * If tsize == ts_size then reset the tree allocator.
+ * If tsize != ts_size then free all space allocated
+ * and if tsize != 0 then reallocate with new granularity.
+ * tsize is the size of the tree nodes allocated.
+ */
+newtree(tsize) int tsize;
+{
+	if (tsize != ts_size) {
+		while (ts_bp != NULL) {
+			ts_cp = ts_bp;
+			ts_bp = ts_bp->ts_link;
+			free(ts_cp);
+		}
+		if (ts_size = tsize) {
+		    if ((ts_bp = malloc(sizeof(*ts_bp) + ts_size*128)) == NULL)
+			cfatal("no space in tree allocator");
+		    ts_bp->ts_link = NULL;
+		} else {
+		    ts_bp = NULL;
+		}
+	}
+	if (ts_cp = ts_bp) {
+		ts_cp->ts_ptr = ts_cp->ts_base;
+		ts_cp->ts_end = ts_cp->ts_base+ts_size*128;
+	}
+}
+
+/*
+ * Reset tree space to saved location.
+ * Used to parse #if expressions in mid-expression.
+ */
+treset(p) char *p;
+{
+	for (ts_cp = ts_bp; ts_cp != NULL; ts_cp = ts_cp->ts_link)
+		if (ts_cp->ts_base <= p && p <= ts_cp->ts_end)
+			break;
+	if (ts_cp == NULL) cbotch("tree reset");
+	ts_cp->ts_ptr = p;
+}
+
+@

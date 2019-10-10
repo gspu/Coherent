@@ -1,0 +1,202 @@
+.TH fs "" "" "X Utility"
+.PC "X font server"
+\fBfs [\-config \fIconfiguration_file\^\fB] [\-port \fItcp_port\^\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB\-config \fIconfiguration_file\fR"
+Run
+.I configuration_file
+.IC "\fB\-ls \fIlisten-socket\fR"
+Use
+.I listen_socket
+.IC "\fB\-port \fItcp_port\fR"
+Listen to
+.I tcp_port
+for connections
+.HE
+.II "font server"
+.II "X^font server"
+.B fs
+is the X Window System's font server.
+It supplies fonts to X Window System display servers.
+.PP
+.B fs
+usually is run by your system's administrator, and is started via file
+.BR /etc/rc .
+You may also wish to start a private font-server for a specific set of fonts.
+.PP
+.B fs
+recognizes the following command-line options:
+.IP "\fB\-config \fIconfiguration_file\fR"
+Run
+.IR configuration_file .
+.IP "\fB\-ls \fIlisten-socket\fR"
+Use
+.IR listen_socket .
+This option is intended to be used only by the font server itself
+when it spawns a copy of itself to handle additional connections.
+.IP "\fB\-port \fItcp_port\fR"
+Listen to
+.I tcp_port
+for connections.
+.SH Signals
+The following describes how
+.B fs
+responds to signals:
+.IP \fBSIGTERM\fR
+Exit cleanly.
+.IP \fBSIGUSR1\fR
+Re-read the configuration file.
+.IP \fBSIGUSR2\fR
+Flush all cached data.
+.IP \fBSIGHUP\fR
+Reset, closing all active connections, and re-read the configuration file.
+.SH "Configuration"
+When
+.B fs
+comes up, it reads a configuration file.
+This file consists of a series of statements; each statement, in turn,
+consists of a keyword followed by an equal sign `=' and one or values.
+.PP
+.B fs
+recognizes the following keywords:
+.IP "\fBcatalogue=\fIdirectory\^\fB[,\fIdirectory\^\fB, ... ]\fR"
+Directories that
+.B fs
+searches for fonts.
+Each
+.I directory
+must be a full path name.
+Use of the keyword
+.B catalogue
+is very misleading at present, because as of this writing
+.B fs
+supports one catalogue (\fBall\fR) that contains all of the specified fonts.
+.IP "\fBalternate-servers=\fIserver\^\fB[,\fIserver\^\fB, ... ]\fR"
+Alternate servers for this font server.
+.IP "\fBclient-limit=\fInumber\fR"
+Support only
+.I number
+servers before refusing service.
+This is useful for tuning the load on each font server.
+.IP "\fBclone-self=\fIboolean\fR"
+If
+.I boolean
+is set to
+.BR on ,
+.B fs
+attempts to clone itself when it reaches the client-limit.
+Setting
+.I boolean
+to
+.B off
+forbids this behavior.
+.II decipoint^definition
+.IP "\fBdefault-point-size=\fIdecipoints\fR"
+Set the default point size, in decipoints.
+A decipoint is one tenth of a printer's point, or 1/720th of an inch.
+.IP "\fBdefault-resolutions=\fIresolution\^\fB[,\fIresolution\^\fB, ... ]\fR"
+The resolutions the server supports by default.
+.B fs
+can this information as a hint for pre-rendering,
+and can be substituted for scaled fonts that do not specify a resolution.
+.IP "\fBerror-file=\fIstring\fR"
+File name of into which
+.B fs
+logs all warnings and error messages.
+.IP "\fBport=\fInumber\fR"
+Listen to TCP port
+.I number
+for connections.
+.IP "\fBuse-syslog=\fIboolean\fR"
+When set to on,
+.B fs
+logs warnings and error messages.
+Setting this keyword to
+.B off
+forbids this behavior.
+.PP
+The following gives an example configuration file:
+.DM
+	# allow a max of 10 clients to connect to this font server
+	client-limit = 10
+.DE
+.DM
+	# when a font server reaches its limit, start up a new one
+	clone-self = on
+.DE
+.DM
+	# alternate font servers for clients to use
+	alternate-servers = hansen:7001,hansen:7002
+.DE
+.\".DM
+.\"# where to look for fonts
+.\"# the first is a set of Speedo outlines, the second is a set of 
+.\"# misc bitmaps and the last is a set of 100dpi bitmaps.
+.\"#
+.\"#catalogue = /usr/lib/fonts/speedo,
+.\"#	/usr/lib/X11/ncd/fonts/misc,
+.\"#	/usr/lib/X11/ncd/fonts/100dpi/
+.\"catalogue = all
+.\".DE
+.DM
+	# in 12 points, decipoints
+	default-point-size = 120
+.DE
+.DM
+	# 100 x 100 and 75 x 75
+	default-resolutions = 100,100,75,75
+.DE
+.SH "Font Server Names"
+One of the following forms can be used to name a font server that
+accepts TCP connections:
+.DM
+	tcp/\fIhostname:\fIport\fP
+	tcp/\fIhostname:\fIport\fP/\fIcataloguelist\fP
+.DE
+.PP
+.I hostname
+specifies the name (or decimal numeric address)
+of the machine on which the font server is running.
+.I port
+is the decimal TCP port to which the font server is listening for connections.
+.I cataloguelist
+specifies a list of catalogue names, with `+' as a separator.
+For example:
+.DM
+	tcp/expo.lcs.mit.edu:7000
+	tcp/18.30.0.212:7001/all
+.DE
+.PP
+.\"One of the following forms can be used to name a font server that
+.\"accepts DECnet connections:
+.\".sp
+.\".nf
+.\"    decnet/\fInodename\fP::font$\fIobjname\fP
+.\"    decnet/\fInodename\fP::font$\fIobjname\fP/\fIcataloguelist\fP
+.\".fi
+.\".PP
+.\"The \fInodename\fP specifies the name (or decimal numeric address)
+.\"of the machine on which the font server is running.
+.\"The \fIobjname\fP is a normal, case-insensitive DECnet object name.
+.\"The \fIcataloguelist\fP specifies a list of catalogue names,
+.\"with '+' as a separator.
+.\".PP
+.\"Examples: \fIDECnet/SRVNOD::FONT$DEFAULT\fP, \fIdecnet/44.70::font$special/symbols\fP.
+.SH "See Also"
+.B
+fsinfo,
+fslsfonts,
+X utilities
+.R
+.SH Notes
+Copyright \(co 1991, Network Computing Devices, Inc.
+Copyright \(co 1991, Massachusetts Institute of Technology.
+.PP
+.II "Lemke, Dave"
+.II "Packard, Keith"
+.B fs
+was written by
+Dave Lemke of Network Computing Devices, Inc., and
+Keith Packard of the Massachusetts Institute of Technology.

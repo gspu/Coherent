@@ -1,0 +1,330 @@
+.TH "device drivers" "" "" Overview
+.PC
+.PP
+A
+.I "device driver"
+is a program that controls the action of one of the physical
+devices attached to your computer system.
+The following table lists the device drivers included with the \*(CO system.
+The first field gives the device's major device number; the second gives
+its name; and the third describes it.
+If a major number does not appear in this table, that number
+is available for a driver yet to be written.
+.nf
+.sp \n(pDu
+.ta 0.5i 1.5i
+ 0:	\fBclock\fR	System clock
+ 0:	\fBcmos\fR	System CMOS
+ 0:	\fBfreemem\fR	Amount of memory that is free at any given moment
+ 0:	\fBidle\fR	System idle time
+ 0:	\fBkmem\fR	Device to manage kernel memory
+ 0:	\fBkmemhi\fR
+ 0:	\fBmem\fR	Interface to memory and null device
+ 0:	\fBnull\fR	The ``bit bucket''
+ 0:	\fBps\fR	Processes currently being executed
+ 1:	\fBct\fR	Controlling terminal device (\fB/dev/tty\fR)
+ 2:	\fBconsole\fR	Video module for console (\fB/dev/console\fR)
+ 2:	\fBvtkb\fR	Non-configurable keyboard driver, virtual consoles
+ 2:	\fBvtnkb\fR	Configurable keyboard driver, virtual consoles
+ 2:	\fBmm\fR	The video driver 
+ 3:	\fBlp\fR	Parallel line printer
+ 4:	\fBfd\fR	Floppy-disk drive
+ 4:	\fBfdc\fR	765 diskette and floppy-tape controller
+ 4:	\fBft\fR	Floppy-tape drive
+ 5:	\fBasy\fR	Serial driver
+ 6:	\fBtr\fR	Trace driver
+ 8:	\fBrm\fR	Dual RAM disk
+ 9:	\fBpty\fR	Pseudoterminals
+11:	\fBat\fR	AT hard disk
+13:	\fBhai\fR	Host adapter-independent SCSI driver
+14:	\fBcdu31\fR	Sony CD-ROM drives
+16:	\fBmcd\fR	Mitsumi CD-ROM drives
+.fi
+.PP
+Please note that the devices with major number 0 are not portable,
+and non-DDI/DKI.
+Also note that in future releases of \*(CO, the
+.B hai
+driver will be divided into several optional SCSI host-bus
+adapters (HBAs) and target devices.
+.PP
+It is not unusual for one major number to admit several driver service modules.
+Instances of this include the following major numbers:
+.IP \fB0\fR 0.3i
+This number is for a number of system-dependent drivers.
+.IP \fB2\fR
+This number supports the console, both its keyboard modules and its
+video modules.
+.IP \fB4\fR
+This describes varieties of floppy-disk and floppy-tape controllers
+and drives.
+.IP \fB13\fR
+This describes a number of SCSI host modules, HBA modules, and target
+modules.
+.SH "Major and Minor Numbers"
+.II "major device number"
+.II "minor device number"
+\*(CO uses a system of \fImajor\fR and \fIminor\fR
+device numbers to manage devices and drivers.
+In theory, \*(CO assigns a unique major number to each type of device,
+and a unique minor number to each instance of that type.
+In practice, however, a major number describes a device driver (rather
+than a device \fIper se\^\fR).
+The individual devices serviced by that driver are identified by a minor number.
+Sometimes, certain parts of the minor number specify configuration.
+For example, bits 0 through 6 of the minor number
+for \*(CO RAM disks indicate the size of the allocated device.
+.SH "Optional Kernel Components"
+The kernel also contains the following optional components:
+.DS
+.ta 1.0i
+\fBem87\fR	Emulate hardware floating-point routines
+\fBmsg\fR	Perform System V-style message operations
+\fBsem\fR	Perform System V-style semaphore operations
+\fBshm\fR	Perform System V-style shared-memory operations
+\fBstreams\fR	Perform \*(ST operations
+.DE
+.PP
+These components resemble device drivers, in that that they perform discreet
+work and can be linked into or excluded from the kernel, as shown below.
+However, they do not perform I/O with a device, and so are not true drivers.
+For details on these modules, see their entries in the Lexicon.
+.SH "Configuring Drivers and the Kernel"
+Beginning with release 4.2, \*(CO lets you tune kernel and driver
+variables, enable or disable drivers, and easily build a new bootable
+kernel that incorporates your changes.
+.PP
+The command
+.B idenable
+lets you enable or disable a driver within the kernel.
+The command
+.B idtune
+lets you set a user-modifiable variable within the kernel.
+Finally, the command
+.B idmkcoh
+generates a new kernel that incorporates all changes you have made with
+the other three commands.
+Changes are entered with
+.B idenable
+and
+.B idtune
+do not take effect until you invoke
+.B idmkcoh
+to generate a new kernel, and boot the new kernel.
+Scripts
+.B /etc/conf/*/mkdev
+simpify the choices of
+.B idenable
+and
+.B idtune
+during installation and reconfiguration:
+they invoke
+.B idtune
+and
+.B idenable in response to your choice of configuration options.
+For details, see these commands' entries in the Lexicon.
+.SH "Adding a New Device Driver"
+.II "device driver^add a new one"
+The commands described above make it easy for you to add a new device driver
+to your \*(CO kernel.
+.PP
+.II widget
+The following walks you through the processing of adding a new driver.
+We will add the driver \fBfoo\fR, which enables the popular ``widget'' device.
+Please note that this example has the user modify the files
+.B mtune
+and
+.B stune
+by hand.
+It is not a good idea for you to do this; however, we describe how to do
+this to show how these files fit into the process of building a new kernel:
+.IP \fB1.\fR 0.3i
+To begin, log in as the superuser
+.BR root .
+.IP \fB2.\fR
+The next step is to create a directory to hold the driver's sources and
+object.
+Every driver must have its own directory under directory
+.BR /etc/conf ;
+and the sources must be held in directory
+.B src
+in that driver's directory.
+In this case, create directory
+.BR /etc/conf/foo ;
+then create directory
+.BR /et/conf/foo/src .
+.IP \fB3.\fR
+Copy the sources for the driver into its source directory; in this case,
+copy them into
+.BR /etc/conf/foo/src .
+.IP \fB4.\fR
+Create a
+.B Makefile
+in your driver's source directory, e.g.,
+.BR /etc/conf/foo/src/makefile .
+The easiest way to see what is required is to review several of the driver
+.BR Makefile s
+shipped in the \*(CO driver kit.
+You can perform a test compilation of your driver by running
+.B make
+with the driver's
+.B src
+directory as the current directory.
+This should create one object file that has the suffix \fB.o\fR.
+Copy this file in the driver's home directory, and name it
+.BR Driver.o .
+In this case, the object for the
+driver should be in file
+.BR /etc/conf/foo/Driver.o .
+In some rare cases, a driver compile into more than one object.
+You should store all of these objects into one archive; name the archive
+.B Driver.a ,
+and store it in the driver's home directory.
+The \*(CO commands that build the new kernel know how to handle archives
+correctly.
+The main idea is that files
+.B Space.c
+(if one exists) and
+.B Driver.o
+or
+.B Driver.a
+be placed in the driver directory, i.e., the parent of the
+.B src
+directory.
+.IP \fB5.\fR
+Add an entry to file
+.B /etc/conf/sdevice
+for this driver.
+.BR sdevice ,
+as described above, names the drivers to be included in the kernel.
+The entries for practically every entry are identical; you need to note only
+that the second column marks whether to include the driver in the kernel.
+In this case, the entry for the driver
+.B foo
+should read as follows:
+.DM
+	foo	Y	0	0	0	0	0x0	0x0	0x0	0x0
+.DE
+.IP
+For details on what each column means, read the comments in file
+.BR /etc/conf/sdevice .
+.IP \fB6.\fR
+Add an entry to file
+.B /etc/conf/mdevice
+for the new driver.
+This file is a little more complex than
+.BR sdevice ;
+in particular, it distinguishes between \*(ST-style drivers and
+``old-style'' \*(CO drivers.
+In most cases, you can simply copy an entry for an existing driver of the
+same type, and modify it slightly.
+In this case, the entry for
+.B foo
+should read as follows:
+.DM
+.ta 
+	# full  func   misc   code    block  char   minor  minor  dma   cpu
+	# name  flags  flags  prefix  major  major  min    max    chan  id
+	foo     -      CGo    foo     15     15     0      255    -1    -1
+.DE
+.IP
+In almost every case, the full name and the code prefix are identical.
+The code prefix also names the directory that holds the driver's object.
+Function flags are always always a hyphen, and miscellaneous flags almost always
+CGo.
+The block-major and character-major numbers again are almost always identical.
+The major number is usually assigned by the creator of the device driver.
+In future releases of the kernel, these will be assigned dynamically by the
+kernel itself; poorly written drivers that depend upon the driver having
+a magic major-device number will no longer work.
+Finally, the last four columns for non\-\*(ST drivers are almost always
+0, 255, \-1, and \-1, respectively.
+See the comments in file
+.BR /etc/conf/mdevice .
+.IP \fB7.\fR
+If the driver has tunable variables, these should be set in the file
+.BR Space.c ,
+which should be stored in the driver's home directory.
+As it happens,
+.B foo
+does not need a
+.B Space.c
+file.
+For examples of such files, look in the various sub-directories of
+.BR /etc/conf .
+.IP \fB8.\fR
+Type the command
+.B idmkcoh
+to build a new kernel.
+If necessary, move the new kernel into the root directory; you cannot boot it
+until it is in the root directory.
+.IP \fB9.\fR
+Save the old kernel and link the newly build kernel to
+.BR /autoboot .
+You want save the old kernel, just in case the new one doesn't work.
+For directions on how to boot a kernel other than
+.BR /autoboot ,
+see the Lexicon entry for
+.BR booting .
+.IP \fB10.\fR
+Back up your files!
+With a new driver in your kernel, it's best to play it safe.
+.IP \fB11.\fR
+Reboot your system to invoke the new kernel.
+If all goes well, you will now be enjoying the services of the new device
+driver.
+.PP
+For scripts on how to add or remove individual drivers from your kernel,
+see the article of the driver in question.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "asy," asy
+.Xr "at," at
+.Xr "boot," boot
+.Xr "console," console
+.Xr "ct," ct
+.Xr "em87," em87
+.Xr "floppy disk," floppy_di
+.Xr "hard disk," hard_disk
+.Xr "idle," idle
+.Xr "kernel," kernel
+.Xr "lp," lp
+.Xr "mboot," mboot
+.Xr "mdevice," mdevice
+.Xr "mem," mem
+.Xr "msg," msg
+.Xr "mtune," mtune
+.Xr "null," null
+.Xr "pty," pty
+.Xr "sdevice," sdevice
+.Xr "sem," sem
+.Xr "sgtty," sgtty
+.Xr "shm," shm
+.Xr "STREAMS," streams
+.Xr "stty," stty
+.Xr "stune," stune
+.Xr "tape," tape
+.Xr "termio" termio
+.SH Notes
+Note that in future releases of \*(CO, major numbers will not be static, as
+they are in the above table.
+Rather, they will be assigned by the
+.B config
+script when you install \*(CO onto your system.
+This scheme will allow more flexible arrangements of drivers, and will also
+allow \*(CO to support more than 32 drivers at once.
+If you write code to work with device drivers, you should
+.I not
+make any assumptions about a given driver's major or minor number.
+.PP
+See the Release Notes for your release of \*(CO for a full list of
+supported devices and device drivers.
+.PP
+Source code for almost all \*(CO device drivers is published in
+the \*(CO Device-Driver Kit.
+The only except is the source for
+.BR ft ,
+which includes proprietary information from manufacturers.
+Experienced writers of device drivers will find the driver kit a good
+tool for writing or importing drivers for devices that \*(CO does not yet
+support.

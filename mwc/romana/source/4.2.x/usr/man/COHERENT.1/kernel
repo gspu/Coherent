@@ -1,0 +1,161 @@
+kkeerrnneell -- Technical Information
+
+Master program of the COHERENT system
+
+The _k_e_r_n_e_l  is the master program  of the COHERENT system.   It manages the
+file systems, processes, devices, and users.
+
+When you boot COHERENT on your system, the COHERENT bootstrap automatically
+loads and  runs the program /aauuttoobboooott.  This file usually is  linked to the
+kernel that you build when you installed COHERENT onto your computer.
+
+Your system may have multiple kernels  on it.  For example, when you update
+COHERENT, often the old kernel is  saved; and you can also build customized
+versions  of  the  kernel.  The  COHERENT  bootstrap  lets  you boot  other
+versions of  the kernel besides the  one that is linked  to file /aauuttoobboooott.
+For details on how to do this, see the Lexicon article bboooottiinngg.
+
+For  information on  the  file system  that  the kernel  supports, see  the
+Lexicon entry for ffiillee.
+
+The Lexicon  entry ccooffff.hh describes the format of  programs that the kernel
+can execute.
+
+The COHERENT  system comes with a  set of system calls,  which you can call
+from within  user application to  obtain kernel services.   See the Lexicon
+entry lliibbcc summarizes the calls that the kernel offers.
+
+The function uulliimmiitt() returns and sets some limits for the current process.
+For details, see its entry in the Lexicon.
+
+The Lexicon article ddeevviiccee ddrriivveerrss describes the suite of drivers that come
+with the  COHERENT system.  It gives  the major and minor  numbers of each,
+plus information on how to access and manipulate each driver.
+
+_M_o_d_i_f_y_i_n_g _t_h_e _K_e_r_n_e_l
+Beginning with  release 4.2, COHERENT  contains a System  V-style mechanism
+for modifying the kernel and building a new bootable kernel.
+
+File /eettcc/ccoonnff/mmttuunnee  defines the suite of  ``tunable variables'' available
+within  the kernel  and its  drivers.  These variables  define many  of the
+kernel's default  behaviors.  For  a complete  list of these  variables and
+notes on what each does, see /eettcc/ccoonnff/mmttuunnee. File /eettcc/ccoonnff/ssttuunnee sets the
+values of the variables actually used in your kernel.  To modify the values
+of these variable, you can edit  ssttuunnee by hand, or you can use the commands
+/eettcc/ccoonnff/bbiinn/ccoohhttuunnee and /eettcc/ccoonnff/bbiinn/iiddttuunnee. The former command lets you
+set or  modify the values of  variables used by device  drivers; the latter
+command lets you set or modify variables used in the kernel itself.
+
+File /eettcc/ccoonnff/mmddeevviiccee  names the drivers that  are available for inclusion
+in your kernel.  File /eettcc/ccoonnff/ssddeevviiccee names the drivers that actually are
+included in  your kernel.  To include  or exclude a driver,  you can modify
+ssddeevviiccee by hand; or you can use the command /eettcc/ccoonnff/bbiinn/iiddeennaabbllee.
+
+Finally, command  /eettcc/ccoonnff/bbiinn/iiddmmkkccoohh builds  a new bootable  kernel that
+incorporates  any  changes  you have  made.   For  your  changes to  become
+effective, you must build a  new kernel that incorporates your changes, and
+then boot it.
+
+Each of the above commands and files is described in its own Lexicon entry.
+
+Two other files are of interest if you wish to modify the kernel.
+
+-> Header  file <ssyyss/ddeevviicceess.hh>  gives the  major-device numbers  for every
+   driver in  your kernel.  It is  read when drivers are  compiled.  If you
+   are adding a  new driver, you must add its  name and major-device number
+   to this header file.
+
+-> Normally, when you build a new kernel, the symbol table is stripped from
+   it and kept in file /_k_e_r_n_e_l__n_a_m_e.ssyymm.  The symbols in this file are used
+   to  decipher kernel  tracebacks, and  can  be read  by the  debugger ddbb.
+   However, if  you wish  to hot-patch  a kernel variable,  that variable's
+   symbol   (or  name)   must  be   kept  in   the  binary   itself.   File
+   /eettcc/ccoonnff/iinnssttaallll_ccoonnff/kkeeeepplliisstt names the  variables (or, more properly,
+   the symbols)  that are left in  the binary after it  is linked.  You can
+   then  use the  command  /ccoonnff/ppaattcchh to  hot-patch  these variables.   We
+   discourage you from doing this unless it is absolutely necessary.
+
+_E_x_a_m_p_l_e
+The  Lexicon entry  ddeevviiccee ddrriivveerrss  gives an  example of how  to add  a new
+driver to the kernel.  The  following example walks you through the process
+of changing the size of the buffer cache on your system.
+
+The buffer cache is a reserved portion of memory in which the kernel stores
+data recently  read from the disk  or to be written to  the disk.  When you
+invoke  a command  from your  command  line, the  kernel checks  its buffer
+cache.  If you had invoked the  command recently, the kernel should find it
+within the  buffer cache; and it  can then call up  the command from memory
+rather  than  reading  it  from  the  disk.  This  speeds  up  your  system
+noticeably.
+
+Like everything  else in  life, the buffer  cache involves a  tradeoff: the
+larger the  buffer cache,  the faster  your system will  run, but  the less
+memory will  be available for running your  programs.  By default, COHERENT
+sets aside  a portion of memory  for the buffer cache;  the more memory you
+have, the more  is set aside for the cache.   However, you can set the size
+of  the cache by  hand.  Usually,  this is  done to limit  the size  of the
+cache, which is necessary if your  system has limited amounts of memory and
+you want to run large user programs (e.g., the X Window System).
+
+The  following walks  you through  the process of  modifying the  kernel to
+reduce the size of the buffer cache.
+
+11. Log in as the superuser rroooott. ccdd to directory /eettcc/ccoonnff.
+
+22. Edit file /eettcc/ccoonnff/ssttuunnee and add the following lines:
+
+       NBUF_SPEC   100
+       NHASH_SPEC  97
+
+   NNBBUUFF_SSPPEECC sets  the size of the buffer, in  blocks.  Here, we're setting
+   it to  100 blocks (50  kilobytes), which is very  small.  NNAASSHH_SSPPEECC sets
+   the number  of hash lists  in the kernel;  this must be  the first prime
+   number smaller  than the number  of blocks in  the cache (in  this case,
+   97).  This, too, is very small.
+
+33. Build a new kernel with the following command:
+
+       /etc/conf/bin/idmkcoh -o /cohtest
+
+   This builds a new kernel named ccoohhtteesstt, which incorporates your changes.
+
+44. Shut down your  system and boot the new kernel.   For information on how
+   to shut the system down, see the Lexicon entry for sshhuuttddoowwnn. For details
+   on how to  boot a kernel other than the  default kernel, see the Lexicon
+   entry for bboooottiinngg.
+
+That's all there is to it.   If you wish to make these variables patchable,
+so  you can  change them  without  going to  the bother  of building  a new
+kernel, do the following:
+
+11. In the file /eettcc/ccoonnff/iinnssttaallll_ccoonnff/kkeeeepplliisstt, change
+
+       echo '-I SHMMNI:SEMMNI:NMSQID'
+   to
+
+       echo '-I SHMMNI:SEMMNI:NMSQID:NBUF:NHASH'
+
+22. Build a new kernel as described above.
+
+Then, to change limit the size of the buffer cache to 50 kilobytes, use the
+command:
+
+    /conf/patch /testcoh NBUF=100 NHASH=97
+
+Then,  boot  the  patched kernel.   As  noted  above,  you  should _n_o_t  use
+/ccoonnff/ppaattcchh unless you absolutely must.
+
+_F_i_l_e_s
+/aauuttoobboooott -- The default kernel
+/eettcc/ccoonnff -- Directory that holds configuration files
+/eettcc/ccoonnff/mmddeevviicceess -- Suite of available device drivers
+/eettcc/ccoonnff/mmttuunnee -- Suite of legal patchable variables
+/eettcc/ccoonnff/ssddeevviicceess -- Drivers included in kernel
+/eettcc/ccoonnff/ssttuunnee -- Patchable variables included in kernel
+/eettcc/ccoonnff/iinnssttaallll_ccoonnff/kkeeeepplliisstt -- Symbols kept in kernel
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg  CCOOHHEERREENNTT, bboooottiinngg, ccooffff.hh,  CCOOHHEERREENNTT, ddeevviiccee  ddrriivveerrss, ffiillee,
+iiddmmkkccoohh, mmttuunnee, ssttuunnee, ssyysstteemm ccaallllss, uulliimmiitt
+
+_N_o_t_e_s

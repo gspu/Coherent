@@ -1,0 +1,95 @@
+aahhaa115544xx -- Device Driver
+
+
+The device  driver aahhaa115544xx lets you use SCSI  interface devices attached to
+an Adaptec AHA-154x series host  adapter.  This driver has major number 13.
+It can  be accessed  either as  a block-special device  or as  a character-
+special device.  The minor number specifies the device and partition number
+for disk-type  devices, letting you  use up to  eight SCSI-IDs, with  up to
+four logical unit numbers (LUNs) per  SCSI-ID and up to four partitions per
+LUN.
+
+The  first  ooppeenn call  on  a  SCSI disk  device  allocates  memory for  the
+partition table and reads it into memory.
+
+_C_o_n_t_r_o_l_l_e_r _C_o_n_f_i_g_u_r_a_t_i_o_n
+Prior  to installing  the Adaptec  host  adapter in  your system,  you must
+configure  the  I/O base  address,  interrupt vector,  and  DMA channel  as
+follows:
+
+       I/O base address:0x330
+       DMA channel:    5
+       Interrupt vector:IRQ11
+
+In addition, if you are using any synchronous SCSI peripherals, disable the
+synchronous transfer option on the Adaptec host adapter.
+
+After verifying that your controller works with COHERENT, you may select an
+alternate I/O base address or an alternate interrupt vector.  Device-driver
+variables SSDDBBAASSEE and SSDDIIRRQQ correspond to the I/O base address and interrupt
+vector, respectively.   Variable SSDDDDMMAA sets  the number of  the DMA channel
+being used.   See Lexicon article hhss  for an example of  how to configure a
+device driver.
+
+When processing  BIOS I/O requests  prior to booting  COHERENT, the Adaptec
+host  adapter uses  translation  mode drive  parameters:  number of  heads,
+cylinders, and  sectors per track.   Most current versions  of the AHA-154x
+use values of  64 heads and 32 sectors per  track, and calculate the number
+of cylinders based upon drive capacity.  Note that these numbers are called
+``translation-mode'' parameters  because they have  nothing to do  with the
+geometry of  the physical drive.  Some early versions  of the AHA-154x, and
+some versions distributed by Tandy, use  16 heads and 32 sectors per track.
+Device driver variable SSDD_HHDDSS is initialized to 64 as shipped; it should be
+patched  to  a value  of  16  for adapters  whose  BIOS  code uses  16-head
+translation mode.   The translation-mode parameters  used by the  BIOS code
+present on  your host adapter can  be obtained using the  iinnffoo command from
+the  tertiary boot  in  versions 3.2.1  and  later of  COHERENT.  (See  the
+article  on ttbboooott  for details.)  Note that  the BIOS  code is  executed by
+COHERENT only  during initial bootstrap.  After  that, drive parameters are
+of  no consequence  since SCSI  I/O requests are  based upon  logical block
+number, rather than on cylinder/head/sector addressing.
+
+The installation  procedure for COHERENT  versions 3.2.0 and  later patches
+all necessary variables for  the accompanying version of the aahhaa115544xx driver
+by executing the command:
+
+    /etc/mkdev scsi
+
+_M_i_n_o_r _D_e_v_i_c_e _N_u_m_b_e_r_s
+The minor device number is decoded as follows:
+
+       _B_i_t _n_u_m_b_e_r:  7 6 5 4 3 2 1 0
+       _M_e_a_n_i_n_g:     S I I I L L P P
+
+where  _S indicates  the ``special''  bit, _I_I_I  indicates a  three-bit field
+containing the SCSI-ID  in the range of zero through  seven, _L_L indicates a
+two-bit field containing  a LUN in the range of  zero through three, and _P_P
+indicates a two-bit field that contains either a partition number for disk-
+type devices or a set of special modes for devices other than disks.
+
+The ``special'' bit and the partition number interact as follows:
+
+_D_e_s_c_r_i_p_t_i_o_n        _S _B_i_t  _P_P  _D_e_v_i_c_e      _T_y_p_e
+partition a        0      00 /dev/sd?a    disk
+partition b        0      01 /dev/sd?b    disk
+partition c        0      10 /dev/sd?c    disk
+partition d        0      11 /dev/sd?d    disk
+partition table    1      00 /dev/sd?x    disk
+no rewind          1      01 /dev/sd?n    tape
+RESERVED           1      10     ---      ----
+rewind on close    1      11 /dev/sd?     tape
+
+_L_o_a_d_i_n_g _t_h_e _D_r_i_v_e_r
+On  COHERENT releases  which support loadable  device drivers,  the aahhaa115544xx
+device driver  must be loaded  on a system  that does not have  a SCSI hard
+disk as the root device.  To do so, use the command /eettcc/ddrrvvlldd, as follows:
+
+                   /etc/drvld -r /drv/aha154x
+
+_F_i_l_e_s
+/ddeevv/ssdd* -- bblloocckk-ssppeecciiaall ddeevviicceess
+/ddeevv/rrssdd* -- cchhaarraacctteerr-ssppeecciiaall ddeevviicceess
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, ddrrvvlldd, ssccssii, ttbboooott
+

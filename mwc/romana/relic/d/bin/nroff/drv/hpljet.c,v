@@ -1,0 +1,489 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.45.44;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+/*
+ * Nroff/Troff.
+ * Hewlett-Packard LaserJet 2686A driver.
+ */
+#include <stdio.h>
+#include <ctype.h>
+#include "roff.h"
+#include "code.h"
+#include "char.h"
+#include "env.h"
+#include "font.h"
+
+
+#define	bool	int
+#define	not	!
+#define	TRUE	(0==0)
+#define FALSE	(not TRUE)
+#define	LINEH	(720 / 6)		/* amount moved by line feed */
+#define	LBIAS	(11*720/80)		/* laser printer horiz. bias */
+#define	QUANTA	300			/* actual device resolution */
+#define RESET	"\033E"			/* Resets laser printer */
+
+/*
+ * The typedef fwtab is used to hold data on a font.
+ * The entries in f_width * f_psz * f_num / f_den should
+ * be the widths in atomic units (thus, if the table is
+ * in 300ths of an inch then f_psz * f_num / f_den should be
+ * 12/5).
+ */
+typedef struct	fwtab {
+	char		*f_cmd;		/* command to select font */
+	int		f_psz;		/* point size (internal units) */
+	long		f_num,		/* width table numerator */
+			f_den;		/* width table denominator */
+	unsigned char	f_width[99];	/* width table */
+}	fwtab;
+
+
+/*
+ * Laser printer initialization string.  This string performs the following
+ * functions:
+ *	reset printer
+ *	6 lines per inch
+ *	66 lines per page
+ *	clear margins
+ *	0 top margin
+ *	66 lines text length
+ *	move to horizontal 0
+ *	move to vertical 0
+ *	select font B
+ */
+static char	linit[]	= "\
+\033E\
+\033&l6D\
+\033&l66P\
+\0339\
+\033&l0E\
+\033&l66F\
+\033&a0H\
+\033&a0V\
+\033&l0O\033(0U\033(s1p10v0s0b5T\
+";
+
+/*
+ * The string lmove is used to move vertically or horizontally.
+ * It is used by
+ *	printf(lmove, arg, 'V');		for vertical movement
+ *	printf(lmove, arg-LBIAS, 'H');		for horizontal movement
+ */
+static char	lmove[]	= "\033&a%d%c";
+
+/*
+ * Device parameters.
+ */
+int	ntroff	=	TROFF;		/* Programme is TROFF type */
+
+long	sinmul	=	720;		/* Multiplier for inch */
+long	sindiv	=	1;		/* Divisor for inch */
+
+long	semmul	=	1;		/* Multiplier for em space */
+long	semdiv	=	1;		/* Divisor for em space */
+
+long	senmul	=	1;		/* Multiplier for en space */
+long	sendiv	=	2;		/* Divisor for en space */
+
+long	snrmul	=	1;		/* Narrow space (mul) */
+long	snrdiv	=	6;		/* Narrow space (div) */
+
+long	swdmul;				/* Multiplier for width tables */
+long	swddiv;				/* Divisor for width tables */
+
+long	shrmul	=	12;		/* Horizontal resolution (mul) */
+long	shrdiv	=	5;		/* Horizontal resolution (div) */
+
+long	svrmul	=	12;		/* Vertical resolution (mul) */
+long	svrdiv	=	5;		/* Vertical resolution (div) */
+
+
+/*
+ * Table to convert from the internal character set to ASCII.
+ */
+char intasc[] ={
+	0,	'0',	'1',	'2',	'3',	'4',	'5',	'6',
+	'7',	'8',	'9',	'A',	'B',	'C',	'D',	'E',
+	'F',	'G',	'H',	'I',	'J',	'K',	'L',	'M',
+	'N',	'O',	'P',	'Q',	'R',	'S',	'T',	'U',
+	'V',	'W',	'X',	'Y',	'Z',	'a',	'b',	'c',
+	'd',	'e',	'f',	'g',	'h',	'i',	'j',	'k',
+	'l',	'm',	'n',	'o',	'p',	'q',	'r',	's',
+	't',	'u',	'v',	'w',	'x',	'y',	'z',	'!',
+	'"',	'#',	'$',	'%',	'&',	'(',	')',	'*',
+	'+',	',',	'-',	'.',	'/',	':',	';',	'<',
+	'=',	'>',	'?',	'@@',	'[',	'\\',	']',	'^',
+	'_',	'{',	'|',	'}',	'~',	'`',	'\'',	'\'',
+	'`',	'^',	'-'
+};
+
+/*
+ * For mapping user fonts to real fonts.
+ */
+FTB fontab[] ={
+	{ 'R',  '\0', TRMED },
+	{ 'I',  '\0', TRITL },
+	{ 'B',  '\0', TRBLD },
+	{ 'S',	'\0', TRSML },
+	{ 'H',  '\0', HELV },
+	{ 'L',	'\0', LPTR },
+	{ 'C',	'M', COURMED },
+	{ '\0' }
+};
+
+/*
+ * Driver font information (indexed by font number).
+ */
+fwtab	dfont[]	= {
+	{				/* 92286B Tms Rmn medium upright */
+		"\033&l0O\033(0U\033(s1p10v0s0b5T",
+		100,
+		(long)3, (long)125,
+		{
+		0,	23,	23,	23,	23,	23,	23,	23,
+		23,	23,	23,	35,	29,	31,	34,	30,
+		28,	36,	35,	16,	20,	36,	30,	42,
+		35,	33,	26,	33,	34,	22,	30,	37,
+		34,	38,	36,	33,	31,	21,	25,	21,
+		25,	21,	19,	23,	25,	14,	17,	25,
+		13,	37,	25,	23,	25,	24,	18,	17,
+		15,	25,	24,	34,	24,	24,	20,	12,
+		15,	30,	23,	35,	35,	15,	16,	22,
+		23,	14,	23,	12,	21,	10,	12,	24,
+		24,	24,	22,	39,	13,	21,	14,	24,
+		35,	16,	8,	17,	26,	12,	12,	12,
+		12,	24,	23
+		}
+	},
+	{				/* 92286B Tms Rmn medium italic */
+		"\033&10O\033(0U\033(s1p10v1s0b5T",
+		100,
+		(long)3, (long)125,
+		{
+		0,	23,	23,	23,	23,	23,	23,	23,
+		23,	23,	23,	30,	29,	31,	33,	29,
+		29,	30,	35,	19,	24,	31,	30,	40,
+		33,	33,	28,	33,	32,	28,	30,	33,
+		31,	35,	34,	29,	33,	23,	22,	20,
+		26,	20,	21,	25,	23,	14,	21,	24,
+		15,	36,	23,	22,	24,	22,	18,	19,
+		14,	22,	19,	31,	26,	23,	23,	17,
+		18,	27,	23,	32,	32,	20,	20,	21,
+		23,	11,	24,	12,	31,	18,	17,	31,
+		26,	31,	21,	42,	24,	13,	24,	23,
+		33,	22,	7,	21,	25,	10,	10,	10,
+		10,	23,	24
+		}
+	},
+	{				/* 92286B Tms Rmn bold upright */
+		"\033&10O\033(0U\033(s1p10v0s1b5T",
+		100,
+		(long)3, (long)125,
+		{
+		0,	24,	24,	24,	24,	24,	24,	24,
+		24,	24,	24,	34,	32,	31,	32,	29,
+		27,	35,	37,	18,	24,	33,	29,	39,
+		33,	34,	28,	34,	33,	26,	33,	35,
+		33,	40,	32,	31,	32,	23,	24,	21,
+		24,	21,	19,	23,	27,	14,	17,	26,
+		14,	36,	25,	23,	24,	24,	18,	16,
+		16,	24,	20,	31,	24,	23,	20,	14,
+		17,	28,	24,	39,	34,	18,	19,	18,
+		24,	14,	24,	14,	22,	12,	12,	25,
+		26,	25,	22,	40,	13,	22,	14,	26,
+		33,	16,	8,	17,	30,	12,	12,	12,
+		12,	26,	24
+		}
+	},
+	{				/* 92286B Tms Rmn small */
+		"\033&10O\033(0U\033(s1p8.0v0s-1b5T",
+		80,
+		(long)3, (long)100,
+		{
+		0,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	26,	25,	25,	27,	24,
+		23,	28,	26,	13,	18,	27,	22,	32,
+		26,	27,	24,	27,	26,	20,	25,	26,
+		26,	36,	26,	26,	22,	18,	20,	16,
+		20,	16,	11,	18,	20,	10,	13,	19,
+		10,	29,	20,	18,	20,	19,	14,	14,
+		14,	20,	19,	25,	19,	19,	16,	10,
+		15,	29,	18,	29,	27,	14,	14,	18,
+		27,	10,	16,	10,	18,	10,	10,	27,
+		27,	27,	17,	27,	10,	18,	10,	18,
+		36,	20,	9,	20,	18,	10,	10,	10,
+		10,	18,	16
+		}
+	},
+	{				/* 92286B Helvetica */
+		"\033&l0O\033(0U\033(s1p14.4v0s1b4T",
+		144,
+		(long)1, (long)60,
+		{
+		0,	33,	33,	33,	33,	33,	33,	33,
+		33,	33,	33,	43,	41,	41,	44,	37,
+		34,	42,	43,	16,	27,	44,	31,	54,
+		43,	45,	40,	45,	40,	39,	43,	41,
+		44,	61,	42,	41,	39,	31,	34,	29,
+		33,	29,	20,	33,	34,	15,	20,	32,
+		15,	52,	34,	33,	34,	34,	22,	29,
+		24,	34,	32,	48,	32,	32,	28,	22,
+		28,	55,	33,	58,	50,	26,	26,	33,
+		33,	18,	30,	18,	31,	18,	18,	51,
+		51,	51,	35,	52,	22,	31,	20,	33,
+		47,	28,	12,	28,	42,	18,	18,	18,
+		18,	33,	30
+		}
+	},
+	{			/* 92286F Line Ptr medium upright */
+		"\033&l0O\033(0U\033(sp16.66h8.5vsbT",
+		85,
+		(long)36, (long)425,
+		{
+		0,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6,	6,	6,	6,	6,	6,
+		6,	6,	6
+		}
+	},
+					/* Internal Courier medium upright */
+		"\033&l0O\033(8U\033(s0p10h12v0s0b0T",
+		120,
+		(long)6, (long)100,
+		{
+		0,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18,	18,	18,	18,	18,	18,
+		18,	18,	18
+		}
+	};
+
+
+/*
+ * Set up the non constant parameters that are dependent on a
+ * particular device.  Namely pointsize and font.
+ * Initializes the laser printer.
+ */
+devparm()
+{
+	CODE	cb;
+
+	printf("%s", linit);
+	cb.c_code = DFONT;
+	cb.c_iarg = TRMED;
+	flushl(&cb, &cb + 1);
+	devfont(TRMED);
+}
+
+
+/*
+ * Given a font, consisting of the font number, set the new font
+ * to the one given.
+  */
+devfont(font)
+unsigned	font;
+{
+	register fwtab	*fp;
+
+	if (font >= sizeof(dfont)/sizeof(*dfont))
+		panic("Bad font %d at devfont", font);
+	newfont = font;
+	fp = &dfont[font];
+	swdmul = fp->f_num;
+	swddiv = fp->f_den;
+	fonwidt = fp->f_width;
+	devpsze(fp->f_psz);
+}
+
+
+/*
+ * Change the pointsize to the one specified.
+ */
+devpsze(n)
+{
+	psz = newpsz = n;
+}
+
+
+/*
+ * Change the vertical spacing.
+ */
+devvlsp()
+{
+	vls = unit(SMINCH, 6*SDINCH);
+}
+
+
+/*
+ * Given a pointer to a buffer containing stream directives
+ * and a pointer to the end of the buffer, print the buffer
+ * out.
+ */
+flushl(buffer, bufend)
+CODE *buffer;
+CODE *bufend;
+{
+	register CODE	*cp;
+	register fwtab	*fp;
+	register int	n;
+	static int	hposd,		/* device horiz. pos (u's) */
+			hpost,		/* troff horiz. pos (u's) */
+			vposd,		/* device ver. pos (u's) */
+			vpost,		/* troff ver. pos (u's) */
+			font	= -1;	/* current CODE font */
+	static unsigned char *wtab;	/* current CODE width table */
+	static long	wnum,
+			wden;
+	static int	wpsz;
+
+	for (cp=buffer; cp<bufend; cp++) {
+		switch (cp->c_code) {
+		case DNULL:		/* Null code */
+		case DHYPH:		/* place to hyphenate */
+			continue;
+		case DHMOV:		/* move horizontal */
+		case DPADC:		/* paddable character */
+			hpost += cp->c_iarg;
+			if (hpost < 0)
+				hpost = 0;
+			continue;
+		case DVMOV:		/* move vertically */
+			vpost += cp->c_iarg;
+			if (vpost < 0)
+				vpost = 0;
+			continue;
+		case DFONT:		/* change font */
+			if (cp->c_iarg == font)
+				continue;
+			if ((unsigned)cp->c_iarg
+				>= sizeof(dfont) / sizeof(*dfont))
+				panic("Bad font %d in code stream",
+					cp->c_iarg);
+			font = cp->c_iarg;
+			fp = &dfont[font];
+			wtab = fp->f_width;
+			wnum = fp->f_num * fp->f_psz;
+			wden = fp->f_den;
+			wpsz = fp->f_psz;
+			printf("%s", fp->f_cmd);
+			continue;
+		case DPSZE:		/* change  pointsize */
+			/* not implimented yet (Henry) */
+			if (cp->c_iarg != wpsz)
+				printe("Code DPSZE not implemented yet");
+			continue;
+		case DSPAR:		/* space  down and return */
+			hpost = 0;
+			vpost += cp->c_iarg;
+			if (vpost < 0)
+				vpost = 0;
+			while (vposd + LINEH <= vpost) {
+				putchar('\n');
+				vposd += LINEH;
+				hposd = 0;
+			}
+			continue;
+		default:		/* print something */
+			/*
+			 * If we need to, we now note we are on a new page.
+			 * Note, the laser goes to funny places when it
+			 * crosses a page boundary.
+			 */
+			if (vpost >= pgl) {
+				vpost %= pgl;
+				vposd = vpost;
+				printf(lmove, vposd, 'V');
+				hposd = hpost;
+				if (hposd < LBIAS)
+					hposd = LBIAS;
+				printf(lmove, hposd-LBIAS, 'H');
+			} else {
+				if (vpost != vposd) {
+					vposd = vpost;
+					printf(lmove, vposd, 'V');
+				}
+				if (hpost != hposd) {
+					hposd = hpost;
+					if (hposd < LBIAS)
+						hposd = LBIAS;
+					printf(lmove, hposd-LBIAS, 'H');
+				}
+			}
+			n = cp->c_code;
+			if (n == DHYPC)
+				n = CMINUS;
+			if (n <= 0 || n >= sizeof(intasc))
+				panic("Bad directive %d", n);
+			hpost += cp->c_move;
+			hposd += unit(wnum*wtab[n], wden);
+			n = intasc[n];
+			putchar(n);
+		}
+	}
+}
+
+/*
+ * Print proper escape sequence to reset the laser printer so that the
+ * last page is ejected.
+ *
+ */
+
+void
+resetdev()
+{
+	printf(RESET);
+}
+@

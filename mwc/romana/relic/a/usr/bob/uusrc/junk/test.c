@@ -1,0 +1,77 @@
+#include <stdio.h>
+#include <signal.h>
+char	pr_buf[BUFSIZ];
+char	*pr_bufp;
+char	*teststr =
+"S /usr/spool/uucppublic/radio /tmp/sendme wgl -dc D.blistrn02f2 0644\n";
+extern	char	*strtok();
+catchsegv()
+{
+	char *segmsg ="Segmentation violation";
+	write(1, segmsg, strlen(segmsg));
+	exit(1);
+}
+
+catchmisc()
+{
+	char *segmsg ="Local Signal";
+	write(1, segmsg, strlen(segmsg));
+	exit(1);
+}
+
+main()
+{
+	int	i;
+	char	*sp, *p;
+
+	signal(SIGSEGV, catchsegv);
+	signal(SIGTERM, catchmisc);
+	signal(SIGHUP, catchmisc);
+	signal(SIGINT, catchmisc);
+	pr_bufp = pr_buf;
+	for (i = 0; i <= 33; i++) {
+		prhex(i);
+		*pr_bufp++ = ' ';
+	}
+	*pr_bufp++ = '\0';
+	printf ("[%s]\n", pr_buf);
+	printf("getoct(0666) %o, getoct(04755) %o.\n", getoct("0666"),
+		getoct("04755"));
+	printf("we are located at %s.\n", getwd());
+	sleep(10);
+	sp = teststr;
+	for (i = 1; i < 15; i++) {
+		p = strtok(sp, " \t\n");
+		if (p == NULL)
+			break;
+		printf("Token %d is %s.\n", i, p);
+		sp = NULL;
+	}
+}
+
+getoct(s)
+char	*s;
+{
+	char	*cp;
+	char	c;
+	int	n;
+
+	cp = s;
+	n = 0;
+	printf("arg is %s\n", s);
+	while ((c = *cp) != '\0') {
+		printf("n is %o, cp is %c.\n", n, *cp);
+		n = (n * 8) + *cp++ -'0';
+	}
+	return n;
+}
+		
+prhex(d)
+int	d;
+{
+	int	c;
+	c = d >> 4;
+	*pr_bufp++ = (c >= 10) ? c + 'A' - 10 : c + '0';
+	c = d & 15;
+	*pr_bufp++ = (c >= 10) ? c + 'A' - 10 : c + '0';
+}

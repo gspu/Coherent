@@ -1,0 +1,361 @@
+# Some simple things that the shell has failed on in the past.
+# Let's put some 8-bit characters into the file.... זהבחזהבחףךכף
+
+echo Your shell says that this script is called \""$0"\" if this is not
+echo correct, that is a bug unless you invoked the test with \'.\', in which
+echo case it is just a misfeature.
+
+# The remainder of a line after a partial comment has to be scanned
+
+: ${OK=3}
+[ "$OK" ] || echo Failed to look at input after \":\" 1>&2
+
+# Some shells don't deal very well with keywords
+
+echo if >/dev/null
+
+# Can we declare functions?
+
+somefunc () {
+	A=$#
+	set "$@"
+	[ $A -ne $# ] &&
+		echo Problems expanding null parameters with \$@ 1>&2
+}
+
+# Is "$@" parameter expansion working properly?
+
+somefunc a b "" c ""
+
+# Test function argument-passing
+
+somefunc () {
+	[ $0 != somefunc ] &&
+		echo Function is not being passed \$0 properly 1>&2
+	[ "$1" != "$2" ]
+}
+
+somefunc foo foo && echo Problems with function arguments! 1>&2
+
+# Can we redirect functions?
+
+somefunc () {
+	echo Cannot redirect functions properly 1>&2
+}
+
+somefunc 2>/dev/null
+
+# Can functions use "set"
+
+somefunc () {
+	set this_is_a_test "$@"
+}
+
+somefunc
+
+[ "$1" = this_is_a_test ] &&
+	echo \"set\" in a function affects the global parameters 1>&2
+
+# More tests of $@
+
+somefunc () {
+	A=$#
+	set X "$@"
+	[ `expr $# - 1` -gt $A ] &&
+		echo \"\$@\" with no positional parameters should expand \
+			to nothing whatsoever 1>&2
+}
+
+somefunc
+
+# Can we set no global arguments with --
+
+set X
+set --
+[ $# -eq 0 ] || echo Cannot set zero positional arguments with \'set --\'
+
+# Some more general parameter-passing tests that also test some of the
+# ${} expansions.
+
+checkargs () {
+	[ $# -eq $1 ] || echo Bad argument count "$@"
+}
+test () {
+	eval checkargs "$1" $2 '"$2"'
+}
+
+test 2 '${ab-}'
+test 2 '${ab=}'
+test 2 '${ab:-}'
+test 2 '${ab:=}'
+
+test 3 '${ab:=fo}'
+test 2 '${ab%??}'
+test 2 '${ab%fo}'
+test 2 '${ab%$ab}'
+test 2 '${ab%f*}'
+test 2 '${ab%%??}'
+test 2 '${ab%%fo}'
+test 2 '${ab%%$ab}'
+test 2 '${ab%%*}'
+test 2 '${ab#??}'
+test 2 '${ab#fo}'
+test 2 '${ab#$ab}'
+test 2 '${ab#*o}'
+test 2 '${ab##??}'
+test 2 '${ab##fo}'
+test 2 '${ab##$ab}'
+test 2 '${ab##*}'
+
+# Can we run functions in subshells ?
+
+(somefunc 1)
+
+# A backquote (aka grave) expression of a command that outputs nothing should
+# expand to nothing whatsoever.
+
+set X `echo`
+if [ $# -gt 1 ]; then
+	echo \`echo\` should expand to nothing whatsoever 1>&2
+fi
+
+# Can we have nested ${} - style variable-expansions?
+
+if [ foo != ${C=${D=foo}} -o $C != foo -o $D != foo ]; then
+	echo Problem with nested \${}-subsitutions 1>&2
+fi
+
+# Can we unset variables?
+
+unset C D
+
+if [ -n "$C" -o -n "$D" ]; then
+	echo Problem with unsetting variables
+fi
+
+# Is full word expansion working with ${}?
+
+C=${C:=`echo testing...`}
+
+if [ "$C" != testing... ]; then
+	echo Problem with graves inside \${} 1>&2
+fi
+
+# Is the management of here-documents in loop statements up to scratch?
+
+TEST_DOC='
+This is a sample here-document
+for trying out. It was expanded
+from a shell variable to test
+that, too.
+'
+
+echo "$TEST_DOC" >/tmp/tripa$$
+
+compare_docs () {
+	if cmp /tmp/tripa$$ /tmp/tripb$$; then
+		return 0
+	fi
+	echo Problem with here documents in $TESTING
+	return 1
+}
+
+TESTING=loops
+
+for i in 1; do
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || break
+done
+
+# Is the management of here-documents in functions up to scratch?
+
+TESTING=functions
+
+somefunc () {
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+	cat <<-end >/tmp/tripb$$
+	$TEST_DOC
+	end
+	compare_docs || return 1
+}
+
+if [ -z "$SKIPFUNC" ]; then
+	somefunc
+fi
+
+unset -f compare_docs
+unset TESTING
+rm /tmp/tripa$$ /tmp/tripb$$
+
+# Can we have nested backquote-expressions?
+
+if [ foo != `echo \`echo foo\`` ]; then
+	echo Nested backquote-expressions not supported
+fi
+
+# Here is a total abuse of the quoting rules, courtesy of smail 3.1
+
+foo=this
+bar=is
+and=a
+grill=test
+testing="foo bar and grill"
+
+case "$(eval "cat <<foo
+`for v in $testing; do echo -n \"'\\\$\$v'\" ''; done`
+foo
+")" in
+"'this' 'is' 'a' 'test' ")
+	;;
+
+*)	echo The quoting rules are screwed up somewhere 1>&2
+	;;
+esac
+
+# Clean up; can we use unset -f?
+
+unset -f somefunc
+
+# Does the system implicity close off quoted strings beginning inside graves
+# but not terminated (commercial scripts use this, which POSIX says is
+# "undefined"). Note that we try it twice so that systems which get confused
+# by this still get to find something they expect!
+
+if [ "`echo 'foo`"bar"`echo '`" != foobar ]; then
+	echo Problem with implicit closing of quotes inside graves
+fi
+
+# Some shells have problems with redirection via 'exec'
+
+TEST_DOC='This is a test of not only
+here-documents, but of the
+ability of the shell to do
+redirection with the 'exec'
+statement. Some shells have
+a problem with this; the
+old Coherent ksh runs out
+of file descriptors for some
+unknown reason.'
+
+echo "$TEST_DOC" >/tmp/tripa$$
+
+exec 3<<EOF
+$TEST_DOC
+EOF
+exec 4<&0
+
+for i in 1 2 3 4 5 6 7 8 9; do
+	exec 0<&3		# Going to read next line from foo
+	read zot
+	exec 0<&4		# Restore stdin to original place
+	echo "$zot" >>/tmp/tripb$$
+done
+
+cmp -s /tmp/tripa$$ /tmp/tripb$$ || echo Problem with read in a loop.
+
+exec 3<&-			# Clean up
+exec 4<&-
+
+rm /tmp/tripa$$ /tmp/tripb$$
+
+# Can we use subshells with if and no delimiter; this is legal syntax, but
+# some shells fail to parse this (and abort, which is why it's at the end).
+
+if (true) then
+fi
+
+# More syntax wierdness... check to see that keywords are recognised where
+# they are supposed to be, and only where they are supposed to be. The code
+# below is legal, but if keyword recognition is not up to scratch...
+
+for for in in
+do { echo } $for
+   } >/dev/null
+done
+
+case in in
+case)	;;
+in)	;;
+esac
+

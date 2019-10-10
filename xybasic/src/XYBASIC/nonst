@@ -1,0 +1,458 @@
+;NONST 08/06/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;routines for nonstandard version SAVE and LOAD, plus GTFIL
+;includes custom EPSTN and GENMC versions
+
+
+	if	nonst		;NONST versions
+
+	if	(not camac) or (not rtpak)	;not for CAMAC RTPAK version
+;DOIO is common routine to perform i/o operations in nonstandard version.
+;Call:	A	offset of desired JMP from beginning of jump vector
+;	E	shift count for finding desired iobyte field
+conin:	xra	a
+coni1:	push	d		;save DE
+	mvi	e,1
+doio:	push	h		;save HL
+	lxi	h,jmpta		;jmp vector base address to HL
+	call	adahl		;+offset = jmp address for device #0
+	lda	iobyt		;i/o byte to A
+doio1:	dcr	e
+	jz	doio2		;shift no more
+	rar
+	jmp	doio1
+doio2:	ani	3		;mask to desired field only
+	mov	e,a		;save in E
+	ral			;desired device # * 2
+	add	e		;desired device # * 3
+	call	adahl		; + base = jmp address for selected device
+	pop	d		;saved HL to DE
+	xthl			;saved DE to HL, device jmp address to stack
+	xchg			;restore DE and HL
+	ret			;branch to desired device driver
+cnout:	mvi	a,12
+	jmp	coni1
+rdrin:	mvi	a,24
+	push	d
+	mvi	e,3
+	jmp	doio
+pout:	mvi	a,36
+	push	d
+	mvi	e,5
+	jmp	doio
+lout:	mvi	a,48
+	push	d
+	mvi	e,7
+	jmp	doio
+	endif			;end of NOT CAMAC or NOT RTPAK conditional
+
+	if	compl
+save	equ	uferr		;UF error in COMPL version
+load	equ	uferr
+	else
+
+	if	(not epstn) and (not genmc) and (not bendx)
+;normal NONST SAVE and LOAD
+;SAVE <filename>
+save:	call	prntm		;print SAVING message
+	db	'SAVING', ' ' or 80H
+	call	gtfil		;get file name
+	if	packi
+	mvi	c,cntlr
+	call	pout		;TAPEON
+	call	save7		;punch leading nulls
+	endif
+	if	not romsq
+	lxi	d,srcad-2
+	call	cplde
+	lhld	eofad
+	else
+	lhld	sourc
+	dcx	h		;first to HL
+	push	h
+	push	h		;and saved
+	call	last		;last to HL
+	pop	d		;first to DE
+	call	cplde		;-first to DE
+	inx	d		;-first + 1
+	endif
+	dad	d		;last - first + 1 = length
+	push	h		;and saved
+	lxi	h,headr
+	mvi	e,headl		;header length to E
+save1:	mov	c,m		;header char to C
+	call	pout		;and out to punch device
+	inx	h
+	dcr	e
+	jnz	save1		;keep sending header chars
+	pop	d		;file length to DE
+	if	romsq
+	pop	h
+	else
+	lxi	h,srcad-1	;save pointer to HL
+	endif
+save2:	inx	d
+	push	d		;save length+1
+	mov	a,d
+	ora	a		;zero set iff length < 255
+	jz	save3
+	mvi	e,0
+save3:	dcr	e		;length of block to E
+	mvi	c,stbyt
+	call	pout		;send start  byte
+	mvi	c,tybyt
+	call	pout		;send type byte
+	mov	c,e
+	call	pout		;send length byte
+	mov	a,e
+	ora	a		;check if length = 0
+	jz	save5		;yes, done
+	call	ctest		;check for console break char
+	mvi	d,0		;checksum in D
+save4:	mov	c,m
+	call	pout		;send source char
+	mov	a,m
+	add	d
+	mov	d,a		;update checksum
+	inx	h
+	dcr	e
+	jnz	save4		;send more source chars
+	mov	c,d
+	call	pout		;send checksum
+save5:	pop	d		;recover length + 1  to DE
+	mov	a,d
+	ora	a
+	if	packi
+	jz	save6
+	else
+	rz			;done if length < 255
+	endif
+	dcr	d		;else new length = length+1-256 = length-255
+	jmp	save2		;and save more blocks
+	if	packi
+save6:	call	save7		;punch trailing nulls
+	mvi	a,cntlt
+	jmp	writc		;TAPEOFF and return
+save7:	lxi	b,(64 shl 8)	;64 to B, 0 to C
+save8:	call	pout		;punch a null
+	dcr	b
+	jnz	save8		;punch more nulls
+	ret
+	endif
+
+
+;LOAD <filename>
+load:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	lxi	h,headr+2	;first filename char address to HL
+	lxi	b,8		;0 to B, # filename chars to C
+	call	fillm		;fill filename with 0s
+	call	prntm		;print LOADING message
+	db	'LOADING', ' ' or 80H
+	call	gtcho		;look at next char
+	call	dtest		;check if delimiter
+	cc	gtfil		;get file name and set up header if not
+	if	packi
+	mvi	c,cntlq
+	call	pout		;XON to turn on RDR
+	endif
+load1:	lxi	h,headr
+	mvi	c,headl
+	call	ctest		;check for console break char
+;NB Tarbell needs different startup
+;lxi h,headr+2 and mvi c,headl-2 above
+;mvi a,10H and out 6EH here
+load2:	call	rdrin		;read a char
+	cmp	m		;compare to header char
+	jz	load3		;matched, try next
+	mov	a,m		;else fetch header char
+	ora	a		;check if null, i.e. LOAD <cr> typed
+	jnz	load1		;not null, try again from the top
+load3:	inx	h
+	dcr	c
+	jnz	load2		;see if next matches too
+	call	new		;got the file header, prepare to load
+	lxi	h,srcad-1	;load address to HL
+load4:	call	rdrin		;read start byte
+	cpi	stbyt		;check if start byte
+	jnz	cserr		;issue CS error if not
+	call	ctest		;check for console break char
+	call	rdrin		;read type byte
+	cpi	tybyt		;check if type byte
+	jnz	cserr		;issue CS error if not
+	call	rdrin		;read length byte
+	ora	a
+	if	packi
+	jz	load6		;XOFF before exiting in Packard version
+	else
+	jz	dmodx		;block length 0, done
+	endif
+	mov	e,a		;block length to E
+	inr	a
+	push	psw		;save length+1
+	mvi	d,0		;checksum to D
+load5:	call	rdrin		;read a char
+	mov	m,a		;store it
+	inx	h
+	add	d
+	mov	d,a		;update checksum
+	dcr	e
+	jnz	load5		;more chars in block
+	call	rdrin		;read the checksum
+	cmp	d
+	jnz	cserr		;checksum error
+	pop	psw		;recover block length+1
+	jz	load4		;length was 255, so load more blocks
+	dcx	h		;point to new eof adress
+	if	packi
+load6:	mvi	c,cntls
+	call	pout		;XOFF to turn off RDR
+	endif
+	jmp	dmodx		;reset stacks and continue iff direct
+cserr:	call	new		;erase the garbage
+	if	packi
+	mvi	c,cntls
+	call	pout		;XOFF to turn off RDR
+	endif
+	error	f, C, S		;fatal CS error
+	endif			;end normal NONST conditional
+
+	if	(not epstn) and (not bendx)	;NONST GTFIL, including GENMC
+;the nonstandard version of GTFIL gets a file name and initializes header block
+gtfil:	call	gtfl4		;skip the open quote
+	if	not genmc
+	lxi	b,headr+2	;point to filename location with BC
+	else
+	lxi	b,headr+3
+	endif
+	call	gtalp		;get first char
+	jc	snerr
+	mvi	d,8		;max char count to D
+gtfl1:	stax	b		;store a filename char in header
+	inx	b
+	if	not genmc
+	call	writc		;and echo to console
+	endif
+	call	gtild
+	jc	gtfl5		;no more chars, pad with spaces
+gtfl2:	dcr	d
+	jnz	gtfl1		;store another
+gtfl3:	call	gtild
+	jnc	gtfl3		;scan remaining chars, if any
+gtfl4:	mvi	d,'"'
+	jmp	gtdsn		;get quote mark and return
+gtfl5:	mvi	a,' '
+gtfl6:	dcr	d
+	jz	gtfl4
+	stax	b
+	inx	b
+	jmp	gtfl6
+	endif
+
+
+	if	epstn		;EPSTN versions
+
+;SAVE <filename>
+save:	lxi	h,savma		;SAVING message address to HL
+	call	gtfil		;get file name
+	if	not romsq
+	lxi	b,srcad-1
+	else
+	call	first
+	endif			;first addr to BC
+	call	wrtbh		;write the start address in hex
+	mvi	a,'-'
+	call	writc		;write a -
+	if	romsq
+	call	last		;last addr to BC
+	else
+	lhld	eofad
+	mov	b,h
+	mov	c,l
+	endif
+	call	wrtbh		;write BC as hex number
+save1:	call	prntm		;print escape sequence
+	db	cr, escap, escap or 80H
+	ret			;and return
+savma:	db	cr, lf, escap, 'DSAV', ' ' or 80H
+
+;LOAD <filename>
+load:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	lxi	h,lodma
+	call	gtfil		;get file name and set up header
+	call	new		;got the file, prepare to load
+	call	save1		;write escape sequence
+	if	romsq
+	call	last
+	else
+	lxi	d,-1
+	call	findl
+	mov	a,m
+	call	adahl
+	endif			;last addr to HL
+	jmp	dmodx		;reset stacks and continue iff direct
+lodma:	db	cr, lf, escap, 'DLOD', ' ' or 80H
+
+gtfil:	push	h		;save message address
+	mvi	d,'"'
+	call	gtdsn		;skip open quote
+	lxi	d,bufad-1	;destination-1 to DE
+	call	gtalp		;look for alpha first char
+	jc	snerr		;SN error if none
+	mvi	c,5		;max char count to C
+gtfl1:	inx	d
+	stax	d		;store a filename char
+gtfl2:	call	gtild		;look for following letter or digit
+	jc	gtfl3		;done if none
+	dcr	c		;else decrement count
+	jp	gtfl1		;and store the char
+	jmp	gtfl2		;or scan and ignore remaining chars
+gtfl3:	ldax	d		;recover last filename char
+	ori	80H		;turn on high bit
+	stax	d		;and replace
+	mvi	d,'"'
+	call	gtdsn		;skip close quote
+	pop	h		;restore message addr
+	call	prtst		;print it
+	lxi	h,bufad
+	call	prtst		;print the filename
+	call	prntm		;print filetype XYB
+	db	'.XYB', ' ' or 80H
+	ret			;and return
+
+;WRITH writes (A3-A0) as a hex digit, masking off A7-A4.
+;WRTBH writes (BC) as hex word, currently as #dddd without suppressing zeroes.
+writh:	ani	0FH		;00H, ... , 09H, 0AH, ... , 0FH
+	adi	90H		;90H, ... , 99H, 9AH, ... , 9FH
+	daa			;90H, ... , 99H, 0H+C,... , 5H+C
+	aci	40H		;D0H, ... , D9H, 41H, ... , 46H
+	daa			;30H, ... , 39H, 41H, ... , 46H
+	jmp	writc		;write and return
+
+wrtbh:	push	d
+	mvi	d,255
+wrtw1:	mov	a,b
+	rrc
+	rrc
+	rrc
+	rrc			;rotate right four places
+	call	writh		;write MS four bits
+	mov	a,b
+	call	writh		;write LS four bits
+	inr	d
+	mov	b,c
+	jz	wrtw1
+	pop	d
+	ret
+
+	endif			;end of EPSTN conditional
+
+	if	genmc		;GENMC versions SAVE and LOAD
+;SAVE <filename>
+save:	call	prntm		;print SAVING message
+	db	'SAVING', ' ' or 80H
+	call	gtfil		;get file name
+	lxi	h,headr+3
+	call	prtst		;echo the <filename>
+	lda	omode
+	push	psw		;save current OMODE
+	mvi	a,80H
+	sta	omode		;reset OMODE for ASCII saving
+	lxi	h,headr
+	call	prtst		;save header
+	if	romsq
+	lhld	sourc
+	else
+	lxi	h,srcad		;first prog addr to HL
+	endif
+	lxi	b,-1
+	call	list1		;do the ASCII save
+	mvi	c,cntlz
+	call	pout		;and write an eof
+	pop	psw
+	sta	omode		;restore OMODE
+	ret
+
+;LOAD [<filename>]
+load:	if	romsq
+	call	issrc		;illegal if not addressing working space
+	endif
+	call	prntm		;print LOADING message
+	db	'LOADING', ' ' or 80H
+	call	gtcho		;look at next char
+	call	dtest		;test if delimiter
+	jnc	load5		;no <filename>, just load next
+	call	gtfil		;get <filename> to header
+;LOAD1 looks for <filename> matching header
+load1:	lxi	h,headr
+	mvi	c,headl-1
+	call	loadh		;look for matching filename from RDR
+	jnz	load1		;does not match <filename>
+	call	rdrch		;read last, should be <lf>
+	cpi	lf
+	jnz	load1		;no match
+;at LOAD2 the approriate header has been found, so file is loaded
+load2:	lxi	h,headr+3
+	call	prtst		;echo the <filename>
+	call	new		;erase old program
+	mvi	a,7FH
+	sta	omode		;reset OMODE for ASCII loading
+load3:	call	gtlin
+	call	tkize
+	jc	load3
+	cnz	addln
+	jmp	load3
+;LOAD5 gets the next file, regardless of filename
+load5:	lxi	h,headr
+	mvi	c,3
+	call	loadh		;look for <cr> <lf> ' from RDR
+	jnz	load5		;not found, try again
+	mvi	c,8		;now scan eight <filename> chars
+load6:	call	rdrch
+	mov	m,a		;save the char
+	inx	h
+	dcr	c
+	jnz	load6
+	mvi	c,5
+	call	loadh		;look for .BAS <cr>
+	jnz	load5		;no match
+	call	rdrch		;read <lf>
+	cpi	lf
+	jnz	load5
+	jmp	load2		;found good header, load it
+;LOADH looks for (C) chars from RDR
+;Retn:	Zero	Set iff (C) chars match string addressed by HL
+loadh:	call	rdrch		;read a char
+	cmp	m
+	rnz			;no match, return Zero reset
+	inx	h
+	dcr	c
+	jnz	loadh		;look at next
+	ret			;match, return Zero set
+
+dkout	equ	pout		;write to PUN device
+
+rdrch:	call	ctest		;check for console break char
+	call	rdrin		;read from reader
+	ani	7FH		;mask off parity
+	jz	rdrch		;ignore nulls (ASCII 0s)
+	cpi	cntly		;check if <control-Y>
+	rnz
+	error	f, E, F		;fatal EF error
+dload:	call	rdrch
+	cpi	cntlz		;look for eof
+	jnz	pop3
+	jmp	dmod2		;return to DMODE if eof
+
+	endif			;end of GENMC conditional
+
+	endif			;end of NOT COMPL conditional
+	endif			;end of NONST conditional
+
+
+;end of NONST
+	page

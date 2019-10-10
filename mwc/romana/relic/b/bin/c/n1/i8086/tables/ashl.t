@@ -1,0 +1,307 @@
+/////////
+/
+/ Assigned shift left.
+/ Simple cases (1, 2 on 8086, byte immediates on 186/286) are done directly.
+/ Hard words are done using the CL shift mode. Longs are a loop.
+/ The loop always runs in the registers to make it run faster.
+/ The MOVB gambit is played here to save a byte.
+/
+/////////
+
+ASHL:
+%	PEFFECT|PRVALUE|PREL|P80186
+	WORD		ANYR	*	*	TEMP
+		ADR|LV		WORD
+		BYTE|MMX	WORD
+%	PLVALUE|P80186
+	WORD		ANYL	*	*	TEMP
+		ADR|LV		WORD
+		BYTE|MMX	WORD
+			[ZSAL]	[AL],[AR]
+		[IFV]	[ZMOV]	[R],[AL]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL|P80186
+	WORD		AX	*	*	TEMP
+		ADR|LV		FS8
+		BYTE|MMX	WORD
+			[ZSALB]	[AL],[AR]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL|P80186
+	WORD		AX	*	*	TEMP
+		ADR|LV		FU8
+		BYTE|MMX	WORD
+			[ZSALB]	[AL],[AR]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		ANYR	*	*	TEMP
+		ADR|LV		WORD
+		1|MMX		*
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		ADR|LV		WORD
+		1|MMX		*
+			[ZSAL]	[AL],[CONST 1]
+		[IFV]	[ZMOV]	[R],[AL]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		AX	*	*	TEMP
+		ADR|LV		FS8
+		1|MMX		*
+			[ZSALB]	[AL],[CONST 1]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		AX	*	*	TEMP
+		ADR|LV		FU8
+		1|MMX		*
+			[ZSALB]	[AL],[CONST 1]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		ANYR	*	*	TEMP
+		ADR|LV		WORD
+		2|MMX		*
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		ADR|LV		WORD
+		2|MMX		*
+			[ZSAL]	[AL],[CONST 1]
+			[ZSAL]	[AL],[CONST 1]
+		[IFV]	[ZMOV]	[R],[AL]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		AX	*	*	TEMP
+		ADR|LV		FS8
+		2|MMX		*
+			[ZSALB]	[AL],[CONST 1]
+			[ZSALB]	[AL],[CONST 1]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		AX	*	*	TEMP
+		ADR|LV		FU8
+		2|MMX		*
+			[ZSALB]	[AL],[CONST 1]
+			[ZSALB]	[AL],[CONST 1]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		ANYR	*	CX	TEMP
+		ADR|LV		WORD
+		IMM|MMX		WORD
+%	PLVALUE
+	WORD		ANYL	*	CX	TEMP
+		ADR|LV		WORD
+		IMM|MMX		WORD
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSAL]	[AL],[REGNO CL]
+		[IFV]	[ZMOV]	[R],[AL]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		AX	*	CX	TEMP
+		ADR|LV		FS8
+		IMM|MMX		WORD
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSALB]	[AL],[REGNO CL]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL
+	WORD		AX	*	CX	TEMP
+		ADR|LV		FU8
+		IMM|MMX		WORD
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSALB]	[AL],[REGNO CL]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+		[IFR]	[REL0]	[LAB]
+
+%	PRVALUE|PLT|PGE
+	LONG		DXAX	*	CX	TEMP
+		ADR|LV		LONG
+		IMM|MMX		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+		[DLAB0]:[ZSAL]	[LO R],[CONST 1]
+			[ZRCL]	[HI R],[CONST 1]
+			[ZLOOP]	[LAB0]
+			[ZMOV]	[LO AL],[LO R]
+			[ZMOV]	[HI AL],[HI R]
+		[IFR]	[REL1]	[LAB]
+
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	CX	TEMP
+		ADR|LV		WORD
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSAL]	[AL],[REGNO CL]
+		[IFV]	[ZMOV]	[R],[AL]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	CX	TEMP
+		ADR|LV		FS8
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSALB]	[AL],[REGNO CL]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	CX	TEMP
+		ADR|LV		FU8
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSALB]	[AL],[REGNO CL]
+		[IFV]	[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+
+%	PRVALUE
+	LONG		DXAX	*	CX	TEMP
+		ADR|LV		LONG
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+			[ZJCXZ]	[LAB0]
+		[DLAB1]:[ZSAL]	[LO R],[CONST 1]
+			[ZRCL]	[HI R],[CONST 1]
+			[ZLOOP]	[LAB1]
+			[ZMOV]	[LO AL],[LO R]
+			[ZMOV]	[HI AL],[HI R]
+		[DLAB0]:
+
+%	PEFFECT|PRVALUE|P80186
+	WORD		ANYR	*	*	TEMP
+		ADR|LV		FFLD16
+		BYTE|MMX	WORD
+			[ZMOV]	[R],[AL]
+			[ZAND]	[R],[LO EMASK]
+			[ZSHL]	[R],[AR]
+			[ZAND]	[R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[R]
+
+%	PEFFECT|PRVALUE|P80186
+	WORD		AX	*	*	TEMP
+		ADR|LV		FFLD8
+		BYTE|MMX	WORD
+			[ZMOVB]	[LO R],[AL]
+			[ZANDB]	[LO R],[LO EMASK]
+			[ZSHLB]	[LO R],[AR]
+			[ZAND]	[R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	*	TEMP
+		ADR|LV		FFLD16
+		1|MMX		*
+			[ZMOV]	[R],[AL]
+			[ZAND]	[R],[LO EMASK]
+			[ZSHL]	[R],[AR]
+			[ZAND]	[R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[R]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	*	TEMP
+		ADR|LV		FFLD8
+		1|MMX		*
+			[ZMOVB]	[LO R],[AL]
+			[ZANDB]	[LO R],[LO EMASK]
+			[ZSHLB]	[LO R],[AR]
+			[ZAND]	[R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	*	TEMP
+		ADR|LV		FFLD16
+		2|MMX		*
+			[ZMOV]	[R],[AL]
+			[ZAND]	[R],[LO EMASK]
+			[ZSHL]	[R],[CONST 1]
+			[ZSHL]	[R],[CONST 1]
+			[ZAND]	[R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[R]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	*	TEMP
+		ADR|LV		FFLD8
+		2|MMX		*
+			[ZMOVB]	[LO R],[AL]
+			[ZANDB]	[LO R],[LO EMASK]
+			[ZSHLB]	[LO R],[CONST 1]
+			[ZSHLB]	[LO R],[CONST 1]
+			[ZAND]	[R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	CX	TEMP
+		ADR|LV		FFLD16
+		IMM|MMX		WORD
+			[ZMOV]	[R],[AL]
+			[ZAND]	[R],[LO EMASK]
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSHL]	[R],[REGNO CL]
+			[ZAND]	[R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[R]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	CX	TEMP
+		ADR|LV		FFLD8
+		IMM|MMX		WORD
+			[ZMOVB]	[LO R],[AL]
+			[ZANDB]	[LO R],[LO EMASK]
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSHLB]	[LO R],[REGNO CL]
+			[ZAND]	[R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		ANYR	*	CX	TEMP
+		ADR|LV		FFLD16
+		ADR		WORD
+			[ZMOV]	[R],[AL]
+			[ZAND]	[R],[LO EMASK]
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSHL]	[R],[REGNO CL]
+			[ZAND]	[R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[R]
+
+%	PEFFECT|PRVALUE
+	WORD		AX	*	CX	TEMP
+		ADR|LV		FFLD8
+		ADR		WORD
+			[ZMOVB]	[LO R],[AL]
+			[ZANDB]	[LO R],[LO EMASK]
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSHLB]	[LO R],[REGNO CL]
+			[ZAND]	[R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO R]

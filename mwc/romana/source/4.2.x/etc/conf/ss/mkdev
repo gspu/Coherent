@@ -1,0 +1,172 @@
+# Generated from mkdev.sh on Wed Aug 10 15:43:55 1994 CDT
+# ss/mkdev - get SCSI device info
+# Revised: Tue Mar  1 14:36:52 1994 CST
+
+DEVDIR=/dev
+
+# Things to do:
+
+#	Ask if the driver should be enabled.
+#
+#	Configure host adapter.
+#
+#	For SCSI disk devices:
+#		Report current SCSI id's.
+#		Ask for changes.
+#		Tune kernel variable.
+#		Make device nodes.
+
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+
+. $CONF_DIR/bin/conf_lib.sh
+
+#################
+# require_hba
+#
+# validation for read_input of ss host bus adapter option
+#################
+
+require_hba () {
+	case $1 in
+	1|2|3)
+		return 0
+		;;
+	esac
+	echo "Invalid response.  Try again."
+	return 1
+}
+
+
+###############
+# Main logic.
+#
+# Configure driver.
+# If driver enabled
+#   configure hard drive devices
+###############
+
+# Enable/disable ss device driver.
+echo "\nSeagate/Future Domain host adapter, SCSI hard disk."
+set_enable_status ss
+
+# Hardware configuration of HBA.
+
+read_input "Change host adapter configuration" ANS "n" require_yes_or_no
+if is_yes $ANS;then
+	echo "
+If you are not sure how to set any of the following parameters, just hit
+<Enter> to keep the current setting.  Further information can be found
+in your host adapter documentation, as well as in COHERENT files
+/etc/conf/mtune and /etc/conf/ss/Space.c.
+"
+	while : ; do
+		get_tunable SS_HBATYPE ss_hbatype
+
+		if [ $ss_hbatype -eq 0 ];then
+			ss_hba=1
+		elif [ $ss_hbatype -eq 0x80 ];then
+			ss_hba=2
+		elif [ $ss_hbatype -eq 0x40 ];then
+			ss_hba=3
+		else
+			ss_hba=???
+		fi
+
+		P="
+1 = ST01/ST02
+2 = TMC-845/850/860/875/885
+3 = TMC-840/841/880/881
+
+Host adapter type"
+
+		read_input "$P" new_ss_hba $ss_hba require_hba
+
+		is_equal $ss_hba $new_ss_hba || {
+			case $new_ss_hba in
+				1)
+					echo \
+"Host adapter type set to ST01/ST02."
+					ss_hbatype=0
+					;;
+				2)
+					echo \
+"Host adapter type set to TMC-845/850/860/875/885."
+					ss_hbatype=0x80
+					;;
+				3)
+					echo \
+"Host adapter type set to TMC-840/841/880/881."
+					ss_hbatype=0x40
+					;;
+			esac
+		}
+
+		$CONF_DIR/bin/idtune -f SS_HBATYPE $ss_hbatype
+
+		tune SS_BASE_SPEC	"Host adapter base address"
+		tune SS_INT_SPEC	"Host adapter interrupt number"
+
+		read_input "\nIs host adapter configuration correct" ANS "y" \
+		  require_yes_or_no
+		is_yes $ANS && break
+	done
+fi
+
+
+# Get SCSI id's for attached hard drives.
+
+while : ; do
+	get_tunable SS_DISK_SPEC DISKS
+	if val $(($DISKS == 0)) ; then
+		echo "No SCSI hard drives are configured."
+	else
+		echo "Hard drives are configured at the following SCSI id numbers:"
+		for i in 0 1 2 3 4 5 6 7 ; do
+			val $((($DISKS & (1 << $i)) != 0)) && echo -n $i " "
+		done
+		echo
+	fi
+	read_input "Is this correct" ANS "y" require_yes_or_no || continue
+	is_yes $ANS && break
+
+	echo Enter all hard drive SCSI id\'s, separated by spaces.
+	read_input "Disk ID's or <Enter>" DISKLIST ""
+
+	DISKS=0
+	for i in $DISKLIST; do
+		is_numeric $i || {
+			echo $i is not a number. Please try again.
+			continue 2
+		}
+		val $(($i < 0 || $i > 7)) && {
+			echo $i is not a valid drive ID. Only 0 through 7 are valid ID\'s
+			continue 2
+		}
+
+		DISKS=$(($DISKS | (1 << ($i))))
+	done
+
+	$CONF_DIR/bin/idtune -f SS_DISK_SPEC $DISKS
+done
+
+for i in 0 1 2 3 4 5 6 7; do
+	val $((($DISKS & (1 << $i)) == 0)) && continue
+
+	MINOR=$(($i * 16))
+
+	/etc/mknod -f $DEVDIR/sd${i}x b 13 $(($MINOR + 128))
+	/etc/mknod -f $DEVDIR/rsd${i}x c 13 $(($MINOR + 128))
+	/etc/mknod -f $DEVDIR/sd${i}a b 13 $MINOR
+	/etc/mknod -f $DEVDIR/rsd${i}a c 13 $MINOR
+	/etc/mknod -f $DEVDIR/sd${i}b b 13 $(($MINOR + 1))
+	/etc/mknod -f $DEVDIR/rsd${i}b c 13 $(($MINOR + 1))
+	/etc/mknod -f $DEVDIR/sd${i}c b 13 $(($MINOR + 2))
+	/etc/mknod -f $DEVDIR/rsd${i}c c 13 $(($MINOR + 2))
+	/etc/mknod -f $DEVDIR/sd${i}d b 13 $(($MINOR + 3))
+	/etc/mknod -f $DEVDIR/rsd${i}d c 13 $(($MINOR + 3))
+	/bin/chmog 600 sys sys $DEVDIR/*sd${i}*
+done

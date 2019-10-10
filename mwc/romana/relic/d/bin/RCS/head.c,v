@@ -1,0 +1,301 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.02.12.16.26.13;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version pulled from the hp /z/usr/src/cmd.am
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@static char Copyright[] =	"$Copyright: (c) 1984, INETCO Systems, Ltd.$";
+static char Release[] =		"$Release: INETCO COHERENT V8.0$";
+static char Date[] =		"$Date: 89/04/03 13:06:08 $";
+
+/* $Header: /usr/src/cmd/cmd.am/RCS/head.c,v 1.1 89/04/03 13:06:08 src Exp $
+ *
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.35
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ */
+
+/*
+ * The program head copys the head of a file to the standard output.
+ * Its usage is:
+ *
+ *	head [{+-}n[{lbc}]] [file]
+ *
+ * The initial `+' (or `-') indicate that `n' is relative to the
+ * beggining (or ending respectively) of the file.
+ * The optional `l', `b' or `c' (`l' default) is to indicate if `n'
+ * is a number of lines, blocks or characters respectively.
+ * If the entire position specifier is absent, then `+4l' is assumed.
+ * If the optional `file' is absent, then the standard input is used.
+ * In any case, head copys from the start of the file up to, and
+ * includeing, the specified point onto the standard output.
+ *
+ * $Log:	/usr/src/cmd/cmd.am/RCS/head.c,v $
+ * Revision 1.1	89/04/03  13:06:08 	src
+ * Initial revision
+ * 
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+#include <sys/mdata.h>
+
+
+#define	bool	char			/* boolean type */
+#define	not	!			/* logical negation operator */
+#define	and	&&			/* logical conjunction */
+#define	or	||			/* logical disjunction */
+#define	TRUE	(0 == 0)
+#define	FALSE	(not TRUE)
+#define	EOS	'\0'			/* end-of-string char */
+#define	N	4			/* default number of lines */
+
+
+struct	blk {
+	struct blk	*next;
+	int		nlines;		/* number of `\n' characters */
+	char		blkb[BUFSIZ];
+};
+
+
+bool	lflag	= TRUE,			/* lines (vs. chars) flag */
+	fflag	= TRUE;			/* + (vs. -) flag */
+long	n	= N;			/* number of lines or chars */
+char	obuf[BUFSIZ],			/* stdout setbuf buffer */
+	nospace[]	= "Window too large";
+
+
+main(argc, argv)
+int	argc;
+char	*argv[];
+{
+	setbuf(stdout, obuf);
+	options(argv);
+	if (fflag)
+		if (lflag)
+			copyfl();
+		else
+			copyfc();
+	else
+		if (lflag)
+			copybl();
+		else
+			copybc();
+	return (0);
+}
+
+
+die(str)
+char	*str;
+{
+	fprintf(stderr, "%r\n", &str);
+	exit(1);
+}
+
+
+usage()
+{
+	die("usage: head [{+-}n[{lbc}]] [file]");
+}
+
+
+options(argv)
+register char	*argv[];
+{
+	register char	*chp,
+			ch;
+
+	if (*++argv == NULL)
+		return;
+	chp = *argv;
+	ch = *chp;
+	if (ch == '-'  ||  ch == '+') {
+		fflag = (ch == '+');
+		n = 0;
+		for (ch=*++chp; isascii(ch) && isdigit(ch); ch=*++chp)
+			n = 10*n + ch-'0';
+		switch (ch) {
+		case EOS:
+		case 'l':
+			break;
+		case 'b':
+			n *= BUFSIZ;
+			/* fall thru */
+		case 'c':
+			lflag = FALSE;
+			break;
+		default:
+			usage();
+		}
+		chp = *++argv;
+	}
+	if (chp == NULL)
+		return;
+	if (freopen(chp, "r", stdin) == NULL)
+		die("Can't open %s", chp);
+}
+
+
+/*
+ * Copyfl copys the first `n' lines of stdin to stdout.
+ */
+copyfl()
+{
+	register int	ch;
+
+	while (--n >= 0)
+		do {
+			ch = getchar();
+			if (ch == EOF)
+				return;
+			putchar(ch);
+		} while (ch != '\n');
+}
+
+
+/*
+ * Copyfc copys the first `n' characters of stdin to stdout.
+ */
+copyfc()
+{
+	register int	ch;
+
+	for (ch=getchar(); --n >= 0  &&  ch != EOF; ch=getchar())
+		putchar(ch);
+}
+
+
+/*
+ * Copybc copys all but the last `n' characters of stdin to stdout.
+ */
+copybc()
+{
+	register char	*buf,
+			*chp,
+			*limit;
+	char		ch;
+	unsigned	len;
+
+	if (n > MAXUINT)
+		die(nospace);
+	len = n;
+	buf = (char *)malloc(len);
+	if (buf == NULL)
+		die(nospace);
+	len = fread(buf, sizeof *buf, len, stdin);
+	if (len < n) {
+		fwrite(buf, sizeof *buf, len, stdout);
+		free(buf);
+		return;
+	}
+	limit = buf + len;
+	for (chp=buf; (ch=getchar()) != EOF;) {
+		putchar(*chp);
+		*chp++ = ch;
+		if (chp == limit)
+			chp = buf;
+	}
+}
+
+
+/*
+ * Copybl copys all but the last `n' lines of stdin to stdout.
+ */
+copybl()
+{
+	register struct blk	*bp;
+	register char		*chp;
+	register int		extra;
+	int			len;
+	struct blk		**tail,
+				*head;
+
+	if (n > MAXINT)
+		die(nospace);
+	extra = -n;
+	for (tail=&head;;) {
+		len = getblk(tail);
+		bp = *tail;
+		tail = &bp->next;
+		extra += bp->nlines;
+		for (bp=head; extra > bp->nlines; bp=bp->next) {
+			extra -= bp->nlines;
+			fwrite(bp->blkb, sizeof *bp->blkb, BUFSIZ, stdout);
+			free(bp);
+		}
+		head = bp;
+		if (len < BUFSIZ)
+			break;
+	}
+	for (bp=head, chp=bp->blkb; extra > 0; --extra)
+		while (*chp++ != '\n')
+			;
+	fwrite(bp->blkb, sizeof *bp->blkb, chp-bp->blkb, stdout);
+}
+
+
+/*
+ * Getblk allocates a blk, reads text into it and sets the nlines
+ * field.  It returns the number of characters read.  It sets `bpp'
+ * to point to the block.  If the block could not be allocated, then
+ * it dies with the appropriate error message.
+ */
+getblk(bpp)
+struct blk	**bpp;
+{
+	register struct blk	*bp;
+	register int		len;
+
+	bp = (struct blk *)malloc(sizeof *bp);
+	if (bp == NULL)
+		die(nospace);
+	*bpp = bp;
+	len = fread(bp->blkb, sizeof *bp->blkb, BUFSIZ, stdin);
+	bp->nlines = cntlines(bp->blkb, len);
+	return (len);
+}
+
+
+/*
+ * Cntlines returns the number of '\n' characters in the char array
+ * `chp' with length `len'.
+ */
+cntlines(chp, len)
+register char	*chp;
+int		len;
+{
+	register char	*limit;
+	register int	res;
+
+	for (res=0, limit=&chp[len]; chp < limit;)
+		if (*chp++ == '\n')
+			++res;
+	return (res);
+}
+@

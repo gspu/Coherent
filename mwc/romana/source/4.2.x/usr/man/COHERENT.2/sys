@@ -1,0 +1,964 @@
+ssyyss -- System Administration
+
+Data base for UUCP connections
+/uussrr/lliibb/uuuuccpp/ssyyss
+
+The  file /uussrr/lliibb/uuuuccpp/ssyyss  describes  how to  communicate  with a  remote
+system.   The UUCP  daemon  uuuucciiccoo uses  the  information in  this file  to
+telephone a  remote system, log into  a remote system, and  control what it
+allows a remote system to do on your system.
+
+Please note that the command ccuu  also reads file ssyyss for information on how
+it can  call a remote  system.  This article, however,  concentrates on how
+this file is used by the daemon uuuucciiccoo.
+
+_S_t_r_u_c_t_u_r_e _o_f _s_y_s _F_i_l_e
+ssyyss has the following structure:
+
+    command _a_r_g_u_m_e_n_t
+        ...
+    aalltteerrnnaattee
+    command _a_r_g_u_m_e_n_t
+        ...
+    aalltteerrnnaattee
+    command _a_r_g_u_m_e_n_t
+        ...
+    ssyysstteemm _r_e_m_o_t_e_s_y_s_t_e_m
+    command _a_r_g_u_m_e_n_t
+        ...
+    aalltteerrnnaattee
+    command _a_r_g_u_m_e_n_t
+        ...
+    ssyysstteemm _r_e_m_o_t_e_s_y_s_t_e_m
+    command _a_r_g_u_m_e_n_t
+        ...
+    aalltteerrnnaattee
+    command _a_r_g_u_m_e_n_t
+        ...
+
+Blank lines  in the file are  ignored.  The body of the  file consists of a
+series of commands; each command defines one or more values; each value, in
+turn,  determines one  aspect of  how your system  interacts with  a remote
+system.  A  backslash at the end  of a line lets an  entry extend over more
+than one one line.
+
+The commands  from the top  of ssyyss to  the first ssyysstteemm  command set global
+values  -- that  is, the  values used  by default  when dealing  with every
+remote system.  Note that uuuucciiccoo  recognizes a number of global values that
+are not explicitly written in ssyyss.
+
+The command  ssyysstteemm names  a remote system.   The commands from  one ssyysstteemm
+command to the next (or the  end of the file, whichever comes first) define
+the values  that uuuucciiccoo uses when it communicates  with that system.  These
+system-specific values can override any of the global values.
+
+The command aalltteerrnnaattee introduces a block of alternate values.  The commands
+from one  aalltteerrnnaattee command to the  next aalltteerrnnaattee command (or  to the next
+ssyysstteemm command  or to  the end  of the file,  whichever comes first)  set a
+block of  alternate values.  uuuucciiccoo  uses a block of  alternate values when
+the default values (and all  preceding blocks of alternate values) fail for
+any  reason.   By  defining blocks  of  alternate  values,  you can  define
+multiple ways to interact with a remote system.
+
+As you can see the above  display, both the global section and each system-
+specific section  can contain blocks  of alternate commands.   The order in
+which uuuucciiccoo reads blocks of  commands is important: each block can contain
+its own  version of a given  command, and uuuucciiccoo uses the  value set by the
+command that it has read last.   The following describes the order in which
+uuuucciiccoo reads commands when it attempts to call site _r_e_m_o_t_e_s_i_t_e:
+
+11. uuuucciiccoo reads its default  global values (which are described below).  It
+   then reads  the global-values section of ssyyss, up  to the first aalltteerrnnaattee
+   command.
+
+22. uuuucciiccoo  reads the  section _r_e_m_o_t_e_s_i_t_e,  from its  ssyysstteemm command  to the
+   first aalltteerrnnaattee command.
+
+33. uuuucciiccoo calls _r_e_m_o_t_e_s_i_t_e.
+
+44. If the  call to  _r_e_m_o_t_e_s_i_t_e succeeds,  then all is  well.  If  it fails,
+   however, then uuuucciiccoo reads the  first block of alternate commands in the
+   global  section,  then the  first  block of  alternate  commands in  the
+   section for _r_e_m_o_t_e_s_i_t_e.
+
+   Note that  a block of  alternate values can simply  reproduce values set
+   previously.   This has  the effect  of  forcing uuuucciiccoo  to try  the same
+   values once again.
+
+55. uuuucciiccoo again calls _r_e_m_o_t_e_s_i_t_e.
+
+66. If the call  succeeds, then all is well.  If  it fails, uuuucciiccoo reads the
+   second block  of alternate values  (should there be one)  in the global-
+   defaults  section, then  the second  block  of alternate  values (again,
+   should there  be one) in the section for  _r_e_m_o_t_e_s_y_s_t_e_m. uuuucciiccoo makes its
+   third attempt to call _r_e_m_o_t_e_s_i_t_e.
+
+This process  continues either until uuuucciiccoo succeeds  in getting through to
+_r_e_m_o_t_e_s_i_t_e, or until it runs out  of blocks of alternate values in both the
+global section and in the site-specific section.
+
+As  you can see,  it can  be difficult  at times to  tell just  what values
+uuuucciiccoo  is using  at any  given  time.  The  command uuuucchheecckk  can help  you
+untangle this skein of values.  See its Lexicon entry for details.
+
+_S_t_r_u_c_t_u_r_a_l _C_o_m_m_a_n_d_s
+The  following  commands help  control  the manner  in  which uuuucciiccoo  reads
+commands from ssyyss:
+
+ssyysstteemm _r_e_m_o_t_e_s_y_s_t_e_m
+     Name the  remote system.  All  commands up to the  next ssyysstteemm command
+     refer to the system _r_e_m_o_t_e_s_y_s_t_e_m.
+
+aalltteerrnnaattee [_n_a_m_e]
+     Introduce an  alternate set of  commands.  The optional  _n_a_m_e lets you
+     name this  block of alternate  commands; if uuuucciiccoo uses  this block of
+     alternate commands, it records _n_a_m_e in the log file for _r_e_m_o_t_e_s_y_s_t_e_m.
+
+ddeeffaauulltt-aalltteerrnnaatteess ttrruuee/ffaallssee
+     If its  argument is ffaallssee, do  not use any blocks  of alternate values
+     from the global section.  The default is ttrruuee.
+
+_C_h_a_t _C_o_m_m_a_n_d_s
+The  command cchhaatt  defines a  chat  script.  A  _c_h_a_t _s_c_r_i_p_t  summarizes the
+conversation that your system has with  the remote system as it attempts to
+log into that system.
+
+cchhaatt has the following structure:
+
+    cchhaatt _e_x_p_e_c_t _r_e_s_p_o_n_d _e_x_p_e_c_t _r_e_s_p_o_n_d ... _e_x_p_e_c_t _r_e_s_p_o_n_d
+
+As you  can see,  a chat  script consists of  pairs of strings.   Each pair
+contains an _e_x_p_e_c_t string, which gives what you expect the remote system to
+say to  your system;  and a  _r_e_s_p_o_n_d string, which  gives what  your system
+sends in  reply.  When uuuucciiccoo runs out of  _e_x_p_e_c_t/_r_e_s_p_o_n_d pairs, it assumes
+that it  has succeeded in  logging into _r_e_m_o_t_e_s_y_s_t_e_m.  If you want  to send
+something to  the remote system without waiting an  _e_x_p_e_c_t string, then the
+_e_x_p_e_c_t string in a _e_x_p_e_c_t/_r_e_s_p_o_n_d pair should be simply a pair of quotation
+marks with nothing between.
+
+The strings  in the chat  script are demarcated  by white space.   For that
+reason,  you must  use the  escape  sequence `\ss'  to indicate  white space
+within a  string.  You can embed other escape  sequences within the _r_e_s_p_o_n_d
+string; these are given below.
+
+An _e_x_p_e_c_t string can contain several sub-strings separated by hyphens.  The
+sub-strings themselves  comprise pairs of _e_x_p_e_c_t/_r_e_s_p_o_n_d  strings.  If your
+system does not receive the first  expect sub-string, it can send the first
+_r_e_s_p_o_n_d  string (to  prod the  remote system) and  await the  second _e_x_p_e_c_t
+string; and so  on, until your system either runs  out of sub-strings or it
+receives  an expect  sub-string that  it recognizes.   You can,  of course,
+repeat the  same _e_x_p_e_c_t/_r_e_s_p_o_n_d pair  more than once.   Because sub-strings
+are separated by hyphens, you cannot  use a literal hyphen in a string; you
+should indicate  a literal hyphen by the escape  sequence `\055' (ASCII for
+the hyphen character).
+
+You can embed the following escape sequences in a _r_e_s_p_o_n_d string:
+
+     \LL        Your system's login name
+     \PP        The password on the system being contacted
+     \ZZ        Send name of the system being called
+     \bb        Backspace
+     \nn        Newline or line feed
+     \NN        NUL
+     \rr        Carriage return
+     \ss        Space
+     \tt        Tab
+     \\        Literal backslash character
+     \_D_D_D      Character with octal value _D_D_D
+     \xx_D_D_D     Character with hexadecimal value _D_D_D
+     EEOOTT       End-of-transmission character (<ccttrrll-DD>)
+     BBRREEAAKK     Break character
+     \cc        Suppress carriage return at end of send string
+     \dd        Delay sending for one or two seconds
+     \ee        Disable echo checking
+     \EE        Enable echo checking
+     \KK        Same as BBRREEAAKK
+     \pp        Pause sending for a fraction of a second
+
+As  in C,  up  to three  octal  digits may  follow a  backslash The  escape
+sequence \xx can be followed  by an indefinite number of hexadecimal digits.
+To follow a hexadecimal escape sequence with a hexadecimal digit, interpose
+a send string of `""'.
+
+uuuucciiccoo sends a  carriage return at the end of  each send string, unless the
+escape sequence \cc appears in the string.
+
+``Echo checking''  means that after uuuucciiccoo writes  each character, it waits
+for  the  remote  system to  echo  it.   You  must  turn on  echo  checking
+separately for each send string for which you want it.
+
+The following gives an example chat script:
+
+    chat "" \r\c ogin:-BREAK-ogin:-BREAK-ogin: nuucp word: public
+
+This does the following:
+
+11. Expect nothing from the modem (as indicated by the empty string "").
+
+22. Send newline and  carriage-return characters, as indicated by the escape
+   sequence \rr\cc.
+
+33. Expect the string ooggiinn: (or a  string that ends with ooggiinn:).  If this is
+   not received within the defined pause period, send a break character (as
+   indicated by  the escape sequence BBRREEAAKK), and wait  again for ooggiinn:.  If
+   the procedure  times out  again, send  another break character  and wait
+   again.  If the third attempt times out, quit.
+
+44. When the  ooggiinn: string is  received (at which point  the _r_e_m_o_t_e_s_y_s_t_e_m is
+   presumably asking your system to log in), send nnuuuuccpp.
+
+55. Wait for the string wwoorrdd:, that is, the tail of the prompt PPaasssswwoorrdd:.
+
+66. When the password prompt is received, reply with the password ppuubblliicc.
+
+The  following  commands help  control  the  chat your  system  has with  a
+_r_e_m_o_t_e_s_y_s_t_e_m:
+
+cchhaatt-ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait _s_e_c_o_n_d_s  for the remote system  to respond to a  send string.  If
+     send string times out, uuuucciiccoo sends the next send sub-string (if there
+     is one), or fails.  The default is 60.
+
+cchhaatt-ffaaiill _s_t_r_i_n_g
+     Abort the  chat if _s_t_r_i_n_g  is received.  _s_t_r_i_n_g  cannot contain white-
+     space characters; use escape sequences instead.
+
+     The  description  for  _r_e_m_o_t_e_s_y_s_t_e_m  can  contain  multiple  cchhaatt-ffaaiill
+     commands.  The default is to have none.
+
+cchhaatt-sseevveenn-bbiitt ttrruuee/ffaallssee
+     If  the argument  is ttrruuee,  uuuucciiccoo strips  all incoming  characters to
+     seven bits before it  compares them with the expect string; otherwise,
+     it uses all eight bits.  The default is ttrruuee because some UNIX systems
+     generate  parity bits  during the  login prompt  that must  be ignored
+     while running a chat script.
+
+cchhaatt-pprrooggrraamm _p_r_o_g_r_a_m _a_r_g_u_m_e_n_t_s
+     Pass _a_r_g_u_m_e_n_t_s (if  any) to _p_r_o_g_r_a_m, which is the  full path name of a
+     program that  you want uuuucciiccoo to execute before  it executes your cchhaatt
+     command.  _p_r_o_g_r_a_m  can contain its  own version of a  chat script; but
+     this is  not required.  If  both a system's  description contains both
+     the commands cchhaatt-pprrooggrraamm  and cchhaatt, uuuucciiccoo always executes the former
+     first.
+
+     _a_r_g_u_m_e_n_t_s can contain any of the following escape sequences:
+
+         \YY  Port device name
+         \SS  Port speed
+         \\  Literal backslash
+
+     uuuucciiccoo connects  the standard input and standard  output of _p_r_o_g_r_a_m to
+     the port  in use, and  connects the standard  error of _p_r_o_g_r_a_m  to the
+     UUCP log file.  If _p_r_o_g_r_a_m does not exit with a status of zero, uuuucciiccoo
+     assumes that it has failed.
+
+     uuuucciiccoo runs _p_r_o_g_r_a_m  as user uuuuccpp, and the environment  is that of the
+     process that  invoked uuuucciiccoo. Take care that by  using _p_r_o_g_r_a_m, you do
+     not compromise your system's security.
+
+_A_l_i_a_s_e_s _a_n_d _I_d_e_n_t_i_f_i_e_r_s
+The following commands let you manipulate how your system identifies itself
+to a _r_e_m_o_t_e_s_y_s_t_e_m, and how  it identifies other systems that are attempting
+to log into it:
+
+aalliiaass _s_y_s_t_e_m_a_l_i_a_s
+     Define _s_y_s_t_e_m_a_l_i_a_s to be  an alias for _r_e_m_o_t_e_s_y_s_t_e_m. The commands uuuuccpp
+     and uuuuxx can use _s_y_s_t_e_m_a_l_i_a_s, as can _r_e_m_o_t_e_s_y_s_t_e_m itself.  This command
+     is  helpful should  _r_e_m_o_t_e_s_y_s_t_e_m change  its name:  it spares  you the
+     trouble  of  having  to comb  through  your  system  to replace  every
+     occurrence of the old name.  The default is to have no aliases.
+
+mmyynnaammee _m_y_s_y_s_n_a_m_e
+     Tell your  system to identify itself as _m_y_s_y_s_n_a_m_e  instead of its true
+     name (as kept in file /eettcc/uuuuccppnnaammee) when it calls _r_e_m_o_t_e_s_y_s_t_e_m.
+
+     If the  description of _r_e_m_o_t_e_s_y_s_t_e_m includes  the command ccaalllleedd-llooggiinn
+     without  the  argument  AANNYY,  your  system  will  identify  itself  as
+     _m_y_s_y_s_n_a_m_e when it is called by _r_e_m_o_t_e_s_y_s_t_e_m.
+
+ccaallll-llooggiinn _l_o_g_i_n_n_a_m_e
+     Tell uuuucciiccoo how to expand the escape sequence \LL, which stands for the
+     login name.  With this command, you can use a default chat script with
+     several different  systems, expanding  the login escape  sequence (and
+     password, as will be shown next) with the appropriate strings.
+
+ccaallll-ppaasssswwoorrdd _p_a_s_s_w_o_r_d
+     Tell uuuucciiccoo how  to expand the escape sequence \PP,  which stands for a
+     password.   As  with the  command  ccaallll-llooggiinn,  described above,  this
+     command lets you  use the same chat script with  a number of different
+     systems,  by expanding  the  login and  password  escape sequences  as
+     needed.
+
+_T_i_m_e _S_t_r_i_n_g_s _a_n_d _T_i_m_e _C_o_m_m_a_n_d_s
+Many of the commands that you can use in _s_y_s commands use a special kind of
+string,  the  _t_i_m_e _s_t_r_i_n_g,  to  specify  a range  of  time.  The  following
+describes the structure of a time string.
+
+Each simple time string begins with  a token that sets the day of the week.
+You can use any one of the following values:
+
+     SSuu        Sunday only
+     MMoo        Monday only
+     TTuu        Tuesday only
+     WWee        Wednesday only
+     TThh        Thursday only
+     FFrr        Friday only
+     SSaa        Saturday only
+     WWkk        Every week (Monday through Friday)
+     AAnnyy       Every day of the week
+
+You can  name more  than one  day of the  week in  a time string:  just use
+commas to separate entries.
+
+After the day of the week  comes a range of hours and minutes The beginning
+and ending times  are separated by a hyphen.  Military  time is used, i.e.,
+hour 0 (midnight)  through hour 23 (11 PM).  uuuucciiccoo  uses the local time on
+your system.  The  range of time can may cross  midnight; for example 22330000-
+00770000 indicates 11 PM to 7 AM the following day.
+
+If no time is given, any time applies.  The word NNeevveerr in place of the time
+string indicates  that this  remote system is  never to be  contacted.  You
+should use  this setting for systems  that contact you but  which you never
+contact.
+
+You can  specify more than one  day/time combination in a  time string; use
+commas to separate entries.
+
+The following gives examples of time strings:
+
+WWkk22330055-00885555,SSaa,SSuu22330055-11665555
+     Weekdays  from 11:05  PM to  8:55 AM  the following  day; any  time on
+     Saturday; and Sunday from 11:05 PM to 4:55 PM the following day.
+
+WWkk00990055-22225555,SSuu11770055-22225555
+     Weekdays from  9:05 AM to 10:55  PM, and Sunday from  5:05 PM to 10:55
+     PM.  The remote system cannot be called on Saturday.
+
+The following commands control when _r_e_m_o_t_e_s_y_s_t_e_m is contacted:
+
+ttiimmee _t_i_m_e_s_t_r_i_n_g [_r_e_t_r_y]
+     Specify  when your  system can call  _r_e_m_o_t_e_s_y_s_t_e_m. _t_i_m_e_s_t_r_i_n_g  gives a
+     time  string;  the  section  TTiimmee  SSttrriinnggss,  above, describes  how  to
+     construct one.   _r_e_t_r_y, if used, defines how long  to wait before your
+     system attempt to call  _r_e_m_o_t_e_s_y_s_t_e_m again.  The default time for each
+     _r_e_m_o_t_e_s_y_s_t_e_m is NNeevveerr.
+
+     The optional  argument _r_e_t_r_y sets  many minutes your  system will wait
+     before  it attempts  to  recontact _r_e_m_o_t_e_s_y_s_t_e_m,  should  a call  made
+     during  _t_i_m_e_s_t_r_i_n_g fail.   If  _r_e_t_r_y is  not defined,  uuuucciiccoo uses  an
+     exponentially increasing retry time: after each failure the next retry
+     period is longer.
+
+     The description  of _r_e_m_o_t_e_s_y_s_t_e_m  can contain multiple  ttiimmee commands.
+     uuuucciiccoo will  call _r_e_m_o_t_e_s_y_s_t_e_m  if the  current time matches  the time
+     defined by any of them.
+
+ttiimmeeggrraaddee _g_r_a_d_e _t_i_m_e_s_t_r_i_n_g [rreettrryy]
+     This command tells  uuuucciiccoo to call _r_e_m_o_t_e_s_y_s_t_e_m only if  a file with a
+     grade  greater than  or equal  to _g_r_a_d_e is  awaiting transfer  to that
+     system.
+
+     _g_r_a_d_e gives  the grade  of file  to await.  It  is a single  letter or
+     digit, from `0' to `9', `A' to `Z', and `a' to `z', in this order from
+     highest grade to lowest.
+
+     _t_i_m_e_s_t_r_i_n_g gives  the period  of time  to which this  command applies.
+     _r_e_t_r_y gives the length of time, in minutes, that your system must wait
+     before it recontacts _r_e_m_o_t_e_s_y_s_t_e_m should a call made during _t_i_m_e_s_t_r_i_n_g
+     fail.
+
+     The command  ttiimmee is equivalent to the command  ttiimmeeggrraaddee with a grade
+     of  `z', which  permits all  jobs to  be run.   The command  uuuucciiccoo -SS
+     overrides _g_r_a_d_e; the command uuuucciiccoo -ss does not.
+
+     The _g_r_a_d_e  applies only  to calls made  to _r_e_m_o_t_e_s_y_s_t_e_m, not  to calls
+     that it makes to you.
+
+     The description of _r_e_m_o_t_e_s_y_s_t_e_m can have multiple ttiimmeeggrraaddee commands.
+
+     The command ccaallll-ttiimmeeggrraaddee, described below, complements this command.
+
+ccaallll-ttiimmeeggrraaddee _g_r_a_d_e _t_i_m_e_s_t_r_i_n_g
+     This command tells uuuucciiccoo to ask _r_e_m_o_t_e_s_y_s_t_e_m to execute only the jobs
+     with a  grade of _g_r_a_d_e  or higher, should it  call _r_e_m_o_t_e_s_y_s_t_e_m during
+     the period  of time defined  in _t_i_m_e_s_t_r_i_n_g. This  commands complements
+     the command  ttiimmeeggrraaddee: while ttiimmeeggrraaddee  limits what your  system does
+     with  the  remote   system,  ccaallll-ttiimmeeggrraaddee  attempts  to  limit  what
+     _r_e_m_o_t_e_s_y_s_t_e_m does to your system.
+
+     _g_r_a_d_e gives the grade of the job to send.  It is be a single letter or
+     digit, from `0' to `9', `A' to `Z', and `a' to `z', in this order from
+     highest grade to lowest.  _t_i_m_e_s_t_r_i_n_g gives the period of time to which
+     this command applies.  It is a time string, as defined above.
+
+     The description of  a _r_e_m_o_t_e_s_y_s_t_e_m can contain multiple ccaallll-ttiimmeeggrraaddee
+     commands.
+
+     Please note  that not every  implementation of UUCP  will cooperate in
+     setting grades to its jobs.  If this command does not appear, or if no
+     time string matches, the remote system can send whatever grade of work
+     it chooses.
+
+_R_e_t_r_i_e_s _a_n_d _W_a_i_t_i_n_g
+The following  commands define how  often uuuucciiccoo will try  to do something,
+and how long it will wait for a particular event to happen.
+
+mmaaxx-rreettrriieess _r_e_t_r_i_e_s
+     Recontact a  _r_e_m_o_t_e_s_y_s_t_e_m no more  than than _r_e_t_r_i_e_s  times during any
+     time time period.  The default number of retries is 26.
+
+ssuucccceessss-wwaaiitt _s_e_c_o_n_d_s
+     Wait  _s_e_c_o_n_d_s before  recontacting a  _r_e_m_o_t_e_s_y_s_t_e_m after  a successful
+     call.   This  limits  the  number  of  times a  _r_e_m_o_t_e_s_y_s_t_e_m  will  be
+     contacted during a given time period.  The default is zero.
+
+_P_o_r_t_s _a_n_d _T_e_l_e_p_h_o_n_e_s
+The  following commands  govern how  uuuucciiccoo selects  a port  and telephones
+_r_e_m_o_t_e_s_y_s_t_e_m.
+
+bbaauudd _s_p_e_e_d
+ssppeeeedd _s_p_e_e_d
+     Set the  speed (or ``baud rate'') at which  to call _r_e_m_o_t_e_s_y_s_t_e_m. This
+     tells  uuuucciiccoo to  try every  port  defined in  file /uussrr/lliibb/uuuuccpp/ppoorrtt
+     until it finds an unlocked port that runs at _s_p_e_e_d.
+
+     If the  description of _r_e_m_o_t_e_s_y_s_t_e_m  contains both the  bbaauudd and ppoorrtt,
+     uuuucciiccoo uses both when it selects a port.
+
+     If you wish to try multiple speeds when contacting a _r_e_m_o_t_e_s_y_s_t_e_m, you
+     must embed each bbaauudd command in its own set of alternate commands.
+
+     uuuucciiccoo does not use a default speed.  The command
+
+         baud 0
+
+     tells uuuucciiccoo  to use  the ``natural'' speed  of a port  (whatever that
+     is), and override and overrides any bbaauudd or ssppeeeedd commands that appear
+     in the global defaults.
+
+     To  place a  call to  a _r_e_m_o_t_e_s_y_s_t_e_m, its  description (or  the global
+     defaults) must name a port through which to dial out, either with bbaauudd
+     or with the command ppoorrtt (described below).
+
+ppoorrtt _p_o_r_t_n_a_m_e
+     Name or describe the port through which to contact _r_e_m_o_t_e_s_y_s_t_e_m.
+
+     If used with only one  argument, uuuucciiccoo assumes that that string names
+     a port  defined in the file /uussrr/lliibb/uuuuccpp/ppoorrtt.  _p_o_r_t_n_a_m_e may point to
+     more  than one  physical device;  uuuucciiccoo tries each  in turn  until it
+     finds one that is unlocked.
+
+     If used  with more  than one string,  uuuucciiccoo assumes that  the strings
+     define a port, in the same way as done in the file ppoorrtt.
+
+     To  place a  call to  a _r_e_m_o_t_e_s_y_s_t_e_m, its  description (or  the global
+     defaults) must name a port through which to dial out, either with ppoorrtt
+     or with the command bbaauudd (described above).
+
+pphhoonnee _n_u_m_b_e_r
+     Give the  telephone number  of _r_e_m_o_t_e_s_y_s_t_e_m.  An `=' character  in the
+     telephone number tells uuuucciiccoo to wait for a secondary dial tone.  A `-
+     ' character tells uuuucciiccoo to pause for one second while dialing
+
+     The  description  of  a _r_e_m_o_t_e_s_y_s_t_e_m  can  have  more  than one  pphhoonnee
+     command, one for each number  at which you can call that _r_e_m_o_t_e_s_y_s_t_e_m.
+     If  you   want  your  system  to   telephone  _r_e_m_o_t_e_s_y_s_t_e_m,  then  its
+     description must contain at least one pphhoonnee command.
+
+_P_r_o_t_o_c_o_l_s _a_n_d _P_r_o_t_o_c_o_l _V_a_r_i_a_b_l_e_s
+The command
+
+    pprroottooccooll _c_o_d_e_s
+
+names the  communication protocols to use with  _r_e_m_o_t_e_s_y_s_t_e_m. _c_o_d_e must one
+or more lower-case  letters, each of which names a  protocol.  If more than
+one protocol is named, uuuucciiccoo considers them in the order in which you give
+them.
+
+uuuucciiccoo recognizes the following protocol codes:
+
+ii  This is a bidirectional  protocol: that is, your system and _r_e_m_o_t_e_s_y_s_t_e_m
+   can  both send  and receive simultaneously.   This protocol  requires an
+   eight-bit connection.
+
+gg  This   is  the   first,  and   the   commonest  UUCP   protocol.   Every
+   implementation of  UUCP supports this  protocol; some support  no other.
+   It requires an eight-bit  connection.  For a detailed description of how
+   this protocol works, see the article by Steven Baker, cited below.
+
+GG  This is the System V Release 4 version of the gg protocol.
+
+aa  This mimics the  Z-Modem protocol.  It requires an eight-bit connection;
+   but  unlike the  gg and  ii protocols,  it works  even if  certain control
+   characters  cannot   be  transmitted.   (Code  for   this  protocol  was
+   contributed by Doug Evans.)
+
+jj  This is  a variant of  the ii protocol,  which can avoid  certain control
+   characters.  The set of characters it  avoids can be set by a parameter.
+   It is useful over a  eight-bit connection that will not transmit certain
+   control characters.
+
+ff  This protocol  supports X.25 connections.   It checksums each  file as a
+   whole,  so any  error causes  the entire file  to be  retransmitted.  It
+   requires a  reliable connection, but uses  only seven-bit transmissions.
+   It is  a streaming  protocol; therefore,  you can use  it with  a serial
+   port, but the port must be completely reliable and flow controlled.
+
+If  you do  not use  the  pprroottooccooll command  to specify  a protocol,  uuuucciiccoo
+considers the protocols in the order  given above, and chooses one based on
+the  characteristics of  the port  and  the dialer  specified in  the files
+/uussrr/lliibb/uuuuccpp/ppoorrtt and /uussrr/lliibb/uuuuccpp/ddiiaall.  The port and dial must meet the
+requirements  of   a  protocol  before  uuuucciiccoo   will  consider  it  during
+negotiation with _r_e_m_o_t_e_s_y_s_t_e_m.
+
+If neither the sseevveenn-bbiitt nor the  rreelliiaabbllee command is used, uuuucciiccoo will use
+the ii  protocol (subject,  of course,  to what is  supported by  the remote
+system; you  cannot assume  that all systems  support the ii  protocol).  No
+current  protocol can  be used  with a  port for  which you  have specified
+sseevveenn-bbiitt ttrruuee  and rreelliiaabbllee ffaallssee.  You must use the  pprroottooccooll command for
+the system, or uuuucciiccoo will select no protocol at all.  (The only reasonable
+choice would be pprroottooccooll ff.) You can use the command
+
+    pprroottooccooll-ppaarraammeetteerr _p_r_o_t_o_c_o_l _s_t_r_i_n_g ...
+to modify a protocol's default parameters.
+
+The ii protocol recognizes the following parameters:
+
+wwiinnddooww _s_i_z_e
+     Request  that _r_e_m_o_t_e_s_y_s_t_e_m  use  a _s_i_z_e  window, between  one and  31,
+     inclusive.  The default is 16.
+
+ppaacckkeett-ssiizzee _s_i_z_e
+     Request that _r_e_m_o_t_e_s_y_s_t_e_m use a  packet of _s_i_z_e bytes, between one and
+     4,095, inclusive.  The default is 1,024.
+
+rreemmoottee-wwiinnddooww _s_i_z_e
+     Ignore the  window size  requested by  _r_e_m_o_t_e_s_y_s_t_e_m, and instead  us a
+     window of _s_i_z_e.  The default is zero, which means  that the request of
+     _r_e_m_o_t_e_s_y_s_t_e_m is honored.
+
+rreemmoottee-ppaacckkeett-ssiizzee _s_i_z_e
+     Ignore the  packet size requested  by _r_e_m_o_t_e_s_y_s_t_e_m, and  instead use a
+     packet  of _s_i_z_e  bytes.  The  default  is zero,  which means  that the
+     request of _r_e_m_o_t_e_s_y_s_t_e_m is honored.
+
+ssyynncc-ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait _s_e_c_o_n_d_s for a SYNC packet from _r_e_m_o_t_e_s_y_s_t_e_m. The default is ten.
+
+ssyynncc-rreettrriieess _n_u_m_b_e_r
+     Resend a  SYNC packet _n_u_m_b_e_r  times before giving up.   The default is
+     six.
+
+ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait _s_e_c_o_n_d_s  for an  incoming packet  before sending a  NAK (negative
+     acknowledgement) The default is ten.
+
+rreettrriieess _n_u_m_b_e_r
+     Resend a packet  or negative acknowedgement _n_u_m_b_e_r times before giving
+     and closing the connection.  The default is six.
+
+eerrrroorrss _n_u_m_b_e_r
+     Quit after _n_u_m_b_e_r errors have occurred.  The default is 100.
+
+eerrrroorr-ddeeccaayy _n_u_m_b_e_r
+     Decrease the  count of errors  by one after  receiving _n_u_m_b_e_r packets.
+     This  keeps   occasional  errors  from  accumulating   during  a  long
+     conversation,  and   so  aborting   what  is  actually   a  successful
+     transmission.  The default is ten.
+
+The protocols gg and GG recognize the following parameters:
+
+wwiinnddooww _s_i_z_e
+     Request that  _r_e_m_o_t_e_s_y_s_t_e_m use a  _s_i_z_e window, between  one and seven,
+     inclusive.  The default is seven.
+
+ppaacckkeett-ssiizzee _s_i_z_e
+     Request that _r_e_m_o_t_e_s_y_s_t_e_m use a  packet size of _s_i_z_e bytes.  ssiizzee must
+     be a  power of two, between  32 and 4,096, inclusive.   The default is
+     64,  which  is the  only  packet  size supported  by  many older  UUCP
+     packages.
+
+ssttaarrttuupp-rreettrriieess _n_u_m_b_e_r
+     Retry the entire initialization sequence _n_u_m_b_e_r times before quitting.
+     The default is eight.
+
+iinniitt-rreettrriieess _n_u_m_b_e_r
+     Retry  one phase  of the initialization  sequence _n_u_m_b_e_r  times before
+     quitting.  The default is four.
+
+iinniitt-ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait for  _s_e_c_o_n_d_s before  timing out  one phase of  the initialization
+     sequence.  The default is ten.
+
+rreettrriieess _n_u_m_b_e_r
+     Resend  a  packet  or a  request  for  a  packet  _n_u_m_b_e_r times  before
+     quitting.  The default is six.
+
+ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait for _s_e_c_o_n_d_s for a packet or an acknowledgement before timing out.
+     The default is ten.
+
+ggaarrbbaaggee _n_u_m_b_e_r
+     Drop  the connection after  receiving _n_u_m_b_e_r  unrecognized characters.
+     _n_u_m_b_e_r must be larger than the packet size.  The default is 10,000.
+
+eerrrroorrss _n_u_m_b_e_r
+     Quit  after _n_u_m_b_e_r  errors  have occurred.   Errors include  malformed
+     packets, out-of-order packets,  bad checksums, and packets rejected by
+     the remote system.  The default is 100.
+
+eerrrroorr-ddeeccaayy _n_u_m_b_e_r
+     Decrease the  count of errors  by one after  receiving _n_u_m_b_e_r packets.
+     This  keeps   occasional  errors  from  accumulating   during  a  long
+     conversation,  and   so  aborting   what  is  actually   a  successful
+     transmission.  The default is ten.
+
+rreemmoottee-wwiinnddooww _s_i_z_e
+     Ignore the  window size  requested by  _r_e_m_o_t_e_s_y_s_t_e_m, and instead  us a
+     window of _s_i_z_e.  The default is zero, which means  that the request of
+     _r_e_m_o_t_e_s_y_s_t_e_m is honored.
+
+rreemmoottee-ppaacckkeett-ssiizzee _s_i_z_e
+     Ignore the  packet size requested  by _r_e_m_o_t_e_s_y_s_t_e_m, and  instead use a
+     packet  of _s_i_z_e  bytes.  The  default  is zero,  which means  that the
+     request of _r_e_m_o_t_e_s_y_s_t_e_m is honored.
+
+sshhoorrtt-ppaacckkeettss ttrruuee/ffaallssee
+     If ttrruuee,  optimize transmission by sending  shorter packets when there
+     is  less  data  to  send.   This  confuses some  UUCP  packages;  when
+     connecting to such a package, this parameter must be set to ffaallssee. The
+     default is ttrruuee for the gg protocol and ffaallssee for the GG protocol.
+
+The  aa protocol  mimics the  Z-modem protocol.   It supports  the following
+commands.   All take  numeric arguments,  except for  eessccaappee-ccoonnttrrooll, which
+takes a Boolean argument:
+
+ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait _s_e_c_o_n_d_s for a packet before timing out.  The default is ten.
+
+rreettrriieess _n_u_m_b_e_r
+     Resend a packet _n_u_m_b_e_r times before quitting.  The default is ten.
+
+ssttaarrttuupp-rreettrriieess _n_u_m_b_e_r
+     Retry  sending   the  initialization  sequence   _n_u_m_b_e_r  times  before
+     quitting.  The default is four.
+
+ggaarrbbaaggee _n_u_m_b_e_r
+     Drop  the connection after  receiving _n_u_m_b_e_r  unrecognized characters.
+     _n_u_m_b_e_r must be larger than the packet size.  The default is 2,400.
+
+sseenndd-wwiinnddooww _n_u_m_b_e_r
+     Send  _n_u_m_b_e_r characters  before waiting  for an  acknowledgement.  The
+     default is 1,024.
+
+eessccaappee-ccoonnttrrooll ttrruuee/ffaallssee
+     If ttrruuee, uuuucciiccoo  can use the protocol over a  connection that does not
+     transmit  certain  control  characters,  such  as  XXOONN  or  XXOOFFFF.  The
+     connection must still transmit eight-bit characters other than control
+     characters.  The default is ffaallssee.
+
+The  jj protocol  can be  used over  an eight-bit  connection that  will not
+transmit certain control characters.  It accepts the same parameters as the
+ii protocol, plus one additional one:
+
+aavvooiidd _s_t_r_i_n_g
+     Avoid  every character  defined in _s_t_r_i_n_g.  _s_t_r_i_n_g can  contain escape
+     sequences, as defined above  for the chat script.  Each character must
+     be a non-printable ASCII character (i.e., ASCII values less than 32 or
+     greater  than  126).  Each  must  be defined  using  using the  escape
+     sequence \_D_D_D, where _D_D_D gives three octal digits.
+
+     The default value is \002211\002233 (i.e., XXOONN and XXOOFFFF).  If the package is
+     configured to  use HHAAVVEE_BBSSDD_TTTTYY,  then you may  have to avoid  \337777 as
+     well.
+
+The ff  protocol is intended for use with  error-correcting modems only.  It
+checksums each file  as a whole, so any error  causes the entire file to be
+retransmitted.  It supports the following commands:
+
+ttiimmeeoouutt _s_e_c_o_n_d_s
+     Wait _s_e_c_o_n_d_s before timing out.  The default is 120.
+
+rreettrriieess _n_u_m_b_e_r
+     Retry sending  a file  _n_u_m_b_e_r times  before quitting.  The  default is
+     two.
+
+_F_i_l_e _T_r_a_n_s_f_e_r_s
+The following commands help to control the transfer of files.
+
+sseenndd-rreeqquueesstt yyeess/nnoo
+     Set  whether _r_e_m_o_t_e_s_y_s_t_e_m  can request  files  from your  system.  The
+     default is yyeess, that is, _r_e_m_o_t_e_s_y_s_t_e_m may request files.
+
+rreecceeiivvee-rreeqquueesstt yyeess/nnoo
+     Set whether  _r_e_m_o_t_e_s_y_s_t_e_m can send files to  your system.  The default
+     is yyeess, that is, _r_e_m_o_t_e_s_y_s_t_e_m may send files.
+
+rreeqquueesstt yyeess/nnoo
+     This combines  the commands sseenndd-rreeqquueesstt and  rreecceeiivvee-rreeqquueesstt into one
+     command.
+
+ccaallll-ttrraannssffeerr yyeess/nnoo
+     Set whether  your system  may transfer  files to _r_e_m_o_t_e_s_y_s_t_e_m  when it
+     calls _r_e_m_o_t_e_s_y_s_t_e_m. The default is yyeess.
+
+ccaalllleedd-ttrraannssffeerr yyeess/nnoo
+     Set  whether  your  system may  transfer  files  to _r_e_m_o_t_e_s_y_s_t_e_m  when
+     _r_e_m_o_t_e_s_y_s_t_e_m calls your system.  The default is yyeess.
+
+ttrraannssffeerr yyeess/nnoo
+     This combines commands ccaallll-ttrraannssffeerr and ccaalllleedd-ttrraannssffeerr into one.
+
+ccaallll-llooccaall-ssiizzee _n_u_m_b_e_r _t_i_m_e_s_t_r_i_n_g
+     Send  or receive  no file  larger than _n_u_m_b_e_r  bytes when  your system
+     calls _r_e_m_o_t_e_s_y_s_t_e_m during the  time defined in _t_i_m_e_s_t_r_i_n_g. You can use
+     this command to help limit the length of a call made during times when
+     toll  charges are  higher.  The  description of  a system  may contain
+     multiple ccaallll-llooccaall-ssiizzee  commands, one  for each period  during which
+     you wish to limit activity.  The default is to have no limit.
+
+     Please  note that  the size-control commands,  are guaranteed  only to
+     limit the size of files being  sent by your system.  The size of files
+     being sent  from _r_e_m_o_t_e_s_y_s_t_e_m  can be checked  if the other  system is
+     running  the  Taylor   UUCP  package.   Other  UUCP  packages  do  not
+     understand a maximum-size request,  nor do they inform this package of
+     the size of the files they are sending.
+
+ccaallll-rreemmoottee-ssiizzee _n_u_m_b_e_r _t_i_m_e_s_t_r_i_n_g
+     Limit to _n_u_m_b_e_r bytes the size of a file that can be fetched by remote
+     request  (either by  your  system on  _r_e_m_o_t_e_s_y_s_t_e_m  or by  it on  your
+     system) when your system calls _r_e_m_o_t_e_s_y_s_t_e_m during the time defined in
+     _t_i_m_e_s_t_r_i_n_g.  The description  of a  _r_e_m_o_t_e_s_y_s_t_e_m can  contain multiple
+     ccaallll-llooccaall-ssiizzee commands, one for each period during which you wish to
+     limit activity.  The default is to have no limit.
+
+ccaalllleedd-llooccaall-ssiizzee _n_u_m_b_e_r _t_i_m_e_s_t_r_i_n_g
+     Send or  receive no  file larger  than _n_u_m_b_e_r bytes  when _r_e_m_o_t_e_s_y_s_t_e_m
+     calls  your  system   during  the  time  defined  in  _t_i_m_e_s_t_r_i_n_g.  The
+     description of a system may contain multiple ccaallll-llooccaall-ssiizzee commands,
+     one  for each  period during  which you wish  to limit  activity.  The
+     default is to have no limit.
+
+ccaalllleedd-rreemmoottee-ssiizzee _n_u_m_b_e_r _t_i_m_e_s_t_r_i_n_g
+     Limit to _n_u_m_b_e_r bytes the size of a file that can be fetched by remote
+     request  (either by  your  system on  _r_e_m_o_t_e_s_y_s_t_e_m  or by  it on  your
+     system) when _r_e_m_o_t_e_s_y_s_t_e_m calls your system during the time defined in
+     _t_i_m_e_s_t_r_i_n_g.  The description  of a  _r_e_m_o_t_e_s_y_s_t_e_m can  contain multiple
+     ccaallll-llooccaall-ssiizzee commands, one for each period during which you wish to
+     limit activity.  The default is to have no limit.
+
+llooccaall-sseenndd _d_i_r_e_c_t_o_r_y_l_i_s_t ...
+     Limit to _d_i_r_e_c_t_o_r_y_l_i_s_t the directories from which your system can send
+     files  to  _r_e_m_o_t_e_s_y_s_t_e_m.  Each  directory  in  _d_i_r_e_c_t_o_r_y_l_i_s_t  must  be
+     separated by  white space.   You can  use a tilde  `~' for  the public
+     directory,  i.e., /uussrr/ssppooooll/uuuuccppppuubblliicc.  Listing  a directory  within
+     _d_i_r_e_c_t_o_r_y_l_i_s_t lets  your system send  all files within  that directory
+     and its subdirectories.
+
+     Prefixing  a  directory with  an  exclamation  point `!'  specifically
+     excludes it and its  subdirectories from being sent.  For example, the
+     command
+
+         local-send /v/fwb !/v/fwb/Personal
+
+     means  that your  system can  send  all files  in directory  /vv/ffwwbb to
+     _r_e_m_o_t_e_s_y_t_e_m except for the files in directory /vv/ffwwbb/PPeerrssoonnaall.
+
+     uuuucciiccoo reads _d_i_r_e_c_t_o_r_y_l_i_s_t from  left to right, and the last directory
+     to apply  takes effect.  Therefore,  you should list  directories from
+     top down.   The default is  the root directory, i.e.,  your system can
+     send any file to _r_e_m_o_t_e_s_y_s_t_e_m.
+
+rreemmoottee-sseenndd _d_i_r_e_c_t_o_r_y_l_i_s_t
+     Limit  to _d_i_r_e_c_t_o_r_y_l_i_s_t  the directories  from which  _r_e_m_o_t_e_s_y_s_t_e_m can
+     request files.  The default is /uussrr/ssppooooll/uuuuccppppuubblliicc.
+
+llooccaall-rreecceeiivvee _d_i_r_e_c_t_o_r_y_l_i_s_t
+     Limit  to _d_i_r_e_c_t_o_r_y_l_i_s_t  the directories  into  which your  system can
+     write   files   requested    from   _r_e_m_o_t_e_s_y_s_t_e_m.   The   default   is
+     /uussrr/ssppooooll/uuuuccppppuubblliicc.
+
+rreemmoottee-rreecceeiivvee _d_i_r_e_c_t_o_r_y_l_i_s_t
+     Limit to _d_i_r_e_c_t_o_r_y_l_i_s_t the directories on _r_e_m_o_t_e_s_y_s_t_e_m into which your
+     system can  write files.   The default is  /uussrr/ssppooooll/uuuuccppppuubblliicc. This
+     command cannot  override permissions  that _l_o_c_a_l_s_y_s_t_e_m has  granted to
+     your system.
+
+ffoorrwwaarrdd-ttoo _s_y_s_t_e_m_l_i_s_t
+     Limit the  systems to  which your system  will forward files  to those
+     named  in _s_y_s_t_e_m_l_i_s_t.  A _s_y_s_t_e_m_l_i_s_t of  AANNYY lets  _r_e_m_o_t_e_s_y_s_t_e_m forward
+     files through your system to any  system it wants.  The default is not
+     to  permit  forwarding to  other  systems.  Note  that  if you  permit
+     _r_e_m_o_t_e_s_y_s_t_e_m  to   execute  the  command  uuuuccpp   on  your  system,  it
+     effectively has permission to forward to any system.
+
+ffoorrwwaarrdd-ffrroomm _s_y_s_t_e_m_l_i_s_t
+     Limit the  systems from which _r_e_m_o_t_e_s_y_s_t_e_m  request files through your
+     system  to  those  named  in  _s_y_s_t_e_m_l_i_s_t.  A _s_y_s_t_e_m_l_i_s_t  of  AANNYY  lets
+     _r_e_m_o_t_e_s_y_s_t_e_m request  files from  any system.   The default is  not to
+     permit _r_e_m_o_t_e_s_y_s_t_e_m to request  files from anywhere.  Note that if you
+     permit _r_e_m_o_t_e_s_y_s_t_e_m  to execute  the command  uuuuccpp on your  system, it
+     effectively has permission to fetch files through your system from any
+     other system.
+
+ffoorrwwaarrdd _s_y_s_t_e_m_l_i_s_t
+     This command combines the commands ffoorrwwaarrdd-ttoo and ffoorrwwaarrdd-ffrroomm.
+
+_M_i_s_c_e_l_l_a_n_e_o_u_s _C_o_m_m_a_n_d_s
+The following gives miscellaneous commands that can be used in ssyyss:
+
+sseeqquueennccee yyeess/nnoo
+     If ttrruuee, this commands tells uuuucciiccoo to use the conversation sequencing
+     for   _r_e_m_o_t_e_s_y_s_t_e_m.   This  means   that   if  somebody   impersonates
+     _r_e_m_o_t_e_s_y_s_t_e_m and  logs into your system, that  fact will be discovered
+     the next time _r_e_m_o_t_e_s_y_s_t_e_m actually calls.  The default is ffaallssee.
+
+ccoommmmaanndd-ppaatthh _p_a_t_h
+     Limit  to _p_a_t_h  the  directories that  a command  file forwarded  from
+     _r_e_m_o_t_e_s_y_s_t_e_m  can search  for  commands to  execute.  The  directories
+     named in _p_a_t_h must be separated by white space.
+
+ccoommmmaannddss _c_o_m_m_a_n_d_l_i_s_t
+     Limit the  commands that  _r_e_m_o_t_e_s_y_s_t_e_m can  execute on your  system to
+     those  named  in  _c_o_m_m_a_n_d_l_i_s_t.  A  _c_o_m_m_a_n_d_l_i_s_t AALLLL  lets  rreemmootteessyysstteemm
+     execute all programs on your system.  The default is rrnneewwss rrmmaaiill.
+
+ffrreeee-ssppaaccee _n_u_m_b_e_r
+     This command  tells uuuucciiccoo always to leave free  _n_u_m_b_e_r bytes of space
+     in a  file system.  This  command ensures that uuuucciiccoo  will not permit
+     _r_e_m_o_t_e_s_y_s_t_e_m to fill up your file  system.  If an incoming file is too
+     large to  leave _n_u_m_b_e_r bytes  free on the file  system, uuuucciiccoo refuses
+     the file or aborts its downloading.
+
+     Note that not every version of UUCP supports this.
+
+ppuubbddiirr _d_i_r_e_c_t_o_r_y
+     Name  the public  directory  available to  remote  UUCP systems.   The
+     default is /uussrr/ssppooooll/uuuuccppppuubblliicc.
+
+ddeebbuugg _a_c_t_i_v_i_t_y_l_i_s_t
+     Log  each  UUCP  activity  named  in  _a_c_t_i_v_i_t_y_l_i_s_t when  talking  with
+     _r_e_m_o_t_e_s_y_s_t_e_m. These  logs can help you debug  problems with uuuucciiccoo and
+     ccuu. uuuucciiccoo recognizes the following activities:
+
+          aabbnnoorrmmaall       cchhaatt                     hhaannddsshhaakkee
+          uuuuccpp-pprroottoo     pprroottoo                    ppoorrtt
+          ccoonnffiigg         ssppoooollddiirr                 eexxeeccuuttee
+          iinnccoommiinngg       oouuttggooiinngg
+
+     nnoonnee tells uuuucciiccoo to log nothing.
+
+mmaaxx-rreemmoottee-ddeebbuugg _t_y_p_e_l_i_s_t
+     Limit to _t_y_p_e_l_i_s_t the types of debugging that _r_e_m_o_t_e_s_y_s_t_e_m can request
+     on your  system.  This command  is designed to  stop _r_e_m_o_t_e_s_y_s_t_e_m from
+     filling your disk with debugging information.
+
+_D_e_f_a_u_l_t_s
+The  following gives  the  default settings  for all  systems.  You  should
+regard these  as appearing  at the  head of /uussrr/lliibb/uuuuccpp/ssyyss,  even though
+they do not explicit appear in that file:
+
+    time Never
+    chat "" \r\c ogin:-BREAK-ogin:-BREAK-ogin: \L word: \P
+    chat-timeout 10
+    callback n
+    sequence n
+    request y
+    transfer y
+    local-send /
+    remote-send ~
+    local-receive ~
+    remove-receive ~
+    commands rnews rmail
+    max-remote-debug abnormal,chat,handshake
+
+_E_x_a_m_p_l_e
+The following  gives the entry in /uussrr/lliibb/uuuuccpp/ssyyss  for the system mmwwccbbbbss,
+which is the Mark Williams bulletin board:
+
+    system mwcbbs
+    time Any
+    baud 2400
+    port MODEM
+    phone 17085590412
+    chat "" \r\d\r in:--in: nuucp word: public word: _s_e_r_i_a_l_n_u_m_b_e_r
+    protocol g
+    protocol-parameter g window 3
+    protocol-parameter g packet-size 64
+    myname bbsuser
+    request yes
+    transfer yes
+    remote-send /usr/spool/uucppublic /tmp
+    remote-receive /usr/spool/uucppublic /tmp
+    commands rmail uucp
+
+The following describes each command in detail:
+
+ssyysstteemm mmwwccbbbbss
+     Name the sytem being described, in this case mmwwccbbbbss.
+
+ttiimmee AAnnyy
+     Set the time  during your system can contact mmwwccbbbbss,  in this case any
+     time.
+
+bbaauudd 22440000
+     Set the speed at which your system can contact mmwwccbbbbss; here 2400 baud.
+
+ppoorrtt MMWWCCBBBBSS
+     Set the port  through which your system can dial  out to mmwwccbbbbss; here,
+     port MMWWCCBBBBSS.  This port is defined in the file /uussrr/lliibb/uuuuccpp/ppoorrtt; for
+     details on this file and how to modify its data, see the Lexicon entry
+     for ppoorrtt.
+
+pphhoonnee 1177008855559900441122
+     This gives the telephone number of mmwwccbbbbss.
+
+cchhaatt '' '' \rr\dd\rr iinn:--iinn: nnuuuuccpp wwoorrdd: ppuubblliicc wwoorrdd: _s_e_r_i_a_l_n_u_m_b_e_r
+     Give the chat script with which  your system logs into mmwwccbbbbss. See the
+     section on  chat scripts, above, for details on  how to interpret this
+     command.
+
+pprroottooccooll gg
+     Use the gg protocol.
+
+pprroottooccooll-ppaarraammeetteerr gg wwiinnddooww 33
+     Set the window used with protocol gg to three.
+
+pprroottooccooll-ppaarraammeetteerr gg ppaacckkeett-ssiizzee 6644
+     Set the size of the packet used with protocol gg to 64 bytes.
+
+mmyynnaammee bbbbssuusseerr
+     Identify yourself to mmwwccbbbbss as user bbbbssuusseerr.
+
+rreeqquueesstt yyeess
+     Let  mmwwccbbbbss send  files to  your system, and  request files  from your
+     system.  Setting this to nnoo would forbid mmwwccbbbbss to do so.
+
+ttrraannssffeerr yyeess
+     Permit files  to be transferred  from your system to  mmwwccbbbbss, and vice
+     versa, regardless of whether your system calls mmwwccbbbbss or vice versa.
+
+rreemmoottee-sseenndd /uussrr/ssppooooll/uuuuccppppuubblliicc /ttmmpp
+     Permit    mmwwccbbbbss   to    request   files    only    from   directories
+     /uussrr/ssppooooll/uuuuccppppuubblliicc and /ttmmpp.
+
+rreemmoottee-rreecceeiivvee /uussrr/ssppooooll/uuuuccppppuubblliicc /ttmmpp
+     Limit  the  directories  into  which  your  system  will  write  files
+     requested from mmwwccbbbbss to /uussrr/ssppooooll/uuuuccppppuubblliicc /ttmmpp.
+
+ccoommmmaannddss rrmmaaiill uuuuccpp
+     Limit the commands that mmwwccbbbbss can execute on your system to rrmmaaiill and
+     uuuuccpp.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, ddiiaall, ppoorrtt, UUUUCCPP
+Baker,  S.: From  UUCP to  eternity.  _U_N_I_X _R_e_v_i_e_w,  April 1993,  pp. 15-26.
+_S_u_m_m_a_r_i_z_e_s _t_h_e _h_i_s_t_o_r_y _o_f _U_U_C_P _a_n_d _d_e_s_c_r_i_b_e_s _t_h_e _w_o_r_k_i_n_g _o_f _t_h_e gg _p_r_o_t_o_c_o_l.
+
+_N_o_t_e_s
+Only the superuser rroooott can edit /uussrr/lliibb/uuuuccpp/ssyyss.
+
+The file ssyyss supports many commands in addition to the ones described here.
+This article  describes only those  commands that might be  used in typical
+UUCP  connections.  For  more  information, see  the  original Taylor  UUCP
+documentation, which is in the archive /uussrr/ssrrcc/aalliieenn/uuuuddoocc110044.ttaarr.ZZ.

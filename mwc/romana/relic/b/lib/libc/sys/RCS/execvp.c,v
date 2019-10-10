@@ -1,0 +1,223 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4;
+comment  @ * @;
+
+
+1.4
+date     92.07.28.09.46.26;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.07.28.09.39.11;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.05.20.04.42.40;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.05.10.20.13.00;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 5/10/91
+Initial MWC RCS revision.
+This corresponds to libc.a/execvp.o object in COH V300 and V310 distributions.
+@
+
+
+1.4
+log
+@steve 7/28/92
+Renamed execvep() and execlep() to execvpe() and execlpe(),
+for consistency with Borland names.
+@
+text
+@/*
+ * libc/sys/execvp.c
+ * Sys exec with an array of arguments but no environment,
+ * searching directories specified in PATH.
+ */
+
+extern char **environ;
+
+/* execvp(name, argv) */
+int
+execvp(name, argv) char *name; char *argv[];
+{
+	return execvpe(name, argv, environ);
+}
+
+/* end of libc/sys/execvp.c */
+@
+
+
+1.3
+log
+@steve 7/17/92
+Modified for addition of execlep(), execvep(); cosmetic fixes.
+@
+text
+@d13 1
+a13 1
+	return execvep(name, argv, environ);
+@
+
+
+1.2
+log
+@steve 5/19/91
+At piggy's request, and for POSIX compliance, changed check for leading
+'/' to check for '/' anywhere in name.  Rewrote code for clarity, using
+<path.h> manifest constants.
+@
+text
+@d1 5
+a5 1
+/* libc/sys/execvp.c */
+d7 1
+a7 4
+#include <stdio.h>
+#include <errno.h>
+#include <path.h>
+#include <string.h>
+d9 6
+a14 1
+extern	char	*getenv();
+d16 1
+a16 50
+#define	SHELL	"/bin/sh"		/* shell name */
+
+/*
+ * execvp() is a version of execv()
+ * which mimics the actions of the shell
+ * in using PATH search rules and running a shell file.
+ */
+execvp(name, argp) char *name; char *argp[];
+{
+	register char *p1, *p2, *sp;
+	char fname[MAXPATH];
+	int isabs;
+
+	if ((sp = getenv("PATH")) == NULL)		/* find PATH */
+		sp = DEFPATH;				/* or take default */
+	isabs = (strchr(name, PATHSEP) != NULL);	/* iff name is absolute */
+	for (;;) {
+		if (isabs)
+			strcpy(fname, name);		/* use given name */
+		else {
+			for (p2 = fname; *sp != '\0' && *sp != LISTSEP; )
+				*p2++ = *sp++;		/* copy pathname component */
+			if (p2 != fname)
+				*p2++ = PATHSEP;	/* append PATHSEP if nonempty */
+			for (p1 = name; *p1 != '\0'; )
+				*p2++ = *p1++;		/* append name */
+			*p2 = '\0';			/* and NUL-terminate */
+		}
+		execv(fname, argp);			/* go for it */
+		if (isabs && errno != ENOEXEC)
+			break;				/* failed */
+		if (errno == ENOEXEC) {			/* try again with sh */
+			p1 = argp[-1];
+			p2 = argp[0];
+			argp[-1] = SHELL;
+			argp[0] = fname;
+			execv(argp[-1], argp-1);
+			argp[-1] = p1;
+			argp[0] = p2;
+			break;				/* failed */
+		}
+		if (*sp == '\0')
+			break;				/* end of PATH, failed */
+		if (*sp == LISTSEP)
+			sp++;
+	}
+	return -1;					/* failed */
+}
+
+/* end of execvp.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 1
+a1 5
+/*
+ * Version of execv that mimics the
+ * actions of the shell in using search
+ * rules and running a shell file.
+ */
+d5 2
+d8 1
+a8 1
+#define	NFNAME	100		/* Largest filename */
+d10 1
+a10 2
+static	char	srch[] = ":/bin";
+static	char	shell[] = "/bin/sh";
+d12 10
+a21 1
+extern	int	errno;
+d23 3
+a25 11
+execvp(name, argp)
+char *name;
+char *argp[];
+{
+	char *getenv();
+	register char *p1, *p2;
+	register char *sp;
+	char fname[NFNAME];
+
+	if ((sp = getenv("PATH")) == NULL)
+		sp = srch;
+d27 18
+a44 21
+		p2 = fname;
+		while (*sp!='\0' && *sp!=':')
+			*p2++ = *sp++;
+		p1 = name;
+		if (p2 != fname)
+			*p2++ = '/';
+		while (*p1 != '\0')
+			*p2++ = *p1++;
+		*p2 = '\0';
+		if (*name == '/') {
+			execv(name, argp);
+			if (errno != ENOEXEC)
+				break;
+		} else
+			execv(fname, argp);
+		if (errno == ENOEXEC) {
+			register char *sv1, *sv2;
+
+			sv1 = argp[-1];
+			sv2 = argp[0];
+			argp[-1] = shell;
+d46 4
+a49 4
+			execv(shell, argp-1);
+			argp[-1] = sv1;
+			argp[0] = sv2;
+			break;
+d52 2
+a53 2
+			break;
+		if (*sp == ':')
+d56 1
+a56 1
+	return (-1);
+d58 2
+@

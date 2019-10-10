@@ -1,0 +1,159 @@
+head     2.0;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.0;
+comment  @ * @;
+
+
+2.0
+date     93.07.16.20.08.20;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+2.0
+log
+@*** empty log message ***
+@
+text
+@#define	_DDI_DKI	1
+#define	_SYSV3		1
+
+#include <common/xdebug.h>
+#include <kernel/confinfo.h>
+#include <sys/types.h>
+#include <string.h>
+
+#ifdef	__MSDOS__
+#include <sys/_con.h>
+#else
+#include <sys/con.h>
+#endif
+
+/*
+ * Fix this up for non-ISO C systems. In actual fact, these symbols are
+ * allowed to be enumerations rather than #define macros....
+ */
+
+#ifndef	EXIT_SUCCESS
+
+#define	EXIT_SUCCESS	0
+#define	EXIT_FAILURE	-1
+
+#endif
+
+__EXTERN_C_BEGIN__
+
+int 		testX86		__PROTO ((void));
+
+__EXTERN_C_END__
+
+#include <dos.h>
+#include <sys/io.h>
+
+/*
+ *
+ */
+
+#if	__USE_PROTO__
+__LOCAL__ void (foo) (void * __NOTUSED (unused))
+#else
+__LOCAL__ void
+foo __ARGS (())
+#endif
+{
+	(* (char __far *) MK_FP (0xB800, 10)) ++;
+
+	itimeout (foo, 0, 3, pltimeout);
+	untimeout (itimeout (foo, 0, 1, pltimeout));
+}
+
+
+#include <sys/file.h>
+#include <stropts.h>
+
+__CONST__ char TEST_STRING [] = "Foo bar and Grill";
+
+#if	__USE_PROTO__
+int main (void)
+#else
+int
+main ()
+#endif
+{
+	CON	      *	con;
+	IO		io;
+	o_dev_t		dev;
+
+	/*
+	 * Ensure that the atomic operations are at least doing the operations
+	 * as defined (testing for atomicity is beyond us as yet).
+	 */
+
+	while (testX86 ())
+		return -1;
+
+	STREAMS_INIT ();
+
+	itimeout (foo, 0, 2, pltimeout);
+	untimeout (itimeout (foo, 0, 1, pltimeout));
+
+	sleep (1);
+
+	if ((con = STREAMS_GETCON (dev = 0x2000)) == NULL)
+		return -1;
+	if ((* con->c_open) (dev, IPR|IPW, DFCHR) == 0) {
+
+		(* con->c_ioctl) (dev, I_PUSH, "dump", IPR|IPW);
+
+		io.io_seg = IOUSR;
+		io.io_ioc = sizeof (TEST_STRING);
+		io.io_base = TEST_STRING;
+		io.io_seek = 0;
+		io.io_flag = 0;
+
+		(* con->c_write) (dev, & io);
+
+		(* con->c_close) (dev, IPR|IPW, DFCHR);
+	}
+
+	sleep (1);
+
+	if ((con = STREAMS_GETCON (dev = 0x2100)) == NULL)
+		return -1;
+	if ((* con->c_open) (dev, IPR|IPW, DFCHR) == 0) {
+		char		buf [sizeof (TEST_STRING) + 10];
+
+		(* con->c_ioctl) (dev, I_PUSH, "dump", IPR|IPW);
+
+		io.io_seg = IOUSR;
+		io.io_ioc = sizeof (TEST_STRING);
+		io.io_base = TEST_STRING;
+		io.io_seek = 0;
+		io.io_flag = 0;
+
+		(* con->c_write) (dev, & io);
+
+		(* con->c_ioctl) (dev, I_SRDOPT, RMSGN, IPR|IPW);
+
+		io.io_base = buf;
+		io.io_ioc = sizeof (buf);
+
+		(* con->c_read) (dev, & io);
+
+		if (io.io_ioc != 10 ||
+		    memcmp (TEST_STRING, buf, sizeof (TEST_STRING)) != 0)
+			ASSERT ("Data mutated!\n" == NULL);
+
+		(* con->c_close) (dev, IPR|IPW, DFCHR);
+	}
+
+	return EXIT_SUCCESS;
+}
+@

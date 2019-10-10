@@ -1,0 +1,77 @@
+/*
+ * hyphen.h
+ * Nroff/Troff.
+ * Hyphenation header file.
+ */
+
+#define LNUL	0			/* Null */
+#define LEOK	1			/* End of key */
+#define LHYP	2			/* Hyphenation point */
+#define LRHP	3			/* Remove hyphen */
+#define LCON	4			/* Continuation point */
+#define LNEW	5			/* Get next char */
+#define LOLD	6			/* Get previous character */
+#define LBRF	7			/* Fail */
+#define LBRS	8			/* Succeed */
+#define LCBT	9			/* Conditional branch on true */
+#define LCBF	10			/* Conditional branch on false */
+
+/*
+ * These must agree with the definitions in `code.h'.
+ * The order must not be changed.
+ */
+#define LAAA	37			/* a */
+#define LBBB	38			/* b */
+#define LCCC	39			/* c */
+#define LDDD	40			/* d */
+#define LEEE	41			/* e */
+#define LFFF	42			/* f */
+#define LGGG	43			/* g */
+#define LHHH	44			/* h */
+#define LIII	45			/* i */
+#define LJJJ	46			/* j */
+#define LKKK	47			/* k */
+#define LLLL	48			/* L */
+#define LMMM	49			/* m */
+#define LNNN	50			/* n */
+#define LOOO	51			/* o */
+#define LPPP	52			/* p */
+#define LQQQ	53			/* q */
+#define LRRR	54			/* r */
+#define LSSS	55			/* s */
+#define LTTT	56			/* t */
+#define LUUU	57			/* u */
+#define LVVV	58			/* v */
+#define LWWW	59			/* w */
+#define LXXX	60			/* x */
+#define LYYY	61			/* y */
+#define LZZZ	62			/* z */
+#define LDCH	63			/* ch */
+#define LDGH	64			/* gh */
+#define LDPH	65			/* ph */
+#define LDSH	66			/* sh */
+#define LDTH	67			/* th */
+
+/*
+ * Sizes of tables.
+ */
+#define EXCSIZE	346			/* Size of exception table */
+#define SUFSIZE	28			/* Size of suffix table */
+#define PRESIZE	30			/* Size of prefix table */
+
+/*
+ * Tables.
+ */
+extern	char	contab[];		/* For determining type of letter */
+extern	char	dbctab[];		/* Certain pairs of consonants */
+extern	char	*exctab[EXCSIZE];	/* Exception table */
+extern	char	hindbuf[WORSIZE];	/* Index buffer for phonetics */
+extern	char	hletbuf[WORSIZE];	/* Phonetic buffer */
+extern	char	hyphbuf[WORSIZE];	/* Hyphentaion flag buffer */
+extern	char	hyptab[];		/* Data for three above tables */
+extern	char	mm0code[];		/* Code for matching something */
+extern	char	mm1code[];		/* Code for matching something else */
+extern	char	*pretab[PRESIZE];	/* Prefix table */
+extern	char	*suftab[SUFSIZE];	/* Suffix table */
+
+/* end of hyphen.h */

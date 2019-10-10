@@ -1,0 +1,936 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.08.05.08.46.48;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.08.02.03.18.12;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     93.07.19.14.34.47;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@Nigel: changes for 420Alpha to fix
+problems with here docs
+@
+text
+@/*
+ * sh/main.c
+ * The Bourne shell.
+ * Main program, initialization and miscellaneous routines.
+ */
+
+#include <assert.h>
+#include <stdarg.h>
+#include "sh.h"
+#include <fcntl.h>
+
+void		fakearg		();
+void		reset		();
+void		ecantopen	();
+void		panic		();
+void		printe		();
+void		syntax		();
+
+
+int
+main(argc, argv, envp)
+char *argv[];
+char *envp[];
+{
+
+	sarg0 = argc > 0 ? argv [0] : "";
+	fakearg (0, argc, argv, envp);
+
+	if (argc > 0 && argv [0][0] == '-') {
+		lgnflag = 1;
+		umask (ufmask = 022);
+	} else if (argc > 0 && argv [0][0] == '+') {
+		lgnflag = 2;
+		umask (ufmask = 022);
+	} else
+		umask (ufmask = umask (ufmask));
+
+	/*
+	 * NIGEL: we must *force* stdin to be unbuffered to defeat some
+	 * excessive cleverness in the stdio library. Note that line-buffering
+	 * is a mode that only applies to output.
+	 */
+
+	if (setvbuf (stdin, NULL, _IONBF, BUFSIZ) != 0)
+		printe ("Cannot set stdin buffering\n");
+
+	if (setjmp (restart) != 0) {
+		/* reentry for shell command file execution */
+		fakearg (1, nargc, nargv, nenvp);
+		argc = nargc;
+		argv = nargv;
+		envp = nenvp;
+		cmdflag ++;
+		nllflag = 0;
+	}
+
+	shpid = getpid ();
+	initvar (envp);
+
+	if (set (argc, argv, 1))
+		return 1;
+
+	if (cflag) {
+		if (sargp [0] == NULL) {
+			printe ("No string for -c?");
+			return 1;
+		}
+		-- sargc;
+		session (SARGS, * sargp ++);
+	} else if (! sflag && ! iflag && sargc != 0) {
+		sarg0 = * sargp ++;
+		--sargc;
+		if (scmdp == NULL)
+			scmdp = sarg0;
+		session (SFILE, scmdp);
+	} else
+		session (SSTR, stdin);
+
+	cleanup_shell_fns ();
+	unlink_temp (capture_temp ());
+	return slret;
+}
+
+
+/*
+ * Make the arg listing of ps come out right.
+ *	f == 0, first entry, determine buffer limits.
+ *	f != 0, later entry, fill buffer with lies.
+ */
+
+void
+fakearg(f, argc, argv, envp)
+int f, argc;
+char **argv, **envp;
+{
+	static char *fbuf;
+	static int nbuf;
+	register int n;
+
+	if (f == 0) {
+		fbuf = argv [0];
+		nbuf = 0;
+		if (envp != NULL && envp [0] != NULL) {
+			while (envp [1] != NULL)
+				envp += 1;
+			nbuf = envp [0] - fbuf + strlen (envp [0]) - 1;
+		} else if (argc > 0)
+			nbuf = argv [argc - 1] - fbuf +
+				strlen (argv [argc - 1]) - 1;
+	} else {
+		if (fbuf == NULL || nbuf == 0)
+			return;
+		n = 0;
+		fbuf [0] = 0;
+		while (-- argc > 0) {
+			argv += 1;
+			n += strlen (argv [0]) + 1;
+			if (n >= nbuf)
+				break;
+			strcat (fbuf, argv [0]);
+			strcat (fbuf, " ");
+		}
+		strcat (fbuf, "\1");	/* non-ascii terminator */
+	}
+}
+
+
+/*
+ * Push a session of the indicated type. A non-zero return value is the
+ * appropriate return value for the session, but offset by one.
+ */
+
+int
+push_session (type, info, session)
+int		type;
+__VOID__      *	info;
+SES	      *	session;
+{
+	session->s_next = sesp;
+	sesp = session;
+	session->s_bpp = savebuf ();
+
+	switch (session->s_type = type) {
+	case SARGS:
+		session->s_strp = (char *) info;
+		session->s_flag = 0;
+		break;
+
+	case SARGV:
+		session->s_argv = (char **) info;
+		if ((session->s_strp = session->s_argv [0]) == NULL)
+			return 1;
+		session->s_flag = 0;
+		break;
+
+	case SFILE:
+		session->s_strp = (char *) info;
+
+		/*
+		 * NIGEL: We should take steps to ensure that the file
+		 * descriptors created for these input files lie above the
+		 * range that can be redirected in scripts!
+		 */
+
+		if ((type = open (session->s_strp, O_RDONLY)) < 0) {
+			ecantopen (session->s_strp);
+			return 2;
+		}
+		if (type > 9) {
+			int		scan;
+			for (scan = 10 ; scan < FOPEN_MAX ; scan ++) {
+				if (fcntl (scan, F_GETFD) == -1) {
+					/*
+					 * Move the new FD to the new place.
+					 */
+
+					dup2 (type, scan);
+					close (type);
+					type = scan;
+
+					break;
+				}
+			}
+		}
+		if ((session->s_ifp = fdopen (type, "r")) == NULL) {
+			ecantopen (session->s_strp);
+			return 2;
+		}
+		session->s_flag = isatty (fileno (session->s_ifp)) &&
+					  isatty (2);
+		break;
+
+	case SSTR:
+		session->s_strp = NULL;
+		session->s_ifp = (FILE *) info;
+		session->s_flag = isatty (fileno (session->s_ifp)) &&
+					  isatty (2);
+		break;
+	}
+
+	return 0;
+}
+
+
+/*
+ * Pop the passed-in session, which must be the current session.
+ */
+
+void
+pop_session (session)
+SES	      *	session;
+{
+	assert (sesp == session);
+
+	freebuf (session->s_bpp);
+
+	if (session->s_type == SFILE)
+		fclose (session->s_ifp);
+
+	if (session->s_next == NULL) {
+		sigintr (0);
+		recover (IRDY);
+	}
+
+	sesp = session->s_next;
+}
+
+
+/*
+ * Loop on input.
+ */
+
+int
+session(t, p)
+register char *p;
+{
+	SES s;
+	register int rcode;
+
+	if ((rcode = push_session (t, p, & s)) > 0)
+		return rcode - 1;
+
+	if (s.s_next == NULL) {		/* Initial entry */
+		if (iflag)
+			s.s_flag = iflag;
+		else
+			iflag = s.s_flag;
+		dflttrp (IRDY);
+	}
+
+	/* Loop on input */
+	for (;;) {
+		unlink_temp (capture_temp ());
+
+		rcode = setjmp (s.s_envl);
+		switch (rcode) {
+		case RSET:	/* initial setjmp call */
+			switch (lgnflag) {
+			case 1:		/* - sign invocation */
+				lgnflag = 0;
+				if (ffind ("/etc", "profile", 4))
+					session (SFILE, duplstr (strt, 0));
+				recover (IPROF);
+				if (* vhome && ffind (vhome, ".profile", 4))
+					session (SFILE, duplstr (strt, 0));
+				break;
+
+			case 2:		/* + sign invocation */
+				lgnflag = 0;
+				if (ffind ("/etc", "profile", 4))
+					session (SFILE, duplstr (strt, 0));
+				recover (IPROF);
+				return exshell (findvar ("SHELL"));
+			}
+			checkmail ();
+			comflag = 1;
+			errflag = 0;
+			recover (IRDY);
+			freebuf (s.s_bpp);
+			s.s_bpp = savebuf ();
+			if (yyparse () != 0)
+				syntax ();
+
+		case REOF:
+			recover (IRDY);
+			break;
+
+		case RCMD:
+			recover (IRDY);
+			s.s_con = NULL;
+			command (s.s_node);
+			if (tflag && tflag ++ >= 2)
+				break;
+			continue;
+
+		case RERR:
+			recover (IRDY);
+			if (! errflag)
+				syntax ();
+			if (! iflag || (tflag && tflag ++ >= 2))
+				break;
+			continue;
+
+		case RINT:
+			if (s.s_next != NULL) {
+				sesp = s.s_next;
+				reset (RINT);
+				NOTREACHED;
+			}
+			prpflag = 2;
+			if (! iflag || (tflag && tflag ++ >= 2))
+				break;
+			continue;
+
+		case RUEXITS:
+		case RUABORT:
+			if (s.s_next != NULL) {
+				sesp = s.s_next;
+				reset (rcode);
+				NOTREACHED;
+			}
+			if (rcode == RUEXITS || ! iflag ||
+			    (tflag && tflag ++ >= 2))
+				break;
+			continue;
+
+		case RNOSBRK:
+		case RSYSER:
+		case RBRKCON:
+		case RNOWAY:
+		default:
+			if (s.s_next != NULL)
+				break;
+			if (! iflag || (tflag && tflag ++ >= 2))
+				break;
+			continue;
+		}
+		break;
+	}
+
+	pop_session (& s);
+	return (slret);
+}
+
+
+void
+reset (f)
+{
+	longjmp (sesp->s_envl, f);
+	NOTREACHED;
+}
+
+
+/*
+ * Global head of list of temporary files.
+ */
+
+static TEMP_FILE      *	temp_list;
+
+ALLOC_COUNT (temp)
+
+/*
+ * Remember the name of a temporary file.
+ */
+
+void
+remember_temp (filename)
+char * filename;
+{
+	TEMP_FILE     *	temp = (TEMP_FILE *) salloc (sizeof (* temp));
+
+	temp->tf_name = duplstr (filename, 1);
+	temp->tf_next = temp_list;
+	temp_list = temp;
+
+	ALLOC_ALLOC (temp)
+}
+
+
+/*
+ * Return a pointer to the current global list of temporary files and clear
+ * the global pointer to that list.
+ */
+
+TEMP_FILE *
+capture_temp ()
+{
+	TEMP_FILE     *	temp = temp_list;
+
+	temp_list = NULL;
+	return temp;
+}
+
+
+/*
+ * Deallocate a list of temporary files.
+ */
+
+void
+forget_temp (templist)
+TEMP_FILE     *	templist;
+{
+	TEMP_FILE     *	temp;
+
+	while ((temp = templist) != NULL) {
+
+		templist = temp->tf_next;
+
+		ALLOC_FREE (temp);
+		sfree (temp->tf_name);
+		sfree (temp);
+	}
+}
+
+
+/*
+ * Walk over a list of temporary files, unlinking the files and deallocating
+ * the list nodes.
+ */
+
+void
+unlink_temp (templist)
+TEMP_FILE     *	templist;
+{
+	TEMP_FILE     *	temp;
+
+	while ((temp = templist) != NULL) {
+
+		templist = temp->tf_next;
+		unlink (temp->tf_name);
+
+		ALLOC_FREE (temp)
+		sfree (temp->tf_name);
+		sfree (temp);
+	}
+}
+
+
+/*
+ * Make a temp file name.
+ */
+
+char *
+shtmp ()
+{
+	static char tmpfile [] = "/tmp/shXXXXXXX";
+	static int tmpflag = 0;
+
+	tmpflag ++;
+	sprintf (tmpfile + 6, "%05d%c%c", shpid, tmpflag % 26 + 'a',
+		 (tmpflag / 26) % 26 + 'a');
+	return tmpfile;
+}
+
+
+/*
+ * Print formatted.
+ */
+
+void
+prints (format /* , ... */)
+char * format;
+{
+	va_list		args;
+
+	va_start (args, format);
+	vfprintf (stderr, format, args);
+	va_end (args);
+}
+
+
+/*
+ * Make a core dump in /tmp and longjmp back to session -
+ *	there's a possibility we'll die horribly.
+ */
+
+void
+panic (i)
+int i;
+{
+#ifdef PARANOID
+	register int f;
+
+	if ((f = fork ()) == 0) {
+		abort ();
+		NOTREACHED;
+	}
+	waitc (f);
+#endif
+	printe ("Internal shell assertion %d failed", i);
+	reset (RNOWAY);
+	NOTREACHED;
+}
+
+
+/*
+ * Print out an error message.
+ */
+
+void
+printe (format /* , ... */)
+char * format;
+{
+	errflag += 1;
+	if (! noeflag) {
+		va_list		args;
+
+		va_start (args, format);
+		vfprintf (stderr, format, args);
+		va_end (args);
+		fprintf (stderr, "\n");
+	}
+}
+
+/*
+ * Some familiar errors.
+ */
+
+void	ecantopen(s) char *s; { printe ("Cannot open %s", s); }
+void	ecantfind(s) char *s; { printe ("Cannot find %s", s); }
+void	e2big(s) char *s; { printe ("File to big to execute: %s", s); }
+void	ecantmake(s) char *s; { printe ("Cannot create %s", s); }
+void	emisschar(c) { printe ("Missing `%c'", c); }
+void	ecantfdop() { printe ("Fdopen failed"); }
+void	enotdef(s) char *s; { printe ("Cannot find variable %s", s); }
+void	eillvar(s) char *s; { printe ("Illegal variable name: %s", s); }
+void	eredir() { printe ("Illegal redirection"); }
+void	etoolong(s) char *s; {
+	printe ("Argument too long %s: %.*s", s, STRSIZE, strt);
+}
+void	eredirundo() {
+  printe ("Unable to preserve redirection state when redirecting builtin");
+}
+
+
+/*
+ * Don't print out an error message.
+ */
+
+void
+yyerror()
+{
+}
+
+
+/*
+ * print out the prompt given the prompt to write
+ */
+
+void
+prompt(vps)
+char *vps;
+{
+	prints ("%s", vps);
+#if RSX
+	fflush (stdout);
+#endif
+}
+
+
+/*
+ * Syntax error message - print line number and file if
+ *	not interactive.
+ */
+
+void
+syntax()
+{
+	if (sesp->s_type == SFILE) {
+		if (feof (sesp->s_ifp))
+			printe ("%s: Syntax error at EOF", sesp->s_strp);
+		else
+			printe ("%s: Syntax error in line %d", sesp->s_strp,
+				yyline);
+	} else
+		printe ("Syntax error");
+}
+@
+
+
+1.2
+log
+@Nigel: 4.2 alpha update
+@
+text
+@d10 1
+d38 9
+d158 8
+a165 1
+		if ((session->s_ifp = fopen (session->s_strp, "r")) == NULL) {
+d169 20
+d297 1
+a297 1
+			recover( IRDY);
+d347 1
+a347 1
+reset(f)
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d7 1
+a7 1
+/* #include <sys/param.h> */
+d11 9
+d25 4
+a28 3
+	sarg0 = argc>0 ? argv[0] : "";
+	fakearg(0, argc, argv, envp);
+	if (argc>0 && argv[0][0]=='-') {
+d30 2
+a31 2
+		umask(ufmask=022);
+	} else if (argc>0 && argv[0][0]=='+') {
+d33 3
+a35 4
+		umask(ufmask=022);
+	} else {
+		umask(ufmask=umask(ufmask));
+	}
+d37 1
+a37 1
+	if (setjmp(restart) != 0) {
+d39 1
+a39 1
+		fakearg(1, nargc, nargv, nenvp);
+d43 1
+a43 1
+		cmdflag++;
+d47 6
+a52 7
+	shpid = getpid();
+	initvar(envp);
+#if 0
+	cleanup(1, NULL);
+#endif
+	if (set(argc, argv, 1))
+		return(1);
+d54 3
+a56 3
+		if (sargp[0]==NULL) {
+			printe("No string for -c?");
+			return(1);
+d58 4
+a62 4
+		session(SARGS, *sargp++);
+	} else if (!sflag && !iflag && sargc!=0) {
+		sarg0 = *sargp++;
+		--sargc;
+d65 4
+a68 4
+		session(SFILE, scmdp);
+	} else {
+		session(SSTR, stdin);
+	}
+d71 1
+a71 1
+	return (slret);
+d74 1
+d80 2
+d91 1
+a91 1
+		fbuf = argv[0];
+d93 2
+a94 2
+		if (envp != NULL && envp[0] != NULL) {
+			while (envp[1] != NULL)
+d96 1
+a96 1
+			nbuf = envp[0] - fbuf + strlen(envp[0]) - 1;
+d98 2
+a99 1
+			nbuf = argv[argc-1] - fbuf + strlen(argv[argc-1]) - 1;
+d104 2
+a105 2
+		fbuf[0] = 0;
+		while (--argc > 0) {
+d107 1
+a107 1
+			n += strlen(argv[0]) + 1;
+d110 2
+a111 2
+			strcat(fbuf, argv[0]);
+			strcat(fbuf, " ");
+d113 1
+a113 1
+		strcat(fbuf, "\1");	/* non-ascii terminator */
+d117 1
+d119 2
+a120 1
+ * Loop on input.
+d122 6
+a127 2
+session(t, p)
+register char *p;
+d129 3
+a131 2
+	SES s;
+	register int rcode;
+d133 1
+a133 5
+	s.s_next = sesp;
+	sesp = &s;
+	s.s_bpp = savebuf();
+
+	switch (s.s_type = t) {
+d135 2
+a136 2
+		s.s_strp = p;
+		s.s_flag = 0;
+d138 1
+d140 4
+a143 4
+		s.s_argv = (char **) p;
+		if ((s.s_strp = s.s_argv[0]) == NULL)
+			return (0);
+		s.s_flag = 0;
+d145 1
+d147 4
+a150 4
+		s.s_strp = p;
+		if ((s.s_ifp = fopen(s.s_strp, "r")) == NULL) {
+			ecantopen(s.s_strp);
+			return (1);
+d152 2
+a153 1
+		s.s_flag = isatty(fileno(s.s_ifp)) && isatty(2);
+d155 1
+d157 4
+a160 3
+		s.s_strp = NULL;
+		s.s_ifp = (FILE *) p;
+		s.s_flag = isatty(fileno(s.s_ifp)) && isatty(2);
+d164 42
+d211 1
+a211 1
+		dflttrp(IRDY);
+d218 1
+a218 1
+		rcode = setjmp(s.s_envl);
+d224 5
+a228 5
+				if (ffind("/etc", "profile", 4))
+					session(SFILE, duplstr(strt, 0));
+				recover(IPROF);
+				if (*vhome && ffind(vhome, ".profile", 4))
+					session(SFILE, duplstr(strt, 0));
+d230 1
+d233 4
+a236 4
+				if (ffind("/etc", "profile", 4))
+					session(SFILE, duplstr(strt, 0));
+				recover(IPROF);
+				return exshell( findvar("SHELL") );
+d238 1
+a238 1
+			checkmail();
+d241 6
+a246 5
+			recover(IRDY);
+			freebuf(s.s_bpp);
+			s.s_bpp = savebuf();
+			if (yyparse() != 0)
+				syntax();
+d248 1
+a248 1
+			recover(IRDY);
+d250 1
+d252 1
+a252 1
+			recover(IRDY);
+d254 2
+a255 2
+			command(s.s_node);
+			if ((tflag && tflag++ >= 2))
+d258 1
+d260 4
+a263 4
+			recover(IRDY);
+			if ( ! errflag)
+				syntax();
+			if ( ! iflag || (tflag && tflag++ >= 2))
+d266 1
+d270 1
+a270 1
+				reset(RINT);
+d274 1
+a274 1
+			if ( ! iflag || (tflag && tflag++ >= 2))
+d277 1
+d282 1
+a282 1
+				reset(rcode);
+d285 2
+a286 1
+			if (rcode == RUEXITS || !iflag || (tflag && tflag++ >= 2))
+d289 1
+d295 1
+a295 1
+			if (s.s_next!=NULL)
+d297 1
+a297 1
+			if ( ! iflag || (tflag && tflag++ >= 2))
+d303 2
+a304 8
+	freebuf(s.s_bpp);
+	if (s.s_type == SFILE)
+		fclose(s.s_ifp);
+	if (s.s_next == NULL) {
+		sigintr(0);
+		recover(IRDY);
+	}
+	sesp = s.s_next;
+d308 2
+d312 1
+a312 1
+	longjmp(sesp->s_envl, f);
+d329 2
+a330 1
+void remember_temp (filename)
+d348 2
+a349 1
+TEMP_FILE * capture_temp ()
+d362 2
+a363 1
+void forget_temp (templist)
+d384 2
+a385 1
+void unlink_temp (templist)
+d405 1
+d407 1
+a407 1
+shtmp()
+d409 1
+a409 1
+	static char tmpfile[] = "/tmp/shXXXXXX";
+d412 4
+a415 2
+	sprintf(tmpfile+6, "%05d%c", shpid, (tmpflag++%26) + 'a');
+	return (tmpfile);
+d418 1
+d423 1
+d434 1
+d439 4
+a442 1
+panic(i) register int i;
+d447 2
+a448 2
+	if ((f=fork())==0) {
+		abort();
+d451 1
+a451 1
+	waitc(f);
+d453 2
+a454 2
+	printe("Internal shell assertion %d failed", i);
+	reset(RNOWAY);
+d458 1
+d462 2
+d481 14
+a494 11
+ecantopen(s) char *s; { printe("Cannot open %s", s); }
+ecantfind(s) char *s; { printe("Cannot find %s", s); }
+e2big(s) char *s; { printe("File to big to execute: %s", s); }
+ecantmake(s) char *s; { printe("Cannot create %s", s); }
+emisschar(c) { printe("Missing `%c'", c); }
+ecantfdop() { printe("Fdopen failed"); }
+enotdef(s) char *s; { printe("Cannot find variable %s", s); }
+eillvar(s) char *s; { printe("Illegal variable name: %s", s); }
+eredir() { printe("Illegal redirection"); }
+etoolong() { printe("Argument too long: %.*s", STRSIZE, strt); }
+eredirundo() {
+d498 1
+d502 2
+d508 1
+d512 2
+d517 1
+a517 1
+	prints("%s", vps);
+d519 1
+a519 1
+	fflush(stdout);
+d523 1
+d528 2
+d533 2
+a534 2
+		if (feof(sesp->s_ifp))
+			printe("%s: Syntax error at EOF", sesp->s_strp);
+d536 2
+a537 1
+			printe("%s: Syntax error in line %d", sesp->s_strp, yyline);
+d539 1
+a539 1
+		printe("Syntax error");
+a540 2
+
+/* end of sh/main.c */
+@

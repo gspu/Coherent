@@ -1,0 +1,577 @@
+;STATES2 05/21/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;statement routines for statements FOR through NULL
+
+
+;FOR <var name> = <expr> TO <expr> [STEP <expr>]
+for:	call	gtlhs		;get destination for ASIGN
+	if	strng
+	cpi	strst
+	jz	snerr		;SN error if FOR <string var>
+	endif
+	lxi	h,inone		;integer 1 addr to HL
+	if	float
+	cpi	sngst
+	jnz	for1		;integer FOR
+	lxi	h,fpone		;floating 1. addr to HL
+	endif
+;At FOR1 the FOR var addr is in LHSAD, the default incr pointer in HL.
+;The CSTACK is examined for a previous FOR entry with the same variable,
+;and the entry is flushed if found.
+for1:	push	h		;save default incr pointer
+	lxi	b,(csfor shl 8) or csfor
+	lhld	cstkp		;set BC, HL for CSDIG
+for1a:	call	csdi1		;look for old FOR entry
+	jc	for2		;not found
+	push	h		;save current entry addr
+	mov	a,m
+	ani	1FH
+	call	sbahl		;address next CSTACK entry
+	xthl			;save next addr, current addr to HL
+	lxi	d,-5
+	dad	d		;address var addr bytes
+	call	mvdem		;fetch FOR entry var addr to DE
+	lhld	lhsad		;FOR var addr to HL
+	call	cmdhu		;check if same variable
+	pop	h		;next entry addr to HL
+	jnz	for1a		;no match, try next
+	mov	a,b		;match, entry type to A
+	call	csrst		;and purge the entry
+;FOR2 builds a new CSTACK FOR entry.  The entry consists of a type/length byte
+;(1 byte), line # address, return textp and variable address (2 bytes each),
+;and bound and increment values (2 or 4 bytes each).  After CPUSH allocates
+;space for the entry, the CSTACK pointer is reset to ignore the protoentry
+;in case FOR aborts, e.g. with a SN error.  Another CPUSH completes the entry.
+for2:	mov	a,b
+	call	cpush		;allocate new CSTACK FOR entry
+	xchg
+	if	not compl
+	call	linbc
+	cz	dcstd		;unincrement CSTACK direct count if direct
+	endif
+	lhld	lhsad
+	xchg
+	call	mvmde		;variable addr to entry
+	mvi	a,2*fbyts+1	;skip two values
+	call	sbahl		;address next CSTACK entry
+	shld	cstkp		;reset CSTACK in case SN error in FOR
+	inx	h		;address bottom of new FOR entry
+	push	h		;and save pointer for bound/incr insertion
+	call	let1		;get initial value and assign to var
+	mvi	d,tot
+	call	gtdsn		;skip TO token
+	call	evalt		;get bound of desired type
+	inx	h		;point to bound value
+	xthl			;FOR entry pointer to HL
+	pop	b		;bound pointer to BC
+	call	moveb		;copy bound to entry
+	xthl			;save entry addr for increment
+	push	h		;and default incr
+	mvi	d,stept
+	call	gtd		;look for STEP
+	pop	h		;default increment pointer to HL
+	jc	for2a		;no STEP, take default value
+	call	evalt		;get increment value
+	inx	h		;and point to value
+for2a:	xthl			;entry pointer to HL
+	pop	b		;incr pointer to BC
+	if	for0
+	push	h		;save pointer to incr for FOR0 test
+	endif
+	call	moveb		;copy increment to entry and return
+	mvi	a,csfor
+	if	not for0
+	jmp	cpush		;build the new CSTACK entry
+	else
+	call	cpush
+;must now check for vacuous condition (e.g. FOR I=1 TO 0) in FOR0 version
+	lhld	lhsad
+	if	float
+	lda	lhsty
+	cpi	sngst
+	if	f9511
+	cz	lod95		;load floating value to 9511 stack
+	else
+	cz	fload		;load floating value to FACC
+	endif
+	endif
+	mov	c,m
+	inx	h
+	mov	b,m		;fetch integer value to BC
+	pop	d		;incr pointer to DE
+	lxi	h,-fbyts
+	dad	d		;bound pointer to HL
+	call	bdtst		;test FOR condition
+	rnc			;ok, just return
+	lhld	cstkp
+	call	next6		;purge the CSTACK entry just built
+	call	eos
+	mvi	b,nextt
+	call	fndst		;find matching NEXT
+	jnc	next7		;look for following comma, return or do another
+	error	f, F, R		;not found, fatal FR error
+	endif
+
+;GOSUB <line #>
+gosub:	call	goto		;find new textp and lnnum
+gosu1:	mvi	a,csgos		;ON entry point
+	push	b		;save return text pointer
+	jmp	cpsh1		;build control stack entry and return
+
+;GOTO <line #>
+;GOTO is called by GOSUB to read a line #, look for it and
+;check for end of statement garbage.  Branches to US error if illegal
+;or no such line #, otherwise:
+;Retn:	A	clobbered
+;	BC	return text pointer, i.e. delimiter address
+;	DE	line #
+;	HL	address of <cr> preceding desired line in text
+;	(textp)	same as HL
+goto:	call	gtlno		;line # to DE
+	jc	snerr		;no line #
+goto1:	call	eos		;end of statement test -- IF entry point
+goto2:	call	fdlno		;find line # -- interrupt, ON entry point
+	jmp	bakup		;back up textp and return
+
+;IF <expr> THEN {<line #> | <statement>}
+ifcom:	call	gtexp		;evaluate the IF expression
+	mvi	d,thent
+	call	gtdsn		;skip THEN token
+	mov	a,b
+	ora	c
+	jz	rem		;false -- scan to cr and return
+	call	gtlno		;look for line #
+	jc	xsta2		;none -- execute <statement> THENpart
+	jmp	goto1		;GOTO line # and return
+
+;INPUT [<quoted string>] [;] <var list>
+;INPUT @<expr>, <var list>	[in SDISK versions]
+;INPUT @ <var list>		[in PACKI versions]
+;INPUT must scan two lines, the command line INPUT <varlist> and the line
+;of data typed by the user.  The two text pointers are kept in TEXTP
+;and TXTP2, and exchanged by FLIP.  The original <varlist> TEXTP
+;is also PUSHed, to be available when REDOing.  If the data is of
+;incorrect type or there are fewer data than variables, REDO.  If there are
+;fewer variables than data, EXCESS IGNORED.
+;DINP0 is in module SDISK.
+;PAINP is in module PACKARD.
+input:	call	idtst		;INPUT illegal direct mode
+	if	sdisk
+	call	gtsfn		;look for disk file specification
+	jnc	dinp0		;disk INPUT
+	endif			;end of SDISK conditional
+	if	packi
+	mvi	d,'@'
+	call	gtd		;look for @
+	jnc	painp		;found @, must be Packard INPUT @
+	endif
+	xra	a
+	sta	omode		;turn on output mode
+	mvi	d,'"'
+	call	gtd		;look for quoted string
+	cnc	prquo		;print it if present
+	mvi	d,semic
+	call	gtd		;look for ; and ignore if present
+;INPU1 sets up pointers, and is entry point for retries after REDO message.
+inpu1:	push	h		;save textp to redo
+	shld	txtp2		;save textp to scan varlist
+	mvi	a,'?'
+	call	writc		;write a ?
+	call	wrtsp		;and a space
+	lhld	savtp
+	shld	textp		;reset text pointer in case ^C typed
+	call	gtlin		;get input line
+	call	flip		;to scan varlist
+;INPU2 gets the next variable and checks its type (string or nonstring).
+inpu2:	call	gtlhs		;get destination
+	call	flip		;to scan data
+	if	strng
+	cpi	strst
+	jnz	inpu3		;nonstring variable
+	call	evunq		;get string value, perhaps unquoted
+	jc	inpu7		;no string, REDO
+	jmp	inpu4		;assign string value to destination
+	endif
+;INPU3 gets a nonstring value.
+inpu3:	call	gtlit		;get value
+	jc	inpu7		;REDO if none
+	if	strng
+	cpi	strst		;check if string value
+	jz	inpu7		;REDO if so
+	endif
+;INPU4 assigns a value to the destination variable.
+inpu4:	call	asigv		;assign value to destination
+	call	gtcnd		;look for comma not followed by delimiter
+	jc	inpu6		;no more data or bad item
+	call	flip		;to scan varlist
+	call	gtcom		;look for comma
+	jnc	inpu2		;continue with next var in varlist
+	call	prntm		;else print EXCESS IGNORED
+	db	'EXCESS IGNORED', cr, lf or 80H
+;INPU5 is the exit from a successful INPUT.
+inpu5:	pop	h		;pop REDO pointer
+	ret			;and done
+inpu6:	call	dtst0		;check if delimiter
+	jc	inpu7		;no, REDO
+	call	flip		;else scan varlist
+	call	gtcom		;see if more vars
+	jc	inpu5		;no, done
+;INPU7 prints REDO message and retries after bad data.
+inpu7:	call	prntm		;more vars than data, print REDO message
+	db	'RED', 'O' or 80H
+	pop	h
+	jmp	inpu1		;reset varlist pointer and try again
+
+;[LET] <var ref> = <expr>
+let0:	call	bakup		;back up textp to get current char again
+	call	dtest		;test if delimiter
+	rnc			;null statement
+let:	if	camac
+	call	gtcam		;look for camac variable
+	jnc	letcv		;perform camac LET
+	endif
+	if	wild
+	mvi	d,wbuft
+	call	gtd
+	jnc	wletb		;BUFFER legal lhs in WILD version
+	endif
+	call	gtlhs		;get destination for ASSGN
+let1:	call	gtequ		;skip = token -- FOR entry point
+	call	evals		;evaluate the rhs
+	jmp	asign		;and assign rhs to lhs
+;letcv is in module CAMAC
+
+;LIST [<line #>] [, <line #>]
+	if	compl
+list	equ	uferr		;UF error in COMPL version
+	else
+list:	call	gtlno		;min line # to DE, 0 if none
+	call	findl		;look for it
+	push	h		;save min line length byte address
+	call	gtcom		;skip the comma, if any
+	call	gtlno		;max line # to DE, 0 if none
+	cc	cpld1		;complement to give default max = 0FFFFH
+	call	eos		;check for garbage
+	mov	b,d
+	mov	c,e		;max to BC
+	pop	h		;min length byte address to HL
+list1:	mov	a,m		;fetch length byte
+	ora	a
+	rz			;eof -- done
+	inx	h
+	mov	e,m
+	inx	h
+	mov	d,m		;line # of current line to DE
+	call	cmbdu		;compare unsigned to max
+	rc			;max < (DE) -- return
+	dcx	h		;point to line #
+	call	ctest		;look for break char
+	call	prntl		;print the line
+	call	wcrlf		;and crlf
+	jmp	list1		;and try next
+	endif			;end of NOT COMPL conditional
+
+;LOAD is in section STATES4.
+
+;MOVE {TO | FROM} <expr>
+;MOVE performs a block move of a ROMSQ version user program TO or FROM RAM.
+;The specified location must not overlap either BASIC or user RAM.
+	if	romsq and (not wild)
+	if	compl
+move	equ	uferr
+	else
+move:	call	gtcha
+	push	psw		;save TO | FROM token
+	call	gtexp		;get location
+	if	camac		;RAM test only in segmented CAMAC versions
+	lxi	d,ramorg
+	else
+	lxi	d,romorg	;base of BASIC to DE
+	if	rom		;check if within BASIC in ROM versions
+	lxi	h,eoram+1	;top of BASIC + 1 to HL
+	call	mvtst		;check if loc within BASIC
+	lxi	d,ramorg	;base of user RAM to DE
+	endif			;end of ROM conditional
+	endif			;end of NOT CAMAC conditional
+	if	cpm and sdisk
+	lhld	filet		;top of RAM is (FILET) in CP/M SDISK versions
+	else
+	if	strng
+	lhld	strt		;top of RAM is (STRT) in STRNG versions
+	else
+	lhld	memt		;top of RAM is (MEMT) otherwise
+	endif
+	endif
+	inx	h		;top of user RAM + 1 to HL
+	mov	a,h
+	ora	l
+	cnz	mvtst		;check for loc within user RAM
+	pop	psw		;restore token
+	cpi	tot
+	jnz	movef		;must be FROM
+	push	b		;save destination
+	lxi	d,srcad-2
+	call	cplde		;2-SRCAD to DE
+	lhld	eofad
+	dad	d		;last - first + 1 = length
+	xchg			;to DE
+	pop	h		;destination to HL
+	push	h
+	push	d		;save dest, length
+move1:	call	rtest		;check if RAM
+	jnz	roerr		;ROM, RO error
+	inx	h
+	dcx	d
+	mov	a,d
+	ora	e
+	jnz	move1		;check next
+	lxi	b,srcad-1	;source to BC
+	pop	d		;length to DE
+	pop	h		;destination to HL
+	jmp	moved		;block move and return
+movef:	cpi	fromt
+	jnz	snerr		;neither TO nor FROM, SN error
+	ldax	b		;fetch first prog char
+	cpi	cr
+	jnz	roerr		;not a prog, RO error
+	push	b
+	push	b
+	push	b
+	lhld	sourc
+	xthl			;save SOURC value
+	inx	h		;point to first length byte
+	shld	sourc
+	call	last		;last loc to BC
+	pop	h
+	shld	sourc		;restore SOURC
+	pop	d
+	call	cplde		;-first to DE
+	lhld	symta
+	xchg			;-first to HL, SYMTA to DE
+	dad	b		;last-first=length-1 to HL
+	push	h		;save length for block move
+	lxi	b,srcad
+	push	b		;save destination for block move
+	dad	b		;last needed + 1 to HL
+	call	cmdhu
+	jc	omerr		;too big, OM error
+	pop	h		;destination
+	pop	d		;length
+	pop	b
+	inx	b		;source
+	call	moved		;block move into working space
+	dcx	h		;point to new eof
+	jmp	new1		;reset stacks and EOFAD
+;MVTST is called from MOVE to assure location specified does not overlap
+;with XYBASIC or with user RAM.  Issues fatal RO error if min <= loc <= max.
+;Call:	BC	specified location
+;	DE	min
+;	HL	max+1
+mvtst:	call	cmbdu
+	rc			;loc < min
+	xchg			;max+1 to DE
+	call	cmbdu
+	rnc			;loc >= max+1
+	jmp	roerr		;else fatal RO error
+
+	endif			;end of NOT COMPL conditional
+	else
+move	equ	exerr		;EX error in non-ROMSQ versions
+	endif			;end of ROMSQ conditional
+
+;NEW
+	if	compl
+newcm	equ	uferr		;UF error in COMPL version
+	else
+newcm:	if	romsq
+	call	issrc		;check if addressing working space
+	endif
+	call	iitst		;NEW is illegal indirect
+	if	sdisk
+	call	closn		;close any OPEN files
+	endif
+new:	call	clea1		;clear symbol table -- LOAD, init entry point
+	xra	a
+	sta	trace		;traceoff
+	sta	trap		;trapon
+	lxi	h,srcad
+	mov	m,a		;source text empty
+new1:	push	h		;ADDLN, DMODX, MOVE FROM entry point
+	call	stzap		;reset BREAK and FN symbol table entries
+	call	rstor		;restore the READ pointer
+	if	not wild
+	call	disab		;disable interrupts
+	endif
+	pop	h
+	shld	eofad		;set eof address -- LOAD entry point
+	endif			;end of NOT COMPL conditional
+cspst:	shld	cstkp		;clear control stack -- call to reset it
+	shld	estkp		;reset expr stack pointer
+	ret
+
+;NEXT [<var name> [, <var name>]* ]
+;First the most recent CSTACK FOR entry is found.
+next:	lxi	b,(csfor shl 8) or csfor
+	call	csdig		;look for CSTACK FOR entry
+	jc	nferr		;not found -- fatal NF error
+	push	h		;save FOR entry address
+	lxi	d,-5
+	dad	d		;point to var address bytes
+	mov	b,m
+	dcx	h
+	mov	c,m		;fetch var addr to BC
+	push	h		;and save var addr pointer
+	lhld	textp
+	shld	savtp		;save TEXTP in case retry necessary
+	push	b
+	call	fdvar		;look for var name after NEXT
+	inx	h
+	pop	b
+	jc	next1		;no name
+;NEXT <var name> specified, so the FOR <var name> is compared to it.
+	xchg			;NEXT var addr DE, type addr HL
+	call	cmbdu		;compare FOR and NEXT <var name>s
+	jz	next3		;FOR and NEXT <var name>s match
+;<var name>s do not match, so CSTACK FOR entry is poped.
+	lhld	savtp
+	shld	textp		;restore textp to get var name again
+	pop	h
+	pop	h		;FOR entry address to HL
+	mov	a,m		;type/length byte to  A
+	mov	b,a		;saved in B
+	ani	1FH		;mask to length
+	call	sbahl		;address next entry
+	mov	a,b		;type/length restored
+	call	csrst		;purge the FOR entry from CSTACK
+	jmp	next		;and try again
+;When no <var name> is specified after NEXT, the last CSTACK FOR entry
+;<var name> is assumed.  The type byte must be found for correct tracing.
+next1:	lhld	symta
+next2:	call	stnxt		;address next symbol table entry
+	xchg
+	call	cmbdu		;compare to desired value addr
+	xchg
+	jnc	next2		;var addr >= next entry, try another
+	xchg			;type byte addr to HL
+;At NEXT3 the desired <var name> is known.  The stack contains the FOR entry
+;addr and the FOR entry var addr, BC contains the var addr, and HL
+;contains the type byte pointer for the specified <var name>.
+;The trace info [<line #>]<var name> is printed if desired.
+next3:	if	float
+	mov	a,m
+	ani	1FH		;mask to type
+	sta	lhsty		;save destination type
+	endif
+	if	not compl
+	lda	trace
+	ora	m		;sign set iff tracing
+	sta	vtrac		;set VTRAC for ASSGN
+	inx	h		;point to name
+	jp	next4		;no tracing desired
+	call	bprnt		;print trace line #
+	call	prtst		;print var name
+	endif
+;At NEXT4 the bound & incr pointers are found in preparation for incrementing,
+;and the old value is replace by value+increment.
+next4:	pop	h		;FOR entry var addr pointer to HL
+	lxi	d,-fbyts
+	dad	d
+	push	h		;save incr pointer
+	push	h
+	dad	d
+	xthl			;save bound pointer, incr pointer to HL
+	push	b		;and save var addr
+	if	float
+	lda	lhsty
+	cpi	intst
+	jz	nxt4i		;integer FOR
+;Now floating value is replaced by old value plus increment.
+	push	b
+	if	f9511
+	call	lod95		;incr to 9511 stack
+	pop	h
+	call	lod95		;var value to 9511 stack
+	call	fadd		;add increment to var value
+	mvi	a,pto95
+	call	o9511		;copy stacktop
+	call	fet95		;fetch result from 9511 stack
+	else
+	xthl			;save incr address, var address to HL
+	call	fload
+	pop	h		;incr address to HL
+	if	fpbcd
+	call	fadd		;add var value to increment
+	else
+	call	fincr		;instead of CALL FADD
+	call	etest		;perform significance test
+	endif
+	endif
+	pop	h		;restore var addr
+	if	compl
+	if	f9511
+	call	sto95		;result to var addr
+	else
+	call	fstor		;result to var addr
+	endif
+	else			;NOT COMPL
+	push	h
+	if	f9511
+	call	sto95		;result to var addr
+	else
+	call	fstor		;result to var addr
+	endif
+	pop	h		;restore var addr for tracing
+	mvi	b,sngst		;type to B
+	call	trval		;print trace info if desired
+	endif
+	jmp	next5
+	endif
+;Integer value is replaced by old value plus increment.
+nxt4i:	mov	c,m
+	inx	h
+	mov	b,m		;incr to BC
+	pop	h
+	mov	e,m
+	inx	h
+	mov	d,m		;value to DE
+	push	h
+	call	iadd		;integer add incr+value
+	cc	iover		;overflow, nonfatal OV error
+	pop	h
+	call	asigi		;assign and print trace info if desired
+;At NEXT5 the bound is compared to the value to test for loop termination.
+next5:	pop	h		;bound pointer to HL
+	pop	d		;incr pointer to DE
+	call	bdtst		;test for completion condition
+	pop	h		;FOR entry addr to HL
+	jnc	cspop		;don't exit loop -- get new text addr & return
+next6:	if	compl
+	lxi	d,-(2*fbyts+7)	;- entry length to DE
+	else
+;Before purging the FOR-entry the CSTACK direct count must be updated.
+	dcx	h
+	mov	a,m
+	dcx	h
+	ora	m		;check line # of FOR
+	cz	dcstd		;decrement CSTKD if direct
+	lxi	d,-(2*fbyts+5)
+	endif
+	dad	d		;point to next entry
+	mvi	a,csfor
+	call	csrst		;reset stack pointer
+next7:	call	gtcnd		;look for comma
+	jnc	next		;do another NEXT if comma
+	ret
+nferr:	error	f, N, F		;fatal NF error
+
+;NULL <expr>
+	if	not wild
+null:	call	gtbex		;get byte-value expr
+	mov	a,c
+	sta	nulls		;value to NULLS
+	ret
+	endif			;end of NOT WILD conditional
+
+;end of STATES2
+	page

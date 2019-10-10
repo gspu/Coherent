@@ -1,0 +1,226 @@
+/*					
+ * fsck  --  File System Check Program
+ * an interactive file system check and repair program.
+ *
+ * Usage:
+ *	/etc/fsck [-y] [-n] [-q] [-f] [-{sS}] [-t TMPFILE] [filesystem ...]
+ *	audit and interactively repair inconsistent conditions for
+ *  	file systems.  Options -y and -n indicate an assumed response
+ *	to all questions asked by fsck.  Default is to prompt operator
+ *	for yes/no response.  Option -q is to quiet fsck from printing
+ *	certain messages, i.e. no size check messages, unreferenced
+ *	pipes will be silently removed, and counts in the superblock
+ *	will be automatically fixed and free list salvaged, if necessary.
+ *	Option -f is for a 'fast' check of the file system, i.e. only
+ *	check blocks, sizes, superblock counts, and the free list.
+ *	(-f) does not check pathnames, connectivity, or reference
+ *	counts.  Option -s forces the reconstruction (or salvaging) of
+ *	both the free inode list and the free block list, even if there
+ *	are no file system problems.  This will reorder the free block
+ *	list in the best order to limit additional fragmentation (respecting
+ *	interleaving as well).  Note: Option -s will be ignored on mounted
+ *	file systems.  The option -S acts in the same manner as -s except
+ *	that it will not be ignored on mounted file systems.  Beware: -S
+ *	on mounted file systems should only be used if you intend to reboot
+ *	NO SYNC immediately afterwards.  Option -t sets the temporary file
+ *	to use for disk caching of necessary tables on filesystems which are
+ *	too big to do in core. The temporary file defaults to "/dev/rram1",
+ *	which must be there.
+ */
+
+#include "fsck.h"
+
+int	errflag;
+
+int	mdaction;			/* default action for invocation */
+int	daction;			/* default action for file system */
+int	gSflag=FALSE;			/* force salvage flag ignored mounted */
+int	gsflag=FALSE;			/* force salvage flag ignored mounted */
+int	sflag=FALSE;			/* force salvage flag	*/
+int	qflag=FALSE;			/* fsck quiet flag	*/
+int	fflag=FALSE;			/* fsck fast flag	*/
+
+char *tmpfile = NULL;			/* TMP file for virtual.c */
+char *checklistfile = "/etc/checklist";	/* default file for list of file */
+					/* systems to fsck. */
+char *filelist[NFILSYS];		/* list of filesystems */
+char word[MAXCH];			/* hold single words */
+char *fsname;				/* file system name */
+
+dev_t	rootdev;			/* root device number */
+dev_t	fsysrdev;			/* file system real device number */
+int	mounted;			/* flag for mounted file system */
+
+int	changeflg;			/* file system modified flag */
+
+main(argc, argv)
+char *argv[];
+{
+	int yflag=0, nflag=0;
+	int retval;
+
+	while (argc>1 && *argv[1]=='-') {
+		switch (argv[1][1]) {
+		case 'q':
+			qflag = TRUE;
+			break;
+		case 'y':
+			yflag = 1;
+			break;
+		case 'n':
+			nflag = 1;
+			break;
+		case 'f':
+			fflag = TRUE;
+			break;
+		case 'S':
+			gSflag = TRUE;
+			break;
+		case 's':
+			gsflag = TRUE;
+			break;
+		case 't':
+			tmpfile = argv[2];
+			argc--;
+			argv++;
+			break;
+		default:
+			usage();
+			break;
+		}
+	
+		argc--;
+		argv++;
+	}
+	
+	if ( yflag+nflag > 1 )
+		usage();
+
+	mdaction = ( yflag ? YES :
+		    nflag ? NO : ASK );
+
+	if ( argc > 1 )
+		retval = allfsck(argv+1);
+	else {
+		getlist();
+		retval = allfsck(filelist);
+	}
+	exit(retval);
+}
+
+
+/*
+ *	perform fsck on each of the individual filesystem in list
+ */
+
+allfsck(fsl)
+register char **fsl;
+{
+	int fatal();
+	int retval = 0;
+
+	sync();
+	statit("/", fatal);
+	rootdev = stats.st_dev;
+	while (*fsl != NULL)
+		retval |= fsck(*fsl++);
+	return(retval);
+}
+
+/* 
+ *  	get the names of the filesystems from the default file
+ *	checklistfile  (e.g. /etc/checklist)
+ */
+
+getlist()
+{
+	int fd;
+	int index, size;
+
+	if ( (fd = open(checklistfile, 0)) == (-1) )
+		fatal("Can't open checklist file: %s", checklistfile);
+
+	index = 0;
+	while ( ((size = getword(fd)) != 0) && (index < NFILSYS) ) {
+                filelist[index] = malloc( size );
+		strcpy(filelist[index++], word);
+	}
+
+	if (size != 0) 
+		fatal("Too many file systems in checklist file: %s",
+							checklistfile);
+
+	filelist[index] = NULL;
+
+	close(fd);
+}
+
+/*
+ *	read in the next "word" from file with descriptor fd
+ *  	return the length of the word.
+ */
+
+getword(fd)
+int fd;
+{
+	int n = 0, num;
+	char *cp = word;
+	char ch;
+
+	while ( ( (num=read(fd, &ch, 1)) == 1 ) &&
+		( (ch==' ')||(ch=='\t')||(ch=='\n')||(ch=='\r') ) );
+
+	if (num != 1)
+		return(0);
+
+	do {
+		*cp++ = ch;
+	} while (  (++n < MAXCH) && (read(fd, &ch, 1) == 1) &&
+		(ch != ' ') && (ch != '\t') && (ch != '\n') && (ch != '\r') );
+	
+	*cp = '\0';
+
+	return(n+1);
+}
+	
+/*
+ *	perform fsck on the given filesystem
+ */
+fsck(name)
+char *name;
+{
+	int retval = 1;
+	int nonfatal();
+
+	fsname = name;		/* file system name */
+	errflag = FALSE;
+	statit(fsname, nonfatal);
+	fsysrdev = stats.st_rdev;
+	if ( errflag )
+		return(retval);
+	changeflg = FALSE;
+	init();
+	if ( sflag = ((gsflag && !mounted) || gSflag) )
+		printf("Switch \"-s\" selected to automatically rebuild free lists\n");
+	if (!sflag && gsflag)
+		printf("Ignoring \"-s\" on mounted file system\n");
+	if ( !errflag ) {
+		phase1();	/* check blocks and sizes */
+		if ( !fflag ) {
+			phase2();	/* check pathnames        */
+			phase3();	/* check connectivity     */
+			phase4();	/* check reference counts */
+		}
+		phase5();	/* check free list	  */
+		phase6();	/* salvage free list	  */
+		retval = cleanup();
+	}
+	return(retval);
+}
+
+usage()
+{
+	printf("\
+Usage: /etc/fsck [-y] [-n] [-q] [-f] [-{sS}] [-t TMPFILE] [filesystem ...]\n");
+	_exit(1);
+}

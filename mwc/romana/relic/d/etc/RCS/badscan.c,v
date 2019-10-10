@@ -1,0 +1,993 @@
+head     1.6;
+access   ;
+symbols  ;
+locks    bin:1.6;
+comment  @ * @;
+
+
+1.6
+date     91.02.22.18.14.25;  author bin;  state Exp;
+branches ;
+next	1.5;
+
+1.5
+date     90.04.20.16.01.50;  author bin;  state Exp;
+branches ;
+next	1.4;
+
+1.4
+date     90.04.19.21.08.36;  author bin;  state Exp;
+branches ;
+next	1.3;
+
+1.3
+date     90.03.27.16.33.48;  author bin;  state Exp;
+branches ;
+next	1.2;
+
+1.2
+date     90.03.22.17.57.41;  author root;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     90.03.22.17.56.09;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Initial version as received from Inetco.
+@
+
+
+1.6
+log
+@updated version provided by stevesf for v311
+@
+text
+@/*
+ * badscan.c
+ * 2/7/91
+ * Usage: badscan [-v] [-o proto] [-b boot] device count
+ *	device	  device to be scanned (e.g. /dev/rat0a)
+ *	count	  size of file system to be scanned
+ *	sdev	  master boot record for device size info (e.g. /dev/at0x)
+ * Options:
+ *	-b boot	  use "boot" for boot in prototype file (default: /conf/boot)
+ *	-o proto  output file name for prototype file  (default: stdout)
+ *	-v	  verbose messages as to the percentage of file system scanned
+ *
+ * Due to Inetco's braindamaged notion of removing stdio from everything, this
+ * does not #include <stdio.h> and uses sys write() calls to fd 1 and fd 2 in
+ * lieu of stdout and stderr.  This should be fixed when someone gets the urge.
+ *
+ * $Log:	/usr/src.inetco/etc/badscan.c,v $
+ * Revision 1.7	91/02/07  12:36:00 	bin
+ * steve 2/7/91
+ * Following norm's suggestion, SCSI badscan now issues warning but
+ * the continues with block-by-block scan of device.
+ * 
+ * Revision 1.6	91/02/07  09:58:21 	bin
+ * steve 2/7/91
+ * Added include of <sys/devices.h>, changed explicitly declared floppy
+ * and hard disk major device manifest constants accordingly.
+ * Added check for major==SCSI; if so, print "SCSI devices do not require
+ * badscan" and exit successfully.
+ * Added "badscan:" at start of fatal() messages.
+ * Added comment moaning about Inetco avoiding stdio.
+ * 
+ * Revision 1.5	90/04/20  09:01:50 	bin
+ * steve 4/20/90
+ * Previous version failed on floppy disks because HDGETA ioctl only works
+ * on hard disks.  Now it checks the major number, does HDGETA to find
+ * tracksize on hard disk and uses tracksize=1 (sector by sector scan)
+ * on floppies.  Future: should add FDGETA ioctl to floppy driver and
+ * let badscan (and mkfs) find default floppy size automatically.
+ * 
+ * Revision 1.4	90/04/19  14:08:36 	bin
+ * steve 4/19/90
+ * Change -v messages slightly for use during install;
+ * use '\r' instead of '\n', overwrite with "Done\n" when finished.
+ * 
+ * Revision 1.3	90/03/27  08:33:48 	bin
+ * steve 03/27/90
+ * Mark entire bad track as bad rather than reading each sector in track.
+ * 
+ * Revision 1.2	90/03/22  09:57:41 	root
+ * Find sectors per track with ioctl rather than assuming 17.
+ * Rearranged code, changed fatal error messages, changed screwy spacing.
+ * 	steve 3/22/90
+ * 
+ * 88/03/23	Allan Cornish	/usr/src/cmd/etc/badscan.c
+ * Reads are no longer attempted past logical end of partition,
+ * when a logical track straddles the partition boundary.
+ *
+ * 88/01/27	Jim Belton	/usr/src/cmd/etc/badscan.c
+ * Fixed bug for counts >= 32K by declaring atol().
+ *
+ * 86/11/03	Joe Iu
+ * Added -o and -b options, where the protofile and the boot file name
+ * can be specified by the user explicitly.
+ *
+ * 85/12/03	Allan Cornish
+ * Multi-sector read algorithm adjusted to ensure track alignment,
+ * even on track 0 where master boot block is not included in partition.
+ *
+ * 85/11/16	Allan Cornish
+ * Added track reads, with block by block retry on error.
+ *
+ * 85/11/13	Allan Cornish
+ * Added estimate of time remaining to each progress report.
+ *
+ * 85/11/06	Allan Cornish
+ * Added -v flag to report progress every 10 percent of scan.
+ *
+ * 88/07/11     Jim Napier
+ * Modified sput() to retry write if returns zero.  This was causing an
+ * invalid prototype file to be created when using the Seagate ST-251
+ * hard disk which contains bad blocks.
+ */
+
+#include <sys/stat.h>
+#include <sys/devices.h>
+#include <sys/fdisk.h>
+#include <sys/hdioctl.h>
+
+#define	BUFSIZ	512
+#define	MAXUINT	((unsigned)65535L)
+#define	NULL	((char *)0)
+#define	TRUE	(0 == 0)
+
+/*
+ * External functions.
+ */
+extern	long	atol();
+extern	char	*malloc();
+
+/*
+ * Forward referenced functions.
+ */
+void		bad();
+void		fatal();
+void		lput();
+void		sput();
+void		usage();
+
+/*
+ * Global variables.
+ */
+char		*bfile = "/conf/boot";
+int		bflag;
+int 		oflag;
+struct stat	sb;
+int		vflag;
+
+/**
+ * main 	- validate number and type of arguments.
+ *		- scan device (arg1) for bad blocks until lim (arg2) reached.
+ *		- generate a mkfs prototype file on standard output or the
+ *		  designated protofile.
+ */
+main(argc, argv) register int argc; register char *argv[];
+{
+	register int n;
+	long bno;
+	long incr;
+	long lim;
+	long t0, t1;
+	int percent;
+	int nspt;
+	char *buf;
+	hdparm_t hdparms;
+	unsigned int tracksize;
+	unsigned long base;
+
+	/*
+	 * Read options declared.
+	 */
+	while((--argc > 0) && ((*++argv)[0] == '-')) {
+
+		if((*argv)[2] != '\0')
+			usage();
+
+		switch((*argv)[1]) {
+
+		case 'v':
+			if(vflag)
+				usage();
+			vflag = TRUE;
+			break;
+
+		case 'o':
+			if(oflag  ||  (--argc <= 0))
+				usage();
+			oflag = TRUE;
+
+ 			/*
+			 * Open protofile to store badscan information.
+			 */
+			close(1);
+			if(creat(*++argv, 0644) == -1)
+				fatal("cannot create ", *argv);
+			break;
+
+		case 'b':
+			if(bflag  ||  (--argc <= 0))
+				usage();
+
+			bflag = TRUE;
+			/*
+			 * Set boot file name.
+			 */
+			bfile = *++argv;
+			break;
+
+		default:
+			usage();
+			break;
+		}
+	}
+
+ 	/*
+	 * Check to ensure that only arg1 and arg2 are available.
+	 */
+	if (argc != 2)
+		usage();
+
+	/*
+	 * The first argument not associated with an option must be a
+	 * character or block special file.
+	 */
+	if (stat(argv[0], &sb) < 0)
+		fatal("cannot stat: ", argv[0]);
+	sb.st_mode &= S_IFMT;
+	if ((sb.st_mode != S_IFCHR) && (sb.st_mode != S_IFBLK))
+		fatal("not a device special file: ", argv[0]);
+	if ((n = major(sb.st_rdev)) == SCSI_MAJOR)
+		sput(2, "badscan: warning: SCSI devices do not require badscan\n");
+	else if (n != AT_MAJOR && n != FL_MAJOR)
+		fatal("not a disk device: ", argv[0]);
+
+	/*
+	 * Open the special file (arg1).
+	 * Find the size of a track.
+	 */
+	close(0);
+	if (open(argv[0], 0) == -1)
+		fatal("cannot open: ", argv[0]);
+	if (n == AT_MAJOR) {
+		/* Get hard disk track size with ioctl. */
+		if (ioctl(0, HDGETA, (char *)&hdparms) == -1)
+			fatal("cannot get disk device parameters: ", argv[0]);
+		tracksize = hdparms.nspt;
+	} else {
+		/* Badscan a floppy disk or a SCSI disk. */
+		/* Floppy ioctl FDGETA should be implemented but is not (yet). */
+#if	0
+		/* Kludge: this code knows floppy minor to tracksize mapping. */
+		n = minor(sb.st_rdev) & 7;
+		if (n < 3)		/* minor 0, 1, 2, 8, 9, 10, ... */
+			tracksize = 8;
+		else if (n < 6)		/* minor 3, 4, 5, 11, 12, 13, ... */
+			tracksize = 9;
+		else if (n == 6)	/* minor 6, 14, ... */
+			tracksize = 15;
+		else			/* minor 7, 15, ... */
+			fatal("unsupported minor number", argv[0]);
+#else
+		/* Scan block by block for now. */
+		tracksize = 1;
+#endif
+	}
+
+	/*
+	 * Allocate a track buffer.
+	 */
+	if (tracksize > MAXUINT/BUFSIZ || (buf = malloc(tracksize * BUFSIZ)) == NULL)
+		fatal("cannot allocate track buffer", "");
+
+	/*
+	 * Validate and evaluate length (arg2)
+	 */
+	lim = atol(argv[1]);
+	if (lim <= 0) {
+
+		register struct hdisk_s *hp;
+		int f2;
+
+		if ((f2 = open(argv[1], 0)) < 0)
+			fatal("bad size: ", argv[1]);
+		if (read(f2, buf, 512) != 512)
+			fatal("cannot read: ", argv[1]);
+		close(f2);
+		hp = buf;
+		if (hp->hd_sig != HDSIG)
+			fatal("bad partition table: ", argv[1]);
+		lim  = hp->hd_partn[ sb.st_rdev & 3 ].p_size;
+		base = hp->hd_partn[ sb.st_rdev & 3 ].p_base;
+		nspt = tracksize - base % tracksize;
+		if (lim <= 0)
+			fatal("null partition: ", argv[1]);
+	}
+
+	/*
+	 * Create header for mkfs prototype file.
+	 */
+	sput(1, bfile);
+	sput(1, "\n");
+	lput(1, lim);
+	sput(1, " ");
+	lput(1, (lim/6 + 7) & ~7L);	/* ensure ninode is multiple of 8 */
+	percent = 10;
+	incr = lim / 10;
+	time(&t0);
+
+	/*
+	 * Scan for bad blocks.
+	 * The first and last tracks may have less than tracksize sectors.
+	 */
+	for (bno=0; bno < lim; (bno += nspt), (nspt = tracksize)) {
+
+		/*
+		 * Try a track read first.
+		 */
+		lseek(0, bno * BUFSIZ, 0);
+
+		/*
+		 * Avoid reading past end of partition.
+		 */
+		if (bno + nspt > lim)
+			nspt = lim - bno;
+
+		/* Mark each block in a bad track as bad. */
+		if (read(0, buf, (nspt * BUFSIZ)) != (nspt * BUFSIZ))
+			for (n=0; n < nspt; ++n)
+				bad(bno+n);
+
+		/*
+		 * Periodically generate reports
+		 */
+		if (vflag && (bno >= incr) && (bno < lim)) {
+
+			/*
+			 * Estimate seconds remaining to next 1/10 minute.
+			 */
+			time(&t1);
+			t1 = (t1 - t0) * (100 - percent);
+			t1 += percent - 1;
+			t1 /= percent;
+			t1 += 5;
+
+			lput(2, (long) percent);
+			sput(2, "% done: ");
+			if (t1 <  6000)
+				sput(2, " ");
+			if (t1 <   600)
+				sput(2, " ");
+			lput(2, t1 / 60);
+			sput(2, ".");
+			lput(2, (t1 % 60) / 6);
+			sput(2, " minutes remaining...\r");
+
+			percent += 10;
+			incr =  (lim * percent) / 100;
+		}
+	}
+	sput(2, "Done.                               \n");
+	sput(1, "\nd--755 0 0\n$\n");
+	exit(0);
+}
+
+/**
+ * void
+ * bad(n)
+ * long	n;
+ *	Input:	n	- bad block location.
+ *	Action:	Flag block n as being bad.
+ *	Return:	None.
+ *	Note:	None.
+ */
+void
+bad(n) register long n;
+{
+	static int  nbad =  0;
+	static long last = -1;
+
+	if ((last+1) != n)
+		nbad = 0;
+	last = n;
+	if ((nbad & 7) == 0)
+		sput(1, "\n%b");
+	sput(1, " ");
+	lput(1, n);
+	++nbad;
+}
+
+/**
+ * void
+ * fatal(s1, s2)
+ * char	* s1, *s2;
+ *	Input:	s1, s2	- pointer to error message strings.
+ *	Action:	Print fatal message, terminate with extreme prejudice.
+ *	Return:	Never return. Always exit.
+ *	Note:	None.
+ */
+void
+fatal(s1, s2) char * s1, * s2;
+{
+	sput(2, "badscan: ");
+	sput(2, s1);
+	sput(2, s2);
+	sput(2, "\n");
+	exit(1);
+}
+
+/**
+ * void
+ * lput(fd, num)
+ * int	fd;
+ * unsigned long num;
+ *
+ *	Input:	fd	- output file descriptor.
+ *		num	-
+ *	Action:	Convert long num to ascii string sent to file fd.
+ *	Return:	None.
+ *	Note:	None.
+ */
+void
+lput(fd, num) int	fd; unsigned long num;
+{
+	register char * cp;
+	static char buf[16];
+
+	cp = &buf[15];
+
+	/*
+	 * Compute character equivalent value of long num.
+	 */
+	do {
+		*--cp = (num % 10) + '0';
+	} while (num /= 10);
+	sput(fd, cp);
+}
+
+/**
+ * void
+ * sput(fd, s)
+ * int	fd;
+ * char	* s;
+ *
+ *	Input:	fd	- output file descriptor.
+ *		s	- pointer to character string.
+ *	Action:	Write string s to file descriptor fd.
+ *	Return:	None.
+ *	Note:	None.
+ */
+void
+sput(fd, s) int	fd; register char * s;
+{
+	register char * cp;
+	int i,j;
+
+	/*
+	 * Get location of end of string.
+	 */
+	for (cp = s; *cp != '\0'; ++cp)
+		;
+	
+	/* WRITE WITH RETRY IF WRITE() RETURNS 0 */
+	i = cp-s;
+	while ((j = write(fd, s, i)) == 0) ;
+	  
+}
+
+/**
+ * void
+ * usage()
+ *	Input:	None.
+ *	Action:	Display command format.
+ *	return:	None.
+ *	Note:	None.
+ */
+void
+usage()
+{
+	fatal(	"Usage: badscan [-v] [-o proto] [-b boot] dev size\n",
+		"       badscan [-v] [-o proto] [-b boot] dev sdev");
+}
+
+/* end of badscan.c */
+@
+
+
+1.5
+log
+@steve 4/20/90
+Previous version failed on floppy disks because HDGETA ioctl only works
+on hard disks.  Now it checks the major number, does HDGETA to find
+tracksize on hard disk and uses tracksize=1 (sector by sector scan)
+on floppies.  Future: should add FDGETA ioctl to floppy driver and
+let badscan (and mkfs) find default floppy size automatically.
+@
+text
+@d3 1
+a3 1
+ * 4/20/90
+d13 4
+d18 22
+d85 1
+a92 2
+#define	FDCMAJ	4			/* floppy controller major number */
+#define	HDCMAJ	11			/* hard disk controller major number */
+d198 4
+a201 2
+		fatal("not a special file: ", argv[0]);
+	if ((n = major(sb.st_rdev)) != HDCMAJ && n != FDCMAJ)
+d211 1
+a211 1
+	if (n == HDCMAJ) {
+d217 2
+a218 1
+		/* ioctl FDGETA should be implemented but is not (yet). */
+d371 1
+@
+
+
+1.4
+log
+@steve 4/19/90
+Change -v messages slightly for use during install;
+use '\r' instead of '\n', overwrite with "Done\n" when finished.
+@
+text
+@d3 1
+a3 1
+ * 4/19/90
+d13 6
+a18 1
+ * $Log:	/usr/src/etc/badscan.c,v $
+d66 2
+a110 1
+#if	1
+a111 1
+#endif
+d174 2
+d184 23
+a206 3
+	if (ioctl(0, HDGETA, (char *)&hdparms) == -1)
+		fatal("cannot get hard disk parameters: ", argv[0]);
+	tracksize = hdparms.nspt;
+@
+
+
+1.3
+log
+@steve 03/27/90
+Mark entire bad track as bad rather than reading each sector in track.
+@
+text
+@d3 1
+a3 1
+ * 3/22/90
+d14 4
+d260 1
+a260 1
+			sput(2, " % done: ");
+d268 1
+a268 1
+			sput(2, " minutes remaining ...\n");
+d274 1
+@
+
+
+1.2
+log
+@Find sectors per track with ioctl rather than assuming 17.
+Rearranged code, changed fatal error messages, changed screwy spacing.
+	steve 3/22/90
+@
+text
+@d13 6
+a18 1
+ * $Log: $
+d54 1
+a54 1
+#define	MAXUINT	65535
+a200 5
+#if	0
+#define	NSPT	26
+		/* The following line produces an internal cc error 3/22/90. */
+		nspt = NSPT - (hp->hd_partn[ sb.st_rdev & 3 ].p_base % NSPT);
+#else
+a202 1
+#endif
+d236 4
+a239 1
+		if (read(0, buf, (nspt * BUFSIZ)) != (nspt * BUFSIZ)) {
+a240 19
+			/*
+			 * Try to read each block in a bad track.
+			 */
+			for (n=0; n < nspt; ++n) {
+
+				/*
+				 * Check for partial track.
+				 */
+				if ((bno+n) >= lim)
+					break;
+				lseek(0, (bno+n) * BUFSIZ, 0);
+				/*
+				 * Append bad blocks to mkfs prototype file.
+				 */
+				if (read(0, buf, BUFSIZ) != BUFSIZ)
+					bad(bno+n);
+			}
+		}
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 10
+a11 1
+ * badscan [-v] [-o proto] [-b boot] device count
+a12 8
+ *	-v	  verbose messages as to the percentage of file system scanned
+ *	-o proto  output file name for 'mkfs' prototype file  (default: stdout)
+ *	-b boot	  boot block is in the specified file (default: /conf/boot)
+ *	dev	  device to be scanned (i.e. /dev/xt0a)
+ *	count	  size of file system to be scanned
+ *	sdev	  master boot record to get file system size from
+ *		  (i.e. /dev/xt0x)
+ *
+a19 1
+ * Forward referenced functions made static.
+d46 1
+a46 1
+#include <rico.h>
+a47 1
+#define	NSPT	17
+d49 3
+d56 2
+a57 1
+extern long		atol();		/* ASCII to long integer.	*/
+d62 5
+a66 5
+static void		sput();
+static void		bad();
+static void		lput();
+static void		fatal();
+static void		usage();
+d69 1
+a69 1
+ * Local variables.
+d71 5
+a75 6
+static struct stat	sb;
+static char		buf[NSPT][BUFSIZ];
+static int		vflag;
+static int 		oflag;
+static int		bflag;
+static char	      *	bfile = "/conf/boot";
+d83 1
+a83 6
+
+main( argc, argv )
+
+register int	 argc;
+register char ** argv;
+
+d91 7
+a97 1
+	int nspt = 17;
+d102 1
+a102 1
+	while( (--argc > 0) && ((*++argv)[0] == '-') ) {
+d104 1
+a104 1
+		if( (*argv)[2] != '\0' )
+d107 1
+a107 1
+		switch( (*argv)[1] ) {
+d110 1
+a110 1
+			if( vflag )
+a111 1
+
+d114 1
+d116 1
+a116 1
+			if( oflag  ||  (--argc <= 0) )
+d118 1
+a119 2
+			oflag = TRUE;
+
+d123 4
+a126 1
+			close( 1 );
+a127 3
+			if( creat( *++argv, 0644 ) == -1 )
+				fatal( "can't creat ", *argv );
+			break;
+d129 1
+a129 1
+			if( bflag  ||  (--argc <= 0) )
+a132 1
+
+d138 1
+d148 1
+a148 1
+	if( argc != 2 )
+d155 5
+a159 2
+	if ( stat(argv[0], &sb) < 0 )
+		fatal( "can't stat: ", argv[0] );
+d161 10
+a170 4
+	sb.st_mode &= S_IFMT;
+
+	if ( (sb.st_mode != S_IFCHR) && (sb.st_mode != S_IFBLK) )
+		fatal( "not block/char special file: ", argv[0] );
+d173 1
+a173 1
+	 * Open the special file (arg1)
+d175 2
+a176 1
+	close( 0 );
+a177 3
+	if ( open( argv[0], 0 ) == -1 )
+		fatal( "can't open: ", argv[0] );
+
+d181 2
+a182 1
+	lim = atol( argv[1] );
+a183 2
+	if ( lim <= 0 ) {
+
+d187 20
+a206 2
+		if ( (f2 = open( argv[1], 0 )) < 0 )
+			fatal( "bad size: ", argv[1] );
+a207 16
+		if ( read( f2, buf, 512 ) != 512 )
+			fatal( "can't read: ", argv[1] );
+
+		close( f2 );
+		hp = buf;
+
+		if ( hp->hd_sig != HDSIG )
+			fatal( "bad partn table: ", argv[1] );
+
+		lim  = hp->hd_partn[ sb.st_rdev & 3 ].p_size;
+		nspt = 17 - (hp->hd_partn[ sb.st_rdev & 3 ].p_base % 17);
+
+		if ( lim <= 0 )
+			fatal( "null partition: ", argv[1] );
+	}
+
+d211 5
+a215 6
+	sput( 1, bfile );
+	sput( 1, "\n" );
+	lput( 1, lim );
+	sput( 1, " " );
+	lput( 1, (lim/6 + 7) & ~7L );	/* ensure ninode is multiple of 8 */
+
+d218 1
+a218 1
+	time( &t0 );
+d222 1
+a222 2
+	 * First track may have less than 17 sectors.
+	 * Last track may also have less than 17 sectors.
+d224 1
+a224 1
+	for ( bno=0; bno < lim; (bno += nspt), (nspt = 17) ) {
+d229 1
+a229 1
+		lseek( 0, bno * BUFSIZ, 0 );
+d234 1
+a234 1
+		if ( bno + nspt > lim )
+d237 1
+a237 1
+		if ( read( 0, buf, (nspt * BUFSIZ) ) != (nspt * BUFSIZ) ) {
+d242 1
+a242 1
+			for ( n=0; n < nspt; ++n ) {
+d247 1
+a247 1
+				if ( (bno+n) >= lim )
+d249 1
+a249 3
+
+				lseek( 0, (bno+n) * BUFSIZ, 0 );
+
+d253 2
+a254 2
+				if ( read( 0, buf, BUFSIZ ) != BUFSIZ )
+					bad( bno+n );
+d261 1
+a261 1
+		if ( vflag && (bno >= incr) && (bno < lim) ) {
+d266 1
+a266 1
+			time( &t1 );
+d272 10
+a281 10
+			lput( 2, (long) percent );
+			sput( 2, " % done: " );
+			if ( t1 <  6000 )
+				sput( 2, " " );
+			if ( t1 <   600 )
+				sput( 2, " " );
+			lput( 2, t1 / 60 );
+			sput( 2, "." );
+			lput( 2, (t1 % 60) / 6 );
+			sput( 2, " minutes remaining ...\n" );
+d287 2
+a288 2
+	sput( 1, "\nd--755 0 0\n$\n" );
+	exit( 0 );
+d292 2
+a293 41
+ * static void
+ * sput( fd, s )
+ * int	fd;
+ * char	* s;
+ *
+ *	Input:	fd	- output file descriptor.
+ *		s	- pointer to character string.
+ *
+ *	Action:	Write string s to file descriptor fd.
+ *
+ *	Return:	None.
+ *
+ *	Note:	None.
+ *
+ */
+
+static void
+sput( fd, s )
+
+int	fd;
+register char * s;
+
+{
+	register char * cp;
+	int i,j;
+
+	/*
+	 * Get location of end of string.
+	 */
+	for ( cp = s; *cp != '\0'; ++cp )
+		;
+	
+	/* WRITE WITH RETRY IF WRITE() RETURNS 0 */
+	i = cp-s;
+	while ((j = write(fd, s, i)) == 0) ;
+	  
+}
+
+/**
+ * static void
+ * bad( n )
+a294 1
+ *
+a295 1
+ *
+a296 1
+ *
+a297 1
+ *
+a298 1
+ *
+d300 2
+a301 6
+
+static void
+bad( n )
+
+register long n;
+
+d306 1
+a306 1
+	if ( (last+1) != n )
+a307 1
+
+d309 4
+a312 6
+
+	if ( (nbad & 7) == 0 )
+		sput( 1, "\n%b" );
+
+	sput( 1, " " );
+	lput( 1, n );
+d317 20
+a336 2
+ * static void
+ * lput( fd, num )
+a341 1
+ *
+a342 1
+ *
+a343 1
+ *
+a344 1
+ *
+d346 2
+a347 7
+
+static void
+lput( fd, num )
+
+int	fd;
+unsigned long num;
+
+d359 3
+a361 1
+	} while ( num /= 10 );
+a362 3
+	sput( fd, cp );
+}
+
+d364 4
+a367 3
+ * static void
+ * fatal( s1, s2 )
+ * char	* s1, *s2;
+d369 4
+a372 6
+ *	Input:	s1, s2	- pointer to error message strings.
+ *
+ *	Action:	Print fatal message, terminate with extreme prejudice.
+ *
+ *	Return:	Never return. Always exit.
+ *
+a373 1
+ *
+d375 5
+d381 11
+a391 2
+static void
+fatal( s1, s2 )
+a392 9
+char * s1, * s2;
+
+{
+	sput( 2, s1 );
+	sput( 2, s2 );
+	sput( 2, "\n" );
+	exit( 1 );
+}
+
+d394 1
+a394 1
+ * static void
+a395 1
+ *
+a396 1
+ *
+a397 1
+ *
+a398 1
+ *
+a399 1
+ *
+d401 1
+a401 2
+
+static void
+a402 1
+
+d404 2
+a405 2
+	fatal( "Usage: badscan [-v] [-o proto] [-b boot] dev size\n",
+		"       badscan [-v] [-o proto] [-b boot] dev sdev"  );
+d408 1
+@

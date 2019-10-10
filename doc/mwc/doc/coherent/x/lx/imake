@@ -1,0 +1,475 @@
+.TH imake "" "" "X Utility"
+.PC "C preprocessor interface to the make utility"
+\fBimake\fB [\fB\-D\fIdefine\^\fB] [\-I\fIdir\^\fB] [\-T\fItemplate\^\fB] [\-f \fIfilename\^\fB] [\-s \fIfilename\^\fB] [\-e] [\-v]\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-D\fIdefine\fR"
+Pass
+.I define
+directly to the C preprocessor
+.B cpp
+.IC "\fB\-e\fR"
+Execute the generated
+.B Makefile
+.IC "\fB\-f \fIfilename\fR"
+Name the per-directory input file
+.IC "\fB\-I\fIdirectory\fR"
+Pass
+.I directory
+directly to the C preprocessor
+.B cpp
+.IC "\fB\-s \fIfilename\fR"
+Name the
+.B make
+description file to be generated,
+but do not invoke
+.B make
+.IC "\fB\-T\fItemplate\fR"
+Specify the name of the master template file used by
+.B cpp
+.IC "\fB\-v\fR"
+Verbose:
+print the
+.B cpp
+command line that
+.B imake
+uses to generate the
+.B Makefile
+.HE
+The utility
+.B imake
+generates a
+.B Makefile
+from a template, a set of
+.B cpp
+macros, and a per-directory input file called
+.BR Imakefile .
+This allows you to keep machine-dependencies
+(such has compiler options, alternate command names, and special
+.B make
+rules) apart from the descriptions of the items to be built.
+.PP
+Note that
+.B imake
+is almost always invoked through the script
+.BR /usr/X11/bin/xmkmf .
+This script passes to
+.B imake
+the names of the appropriate configuration files needed to build a
+.B Makefile
+correctly under X Windows for \*(CO.
+The following information is included for the sake of completeness, but
+you probably will never need to use it.
+.SH "Command-line Options"
+.B imake
+recognizes the following command-line options:
+.IP "\fB\-D\fIdefine\fR" 0.75i
+Pass
+.I define
+directly to the C preprocessor
+.BR cpp .
+This option typically is used to set directory-specific variables.
+For example, the X Window System uses this flag to set
+.B TOPDIR
+to the name of the directory that contains the top
+of the core distribution, and
+.B CURDIR
+to the name of the current directory, relative to the top.
+.IP "\fB\-e\fR"
+Execute the generated
+.BR Makefile .
+The default is let you do this later, by hand.
+.IP "\fB\-f \fIfilename\fR"
+Name the per-directory input file.
+The default is
+.BR Imakefile .
+.IP "\fB\-I\fIdirectory\fR"
+Pass
+.I directory
+directly to the C preprocessor
+.BR cpp .
+This option typically is used to name the directory in which the
+.B imake
+template and configuration files may be found.
+.IP "\fB\-s \fIfilename\fR"
+Name the
+.B make
+description file to be generated,
+but do not invoke
+.BR make .
+The file name `\-' indicates the standard output.
+The default is to generate, but not execute, a
+.BR Makefile .
+.IP "\fB\-T\fItemplate\fR"
+Specify the name of the master template file used by
+.BR cpp .
+This file usually is kept in a directory that is named with the option
+.BR \-I .
+.IP "\fB\-v\fR"
+Verbose:
+print the
+.B cpp
+command line that
+.B imake
+uses to generate the
+.BR Makefile .
+.SH "How It Works"
+.B imake
+invokes
+.B cpp
+with any
+.B \-I
+or
+.B \-D
+flags that you passed to it on its command line,
+and passes it the following three lines:
+.DM
+	#define IMAKE_TEMPLATE "Imake.tmpl"
+	#define INCLUDE_IMAKEFILE "Imakefile"
+	#include IMAKE_TEMPLATE
+.DE
+.PP
+where
+.B Imake.tmpl
+and
+.B Imakefile
+may be overridden by its command-line options
+.B \-T
+and
+.BR \-f ,
+respectively
+.PP
+The
+.B IMAKE_TEMPLATE
+typically reads a file that contains machine-dependent parameters
+(specified as
+.BR cpp
+symbols),
+a file of site-specific parameters,
+a file that defines variables,
+a file that contains
+.B cpp
+macro functions that generate
+.B make
+rules, and finally the
+.B Imakefile
+(specified by
+.BR INCLUDE_IMAKEFILE )
+in the current directory.
+The
+.B Imakefile
+uses the macro functions to set the targets to build;
+.B imake
+generates the appropriate rules.
+.PP
+.B imake
+configuration files contain two types of variables:
+.B imake
+variables and
+.B make
+variables.
+.B cpp
+interprets the former when you run
+.BR imake .
+By convention, they are in mixed case.
+The latter are copied into the
+.B Makefile
+for later interpretation by
+.BR make .
+By convention,
+.B make
+variables are in upper case.
+.PP
+The rules file (usually named
+.B Imake.rules
+in the configuration directory) contains a variety of
+.B cpp
+macros that are configured for the machine on which the
+.B Makefile
+is being generated \(em in this case, X Windows for \*(CO.
+.B Imake
+replaces every occurrence of the string ``@@''
+with a newline to allow macros that generate more than one line of
+.B make
+rules.
+For example, the macro
+.DM
+.ta 1.0i 1.6i 5.0i
+	#define	program_target(program, objlist)	@@\e
+	program:	objlist		@@\e
+		$(CC)  \-o  $@  objlist  $(LDFLAGS)
+.DE
+.PP
+when called with with the macro
+.DM
+	program_target(foo, foo1.o  foo2.o)
+.DE
+.PP
+expands into:
+.DM
+	foo:	foo1.o  foo2.o
+		$(CC)  \-o  $@  foo1.o  foo2.o  $(LDFLAGS)
+.DE
+.PP
+On systems whose
+.B cpp
+reduces multiple tabs and spaces to one space character,
+.B imake
+attempts to replace any necessary tab characters.
+(\fBmake\fR is very picky about the difference between tabs and spaces).
+For this reason, you must precede every colon `:' in a command line
+with a backslash `\e'.
+.SH "Use With the X Window System"
+The X Window System uses
+.B imake
+extensively to build both the source tree and external software.
+As mentioned above,
+.B imake
+sets two special variables,
+.B TOPDIR
+and
+.BR CURDIR ,
+to ease the referencing files via relative path names.
+For example,
+.B imake
+automatically generates the following command to build the
+.B Makefile
+in the directory
+.B lib/X11
+(relative to the top of the sources):
+.DM
+	%  ../.././config/imake  \-I../.././config  \e
+		\-DTOPDIR=../../.   \-DCURDIR=./lib/X11
+.DE
+.PP
+When building X programs outside the source tree, define the special symbol
+.B IUseInstalled
+and omit
+.B TOPDIR
+and
+.BR CURDIR .
+.PP
+In most cases, you should use the script
+.BR xmkmf ,
+rather than attempt to do this by hand.
+.SH "Input Files"
+The following names the files that
+.B imake
+reads.
+The indentation shows which files are included by other files:
+.DS
+	Imake.tmpl (\fIgeneric variables\^\fR)
+		site.def (\fIsite-specific, \fBBeforeVendorCF\fI defined\^\fR)
+		*.cf (\fImachine-specific\^\fR)
+			*Lib.rules (\fIshared-library rules\^\fR)
+		site.def (\fIsite-specific, \fBAfterVendorCF\fI defined\^\fR)
+		Project.tmpl (\fIX-specific variables\^\fR)
+			*Lib.tmpl (\fIshared-library variables\^\fB)
+		Imake.rules (\fIrules\fR)
+	Imakefile
+		Library.tmpl (\fIlibrary rules\^\fR)
+		Server.tmpl (\fIserver rules\^\fR)
+.DE
+.PP
+All of these are kept in directory
+.BR /usr/X11/lib .
+.PP
+Note that
+.B site.def
+is included twice:
+once before the
+.B *.cf
+file and once after.
+Although most site customizations should be specified after the
+.BR *.cf
+file, some, such as the choice of compiler, need to be specified before,
+because other variable settings may depend on them.
+.PP
+The first time
+.B site.def
+is included, the variable
+.B BeforeVendorCF
+is defined;
+the second time, the variable
+.B AfterVendorCF
+is defined.
+All code in
+.B site.def
+should be inside an
+.B #ifdef
+for one of these symbols.
+.SH "Environment Variables"
+.B imake
+reads the following environmental variables.
+Note, however, that their use is
+.I not
+recommended as they introduce dependencies that are not readily apparent
+when you run
+.BR imake :
+.IP \fBIMAKEINCLUDE\fR
+This should be a valid include argument for the C preprocessor; e.g.,
+.BR \-I/usr/include/local .
+Actually, any valid
+.B cpp
+argument will work here.
+.IP \fBIMAKECPP\fR
+This should be a valid path to a preprocessor program; e.g.,
+.BR /usr/local/cpp .
+By default,
+.B imake
+uses
+.BR /lib/cpp .
+.IP \fBIMAKEMAKE\fR
+This should be a valid path to a
+.B make
+program,
+such as
+.BR /usr/local/make .
+By default,
+.B imake
+uses whatever
+.B make
+program is found using
+.BR execvp() .
+.B imake
+uses this variable only if its command-line option
+.B \-e
+is specified.
+.SH Example
+As can be seen from the above descriptions,
+.B imake
+is a complex program, and the writing of an
+.B Imakefile
+a difficult exercise.
+However, one appealing feature of
+.B imake
+is that if you adhere to the default settings of the local implementation,
+an
+.B Imakefile
+can be quite simple.
+.PP
+For example,
+the following gives the
+.B Imakefile
+for the program
+.BR xwave ,
+whose source code is included with X Windows for \*(CO:
+.DM
+	LOCAL_LIBRARIES = $(XLIB)
+.sp \n(pDu
+	OBJS = xwave.o force.o plot.o prop.o
+.sp \n(pDu
+	SRCS = xwave.c force.c plot.c prop.c
+.sp \n(pDu
+	SYS_LIBRARIES = -lm
+.sp \n(pDu
+	ComplexProgramTarget(xwave)
+.DE
+.PP
+.B LOCAL_LIBRARIES
+expands into the standard suite of X libraries.
+.B SYS_LIBRARIES
+gives the \*(CO libraries that the program also requires; in this case,
+.B xwave
+also requires the mathmatics library
+.BR libm.a .
+.PP
+.B OBJS
+names the relocatable object modules from which the executable is built.
+.B SRCS
+names the source files from which the objects are built.
+There is usually \(em though by no means always \(em a one-to-one
+correspondence between source files and objects.
+Most source files consists of files of C code, although some may be
+written in other languages (e.g., C++, \fByacc\fR, or \fBlex\fR),
+or be in some specialized format (e.g., uuencoded).
+.PP
+Finally, the function-like macro
+.B ComplexProgramTarget()
+expands into a mass of instructions that will build
+.BR xwave .
+.PP
+To convert this
+.B Imakefile
+into a
+.BR Makefile ,
+simply enter the directory that holds it and type the command
+.BR xmkmf .
+This five-line
+.B Imakefile
+expands into several hundred lines of
+.B Makefile
+that will build
+.BR xwave .
+.SH Files
+\fB/usr/tmp/tmp-imake.\fInnnnnn\fR \(em Temporary input file for \fBcpp\fR
+.br
+\fB/usr/tmp/tmp-make.\fInnnnnn\fR \(em Temporary input file for \fBmake\fR
+.br
+\fB/lib/cpp\fR \(em Default C preprocessor
+.SH "See Also"
+.B
+xmkmf,
+X utilities
+.R
+.br
+\*(CO Lexicon:
+.B
+C preprocessor,
+cpp,
+make
+.R
+.br
+\*(CO tutorial:
+\fIThe make Programming Discipline\fR
+.SH Notes
+Because
+.B imake
+invokes the C preprocessor
+.B cpp
+to expand macros, its behavior will vary from system to system
+depending upon the C preprocessor used:
+an
+.B Imakefile
+that compiles correctly on one system may die a painful death on another
+because of differences in the preprocessor.
+Please note the following common problems that are seen under \*(CO:
+.IP \*(bu 0.3i
+.B imake
+normally recognizes a line that begins with a `#' as being a comment.
+However, if a comment contains an apostrophe,
+.B imake
+will pass that line to
+.BR cpp ,
+which will then attempt to interpret it as a C preprocessor instruction.
+The solution is to remove the comment, or to surround it with
+C-style comments.
+.IP \(bu
+Some
+.BR Imakefile s
+that are built from a resource-control system (RCS) will have an RCS-related
+comment at the top.
+This comment will also confuse
+.BR imake .
+Again, the solution is to remove the comment, or to enclose it within
+C-style comments.
+.PP
+.II "Brunhoff, Todd"
+.II "Fulton, Jim"
+.B imake
+was written by
+Todd Brunhoff of Tektronix and MIT Project Athena,
+and Jim Fulton of the MIT X Consortium.
+.PP
+.B imake
+requires the C preprocessor from the GCC compiler.
+This is included with X Windows for \*(CO.
+.PP
+.BR Makefile s
+generated by
+.B imake
+must be processed through
+.BR gmake ,
+not the default \*(CO implementation of
+.BR make .

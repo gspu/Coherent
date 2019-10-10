@@ -1,0 +1,124 @@
+
+/* print_(mail_)recs.c
+ *
+ * This will take the 'statename' passed form the calling function,
+ * open the maillist file and print the records that match the statename
+ * to a window in formatted columns, If there are more records that lines
+ * permitted on the window, the user will be prompted to press <return> to 
+ * continue on with any following screens of info.
+/*
+
+void print_mail_recs(win2,statename)
+WINDOW *win2;
+char statename[20];
+
+{
+struct mail record;
+FILE *infp;
+int x=2;
+
+
+	if ((infp=fopen(MAILFILE,"r")) == NULL)
+		{
+		noraw();
+		endwin();
+		printf("Error opening file for input!\n");
+		exit(1);
+		}
+
+
+	/* print column titles */
+
+	wclear(win2);
+	wmove(win2,0,0);
+	wstandout(win2);
+	waddstr(win2,"Sitename");
+	wmove(win2,0,15);
+	waddstr(win2,"Login:");
+	wmove(win2,0,24);
+	waddstr(win2,"State/Country:");
+
+	/* if we are looking for a US mailsite, then show a column for
+	 * cities
+	*/
+
+	if(strcmp(statename,"NON-US") != 0)
+		{
+		wmove(win2,0,49);
+		waddstr(win2,"City/Other:");
+		}
+	wstandend(win2);
+	wmove(win2,2,0);
+
+	wrefresh(win2);
+
+	/* read each record, comparing statename for matches. When a 
+	  match is found, print the record */
+
+	while ( fread(&record,sizeof(struct mail),1,infp) == 1)
+		{
+		if( (strcmp(statename,record.state)== 0) || ((strcmp(statename,"NON-US")==0) && (strcmp(record.city,"COUNTRY")==0)))
+
+			{
+			wmove(win2,x,0);
+			waddstr(win2,record.site);
+			wmove(win2,x,16);
+			waddstr(win2,record.login);
+			wmove(win2,x,26);
+			waddstr(win2,record.state);
+			if(strcmp(statename,"NON-US")!=0)
+				{
+				wmove(win2,x,50);
+				waddstr(win2,record.city);
+				}
+
+	/* increment our line counter, if we've filled our screen,
+	 * prompt the user to press <return> to continue on reading
+	 * any followinf mail entries from the file.
+	*/
+			x++;
+			if(x==18)
+				{
+				wmove(win2,x,0);
+				waddstr(win2,"Press <RETURN> for more");
+				wrefresh(win2);
+				while (13 != wgetch(win2));
+				x = 2;
+				wclear(win2);
+
+		/* reprint the column titles */
+
+				wmove(win2,0,0);
+				wstandout(win2);
+				waddstr(win2,"Sitename");
+				wmove(win2,0,15);
+				waddstr(win2,"Login:");
+				wmove(win2,0,24);
+				waddstr(win2,"State/Country:");
+
+				if(strcmp(statename,"NON-US") != 0)
+					{
+					wmove(win2,0,49);
+					waddstr(win2,"City/Other:");
+					}
+				wstandend(win2);
+
+				wrefresh(win2);
+				}
+			}
+		}
+		fclose(infp);
+
+		wmove(win2,18,0);
+		wstandout(win2);
+		waddstr(win2,"That's all folks!");
+		wstandend(win2);
+
+		wmove(win2,19,0);
+		waddstr(win2,"Press <RETURN> to continue..");		
+		wrefresh(win2);
+
+		while(13 != wgetch(win2));
+		wclear(win2);
+
+}

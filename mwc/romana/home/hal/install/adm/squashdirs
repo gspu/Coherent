@@ -1,0 +1,71 @@
+# squashdirs Sun Sep 19 18:14:58 1993 CDT
+
+# Compress directories named in CompressList within $TARGET/distrib2
+# Run as root from mkdist.
+
+/bin/echo "squashdirs $*"
+
+if [ ! "$UAD" ] ; then
+	/bin/echo "Need \$UAD"
+	echo 'This script should only be invoked from mkdist!  Exiting....'
+	exit 1
+fi
+
+if [ $# -ne 3 ] ; then
+	/bin/echo \
+'usage: squashdirs {fha|fva} distribution_directory target_directory'
+	exit 1
+fi
+
+FORMAT=$1
+DISTRIB=$2
+TARGET=$3
+
+echo 'Starting to compress the distribution...'
+
+# base all files in root of distribution
+
+if [ ! -d "$TARGET/distrib2" ];then
+	/bin/echo "distrib2 missing"
+	exit 1
+fi
+
+cd $TARGET/distrib2
+mkdir compressed
+chmog 755 bin bin compressed
+pwd
+
+cat $UAD/CompressList | while read Directory Filename Stuff
+do
+	case $Directory in
+	""|\#*)
+		# ignore blank and comment lines
+		continue
+		;;
+	esac
+
+	/bin/echo "Compressing directory tree $Directory to $Filename ...."
+	case $Filename in
+
+	*.taz)	/usr/bin/gtar czvf $Filename $Directory $Stuff
+		;;
+
+	*.tar*)	/usr/bin/ustar cvf - $Directory |
+		/usr/bin/gzip -c9 > $Filename
+		;;
+
+	*cpio*) /bin/find $Directory |
+		/usr/bin/cpio -ocvum |
+		/usr/bin/gzip -c9 > $Filename
+		;;
+
+	*)	/bin/echo "Unknown archive type: \"$Filename\""
+		;;
+
+	esac
+	rm -rf $Directory
+	/bin/sync
+done
+
+echo 'Done with squashdirs.'
+/bin/sync

@@ -1,0 +1,72 @@
+#!/bin/sh
+# /etc/newusr 6/7/91
+# Usage: /etc/newusr user UserName parentdir [ shell ]
+# Requires root permissions.
+
+# File and directory names.
+PFILE=/etc/passwd
+GFILE=/etc/group
+LOCK=/tmp/passwd.tmp
+MAILDIR=/usr/spool/mail
+SHELL=/bin/sh
+
+# Check usage.
+if /bin/test $# -ne 3 -a $# -ne 4
+then
+	echo "Usage: /etc/newusr user \"User Name\" parentdir [shell]" >&2 && exit 1
+fi
+
+# Use SHELL if specified.
+if /bin/test $# -eq 4
+then
+	SHELL=$4
+fi
+
+# Lock out other access to password and group files.
+if /bin/test -f $LOCK
+then
+	echo "newusr: lock file $LOCK exists" >&2 && exit 1
+fi
+>$LOCK
+
+# Make sure invoker is root.
+chown root $LOCK 2>/dev/null || echo "newusr: permission denied" >&2 && rm $LOCK && exit 1
+
+# Sort $PFILE by uid and find max uid.
+sort -n '-t:' +2 -3 -o $PFILE $PFILE
+UID=`tail -1 $PFILE | sed -n "s/[^:]*:[^:]*:\\([^:]*\\).*/\\1/p"`
+
+# Find gid for group "user".
+GID=`egrep user $GFILE | sed -n "s/[^:]*:[^:]*:\\([^:]*\\).*/\\1/p"`
+
+# Test if user exists already.
+if egrep "^$1:" $PFILE >/dev/null
+then
+	echo "newusr:  user $1 already exists" >&2
+else
+	UID=`expr $UID + 1`
+	HOME=$3/$1
+	PROF=$HOME/.profile
+	MAILBOX=$MAILDIR/$1
+	echo "Adding user: uname=$1 uid=$UID gname=user gid=$GID HOME=$HOME shell=$SHELL"
+
+	# Update password file.
+	echo "$1::$UID:$GID:$2:$HOME:$SHELL" >>$PFILE
+
+	# Update group file.
+	cat $GFILE >$LOCK
+	sed -e "/^user:/s/\$/,$1/" $LOCK >$GFILE
+
+	# Make new directory, .profile, mailbox.
+	mkdir -r $HOME || echo /etc/newusr: $HOME already exists
+	echo "MAIL=$MAILBOX" >$PROF
+	>$MAILBOX
+	chown $1 $HOME $PROF $MAILBOX
+	chgrp user $HOME $PROF $MAILBOX
+fi
+
+rm $LOCK
+sync
+exit 0
+
+# end of /etc/newusr

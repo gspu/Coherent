@@ -1,0 +1,678 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.09.26.17.18.15;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.12.20.32.28;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.01.20.16.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial version checked into src admin system. Provided by Steve Ness.
+@
+
+
+1.3
+log
+@stevesf fixed -1 option
+@
+text
+@/*
+ * c.c
+ * 9/23/91
+ * Usage: c [ -lN ] [ -wN ] [ -012 ]
+ * Columnize from stdin to stdout.
+ */
+
+#include	<stdio.h>
+
+#define	VERSION	"1.3"
+
+extern	char	*getenv();
+
+#define	NAV	6			/* max # environmental args */
+
+typedef	struct line {
+	struct line	*l_next;
+	char		*l_line;
+} LINE;
+
+/* Forward. */
+char	*item();
+char	*sel0();
+char	*sel1();
+char	*sel2();
+void	nomem();
+void	fatal();
+
+/* Globals. */
+int	fieldmax;			/* # columns of widest field	*/
+int	length;				/* # lines down page		*/
+LINE	*lhead;				/* head of LINE list		*/
+LINE	*ltail;				/* tail of LINE list		*/
+int	nacross;			/* # fields across page		*/
+int	ndown;				/* # fields down page		*/
+int	nfields;			/* # fields read from input	*/
+int	npp;				/* # fields per page		*/
+char	*(*select)() = sel1;		/* selector function		*/
+char	*usage = "\nUsage: c [ -lN ] [ -wN ] [ -012 ]";
+int	width = 80;			/* # columns across page	*/
+
+main(argc, argv) int argc; char *argv[];
+{
+	char obuf[BUFSIZ], av[NAV];
+
+	envargs(av);
+	setflags(av);
+	setflags(&argv[1]);
+	setbuf(stdout, obuf);
+	input();
+	output();
+	exit(0);
+}
+
+setflags(av) register char **av;
+{
+
+	for (; *av; ++av) {
+		if (av[0][0] != '-')
+			fatal("%s is not an option%s", av[0], usage);
+		switch (av[0][1]) {
+		case '0':
+			select = sel0;
+			break;
+		case '1':
+			select = sel1;
+			break;
+		case '2':
+			select = sel2;
+			break;
+		case 'w':
+			width = atoi(&av[0][2]);
+			break;
+		case 'l':
+			length = atoi(&av[0][2]);
+			break;
+		case 'V':
+			fprintf(stderr, "c: V%s\n", VERSION);
+			break;
+		default:
+			fatal("bad option %s%s", av[0], usage);
+		}
+	}
+}
+
+input()
+{
+	register LINE	*lp;
+	register	i;
+	char		lbuf[BUFSIZ];
+
+	while ((i=getline(lbuf)) >= 0) {
+		lp = malloc(sizeof *lp);
+		if (lp == NULL)
+			nomem();
+		if (lhead)
+			ltail->l_next = lp;
+		else
+			lhead = lp;
+		ltail = lp;
+		lp->l_next = NULL;
+		if (i) {
+			lp->l_line = malloc(i+1);
+			if (lp->l_line == NULL)
+				nomem();
+			strcpy(lp->l_line, lbuf);
+		}
+		else
+			lp->l_line = NULL;
+		++nfields;
+	}
+
+	++fieldmax;
+}
+
+output()
+{
+	register int i, j;
+
+	nacross = (width+1) / fieldmax;
+	if (nacross <= 0)
+		nacross = 1;
+	if (length != 0)
+		npp = length * nacross;
+	ndown = (nfields + nacross - 1) / nacross;
+	for (i = 0; i < ndown; ++i) {
+		for (j = 0; j < nacross; ++j)
+			putline((*select)(i, j));
+		putline((char *)0);
+	}
+
+	fclose(stdout);
+}
+
+
+getline(lbuf) char lbuf[];
+{
+	register char	*p;
+	register int	col, xcol;
+	int		c;
+
+	p = lbuf;
+	col = 0;
+	xcol = 0;
+
+	for (; ;) {
+		switch (c = getchar()) {
+		case EOF:
+			return (-1);
+		case '\n':
+			break;
+		case ' ':
+			++xcol;
+			continue;
+		case '\t':
+			xcol = (xcol|7) + 1;
+			continue;
+		case '\b':
+			if (xcol > col)
+				--xcol;
+			else if (col) {
+				--col;
+				--xcol;
+				*p++ = c;
+			}
+			continue;
+		default:
+			while (col < xcol) {
+				*p++ = ' ';
+				++col;
+			}
+			*p++ = c;
+			++col;
+			++xcol;
+			continue;
+		}
+		break;
+	}
+
+	if (col > fieldmax)
+		fieldmax = col;
+	*p = '\0';
+	return (p - lbuf);
+}
+
+putline(lbuf) char *lbuf;
+{
+	register	c;
+	register char	*p;
+	static		col,
+			xcol;
+
+	p = lbuf;
+	if (p == NULL) {
+		col = 0;
+		xcol = 0;
+		putchar('\n');
+		return;
+	}
+
+	while (c = *p++)
+		switch (c) {
+		case ' ':
+			++xcol;
+			break;
+		case '\b':
+			--col;
+			--xcol;
+			putchar(c);
+			break;
+		default:
+			while ((col|7)+1 <= xcol) {
+				putchar('\t');
+				col = (col|7) + 1;
+			}
+			while (col < xcol) {
+				putchar(' ');
+				++col;
+			}
+			putchar(c);
+			++col;
+			++xcol;
+			break;
+		}
+
+	xcol += fieldmax - xcol%fieldmax;
+}
+
+char *
+item(n) int n;
+{
+	register LINE *lp;
+	register int m;
+
+	for (m = 0, lp = lhead; lp; lp = lp->l_next)
+		if (++m > n)
+			return (lp->l_line ? lp->l_line : "");
+	return "";
+}
+
+/*
+ * Across each row, then on to next row.
+ */
+char *
+sel0(i, j) int i, j;
+{
+	return item(i*nacross + j);
+}
+
+/*
+ * Down each column, then on to next column.
+ * Leave spaces in last column.
+ */
+char *
+sel1(i, j) int i, j;
+{
+	register int page, rows, line;
+
+	if (length == 0)
+		return item(i + j*ndown);
+	page = i / length;			/* page number */
+	line = i % length;			/* line on page */
+	if (page == (ndown-1)/length)
+		rows = ((ndown-1)%length) + 1;	/* rows on last page */
+	else
+		rows = length;			/* rows on full page */
+	return item(page * npp + line + j * rows);
+}
+
+/*
+ * Down each column, then on to next column.
+ * Leave spaces in last row.
+ */
+char *
+sel2(i, j) int i, j;
+{
+	register int ncols, page, line, adjust;
+
+	if (i * nacross + j >= nfields)
+		return "";
+	ncols = nfields % nacross;		/* columns in incomplete last line */
+	adjust = (j > ncols) ? ncols : j;	/* last line adjust */
+	if (length == 0)
+		return item(i			/* n on prev. lines this col. */
+			   + j*(ndown-1)	/* n on prev. cols. */
+			   + adjust);		/* n on last line */
+	page = i / length;			/* page number */
+	line = i % length;			/* line on page */
+	if (page != (ndown-1)/length)		/* not last page */
+		return item(page * npp + line + j * length);
+	else					/* last page */
+		return item(page * npp		/* n on prev. pages. */
+			   + line		/* n on prev. lines this col. */
+			   + j*((ndown-1)%length)	/* n on prev. cols. */
+			   + adjust);		/* n on last line */
+}
+
+envargs(av) char **av;
+{
+	register	fl;
+	register char	*p;
+	register char	**ap;
+
+	ap = av;
+	*ap = NULL;
+	if ((p=getenv("C")) == NULL)
+		return;
+
+	fl = 0;
+	while (*p)
+		switch (*p++) {
+		case '\t':
+		case '\n':
+		case ' ':
+			fl = 0;
+			p[-1] = '\0';
+			break;
+		default:
+			if (fl)
+				break;
+			if (ap >= &av[NAV-1])
+				fatal("too many environmental arguments");
+			*ap++ = &p[-1];
+			++fl;
+			break;
+		}
+
+	*ap = NULL;
+}
+
+void
+nomem()
+{
+
+	fatal("out of memory");
+}
+
+void
+fatal(arg0)
+char	*arg0;
+{
+
+	fflush(stdout);
+	fprintf(stderr, "c: %r\n", &arg0);
+	exit(1);
+}
+
+/* end of c.c */
+@
+
+
+1.2
+log
+@updated version provided by stevesf for v311
+@
+text
+@d3 1
+a3 1
+ * 2/14/91
+d10 2
+d37 1
+a49 1
+
+a51 1
+
+d77 3
+d123 5
+a127 3
+	ndown = (nfields+nacross-1) / nacross;
+	for (i=0; i<ndown; ++i) {
+		for (j=0; j<nacross; ++j)
+d237 1
+a237 1
+			return (lp->l_line? lp->l_line: "");
+d257 1
+a257 1
+	register int jx;
+d261 4
+a264 4
+	if (i/length == (ndown-1)/length)
+		jx = length;			/* rows on nonfinal page */
+	else if (ndown == length)
+		jx = length;			/* rows on full final page */
+d266 2
+a267 2
+		jx = ndown%length;		/* rows on final page */
+	return item((i/length)*length*nacross + i%length + j*jx);
+d277 3
+a279 1
+	if (i*nacross+j >= nfields)
+d281 2
+d284 12
+a295 8
+		return item(i + j*(ndown-1) + (j>nfields%nacross? nfields%nacross: j));
+	else if (i/length != (ndown-1)/length)	/* Not last page. */
+		return item((i/length)*length*nacross + i%length + j*length);
+	else					/* Last page. */
+		return item((i/length)*length*nacross	/* n on prev. pages. */
+			   + i%length		/* Add row. */
+			   + j*((ndown-1)%length)
+			   + ((j > nfields%nacross) ? nfields%nacross : j));
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 6
+a6 1
+/* Usage: c [ -lN ] [ -wN ] [ -012 ] */
+d10 1
+d14 1
+a14 2
+
+struct line {
+d17 1
+a17 1
+};
+d19 7
+d27 9
+a35 11
+int	width	= 80,			/* # columns across page */
+	length,				/* # lines down page */
+	fieldmax,			/* # columns of widest field */
+	nacross,			/* # fields across page */
+	ndown,				/* # fields down page */
+	nfields;			/* # fields read from input */
+char	*sel0( ),
+	*sel1( ),
+	*sel2( ),
+	*(*select)( )	= sel1;
+char	*getenv();
+d37 1
+d39 3
+a41 2
+struct line	*lhead,
+		*ltail;
+d43 4
+d48 2
+a49 5
+main( argc, argv)
+char	*argv[];
+{
+	char	obuf[BUFSIZ],
+		av[NAV];
+d51 1
+a51 9
+	envargs( av);
+	setflags( av);
+	setflags( &argv[1]);
+	setbuf( stdout, obuf);
+
+	input( );
+	output( );
+
+	return (0);
+d54 2
+a56 4
+setflags( av)
+register char	**av;
+{
+
+d59 1
+a59 1
+			fatal( "%s is not an option%s", av[0], usage);
+d71 1
+a71 1
+			width = atoi( &av[0][2]);
+d74 1
+a74 1
+			length = atoi( &av[0][2]);
+d77 1
+a77 1
+			fatal( "bad option %s%s", av[0], usage);
+d82 1
+a82 2
+
+input( )
+d84 1
+a84 1
+	register struct line	*lp;
+d88 2
+a89 2
+	while ((i=getline( lbuf)) >= 0) {
+		lp = malloc( sizeof *lp);
+d91 1
+a91 1
+			nomem( );
+d99 1
+a99 1
+			lp->l_line = malloc( i+1);
+d101 2
+a102 2
+				nomem( );
+			strcpy( lp->l_line, lbuf);
+d112 3
+a115 5
+output( )
+{
+	register	i,
+			j;
+
+a119 1
+
+d122 2
+a123 2
+			putline( (*select)( i, j));
+		putline( (char *)0);
+d126 1
+a126 1
+	fclose( stdout);
+d130 1
+a130 2
+getline( lbuf)
+char	lbuf[];
+d133 1
+a133 2
+	register	col,
+			xcol;
+d140 2
+a141 2
+	for (; ; ) {
+		switch (c = getchar( )) {
+d180 1
+a180 3
+
+putline( lbuf)
+char	*lbuf;
+d191 1
+a191 1
+		putchar( '\n');
+d203 1
+a203 1
+			putchar( c);
+d207 1
+a207 1
+				putchar( '\t');
+d211 1
+a211 1
+				putchar( ' ');
+d214 1
+a214 1
+			putchar( c);
+d223 5
+d229 1
+a229 10
+char	*
+sel0( i, j)
+{
+	register struct line	*lp;
+	register		m,
+				n;
+
+	n = i*nacross + j;
+	m = 0;
+	for (lp=lhead; lp; lp=lp->l_next)
+d232 2
+d235 7
+a241 1
+	return ("");
+d244 8
+a252 8
+char	*
+sel1( i, j)
+{
+	register struct line	*lp;
+	register		m,
+				n,
+				jx;
+
+d254 9
+a262 9
+		n = i + j*ndown;
+	else {
+		jx = (i/length != (ndown-1)/length) ? length : ndown%length;
+		n = (i/length)*length*nacross + i%length + j*jx;
+	}
+	m = 0;
+	for (lp=lhead; lp; lp=lp->l_next)
+		if (++m > n)
+			return (lp->l_line? lp->l_line: "");
+d264 6
+a269 6
+	return ("");
+}
+
+
+char	*
+sel2( i, j)
+d271 2
+a272 4
+	register struct line	*lp;
+	register		m,
+				n;
+
+d274 8
+a281 16
+		n = i + j*(ndown-1) + (j>nfields%nacross? nfields%nacross: j);
+	else {
+		if (i/length != (ndown-1)/length)	/* Not last page. */
+			n = (i/length)*length*nacross + i%length + j*length;
+		else					/* Last page. */
+			n = (i/length)*length*nacross	/* n on prev. pages. */
+				+ i%length		/* Add row. */
+				+ j*((ndown-1)%length)
+				+ ((j > nfields%nacross) ? nfields%nacross : j);
+	}
+	if (i*nacross+j >= nfields)
+		return ("");
+	lp = lhead;
+	for (m=0; m<n; ++m)
+		lp = lp->l_next;
+	return (lp->l_line? lp->l_line: "");
+d284 1
+a284 3
+
+envargs( av)
+char	**av;
+d292 1
+a292 1
+	if ((p=getenv( "C")) == NULL)
+d308 1
+a308 1
+				fatal( "too many environmental arguments");
+d317 3
+d321 1
+a321 4
+nomem( )
+{
+
+	fatal( "out of memory");
+d324 2
+a325 2
+
+fatal( arg0)
+d329 3
+a331 3
+	fflush( stdout);
+	fprintf( stderr, "c: %r\n", &arg0);
+	exit( 1);
+d333 2
+@

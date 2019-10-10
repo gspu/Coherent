@@ -1,0 +1,62 @@
+# /etc/install.u - uncompress archives on a distribution.
+# Revised: Mon Mar  7 15:36:13 1994 CST
+
+# Called from /etc/install in build or update mode.
+
+# Command argument "-u" indicates a COHERENT update.
+# Won't extract files in /conf/upd_suppress from .taz archives.
+_UPDATE=
+for ARG; do
+	case $ARG in
+	-u)
+		_UPDATE=y
+		;;
+	esac
+done
+
+COMPDIR=/mnt/compressed
+
+# If directory of compressed archives does not exist, do nothing.
+
+if [ ! -d "$COMPDIR" ]; then
+	exit 0
+fi
+
+# Echo commands.  Exit with nonzero status if any command fails.
+
+set -x
+
+# Archives are written to be uncompressed from root level.
+
+cd /
+
+# For each archive file, decide how to uncompress and go.
+
+for Archive in $COMPDIR/* ; do
+
+	case $Archive in 
+
+	*.taz)	
+		if [ ${_UPDATE} ]; then
+			/usr/bin/gtar -xzpv -X /conf/upd_suppress -f $Archive
+		else
+			/usr/bin/gtar -xzpv -f $Archive
+		fi
+		;;
+
+	*tar*)	
+		/usr/bin/gunzip -c $Archive | /usr/bin/ustar xf -
+		;;
+
+	*cpio*)	
+		/usr/bin/gunzip -c $Archive | /usr/bin/cpio -icdmu
+		;;
+
+	*) echo "Unknown archive type in file $Archive"
+		;;
+
+	esac 
+	sync
+done
+
+exit 0

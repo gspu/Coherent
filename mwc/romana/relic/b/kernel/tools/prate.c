@@ -1,0 +1,126 @@
+/* (-lgl
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * prate.c - display polling rate of com[1-4] drivers
+ */
+
+#include <stdio.h>
+#include <l.out.h>
+#include <poll_clk.h>
+
+/*
+ * For easy referencing.
+ */
+#define	plrate		nl[0].n_value
+#define	plowner		nl[1].n_value
+
+/*
+ * Table for namelist.
+ */
+struct nlist nl[] ={
+	"poll_rate_",		0,	0,
+	"poll_owner_",		0,	0,
+	""
+};
+
+/*
+ * Symbols.
+ */
+char	 *kfile;			/* Kernel data memory file */
+char	 *nfile;			/* Namelist file */
+int	 kfd;				/* Kernel memory file descriptor */
+
+main(argc, argv)
+char *argv[];
+{
+	register int i;
+	register char *cp;
+
+	initialise();
+	for (i=1; i<argc; i++) {
+		for (cp=&argv[i][0]; *cp; cp++) {
+			switch (*cp) {
+			case '-':
+				continue;
+			case 'c':
+				if (++i >= argc)
+					usage();
+				nfile = argv[i];
+				continue;
+			default:
+				usage();
+			}
+		}
+	}
+	execute();
+	exit(0);
+}
+
+/*
+ * Initialise.
+ */
+initialise()
+{
+	nfile = "/coherent";
+	kfile = "/dev/kmem";
+}
+
+/*
+ * Print out usage.
+ */
+usage()
+{
+	panic("Usage: prate [-][c kernel_file]");
+}
+
+/*
+ * Display polling rate
+ */
+execute()
+{
+	int rate, owner;
+
+	nlist(nfile, nl);
+	if (nl[0].n_type == 0)
+		panic("Bad namelist file %s", nfile);
+	if ((kfd = open(kfile, 0)) < 0)
+		panic("Cannot open %s", kfile);
+
+	kread((long)plrate, &rate, sizeof(rate));
+	kread((long)plowner, &owner, sizeof(owner));
+	if (rate) {
+		if (owner & POLL_AL)
+			printf("al driver is ");
+		else if (owner & POLL_HS)
+			printf("hs driver is ");
+		printf("polling at %d Hz\n", rate);
+	} else
+		printf("polling is OFF\n");
+}
+
+/*
+ * Read `n' bytes into the buffer `bp' from kernel memory
+ * starting at seek position `s'.
+ */
+kread(s, bp, n)
+long s;
+{
+	lseek(kfd, (long)s, 0);
+	if (read(kfd, bp, n) != n)
+		panic("Kernel memory read error");
+}
+
+/*
+ * Print out an error message and exit.
+ */
+panic(a1)
+char *a1;
+{
+	fflush(stdout);
+	fprintf(stderr, "%r", &a1);
+	fprintf(stderr, "\n");
+	exit(1);
+}

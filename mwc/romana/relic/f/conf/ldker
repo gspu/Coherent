@@ -1,0 +1,45 @@
+# /conf/ldker
+# Called from /etc/build to generate a COHERENT 386 kernel into /mnt/coherent
+# 06/29/92
+
+echo '\nGenerating new system -- please wait...\n'
+TARGET=/mnt/coherent
+
+PATCH=
+PATCH="${PATCH} drvl+60=lpcon"
+PATCH="${PATCH} drvl+100=asycon"
+PATCH="${PATCH} drvl+180=ptycon"
+PATCH="${PATCH} drvl+460=semcon"
+PATCH="${PATCH} drvl+480=shmcon"
+PATCH="${PATCH} drvl+500=msgcon"
+
+UNDEF=
+UNDEF="$UNDEF -u lpcon"
+UNDEF="$UNDEF -u flcon"
+UNDEF="$UNDEF -u asycon"
+UNDEF="$UNDEF -u ptycon"
+UNDEF="$UNDEF -u semcon"
+UNDEF="$UNDEF -u shmcon"
+UNDEF="$UNDEF -u msgcon"
+
+cd /conf
+. /tmp/ldker
+
+#
+# Set up keyboard params
+#
+KB=`cat /tmp/kbd`		# name of keyboard driver as set by kbdinstall
+
+#
+# Build a kernel on the target filesystem
+#
+/bin/ld $UNDEF $HDUNDEF -K -o $TARGET -e stext ker386.o $KB kl386.a || exit 1
+/conf/patch $TARGET $PATCH $HDPATCH				    || exit 1
+/conf/asypatch -v $TARGET < /etc/default/async
+/bin/chmog 400 sys sys $TARGET
+
+echo 'Done.'
+
+exit 0
+
+# end of /conf/ldker

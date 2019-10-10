@@ -1,0 +1,121 @@
+ggeettmmssgg() -- System Call (libc)
+
+Get the next message from a stream
+#iinncclluuddee <ssttrrooppttss.hh>
+iinntt ggeettmmssgg (_f_d, _c_t_l_p_t_r, _d_a_t_a_p_t_r, _f_l_a_g_s_p)
+iinntt _f_d; ssttrruucctt ssttrrbbuuff *_c_t_l_p_t_r, _d_a_t_a_p_t_r; iinntt *_f_l_a_g_s_p;
+
+ggeettmmssgg() retrieves  a message from a  STREAMS file, and writes  it into the
+buffer or buffers that you specify.   The message must contain a data part,
+a control part, or both.  ggeettmmssgg() writes each part into its own buffer, as
+described below.  The STREAMS module that generated the message defines the
+semantics of each part.
+
+_f_d gives  the file descriptor  that references the stream  whose message is
+being  retrieved.  _c_t_l_p_t_r  and _d_a_t_a_p_t_r  each point to  a structure  of type
+ssttrrbbuuff, which contains the following members:
+
+    int maxlen; Maximum buffer length
+    int len;    Length of data
+    void  *buf; Pointer to buffer
+
+_c_t_l_p_t_r holds  the message's control  part, and _d_a_t_a_p_t_r its  data part.  bbuuff
+points to  the buffer into which  the data or control  information is to be
+written, and mmaaxxlleenn gives the maximum  number of bytes the buffer can hold.
+ggeettmmssgg()  initializes  lleenn  to the  number  of  bytes  of  data or  control
+information that  it actually wrote  into bbuuff. It  sets lleenn to  zero if the
+part in question has a length of zero; and it sets lleenn to -1 if the message
+does not contain the part in question.
+
+_f_l_a_g_s_p points  to an integer  that indicates the  type of messages  you can
+receive; this is discussed in detail below.
+
+ggeettmmssgg() has special behaviors, corresponding to the settings of _c_t_l_p_t_r and
+_d_a_t_a_p_t_r, and of the structures to which they point:
+
+-> If either  _c_t_l_p_t_r or _d_a_t_a_p_t_r is  NULL, or if mmaaxxlleenn  equals -1, ggeettmmssgg()
+   does not process the corresponding  part of the message.  The message is
+   left on the stream head's read queue.
+
+-> If  _c_t_l_p_t_r or  _d_a_t_a_p_t_r is  not  NULL, but  the message  does not  have a
+   corresponding part, ggeettmmssgg() sets lleenn to -1.
+
+-> If mmaaxxlleenn equals  zero and there is a zero-length  control or data part,
+   ggeettmmssgg() removes  the zero-length part from the read  queue and sets lleenn
+   to zero  If mmaaxxlleenn  equals zero  and the corresponding  section contains
+   more than zero bytes of information, ggeettmmssgg() leaves that information on
+   the read queue and sets lleenn to zero.
+
+-> If mmaaxxlleenn is  less than than the corresponding part  of the message (the
+   control  part  for  _c_t_l_p_t_r and  the  data  part  for _d_a_t_a_p_t_r),  ggeettmmssgg()
+   retrieves mmaaxxlleenn  bytes.  It leaves the remainder of  the message on the
+   stream  head's  read queue  and  returns and  a  non-zero return  value.
+   Details are given below.
+
+_F_l_a_g_s
+The following summarizes what flags are available, and what they mean.
+
+-> By default, ggeettmmssgg() processes the first available message on the stream
+   head's read  queue.  However,  you can choose  to retrieve only  a high-
+   priority message: just insert  RRSS_HHIIPPRRII into the integer to which _f_l_a_g_s_p
+   points.  In this case, ggeettmmssgg() processes the next message only if it is
+   a high-priority message.
+
+-> If the  integer to which  _f_l_a_g_s_p points equals  zero, ggeettmmssgg() retrieves
+   any message available on the stream head's read queue.  In this case, if
+   ggeettmmssgg() retrieves  a high-priority message,  it sets to  the integer to
+   which  _f_l_a_g_s_p points  to RRSS_HHIIPPRRII;  if  the message  does not  have high
+   priority, it sets that integer to zero.
+
+-> If  flags OO_NNDDEELLAAYY  and OO_NNOONNBBLLOOCCKK  are not  set as  part of  the global
+   settings for _f_d (for details, see the Lexicon entry for ooppeenn()),
+   ggeettmmssgg() blocks  execution of your  program until a message  of the type
+   specified by  _f_l_a_g_s_p is available  on the stream head's  read queue.  If
+   either  OO_NNDDEELLAAYY  or  OO_NNOONNBBLLOOCCKK has  been  set  and  a  message of  the
+   specified type is  not at the top of the  queue, ggeettmmssgg() fails and sets
+   eerrrrnnoo to EEAAGGAAIINN.
+
+If a hangup  occurs on the stream from which  messages are to be retrieved,
+ggeettmmssgg() operates  normally until  the stream  head's read queue  is empty.
+Thereafter, it returns zero in the lleenn fields of both _c_t_l_p_t_r and _d_a_t_a_p_t_r.
+
+_R_e_t_u_r_n _V_a_l_u_e_s
+If all  goes well, ggeettmmssgg()  returns a non-negative  value.  Zero indicates
+that a full message was read successfully.
+
+MMOORREECCTTLL and MMOORREEDDAATTAA  indicate, respectively, that more control information
+or more  data are awaiting retrieval; whereas  MMOORREECCTTLL | MMOORREEDDAATTAA indicates
+that more of both types information remain in the queue, to be retrieved by
+subsequent calls to ggeettmmssgg(). However,  if a message of higher priority has
+come into the stream head's read queue, the next call to ggeettmmssgg() retrieves
+that  higher-priority  message  and  the  information  remaining  from  the
+partially retrieved message remains on the queue.
+
+_E_r_r_o_r_s
+ggeettmmssgg() fails if any of the following conditions are true:
+
+-> Either of  the flags  OO_NNDDEELLAAYY or  OO_NNOONNBBLLOOCCKK is set  but no  message is
+   available.  ggeettmmssgg() sets eerrrrnnoo to EEAAGGAAIINN.
+
+-> _f_d is not a valid file descriptor.  ggeettmmssgg() sets eerrrrnnoo to EEBBAADDFF.
+
+-> The next  message in the read  queue is not valie  for ggeettmmssgg() to read.
+   ggeettmmssgg() sets eerrrrnnoo to EEBBAADDMMSSGG.
+
+-> _c_t_l_p_t_r, _d_a_t_a_p_t_r,  or _f_l_a_g_s_p contains an  illegal address.  ggeettmmssgg() sets
+   eerrrrnnoo to EEFFAAUULLTT.
+
+-> A signal  was caught as ggeettmmssgg() was executing.   ggeettmmssgg() sets eerrrrnnoo to
+   EEIINNTTRR.
+
+-> _f_l_a_g_s_p holds  an unrecognized value,  or the stream referenced  by _f_d is
+   linked under a multiplexor.  ggeettmmssgg() sets eerrrrnnoo to EEIINNVVAALL.
+
+-> _f_d does not describe a stream.  ggeettmmssgg() sets eerrrrnnoo to EENNOOSSTTRR.
+
+ggeettmmssgg() also  fails if the stream header receives  a STREAMS error message
+before ggeettmmssgg() tries  to read it.  ggeettmmssgg() then returns  the value in the
+STREAMS error message.
+
+_S_e_e _A_l_s_o
+lliibbcc, ppuuttmmssgg(), SSTTRREEAAMMSS, ssttrrooppttss.hh

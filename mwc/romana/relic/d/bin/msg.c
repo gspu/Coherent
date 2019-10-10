@@ -1,0 +1,187 @@
+/*
+ * Rec'd from Lauren Weinstein, 7-16-84.
+ * Send a one-line message to
+ * another user or a number of users.
+ * This is setuid in order to
+ * use execute permission on the
+ * terminal to allow/disallow msgs.
+ *
+ * The super user may use the "-s" flag to suppress the user id
+ * prefix on messages, which also suppresses any error messages,
+ * and forces an exit code of 0 unless an error condition occurs.
+ * This is mainly for use by other programs (e.g. "rmail").
+ */
+
+#include <stdio.h>
+#include <utmp.h>
+#include <sys/stat.h>
+#include <signal.h>
+
+#define	MAXMSG	256		/* Longest message allowable */
+#define	NUSER	100		/* Maximum number of users to send to */
+#define ALARMT  10		/* Message send timeout in seconds */
+
+char	msgbuf[MAXMSG];
+struct	users {
+	char	*u_name;
+	int	u_flag;
+}	users[NUSER];
+
+int	wtimeout;   /* non-zero for timeout on tty write */
+int     suppress;   /* non-zero to suppress id headers, etc. */
+
+char	usemsg[] = "\
+Usage: msg user\n\
+       msg user ... message\n\
+";
+
+char	*getlogin();
+char	*ttyname();
+int	catch();
+
+main(argc, argv)
+char *argv[];
+{
+	char *fromuname;
+	register int i;
+	register struct users *ulp = users;
+
+
+	/* are we the superuser and was the "-s" flag given? */
+	if (!geteuid() && argc > 1 && !strcmp(argv[1], "-s"))
+	{  suppress++;  /* set "suppress user id" prefix flag */
+	   close(2);    /* close error output */
+	   open("/dev/null", 1);  /* reopen fd 2 on /dev/null */ 
+	   argc--;      /* adjust args */	
+	   argv++;
+	}
+
+	if (argc < 2)
+		usage();
+	if ((fromuname = getlogin()) == NULL)
+		fromuname = "daemon";
+	if (argc==2 || strcmp(argv[argc-1], "-")==0)
+		fgets(msgbuf, MAXMSG, stdin);
+	else {
+		strcpy(msgbuf, argv[argc-1]);
+		strcat(msgbuf, "\r\n");
+	}
+	if (argc == 2)
+		(ulp++)->u_name = argv[1];
+	else
+		for (i=1; i<argc-1; i++)
+			(ulp++)->u_name = argv[i];
+	exit(msg(suppress ? 0 : fromuname));
+}
+
+/*
+ * Find out terminal names for the
+ * given user-list and complain about
+ * those not logged in.
+ */
+msg(f)
+char *f;
+{
+	register struct users *up;
+	register FILE *fp;
+	register int st = 0;
+	static struct utmp ut;
+
+	if ((fp = fopen("/etc/utmp", "r")) == NULL) {
+		fprintf(stderr, "msg: /etc/utmp not accessible\n");
+		exit(2);
+	}
+	while (fread(&ut, sizeof ut, 1, fp) == 1) {
+		if (ut.ut_name[0] == '\0')
+			continue;
+		for (up = users; up->u_name != NULL; up++)
+			if (strncmp(ut.ut_name, up->u_name, DIRSIZ) == 0)
+				break;
+		if (up->u_name == NULL)
+			continue;
+		send(f, &ut);
+		up->u_flag = 1;
+	}
+	for (up = users; up->u_name != NULL; up++)
+		if (up->u_flag == 0) {
+			fprintf(stderr, "%s: not logged in\n", up->u_name);
+			if (!suppress)
+			   st = 1;  /* indicate user not logged in */
+		}
+	return(st);
+}
+
+/*
+ * Send the message.  Return non-zero if
+ * it does not work or is not allowed.
+ */
+send(f, up)
+char *f;
+register struct utmp *up;
+{
+	FILE *tf;
+	register struct stat sb;
+	char tty[40], c;
+	register char abortf = 0;
+
+	sprintf(tty, "/dev/%.*s", sizeof up->ut_line, up->ut_line);
+	if ((tf = fopen(tty, "w")) == NULL) {
+		fprintf(stderr, "msg: cannot open %.*s\n",
+		    sizeof up->ut_line, up->ut_line);
+		return;
+	}
+	if (fstat(fileno(tf), &sb) < 0) 
+	{       fprintf(stderr, "msg: can't send to %.*s\n",
+		    sizeof up->ut_name, up->ut_name);
+		fclose(tf);
+		return;
+	}
+	if ((sb.st_mode&S_IEXEC) == 0) {
+		if (!getuid())  /* is our real uid su? */
+		{  fprintf(stderr, 
+		      "User \"%.*s\" is denying messages.  Override? ",
+		      sizeof up->ut_name, up->ut_name);
+		   if ((c = getchar()) != 'y')
+		      abortf++;  /* flag abort */  
+		   while (c != EOF && c != '\n')  /* flush remaining input */
+		      c = getchar();
+		   if (abortf)  /* don't want override? */
+		   {  fclose(tf);  
+		      return;
+		   }
+		}
+		else
+		{  fprintf(stderr, "write: no permission to write to %.*s\n",
+		      sizeof up->ut_name, up->ut_name);
+		   fclose(tf);
+		   return;	
+		}
+	}	
+	signal(SIGALRM, &catch);  /* catch alarms */
+	alarm(ALARMT);            /* set timeout */
+	if (f == NULL)
+		fprintf(tf, "\r\n\007%s", msgbuf);  /* send the msg */
+	else
+		fprintf(tf, "\r\n\007%s: %s", f, msgbuf);
+	alarm(0);  		  /* turn off timeout */
+	if (wtimeout)		  /* timeout on write? */
+	{  wtimeout = 0;	  /* clear timeout flag */
+	   fprintf(stderr, "msg: can't send to %.*s\n",
+	      sizeof up->ut_name, up->ut_name);
+	}
+        fclose(tf);
+}
+
+/* for alarm timeout */
+catch()
+{
+	wtimeout++;  /* set write timeout flag */
+}
+
+usage()
+{
+	fprintf(stderr, usemsg);
+	exit(2);
+}
+
+

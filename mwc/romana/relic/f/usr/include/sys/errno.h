@@ -1,0 +1,584 @@
+#ifndef	__SYS_ERRNO_H__
+#define	__SYS_ERRNO_H__
+
+/*
+ * Error numbers for DDI/DKI drivers, as described in errnos (D5DK) in the
+ * System V, Release 4 Multiprocessor "Device Driver Interface/Driver-Kernel
+ * Interface Reference Manual". The additional commentary for the error
+ * numbers also comes from this source, along with commentary from the SVR4
+ * "Programmer's Reference Manual". RFS errors have not been included.
+ *
+ * Actual numeric values of error constants are derived from the System V ABI
+ * "Intel 386 Processor Supplement".
+ *
+ * If these definitions are to be imported by <errno.h>, they *must* be macros
+ * rather than enumerations or other kinds of constant, as required by the ISO
+ * C standard (ISO/IEC 9989-1990).
+ *
+ * User-level programs should not use this file directly.
+ */
+
+#define	EPERM		1
+	/*
+	 * PRM: Not super-user. Typically this error indicates an attempt to
+	 * modify a file in some way forbidden except to its owner or the
+	 * super-user. It is also returned for attempts by ordinary users to
+	 * do things only permitted to the super-user.
+	 *
+	 * DDI/DKI: Permission denied. Drivers can return this error when an
+	 * operation is attempted that requires more privelege than the
+	 * current process has.
+	 */
+#define	ENOENT		2
+	/*
+	 * PRM: No such file or directory. A file name is specified and the
+	 * file should exist but doesn't, or one of the directories in a path
+	 * name does not exist.
+	 */
+#define	ESRCH		3
+	/*
+	 * PRM: No such process. No process can be found corresponding to that
+	 * specified by PID in the kill () or ptrace () routine.
+	 */
+#define	EINTR		4
+	/*
+	 * PRM: Interrupted system call. An asynchronous signal (such as
+	 * interrupt or quit), which the user has elected to catch, occurred
+	 * during a system service routine. If execution is resumed after
+	 * processing the signal, it will appear as if the interrupted routine
+	 * call returned this error condition.
+	 *
+	 * DDI/DKI: Interrupted operation. Drivers can return this error
+	 * whenever an interruptible operation is interrupted by receipt of an
+	 * asynchronous signal.
+	 */
+#define	EIO		5
+	/*
+	 * PRM: I/O error. Some physical I/O error has occurred. This error
+	 * may in some cases occur on a call following the one to which it
+	 * actually applies.
+	 *
+	 * DDI/DKI: An I/O error has occurred. Drivers can return this error
+	 * when an input or output request has failed.
+	 */
+#define	ENXIO		6
+	/*
+	 * PRM: No such device or address. I/O on a special file refers to a
+	 * subdevice which does not exists, or exists beyond the limit of the
+	 * device. It may also occur when, for example, a tape drive is not
+	 * on-line or no disk pack is loaded on a drive.
+	 *
+	 * DDI/DKI: No such device or address. Drivers can return this error
+	 * when trying to open an invalid minor device, or when trying to
+	 * perform I/O past the end of a device.
+	 */
+#define	E2BIG		7
+	/*
+	 * PRM: Argument list too long. An argument list longer than ARG_MAX
+	 * bytes is presented to a member of the exec... () family of
+	 * routines. The argument list limit is the sum of the size of the
+	 * argument list plus the size of the environment's exported shell
+	 * variables.
+	 */
+#define	ENOEXEC		8
+	/*
+	 * PRM: Exec format error. A request is made to execute a file which,
+	 * although it has the appropriate permissions, does not start with a
+	 * valid format.
+	 */
+#define	EBADF		9
+	/*
+	 * PRM: Bad file number. Either a file descriptor refers to no open
+	 * file, or a read () [respectively, write ()] request is made to a
+	 * file that is open only for writing [respectively, reading].
+	 */
+#define	ECHILD		10
+	/*
+	 * PRM: No child processes. A wait () routine was executed by a
+	 * process that has no existing or unwaited-for child processes.
+	 */
+#define	EAGAIN		11
+	/*
+	 * PRM: No more processes. For example, a fork () routine failed
+	 * because the system's process table is full or the user is not
+	 * allowed to create any more processes, or a system call failed
+	 * because of insufficient memory or swap space.
+	 *
+	 * DDI/DKI: Temporary resource allocation failure; try again later.
+	 * Drivers can return this error when resource allocation fails, for
+	 * example kmem_alloc () or allocb ().
+	 */
+#define	ENOMEM		12
+	/*
+	 * PRM: Not enough space. During execution of an exec (), brk (), or
+	 * sbrk () routine, a program asks for more space than the system is
+	 * able to supply. This is not a temporary condition; the maximum size
+	 * is a system parameter. The error may also occur if the arrangement
+	 * of text, data, and stack segments requires too many segmentation
+	 * registers, or if there is not enough swap space during the fork ()
+	 * routine.
+	 *
+	 * DDI/DKI: Not enough memory. Drivers can return this error when
+	 * resource allocation fails and it is either inconvenient or
+	 * impossible for a retry to occur.
+	 */
+#define	EACCES		13
+	/*
+	 * PRM, DDI/DKI: Permission denied. An attempt was made to access a
+	 * file in a way forbidden by its file access permissions.
+	 */
+#define	EFAULT		14
+	/*
+	 * PRM: Bad address. The system encountered a hardware fault in
+	 * attempting to use an argument of a routine. For example, "errno"
+	 * potentially may be set to EFAULT any time a routine that takes a
+	 * pointer argument is passed an invalid address, if the system can
+	 * detect the condition. Because systems will differ in their ability
+	 * to reliably detect a bad address, on some implementations passing a
+	 * bad address to a routine will result in undefined behavior.
+	 *
+	 * DDI/DKI: Bad address. Drivers should return this error whenever a
+	 * call to copyin () or copyout () fails.
+	 */
+#define	ENOTBLK		15
+	/*
+	 * PRM: Block device required. A non-block file was mentioned where a
+	 * block device was required (e.g., in a call to the mount ()
+	 * routine).
+	 */
+#define	EBUSY		16
+	/*
+	 * PRM: Device busy. An attempt was made to mount a device that was
+	 * already mounted or an attempt was made to unmount a device on which
+	 * there is an active file (open file, current directory, mounted-on
+	 * file, active text segment). It will also occur if an attempt it
+	 * made to enable accounting when it is already enabled. The device or
+	 * resource is currently unavailable.
+	 *
+	 * DDI/DKI: Device is busy. This can be used for devices that require
+	 * exclusive access.
+	 */
+#define EEXIST		17
+	/*
+	 * PRM: File exists. An existing file was mentioned in an
+	 * inappropriate context (e.g., call to the link () routine).
+	 */
+#define	EXDEV		18
+	/*
+	 * PRM: Cross-device link. A link to a file on another device was
+	 * attempted.
+	 */
+#define	ENODEV		19
+	/*
+	 * PRM: No such device. An attempt was made to apply an inappropriate
+	 * operation to a device (e.g., read a write-only device).
+	 *
+	 * DDI/DKI: No such device. Drivers can return this error when an
+	 * attempt is made to apply an inappropriate function to a device; for
+	 * example, trying to write a write-protected medium.
+	 */
+#define ENOTDIR		20
+	/*
+	 * PRM: Not a directory. A non-directory was specified where a
+	 * directory is required (e.g., in a path prefix or as an argument to
+	 * the chdir () routine).
+	 */
+#define	EISDIR		21
+	/*
+	 * PRM: Is a directory. An attempt was made to write on a directory.
+	 */
+#define	EINVAL		22
+	/*
+	 * PRM: Invalid argument. An invalid argument was specified (e.g.,
+	 * unmounting a non-mounted device, mentioning an undefined signal in
+	 * a call to the signal () or kill () routines).
+	 *
+	 * DDI/DKI: Invalid argument. Drivers can return this error for
+	 * operations that have invalid parameters specified.
+	 */
+#define	ENFILE		23
+	/*
+	 * PRM: File table overflow. The system file table is full (i.e.,
+	 * SYS_OPEN files are open, and temporarily no more files can be
+	 * opened).
+	 */
+#define	EMFILE		24
+	/*
+	 * PRM: Too many open files. No process can have more than OPEN_MAX
+	 * file descriptors open at a time.
+	 */
+#define	ENOTTY		25
+	/*
+	 * PRM: Not a typewriter. A call was made to the ioctl () routine
+	 * specifying a file that is not a special character device.
+	 */
+#define	ETXTBSY		26
+	/*
+	 * PRM: Text file busy. An attempt was made to execute a pure-
+	 * procedure program that is currently open for writing, or an attempt
+	 * to open for writing (or to remove) a pure-procedure program that is
+	 * being executed.
+	 */
+#define	EFBIG		27
+	/*
+	 * PRM: File too large. The size of a file exceeded the maximum file
+	 * size, FCHR_MAX [see getrlimit ()].
+	 */
+#define	ENOSPC		28
+	/*
+	 * PRM: No space left on device. When writing an ordinary file or
+	 * creating a directory entry, there is no free space left on the
+	 * device.
+	 *
+	 * DDI/DKI: The device is out of free space.
+	 */
+#define	ESPIPE		29
+	/*
+	 * PRM: Illegal seek. A call to the lseek () routine was issued to a
+	 * pipe.
+	 */
+#define	EROFS		30
+	/*
+	 * PRM: Read-only file system. An attempt to modify a file or
+	 * directory was made on a device mounted read-only.
+	 */
+#define	EMLINK		31
+	/*
+	 * PRM: Too many links. An attempt to make more than the maximum
+	 * number of links, LINK_MAX, to a file.
+	 */
+#define	EPIPE		32
+	/*
+	 * PRM: Broken pipe. A write on a pipe for which there is no process
+	 * to read the data. This condition normally generates a signal; the
+	 * error is returned if the signal is ignored.
+	 */
+#define	EDOM		33
+	/*
+	 * PRM: Math argument out of domain of function. The argument of a
+	 * function in the math package is out of the domain of the function.
+	 */
+#define	ERANGE		34
+	/*
+	 * PRM: Math result not representable. The value of a function in the
+	 * math package is not representable within machine precision.
+	 */
+#define	ENOMSG		35
+	/*
+	 * PRM: No message of desired type. An attempt was made to retrieve a
+	 * message of a type that does not exist on the specified message
+	 * queue [see msgop ()].
+	 */
+#define	EIDRM		36
+	/*
+	 * PRM: Identifier removed. This error is returned to processes that
+	 * resume execution due to the removal of an identifier from the file
+	 * system's name space [see msgctl (), semctl (), and shmctl ()].
+	 */
+#define	EDEADLK		45
+	/*
+	 * PRM: Deadlock condition. A deadlock situation was detected and
+	 * avoided. This error pertains to file and record locking.
+	 */
+#define	ENOLCK		46
+	/*
+	 * PRM: No record locks available. There are no more locks available.
+	 * The system lock table is full [see fcntl ()].
+	 */
+#define	ENOSTR		60
+	/*
+	 * PRM: Device not a stream. A putmsg () or getmsg () system call was
+	 * attempted on a file descriptor that is not a STREAMS device.
+	 */
+#define	ENODATA		61
+	/*
+	 * PRM: No data available.
+	 *
+	 * Returned from an I_GETBAND ioctl ().
+	 */
+#define	ETIME		62
+	/*
+	 * PRM: Timer expired. The timer set for a STREAMS ioctl () call has
+	 * expired. The cause of this error is device-specific and could
+	 * indicate either a hardware or software failure, or perhaps a
+	 * timeout value that is too short for the specific operation. The
+	 * status of the ioctl () operation is indeterminate.
+	 */
+#define	ENOSR		63
+	/*
+	 * PRM: Out of STREAMS resources. During a STREAMS open either no
+	 * STREAMS queues or no STREAMS head data structures were available.
+	 * This is a temporary condition; one may recover from it if other
+	 * processes release resources.
+	 */
+#define	ENOPKG		65
+	/*
+	 * PRM: Package not installed. This error occurs when users attempt to
+	 * use a system call from a package which has not been installed.
+	 */
+#define	EPROTO		71
+	/*
+	 * PRM: Protocol error. Some protocol error has occurred. This error
+	 * is device-specific, but is generally not related to a hardware
+	 * failure.
+	 *
+	 * DDI/DKI: Protocol error. Drivers can return this error when they
+	 * incur a protocol error, such as not being able to generate the
+	 * proper protocol message because of resource exhaustion, and not
+	 * being able to recover gracefully.
+	 */
+#define EBADMSG		77
+	/*
+	 * PRM: Not a data message. During a read (), getmsg (), or ioctl ()
+	 * I_RECVFD system call to a STREAMS device, something has come to the
+	 * head of the queue that cannot be processed. That something depends
+	 * on the system call:
+	 *	read (): control information or a passed file descriptor.
+	 *	getmsg (): passed file descriptor.
+	 *	ioctl (): control or data information.
+	 */
+#define	ENAMETOOLONG	78
+	/*
+	 * PRM: File name too long. The length of a path argument exceeds
+	 * PATH_MAX, or the length of a path component exceeds NAME_MAX while
+	 * _POSIX_NO_TRUNC is in effect; see limits(4).
+	 */
+#define	EOVERFLOW	79
+	/*
+	 * PRM: Value too large for defined data type.
+	 *
+	 * This can happen due to differences in data formats between system
+	 * revisions; for instance, some system data such as user IDs and
+	 * device IDs may be too large to deliver to an application built for
+	 * an earlier system revision.
+	 */
+#define	ENOTUNIQ	80
+	/*
+	 * PRM: Name not unique on network.
+	 */
+#define	EBADFD		81
+	/*
+	 * PRM: File descriptor in bad state. Either a file descriptor refers
+	 * to no open file or a read request was made to a file that is open
+	 * only for writing.
+	 */
+#define	EREMCHG		82
+	/*
+	 * PRM: Remote address changed.
+	 */
+#define	ELIBACC		83
+	/*
+	 * PRM: Cannot access a needed shared library. Trying to exec () an
+	 * "a.out" that requires a static shared library and the static shared
+	 * library doesn't exist or the user doesn't have permissions to use
+	 * it.
+	 */
+#define	ELIBBAD		84
+	/*
+	 * PRM: Accessing a corrupted shared library. Trying to exec () an
+	 * "a.out" that requires a static shared library and exec () could not
+	 * load the static shared library. The static shared library is
+	 * probably corrupted.
+	 */
+#define	ELIBSCN		85
+	/*
+	 * PRM: ".lib" section in "a.out" corrupted. Trying to exec () an
+	 * "a.out" that requires a static shared library and there was
+	 * erroneous data in the ".lib" section of the "a.out". The ".lib"
+	 * section tells exec () what static shared libraries are needed. The
+	 * "a.out" is probably corrupted.
+	 */
+#define	ELIBMAX		86
+	/*
+	 * PRM: Attempting to link in more shared libraries than system limit.
+	 * Trying to exec () an "a.out" that requires more static shared
+	 * libraries than is allowed on the current configuration of the
+	 * system.
+	 */
+#define	ELIBEXEC	87
+	/*
+	 * PRM: Cannot exec () a shared library directly.
+	 */
+#define	EILSEQ		88
+	/*
+	 * PRM: Illegal byte sequence. Handle multiple characters as a single
+	 * character.
+	 */
+#define	ENOSYS		89
+	/*
+	 * PRM: Operation not applicable.
+	 */
+#define	ELOOP		90
+	/*
+	 * PRM: Number of symbolic links encountered during path name
+	 * traversal exceeds MAXSYMLINKS.
+	 */
+#define	EUSERS		94
+	/*
+	 * PRM: Too many users.
+	 */
+#define	ENOTSOCK	95
+	/*
+	 * PRM: Socket operation on non-socket.
+	 */
+#define	EDESTADDRREQ	96
+	/*
+	 * PRM, DDI/DKI: Destination address required. A required destination
+	 * address was omitted from an operation on a transport endpoint.
+	 */
+#define	EMSGSIZE	97
+	/*
+	 * PRM, DDI/DKI: Message too long. A message sent on a transport
+	 * provider was larger than the internal message buffer or some other
+	 * network limit.
+	 */
+#define	EPROTOTYPE	98
+	/*
+	 * PRM: Protocol wrong type for socket. A protocol was specified that
+	 * does not support the semantics of the socket type requested.
+	 */
+#define	ENOPROTOOPT	99
+	/*
+	 * PRM: Protocol not available. A bad option or level was specified
+	 * when getting or setting options for a protocol.
+	 *
+	 * DDI/DKI: The protocol option requested is not available at the
+	 * level indicated.
+	 */
+#define	EPROTONOSUPPORT	120
+	/*
+	 * PRM: Protocol not supported. The protocol has not been configured
+	 * into the system or no implementation for it exists.
+	 */
+#define	ESOCKTNOSUPPORT	121
+	/*
+	 * PRM: Socket type not supported. The support for the socket type has
+	 * not been configured into the system or no implementation for it
+	 * exists.
+	 */
+#define	EOPNOTSUPP	122
+	/*
+	 * PRM: Operation not supported on transport endpoint. For example,
+	 * trying to accept a connection on a datagram transport endpoint.
+	 */
+#define	EPFNOSUPPORT	123
+	/*
+	 * PRM: Protocol family not supported. The protocol family has not
+	 * been configured into the system or no implementation for it exists.
+	 * Used for the Internet protocols.
+	 */
+#define	EAFNOSUPPORT	124
+	/*
+	 * PRM: Address family not supported by protocol family. An address
+	 * incompatible with the requested protocol was used.
+	 *
+	 * DDI/DKI: The address family specified is not installed or supported
+	 * on the host.
+	 */
+#define	EADDRINUSE	125
+	/*
+	 * PRM, DDI/DKI: Address already in use. User attempted to use an
+	 * address already in use, and the protocol does not allow this.
+	 */
+#define	EADDRNOTAVAIL	126
+	/*
+	 * PRM, DDI/DKI: Cannot assign requested address. Results from an
+	 * attempt to create a transport endpoint with an address not on the
+	 * current machine.
+	 */
+#define	ENETDOWN	127
+	/*
+	 * PRM, DDI/DKI: Network is down. Operation encountered a dead
+	 * network.
+	 */
+#define	ENETUNREACH	128
+	/*
+	 * PRM, DDI/DKI: Network is unreachable. Operation was attempted to an
+	 * unreachable network.
+	 */
+#define	ENETRESET	129
+	/*
+	 * PRM, DDI/DKI: Network dropped connection because of reset. The host
+	 * or network you were connected to crashed and rebooted.
+	 */
+#define	ECONNABORTED	130
+	/*
+	 * PRM, DDI/DKI: Software-caused connection abort. A received
+	 * connection request was aborted was aborted when the peer closed its
+	 * endpoint.
+	 */
+#define	ECONNRESET	131
+	/*
+	 * PRM, DDI/DKI: Connection reset by peer. A connection was forcibly
+	 * closed by a peer. This normally results from a loss of the
+	 * connection on the remote host due to a timeout or a reboot.
+	 */
+#define	ENOBUFS		132
+	/*
+	 * PRM, DDI/DKI: No buffer space available. An operation on a
+	 * transport endpoint or pipe was not performed because the system
+	 * lacked sufficient buffer space or because a queue was full.
+	 */
+#define	EISCONN		133
+	/*
+	 * PRM, DDI/DKI: Transport endpoint is already connected. A connect
+	 * request was made on an already connected transport endpoint; or, a
+	 * sendto () or sendmsg () request on a connected transport endpoint
+	 * specified a destination when already connected.
+	 */
+#define	ENOTCONN	134
+	/*
+	 * PRM, DDI/DKI: Transport endpoint is not connected. A request to
+	 * send or receive data was disallowed because the transport endpoint
+	 * is not connected, or (when sending a datagram) no address was
+	 * supplied.
+	 */
+#define	ESHUTDOWN	143
+	/*
+	 * PRM, DDI/DKI: Cannot send after transport endpoint shutdown. A
+	 * request to send data was disallowed because the transport endpoint
+	 * has already been shut down.
+	 */
+#define	ETIMEDOUT	145
+	/*
+	 * PRM, DDI/DKI: Connection timed out. A connect or sent request
+	 * failed because the connected party did not properly respond after
+	 * a period of time (the timeout period is dependent on the transport
+	 * protocol).
+	 */
+#define	ECONNREFUSED	146
+	/*
+	 * PRM, DDI/DKI: Connection refused. No connection could be made
+	 * because the target machine actively refused it. This usually
+	 * results from trying to connect to a service that is inactive on the
+	 * remote host.
+	 */
+#define	EHOSTDOWN	147
+	/*
+	 * PRM, DDI/DKI: Host is down. A transport provider operation failed
+	 * because the destination host was down.
+	 */
+#define	EHOSTUNREACH	148
+	/*
+	 * PRM, DDI/DKI: No route to host. A transport provider operation was
+	 * attempted to an unreachable host.
+	 */
+#define	EALREADY	149
+	/*
+	 * PRM, DDI/DKI: Operation already in progress. An operation was
+	 * attempted on a non-blocking object that already had an operation in
+	 * progress.
+	 */
+#define	EINPROGRESS	150
+	/*
+	 * PRM, DDI/DKI: Operation now in progress. An operation that takes a
+	 * long time to complete (such as a connect) was attempted on a non-
+	 * blocking object.
+	 */
+#define	ESTALE		151
+	/*
+	 * PRM: Stale NFS file handle.
+	 */
+
+
+#endif	/* ! defined (__SYS_ERRNO_H__) */

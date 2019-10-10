@@ -1,0 +1,230 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__SYS_INODE_H__
+#define	__SYS_INODE_H__
+
+/*
+ * Memory resident inodes.
+ */
+
+#define	_OLD_COHERENT_POLLING	1
+
+#include <common/feature.h>
+#include <common/__cred.h>
+#include <common/__time.h>
+#include <common/__fsize.h>
+#include <common/__daddr.h>
+#include <common/_io.h>
+#include <common/_uid.h>
+#include <sys/ksynch.h>
+#include <sys/poll.h>
+
+/*
+ * File inode.
+ */
+
+typedef struct inode {
+	o_dev_t		i_dev;		/* Device */
+	o_ino_t		i_ino;		/* Inode index */
+	int		i_refc;		/* Reference count */
+	unsigned	i_lrt;		/* Last reference time */
+	int		i_flag;		/* Flags */
+	o_mode_t	i_mode;		/* Mode and type */
+	o_nlink_t	i_nlink;	/* Number of links */
+	o_uid_t		i_uid;		/* Owner's user id */
+	o_gid_t		i_gid;		/* Owner's group id */
+	__fsize_t	i_size;		/* Size of file in bytes */
+
+	union ia_u {
+		__daddr_t	i_addr [13];	/* Disk addresses */
+		struct ip_dev {		/* devices */
+			o_dev_t		id_rdev; /* Real device */
+			__VOID__      *	id_private; /* per-device info */
+		} i_d;
+		struct ip_s {		/* Pipes */
+			__daddr_t	ip_pipe [10];
+			short		ip_pnc;	/* Number Characters */
+			short		ip_prx;	/* Reader Offset */
+			short		ip_pwx;	/* Writer Offset */
+			short		ip_par; /* Number Awake Readers */
+			short		ip_paw; /* Number Awake Writers */
+			short		ip_psr; /* Number Sleeping Readers */
+			short		ip_psw; /* Number Sleeping Writers */
+			event_t 	ip_iev;	/* Polling Input Event */
+			event_t 	ip_oev;	/* Polling Output Event */
+		} i_p;
+	} i_a;			/* Addresses */
+
+	__time_t	i_atime;	/* Last access time */
+	__time_t	i_mtime;	/* Last modify time */
+	__time_t	i_ctime;	/* Creation time */
+
+	struct	rlock *	i_rl;		/* List of record locks */
+	__daddr_t	i_lastblock;	/* for readahead */
+
+	__DUMB_GATE	__i_gate;
+} INODE;
+
+		
+/*
+ * Pretend that the above is flat...
+ */
+
+#define i_pipe		i_a.i_p.ip_pipe
+#define i_pnc		i_a.i_p.ip_pnc
+#define i_prx		i_a.i_p.ip_prx
+#define i_pwx		i_a.i_p.ip_pwx
+#define i_par		i_a.i_p.ip_par
+#define i_paw		i_a.i_p.ip_paw
+#define i_psr		i_a.i_p.ip_psr
+#define i_psw		i_a.i_p.ip_psw
+#define i_iev		i_a.i_p.ip_iev
+#define i_oev		i_a.i_p.ip_oev
+#define	i_rdev		i_a.i_d.id_rdev
+#define	i_private	i_a.i_d.id_private
+
+/*
+ * Flags.
+ */
+
+#define	IFACC	0x01			/* File has been accessed */
+#define	IFMOD	0x02			/* File has been modified */
+#define	IFCRT	0x04			/* File has been created */
+#define IFMNT	0x08			/* Contains mounted file system */
+#define	IFWPROT	0x10			/* Write-protected inode */
+#define	IFTRACE	0x20			/* Trace this inode */
+#define	IFEXCL	0x80			/* Exclusive open */
+
+
+/*
+ * This relates to a hack in the 16-bit system-call interface; this value is
+ * jammed into 16-bit file descriptors. If NOFILE ever gets bigger than this,
+ * 16-bit applications stand to lose big.
+ */
+
+#define	DUP2	0x40
+
+#if	_KERNEL || _DDI_DKI_IMPL
+
+#include <kernel/_timers.h>
+#include <kernel/__buf.h>
+#include <kernel/dir.h>
+#include <sys/io.h>
+
+/*
+ * Locking macros for inodes. Due to the way locks are acquired on
+ * behalf of functions by ftoi (), the following has the
+ * kernel diagnose when a system call exits with a lock still held.
+ */
+
+#define	__INIT_INODE_LOCK(ip) \
+		(__GATE_INIT ((ip)->__i_gate, "inode", __GATE_COUNT))
+
+#define ilock(ip, where) \
+		(__GATE_LOCK ((ip)->__i_gate, "lock : inode " where))
+#define iunlock(ip)	(__GATE_UNLOCK ((ip)->__i_gate))
+#define ilocked(ip)	(__GATE_LOCKED ((ip)->__i_gate))
+
+#define	iprotected(ip)	(((ip)->i_flag & IFWPROT) != 0)
+#define	itrace(ip)	((ip)->i_flag |= IFTRACE)
+#define	iuntrace(ip)	((ip)->i_flag &= ~ IFTRACE)
+#define	itraced(ip)	(((ip)->i_flag & IFTRACE) != 0)
+
+
+/*
+ * Declare as structure tag to avoid scope problems in prototypes.
+ */
+
+struct stat;
+
+
+__EXTERN_C_BEGIN__
+
+int		ftoi		__PROTO ((__CONST__ char * _path, int _cookie,
+					  int space, IO * _iop,
+					  struct direct * _direct,
+					  __cred_t * _credp));
+int		file_to_inode	__PROTO ((__CONST__ char * _path, int _cookie,
+					  int _doRmDir, int space,
+					  IO * _iop, struct direct * _dirent,
+					  __cred_t * _credp));
+struct inode  *	imake		__PROTO ((unsigned _mode, o_dev_t _rdev,
+					  IO * _iop, struct direct * _dirent,
+					  __cred_t * _credp));
+int		iaccess		__PROTO ((struct inode * _ip, int _request,
+					  __cred_t * _credp));
+
+void		iaccessed	__PROTO ((struct inode * _ip));
+void		imodifed	__PROTO ((struct inode * _ip));
+void		icreated	__PROTO ((struct inode * _ip));
+void		iaccmodcreat	__PROTO ((struct inode * _ip));
+struct inode  *	inode_find	__PROTO ((o_dev_t _dev, o_ino_t _ino,
+					  struct inode ** _inodepp));
+struct inode  *	inode_clone	__PROTO ((struct inode * _inodep,
+					  o_dev_t _dev));
+struct inode  *	ialloc		__PROTO ((o_dev_t _dev, unsigned _mode,
+					  __cred_t * _credp));
+void		idirent		__PROTO ((o_ino_t _ino, IO * _iop,
+					  struct direct * _dirent));
+struct inode  *	iattach		__PROTO ((o_dev_t _dev, o_ino_t _ino));
+struct inode  *	ftoim		__PROTO ((struct inode * _ip));
+void		itruncate	__PROTO ((struct inode * _ip));
+void		icopymd		__PROTO ((struct inode * _ip));
+void		idetach		__PROTO ((struct inode * _ip));
+void		ldetach		__PROTO ((struct inode * _ip));
+int		iucheck		__PROTO ((o_dev_t _dev, o_ino_t _ino));
+int		icopydm		__PROTO ((struct inode * _ip));
+void		isync		__PROTO ((o_dev_t _dev));
+void		istat		__PROTO ((struct inode * _ip,
+					  struct stat * _sbp));
+void		ifree		__PROTO ((o_dev_t _dev, o_ino_t _ino));
+__daddr_t	balloc		__PROTO ((o_dev_t _dev));
+void		bfree		__PROTO ((o_dev_t _dev, __daddr_t _b));
+void		idump		__PROTO ((struct inode * _ip,
+					  __CONST__ char * _where));
+
+struct inode  *	pmake		__PROTO ((unsigned _mode));
+void		pwake		__PROTO ((struct inode * _ip, unsigned _who));
+void		popen		__PROTO ((struct inode * _ip,
+					  unsigned _mode));
+void		pclose		__PROTO ((struct inode * _ip,
+					  unsigned _mode));
+void		pread		__PROTO ((struct inode * _ip, IO * _iop));
+void		pwrite		__PROTO ((struct inode * _ip, IO * _iop));
+int		ppoll		__PROTO ((struct inode * _ip, int _events,
+					  int _msec));
+struct inode  *	iopen		__PROTO ((struct inode * _ip,
+					  unsigned _mode));
+void		iclose		__PROTO ((struct inode * _ip,
+					  unsigned _mode));
+void		iread		__PROTO ((struct inode * _ip, IO * _iop));
+void		iwrite		__PROTO ((struct inode * _ip, IO * _iop));
+void		fread		__PROTO ((struct inode * _ip, IO * _iop));
+void		fwrite		__PROTO ((struct inode * _ip, IO * _iop));
+__buf_t       *	vread		__PROTO ((struct inode * _ip,
+					  __daddr_t _blkno));
+
+__EXTERN_C_END__
+
+
+/*
+ * Global variables.
+ */
+
+extern	int		ronflag;	/* Root is read only */
+extern	struct inode  *	acctip;		/* Accounting file pointer */
+
+extern	struct inode  *	inode_table;	/* Pointer to in core struct inode s */
+extern	struct inode  *	inode_table_end;/* */
+
+extern	o_dev_t		rootdev;	/* root device */
+extern	o_dev_t		pipedev;	/* pipe device */
+
+#endif	/* _KERNEL */
+
+#endif	/* ! defined (__SYS_INODE_H__) */

@@ -1,0 +1,73 @@
+# mkboot Tue Sep 21 08:31:08 1993 CDT
+
+# Make a bootable floppy disk.
+# This gets called from mkdist.
+
+/bin/echo "mkboot $*"
+
+if [ $# -eq 5 ]; then
+	TARGET=$1	# location of distrib[12...] directories
+	BOOTFILE=$2	# .../conf/fva.boot, e.g.
+	DEV=$3
+	BLOCKS=$4
+	KERNEL=$5
+else
+	echo \
+"Usage: mkboot target_dir boot_file fdev major minor ublocks"
+	echo "This script is usually invoked from mkdist!  Exiting...."
+	exit 1
+fi
+
+# Format, mkfs, copy boot.
+# echo -n 'Format floppy (y/n)? '
+# read x
+# case "$x" in
+# [nN]*)	;;
+# *)	until /etc/fdformat -av -i 6 $DEV; do
+# 	echo -n "Format failed - insert another disk and hit [enter] ..."
+# 		read JUNK
+# 	done
+# 	;;
+# esac
+
+# Make sure distrib1 is there when we need it.
+
+if [ ! -d $TARGET/distrib1 ]; then
+	/bin/echo "$0:  Can't cd to $TARGET/distrib1.  Exiting..."
+	exit 1
+fi
+
+# Estimate how many inodes will be needed on boot floppy.
+
+INODES=`find $TARGET/distrib1 | wc -l`
+INODES=`expr $INODES + 32`
+
+# Say what's going on from here.
+
+set -x
+
+/etc/mkfs -i $INODES $DEV $BLOCKS
+
+cp $BOOTFILE $DEV
+/etc/mount $DEV /f0
+
+cd $TARGET/distrib1
+
+find . | sort | cpio -pvudm /f0  || exit 1
+
+# Patch the /coherent image and link it to /begin and /update
+# /conf/patch /f0/coherent ronflag=1 \
+# 	rootdev=makedev\($MAJOR,$MINOR\) \
+# 	pipedev=makedev\(8,131\)  || exit 1
+
+cp -d $KERNEL /f0/coherent
+chmog 744 root root /f0/coherent
+
+ln -f /f0/coherent /f0/begin  || exit 1
+ln -f /f0/coherent /f0/update  || exit 1
+ln -f /f0/etc/brc.build /f0/etc/brc  || exit 1
+
+# Cleanup.
+/etc/umount $DEV
+/bin/sync
+exit 0

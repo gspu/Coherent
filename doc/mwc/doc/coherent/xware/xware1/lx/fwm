@@ -1,0 +1,1026 @@
+.TH fwm "" "" "X Utility"
+.PC "Motif-like window manager"
+\fBfwm [ \fIoptions\fB ]\fR
+.PP
+.B fwm
+is a window manager for X11.
+It is derived from
+.BR twm ,
+but redesigned to minimize consumption of memory and to
+give window frames a three-dimensional appearance.
+.B fwm
+is estimated to use about one-half to two-thirds as much memory as
+.BR twm ,
+due primarily to a redesign of
+.BR twm 's
+inefficient method to storing mouse bindings.
+.B fwm
+also removes many of the seldom-used, configurable options built into
+.BR twm .
+.PP
+The related window manager
+.B fvwm
+also provides a simple virtual desktop.
+Please note that
+.B fwm
+and
+.B fvwm
+are in fact the same window manager;
+.B fwm
+however, has been
+compiled to exclude the virtual desktop and so save memory.
+This article describes the features that are common to
+.B fwm
+and
+.BR fvwm ;
+the article on
+.B fvwm
+concentrates on the features that relate to the virtual desktop.
+.PP
+Please note that the name
+.B fwm
+does not stand for anything in particular.
+.SH "Invoking fwm"
+To invoke
+.B fwm
+as your window manager, you must edit your
+.BR xinitrc
+file \(em either
+.B $HOME/.xinitrc
+or
+.BR /usr/X11/lib/xinit/xinitrc ,
+depending upon how your system is configured.
+Make the command
+.B fwm
+the last entry in the file.
+Place a `#' before the command
+.B twm
+and before the name of any other window manager.
+Then type the command
+.B startx
+to boot X in the usual manner.
+.SH "Anatomy of a Window"
+When you invoke
+.BR fwm ,
+your screen appears something like the following:
+.PH 1 1 \*(XD/fwm.eps
+The windows actually displayed on the screen depend,
+of course, upon the contents of your
+.B xinitrc
+file.
+.PP
+As you can see,
+.B fwm
+draws a decorative border nearly every window.
+The border consists of a shaded bar on each side of the window,
+and a small L-shaped object on each corner. 
+The bar at the top of the window, called the
+.IR "title bar" ,
+shows the window's name.
+This bar can also contain up to ten buttons.
+The bars on the top, the sides, and the bottom collectively are called the
+.IR side-bars .
+The corner pieces are called the
+.IR frame .
+.PP
+Unless you modify
+.BR fwm 's
+standard defaults files, pressing the left-mouse button in
+any of the side bars begins a move operation for the window.
+.B fwm
+displays a heavy black outline of the window; by moving the mouse, you
+can drag the outline around the screen.
+When you release the left-mouse button,
+.B fwm
+moves the window to the spot to which you dragged the outline.
+.PP
+Pressing the left-mouse button in a frame piece
+begins a resize operation.
+.B fwm
+displays a dashed ``rubber'' outline of the window; by dragging the mouse,
+you can make the outline larger or smaller.
+When you release the left-mouse button,
+.B fwm
+redraws the window to match the dimension of the rubber outline.
+.PP
+When the mouse cursor is anywhere in the border,
+pressing the center-mouse button pops up
+.BR fwm 's
+menu of window operations.
+To select an operation, drag the mouse until the cursor touches the operation
+you want, then release the center-mouse button.
+.PP
+The title bar can contain up to ten buttons.
+You can define their use in your configuration file.
+The default configuration sets a button at each end of the title bar,
+as shown in the above figure.
+When you click any mouse button on the button on the left end of the title bar,
+.B fwm
+pops up its menu of window options.
+When you click any mouse button on the button at the right end of the title bar,
+.B fwm
+iconifies the window.
+.PP
+What title-bar buttons
+.B fwm
+displays depends upon those to which you have bound mouse-button functions.
+For details on this rather confusing topic, see the discussion of the command
+.BR Mouse ,
+below.
+.SH Initialization
+Unlike some other window managers,
+.B fwm
+does not attempt to manage all local screens;
+rather, it manages only screen 0 of the default or specified display.
+This dramatically simplifies the
+.B fwm
+code.
+.PP
+During initialization,
+.B fwm
+searches for a configuration file that gives its key and button bindings.
+.B fwm
+first seeks file
+.BR $HOME/.fwmrc .
+If this file does not exist,
+it reads file
+.BR /usr/lib/X11/fvwm/system.fwmrc ,
+which contains the
+.B fwm
+default settings.
+If
+.B fwm
+cannot find either file, it exits.
+.SH "Shaped Windows"
+.B fwm
+lets you use shaped windows, that is, where the window conforms its shape
+to that of the image it is enclosing.
+Some applications, such as
+.B xeyes
+or
+.BR oclock ,
+use shaped windows.
+.PP
+With these applications, you have several options.
+You can make them all undecorated \(em for example:
+.DM
+	NoBorder oclock
+	NoTitle oclock
+.DE
+.PP
+Another approach is to use the default configuration and leave them decorated,
+in which case
+.B fwm
+shows a decorative border and a solid-color backdrop.
+.PP
+Yet another approach is to compile the
+.B SHAPE
+extensions into
+.BR fwm .
+Do this by changing a flag in
+.BR fwm 's
+.BR Imakefile ,
+then recompile it.
+In this case you get the shaped window with no backdrop, and the title bar
+floats above the window.
+The shaped-window extensions increase
+.BR fwm 's
+memory consumption by about 60 kilobytes when no shaped windows are present,
+but have little effect when shaped windows are present.
+.SH Icons
+The basic
+.B fwm
+configuration uses monochrome bit-mapped icons, similar to those used by
+.BR twm .
+If you compile the
+.B XPM
+extensions into
+.BR fwm ,
+then you can use color icons similar to
+.BR ctwm ,
+Microsoft Windows, or the Macintosh.
+To use these options, you must link the library
+.B Xpm
+into
+.BR fwm .
+(This library is installed as part of your XWare window managers' package.)
+For details, read the file
+.BR Imakefile ,
+which is include with the source code to
+.BR fwm .
+.PP
+If you compile both the
+.B SHAPE
+and
+.B XPM
+options into
+.BR fwm ,
+you will get shaped color icons, which are very attractive.
+.SH Options
+.B fwm
+recognizes the following two command-line options:
+.IP "\fB\-d \fIdisplayname\fR"
+Manage display
+.I displayname
+instead of the display named by the environment variable
+.BR $DISPLAY .
+.IP "\fB\-debug\fR"
+Put X transactions into synchronous mode.
+This slows down X dramatically, but guarantees that
+.BR fwm 's
+internal error messages are correct.
+.SH "Configuration Files"
+The configuration file describes mouse and button bindings, colors,
+the virtual display size, and related items.
+This section describes the configuration options.
+.IP "\fBStdForeColor \fIcolor\fR"
+Set to
+.I color
+the foreground color for menus and non-selected window titles.
+The default is blue.
+On a monochrome display,
+.B fwm
+ignores this option and uses black.
+.IP "\fBStdBackColor \fIcolor\fR"
+Set to
+.I color
+the background color for menus and non-selected windows.
+The default is white.
+On a monochrome display,
+.B fwm
+ignores this option and uses white.
+.IP "\fBHiForeColor \fIcolor\fR"
+Set to
+.I color
+the color of the selected window's title.
+The default is red.
+On a monochrome display,
+.B fwm
+ignores this option and uses black.
+.IP "\fBHiBackColor \fIcolor\fR"
+Set to 
+.I color
+the background color for the selected window.
+On a monochrome display,
+.B fwm
+ignores this option and uses white.
+.IP "\fBFont \fIfont\fR"
+Use
+.I font
+instead of
+.B fixed
+for all uses except window titles.
+.IP "\fBWindowFont \fIfont\fR"
+Use
+.I font
+instead of
+.B fixed
+for the window title bar.
+.IP "\fBNoTitle \fIwindow\fR"
+Do not put a title-bar in the decorations for
+.IR window .
+This is handy for clocks and similar gadgets that you do not want
+to take up much space.
+.I window
+can be the window's name or its class.
+.IP "\fBNoBorder \fIwindow\fR"
+Do not put decorative borders onto
+.IR window .
+This command does not affect the title-bar.
+This is handy for clocks and similar gadgets that
+you do not want to take up much space.
+.I window
+can be the window's name or its class.
+.IP
+If you specify both
+.B NoBorder
+and
+.B NoTitle
+for the same window in
+.BR .fwmrc ,
+that window is completely undecorated.
+.IP "\fBStaysOnTop \fIwindow\fB[,\fIwindow\^\fB, ... ,\fIwindow\^\fB]\fR"
+Each
+.I window
+stays in the foreground, that is, by default it stays on top of
+all other windows.
+This is handy for clocks or mailboxes that you want always to be visible.
+If you explicitly lower
+.IR window ,
+.B fwm
+does not force it back to the foreground until you raise it explicitly.
+.I window
+can be a window's name or its class.
+.IP "\fBBoundaryWidth \fIwidth\fR"
+This sets to
+.I width
+the boundary of a decorated windows.
+The default is six.
+.IP "\fBClickToFocus\fR"
+Normally, keyboard's input goes into the window that the mouse cursor is in.
+If you set this option,
+the keyboard's input stays in one window until you click on a new window.
+.IP "\fBAutoRaise \fImilliseconds\fR"
+This enables auto-raising of windows, and sets to
+.I milliseconds
+the delay between the point a window acquires the input focus and the moment
+.B fwm
+raises it.
+This option works in focus-follows-mouse mode;
+it also works in click-to-focus mode if you change the focus
+by clicking in the application window instead of a decoration window.
+.IP "\fBMouse \fIbutton context modifiers function\fR"
+Bind a mouse-button action to
+.IR function ,
+which must be a built-in
+.B fwm
+function.
+.IP
+.I button
+gives the number of the mouse button.
+If it is zero, then every button performs the specified function.
+.IP
+.I context
+gives the context in which the binding applies.
+It can be any combination of the following:
+.RS
+.IP \fBA\fR 0.3i
+Any context.
+.IS \fBF\fR
+A window frame (the corners).
+.IS \fBI\fR
+An Icon window.
+.IS \fBR\fR
+The root window.
+.IS \fBS\fR
+A window side, top, or bottom bar.
+.IS \fBT\fR
+A window title.
+.IS \fBW\fR
+An application window.
+.IS "\fB0\fR through \fB9\fR"
+Title-bar buttons.
+.RE
+.IP
+For instance, a context of
+.B FST
+applies when the mouse is anywhere in a window's border,
+except the title-bar buttons.
+.IP
+.I modifiers
+is any combination of the following:
+.RS
+.IP \fBA\fR 0.3i
+Any modifier. 
+.IS \fBC\fR
+The
+.B <ctrl>
+key.
+.IS \fBM\fR
+The
+.B <meta>
+key.
+.IS \fBN\fR
+No modifiers.
+.IS \fBS\fR
+The
+.B <shift>
+key.
+.RE
+.IP
+For example, a modifier of
+.B CM
+applies when both the
+.B <meta>
+and
+.B <shift>
+keys are down.
+.IP
+.B fwm
+numbers the title-bar buttons as follows:
+.DM
+	1 3 5 7 9 [ title ] 0 8 6 4 2
+.DE
+.IP
+.B fwm
+draws the buttons on each side of the title based on the highest-numbered
+button that has an action bound to it.
+For example, if button 7 is the highest odd-numbered button to have an
+action bound to it,
+.B fwm
+also draws buttons 1, 3, and 5 on the left side of the title bar;
+whereas if 4 is the highest even-numbered button,
+.B fwm
+draws only it and button 2 on the right side.
+.\" Got that?
+.IP "\fBKey \fIkey context modifiers function\fR"
+This binds
+.I key
+to
+.IR function ,
+which must be a function that is built into
+.BR fwm .
+.I context
+and
+.I modifiers
+are the same as with the instruction
+.BR Mouse .
+Note that
+.I key
+must be one of the entries in file
+.BR /usr/X11/include/X11/keysymdef.h ,
+but with the prefix
+.B XK_
+omitted.
+.IP
+Binding a key to a title-bar button does
+.I not
+force that button to appear; a title-bar button appears only if it
+(or button whose number has the same parity and is larger)
+is bound to a mouse button.
+For details on this rather confusing topic, see the discussion of the command
+.BR Mouse ,
+above.
+.IP "\fBAutoPlaceIcons\fR"
+When icons are first created,
+place them along the right side or bottom of the screen if possible.
+.B fwm
+will not place an icon over a location that is already occupied by an icon,
+or over an open window.
+.IP "\fBIcon \fIwindow bitmap-file\fR"
+Use the bit-mapped image in
+.I bitmap-file
+to represent
+.I window
+when it is iconified.
+.I window
+can name an application's window or class.
+It must be enclosed between quotation marks.
+.I bitmap-file
+is the full path name to a file that holds a standard X11 bit-mapped image.
+.B fwm
+uses the specified bitmap or pixmap in preference
+to any icon supplied by the window itself.
+.IP
+If
+.B fwm
+is compiled with library
+.B libXpm.a
+(which provides support for color icons), then 
+.I bitmap-file
+can hold an
+.B .xpm
+pixmap file.
+.IP
+Do not use an environmental variable within the string
+.IR bitmap-file .
+If
+.I window
+is an empty string,
+.B fwm
+makes the image in
+.IR bitmap-file
+the default icon;
+.B fwm
+uses it if no other icon bitmap or pixmap is specified.
+.IP "\fBDecorateTransients\fR"
+Decorate transient windows.
+.B fwm
+normally does not do so.
+Some pop-up windows, such as the
+.B xterm
+menus, are not managed by the window manager and will be decorated.
+.IP "\fBRandomPlacement\fR"
+Randomly position every window for which no X/Y position is specified.
+By default,
+.B fwm
+requires you to place such windows by hand.
+.IP "\fBClickTime \fImilliseconds\fR"
+Define what constitutes a mouse-button ``click''.
+If the time between pressing and releasing a mouse button does not exceed
+.IR milliseconds ,
+then
+.B fwm
+is to regard it as a click; otherwise, it is to treat the pressing and the
+releasing of the mouse button as two separate events and act accordingly.
+.IP "\fBSuppressIcons\fR"
+Stop
+.B fwm
+from creating or drawing icon windows.
+When used with a window-list, this provides a crude icon manager.
+.IP "\fBCursor \fInumber type\fR"
+Change cursor styles, albeit awkwardly.
+.I number
+indicates the cursor you are changing, as follows:
+.DS
+.ta 0.3iR 0.5i 1.75i
+	0	\fBPOSITION\fR	When initially placing windows
+	1	\fBTITLE\fR	When touching a window title-bar
+	2	\fBFRAME\fR	When touching corner pieces of window border
+	3	\fBSYS\fR	When touching a title-bar buttons
+	4	\fBMOVE\fR	When moving or resizing windows
+	5	\fBWAIT\fR	During an \fBEXEC\fR built-in command
+	6	\fBMENU\fR	When in a menu
+	7	\fBSELECT\fR	With built-in commands such as \fBiconify\fR
+	8	\fBDESTROY\fR	For built-in commands \fBDESTROY\fR and \fBDELETE\fR
+	9	\fBLEFT\fR	In the left side-bar of a window
+	10	\fBRIGHT\fR	In the right side-bar of a window
+	11	\fBBOTTOM\fR	In the bottom side-bar of a window
+	12	\fBTOP\fR	In the top side-bar of a window
+.DE
+.IP
+.I type
+is a number that gives shape of the cursor to use.
+The numbers are defined in file
+.BR /usr/X11/include/X11/cursorfont.h .
+For a picture of the available cursors, see the entry for the command
+.B xfd
+in the manual for X Windows for \*(CO.
+.IP "\fBButtonStyle \fIbutton width\(muheight\fR"
+Use a rectangular decorative shape with a given title-bar button.
+.I button
+gives the number of the title-bar button; it must be between zero and nine.
+For a description of these numbers, see the description of the command
+.BR Mouse ,
+above.
+.I width
+gives the percent of the button's width to used, and
+.I height 
+gives the percent of its height.
+Negative numbers invert the shading.
+.IP "\fBPopup \fImenuname\fR"
+Begin the definition of a pop-up menu to be bound to a mouse button or a key.
+.I menuname
+names the menu; it must be enclosed between quotation marks.
+.IP
+The keyword
+.B Popup
+is followed by a series of lines, each of which defines an entry in the menu.
+The first word of each menu-entry line
+names the built-in
+.B fwm
+function to be performed; this is followed by the
+caption to appear on the menu (which must be enclosed between quotation marks),
+and then by any arguments that the built-in function needs.
+The keyword
+.B EndMenu
+marks the end of the menu definition.
+The following gives an example of how to define a pop-up menu:
+.DM
+	Popup "Window Ops"
+		Title "Window Ops" 
+		Move "Move"
+		Resize "Resize"
+		Raise "Raise"
+		Lower "Lower"
+		Iconify "(De)Iconify"
+		Nop " "
+		Destroy "Destroy"
+		Title "HARDCOPY"
+		Exec "Hardcopy"  exec xdpr &
+		Exec "Hardcopy RV"  exec xdpr -rv &
+	EndMenu
+.DE
+.IP
+By default,
+.B fwm
+centers a caption within its menu entry.
+If, however, you embed a tab character within a menu entry's caption,
+.B fwm
+moves the text that follows the tab character
+into a second column, and left-justifies the entire menu.
+This lets you perform rough-and-ready labeling.
+The tab character must really be a tab:
+if it is expanded into spaces, it does not work.
+For example
+.DM
+	Popup "Window Ops"
+	  Title   "Window Ops	Alt-F1" 
+	  ...
+.DE
+.IP
+begins a left-justified menu:
+.B fwm
+places ``Alt-F1''
+toward the right side of the menu.
+If you want your menus to be left-justified,
+simply add a tab character after the menu's title line.
+.IP
+You can also use the command
+.B Popup
+within a menu.
+In this case, it invokes a sub-menu.
+The sub-menu must have been defined earlier in the configuration file.
+.IP "\fBFunction \fIname\fR" 
+Begin the definition of a complex function that consists of one or more
+.B fwm
+built-in functions.
+You can later bind the function to a mouse button or key.
+.I name
+names the function, and must be enclosed between quotation marks.
+.IP
+The keyword
+.B Function
+is followed by the commands that comprise the function;
+each command appears on its own line.
+The keyword
+.B EndFunction
+concludes the definition of the function.
+.IP
+A command line has three parts:
+the name of the built-in function to perform;
+the type of event to trigger that built-in function (enclosed between
+quotation marks);
+and the arguments that the function needs, if any.
+You can use the command
+.B Popup
+to invoke a pop-up menu, as long as that menu was earlier in the
+configuration file.
+.IP
+.B fwm
+recognizes the trigger actions
+.BR Motion ,
+.BR Click ,
+and
+.BR DoubleClick .
+When a function is triggered,
+.B fwm
+waits to see if the user is clicking, double-clicking, or dragging the mouse.
+Once it determines the type of action that is occurring,
+.B fvwm
+executes only those built-ins whose trigger action
+match the action you performed.
+.IP
+Consider the following example:
+.DM
+	Function "Move-or-Raise"
+	        Move            "Motion"
+	        Raise           "Motion"
+	        Raise           "Click"
+	        RaiseLower      "DoubleClick"
+	EndFunction
+.DE
+.IP
+If you bind function
+.B Move-or-Raise
+to the left-mouse button in a window title-bar,
+then, when you press the left-mouse button,
+.B fwm
+waits 150 milliseconds to see if the button is released.
+If the button is not released,
+.B fwm
+begins a move operation.
+When the move operation is complete,
+it then performs a raise operation.
+If it detects a button release,
+.B fwm
+waits another 150 milliseconds for a second click.
+If it detects only one click, it raises the window.
+If it detects two clicks, it alternately raises and lowers the window.
+You can use the option
+.B ClickTime
+to change this 150-millisecond ``window'' for defining a click.
+Note that the concepts of clicking and double-clicking do not carry through
+to keyboard.
+.SH "Built-in Functions"
+.B fwm
+supports the following built-in functions.
+You can bind any or all of these to keyboard or mouse buttons, or 
+combine them to form other functions:
+.IP \fBNop\fR
+Do nothing.
+Normally, this is used to insert a blank line or separator into a menu.
+If the menu item specification is
+.DM
+	Nop " "
+.DE
+.IP
+then
+.B fwm
+inserts a blank line.
+If, however, it looks like
+.DM
+	Nop ""
+.DE
+.IP
+then it inserts a separator line.
+.IP \fBTitle\fR
+Do nothing.
+Use this to insert a title line into a menu.
+.IP \fBBeep\fR
+Beep the computer.
+.IP \fBQuit\fR
+Exit
+.BR fwm .
+Usually this causes X to exit as well.
+.IP "\fBRestart \fIname window-manager\fR"
+Exit
+.B fwm
+and invoke
+.I window_manager
+in its place.
+If
+.I window_manager
+is ``fwm'', then
+.B fwm
+restarts itself.
+If
+.I window-manager
+is not in your default search path, use its full path name.
+.IP
+.I name
+gives the name that appears in a menu.
+It must be enclosed between quotation marks.
+To make parsing easier,
+.B fwm
+requires a
+.I name
+field, even if the function is not called from a menu.
+.IP
+This command should not have a trailing ampersand,
+and should not make use of any environmental variables.
+For example:
+.DM
+	Key F1 R N Restart " " /usr/X11/bin/fwm
+.DE
+.IP \fBRefresh\fR
+Make every window re-draw itself.
+.IP \fBMove\fR
+Let the user move a window.
+If called from within a window or its border,
+.B fwm
+moves that window.
+If called from the root window,
+.B fwm
+lets you select the target window.
+.IP \fBResize\fR
+Resize a window.
+.IP \fBRaise\fR
+Raise a window to the foreground; that is, move it in front of any other
+overlapping window.
+.IP \fBLower\fR
+Lower a window to the background; that is, move it behind any other
+overlapping window.
+.IP \fBRaiseLower\fR
+Alternately raise and lower a window.
+.IP \fBDelete\fR
+Ask a window to remove itself.
+If the application complies, this usually causes the application to exit.
+Note that some applications resist having their windows shut; in this case,
+you must use the command
+.BR Destroy ,
+described below,
+to destroy the window and kill the application.
+.IP \fBDestroy\fR
+Destroy a window.
+This is guaranteed to get rid of the window, but is violent
+and may leave memory littered with debris.
+Use this only as a last resort.
+.IP \fBIconify\fR
+Iconfy a window if it is not already iconified,
+or de-iconify it if it is already iconified.
+.IP "\fBMaximize [\fIhorizontal vertical\fB]\fR"
+Expand a window to fill the screen.
+.IP
+Optional arguments
+.I horizontal
+and
+.I vertical
+limit the maximum size of a window.
+Each is a percent of the total size of the screen.
+Setting either to zero tells
+.B fwm
+not to alter the window's size in that dimension.
+For example, the following adds a title-bar button that expands a window
+to the full vertical size of the screen:
+.DM
+	Mouse 0 4 A Maximize 0 100
+.DE
+.IP
+The following adds a title-bar button that expands a window to the screen's
+full horizontal size:
+.DM
+	Mouse 0 4 A Maximize 100 0
+.DE
+.IP
+The following expands a window to fill one-quarter of the screen's area
+(that is, half the height and half the width):
+.DM
+	Mouse 0 4 A Maximize 50 50
+.DE
+.IP
+Note that either argument can, with caution, be set to greater than 100.
+.IP \fBWindowList\fR
+Display a pop-up menu that shows the title and geometry of
+each windows currently on the desktop.
+.B fwm
+shows the geometry of iconified windows in brackets.
+Selecting a window from this menu moves it onto the desktop, if it is
+not already there;
+moves the desktop viewport to the page that contains the
+upper left corner of the window;
+de-iconifies the window, if necessary;
+and raises the window.
+.IP "\fBExec \fIname command\fR"
+Invoke a shell and execute
+.IR command ,
+which can be any command on your system.
+.I name
+gives the text that appears in a menu;
+it must be enclosed between quotation marks.
+To simplify the parsing of this command,
+.B fwm
+requires
+.I name
+even if the function is not called from a menu.
+.IP
+The following example binds function key
+.B <F1>
+in the root window, with no modifiers, to an
+.B Exec
+function that starts the command
+.BR bitmap :
+.DM
+	Key F1 R N 	Exec	"Bitmap Editor"		exec bitmap &
+.DE
+.IP "\fBPopup \fIPopupName\fR"
+Bind a previously defined pop-up menu to a key or mouse button.
+.IP
+The following example binds mouse buttons 2 and 3 (i.e., the center- and
+right-mouse buttons) to the pop-up menu titled
+.BR "Window Ops" ,
+which is defined above.
+The menu pops up if you press either the center- or the right-mouse button
+in the window frame, side-bar, or title-bar, with no modifiers:
+.DM
+	Mouse 2		FST	N	Popup "Window Ops"
+	Mouse 3		FST	N	Popup "Window Ops"
+.DE
+.IP
+You can use the key modifier to bind a pop-up menu to a key.
+To operate a pop-up menu without using the mouse,
+by binding it to a keys; and you can select an option from it by using
+the \*(UA, \*(DA,a nd \*(RT keys.
+.IP "\fBPopup \fIentry menu-name\fR"
+This command binds a previously defined pop-up menu into another menu,
+where it can be used as a sub-menu.
+The following example defines a sub-menu, called
+.BR Quit-Verify ,
+and binds it into a main menu called
+.BR Utilities :
+.DM
+	Popup "Quit-Verify"
+		Title	"Really Quit?"
+		Quit	"Yes, Really Quit"
+		Restart "Start fvwm" fvwm
+		Restart "Start fwm" fwm
+		Restart "Start twm" twm
+		Restart "Start olwm" olwm
+		Restart "Start olvwm" olvwm
+		Nop	""
+		Nop	"No, Don't Quit"
+	EndPopup
+.DE
+.DM
+	Popup "Utilities"
+		Title 	"Utilities"
+		Exec	"Bitmap Editor"		exec bitmap &
+		Exec	"Class Browser"		exec viewres &
+		Exec	"Clipboard"		exec xclipboard &
+		Exec	"Clock, Analogue"	exec xclock &
+		Exec	"Clock, Digital"	exec xclock -chime -fg blue -update 1 &
+		Exec	"Clock, Global"		exec sunclock -iconify &
+		Exec	"HP-10C Calculator"	exec xcalc -rpn &
+		Exec	"Magnify"		exec xmag &
+		Exec	"Mailbox"		exec xbiff &
+		Exec	"Resource Editor"	exec editres &
+		Exec	"Select Font"		exec xfontsel &
+		Exec	"System Load"		exec xload &
+		Exec	"System Monitor"	exec xterm -e hmon &
+		Exec	"Terminal Window"	exec xterm &
+		Exec	"Text Editor"		exec xedit &
+		Exec	"TI-30 Calculator"	exec xcalc &
+		Nop	""
+		Popup	"Exit fwm"		Quit-Verify
+	EndPopup
+.DE
+.IP
+A sub-menu must be defined prior to the main menu in which it is bound.
+There is no formal limit to how deeply you can nest sub-menus.
+.IP "\fBFunction \fIFunctionName\fR"
+Bind a previously defined function to a key or mouse button.
+.IP
+The following example binds mouse button 1 (i.e., the left-mouse button)
+to a function called
+.BR Move-or-Raise ,
+which was defined above.
+This binding instructs
+.B fwm
+to execute this function
+whenever you press the left-mouse button in a window's title-bar.
+.DM
+	Mouse 1         T       A       Function "Move-or-Raise"
+.DE
+.SH "Keyboard Shortcuts"
+.B fwm
+lets you perform any window-manager operation from the keyboard.
+This lets you operate
+.B fwm
+without using a mouse.
+.PP
+You can bind the built-in command
+.B Scroll
+to appropriate keys, so you can scroll around the virtual desktop without
+lifting your fingers from the keyboard.
+You can also bind pop-up menus, the move and resize command,
+and practically any other built-in command to a key.
+.PP
+Once a built-in function has been started,
+you can move the mouse cursor by pressing the keys \*(UA, \*(DA,
+\*(LA, and \*(RA; to terminate an action, press \*(RT.
+Holding down the
+.B <shift>
+key moves the mouse cursor in larger steps;
+holding down the
+.B <ctrl>
+key moves mouse cursor in smaller steps.
+.B fwm
+also lets you use standard
+.B emacs
+and
+.B vi
+cursor-movement commands instead of the arrow keys.
+.SH "Supplied Configuration"
+The sources for
+.B fwm
+include two sample configuration files:
+.IP \fBsystem.fvwmrc\fR
+This is the default configuration file.
+It gives a ``vanilla'' setup of
+.BR fwm .
+This was installed by default when you installed
+.B fwm
+onto your system.
+.IP \fBmwmlike.fvwmrc\fR
+This configures
+.B fwm
+to resemble the Motif window manager
+.BR mwm .
+The resemblance is little more than skin deep, but if you are familiar with
+Motif you may prefer these defaults.
+.PP
+If you do not want the default, ``vanilla'' configuration, copy either of
+the above files into your home directory, rename it to
+.BR .fvwmrc ,
+then edit it as described above to suit your preferences.
+.SH "See Also"
+.B
+fvwm,
+olvwm,
+olvwmrc,
+olwm,
+twm,
+X applications
+.R
+.SH Notes
+.B fwm
+is derived from
+.B twm
+code and therefore shares its copyrights.
+.PP
+.B fwm
+is copyright \(co 1988 by Evans and Sutherland Computer Corporation,
+Salt Lake City, Utah, and \(co 1989 by the Massachusetts Institute of
+Technology, Cambridge, Massachusetts.
+All rights reserved.
+It is also copyright \(co 1993 by Robert Nation.
+.PP
+Permission to use, copy, modify, and distribute this software and
+its documentation for any purpose and without fee is hereby
+granted, provided that the above copyright notice appear in all
+copies and that both that copyright notice and this permission
+notice appear in supporting documentation, and that the
+names of Evans & Sutherland and MIT not be used in advertising
+in publicity pertaining to distribution of the software without
+specific, written prior permission.
+.PP
+Robert Nation, Evans & Sutherland, and M.I.T. disclaim all warranties with
+regard to this software, including all implied warranties of merchantability
+and fitness, in no event shall Evans & Sutherland or
+M.I.T. be liable for any special, indirect or consequential damages
+or any damages whatsoever resulting from loss of use, data
+or profits, whether in an action of contract, negligence or other
+tortious action, arising out of or in connection with the use
+or performance of this software.
+.PP
+.II "Nation, Robert"
+.II "LaStrange, Thomas"
+.B fwm
+was written by
+Robert Nation (nation@rocket.sanders.lockheed.com), with help from
+many people.
+As noted above,
+.B fwm
+is based on the
+.B twm
+code, which was written by Thomas LaStrange.

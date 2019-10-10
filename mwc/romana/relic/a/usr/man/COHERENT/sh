@@ -1,0 +1,726 @@
+
+
+sh                           Command                           sh
+
+
+
+
+Command language interpreter
+
+sshh [-cceeiikknnssttuuvvxx] _t_o_k_e_n ...
+
+sh, also  called the shell, is the  default COHERENT command lan-
+guage interpreter.  Other  command languages can be provided on a
+per-user basis.   The tutorial included in  this manual describes
+the shell in detail.
+
+The shell reads commands from the terminal or from a file and in-
+terprets them.  A command may be  either a program or a text file
+containing other commands.  Shell constructs provide control flow
+logic.  Commands  can contain  patterns, which the  shell expands
+into file names.  The shell can redirect input and output.
+
+***** Commands *****
+
+A command  consists of  a command  name and optional  command ar-
+guments, called  tokens.  A token is a  string of graphic charac-
+ters separated by spaces or tabs.  Normally, the first token in a
+command is the command name.
+
+Commands  are  combined  with  the  pipe  operator  `|'  to  form
+pipelines.  In the pipeline
+
+
+        a | b
+
+
+the shell  passes the standard output of a  to the standard input
+of b.  The shell runs each  command in the pipeline as a separate
+process, and  waits for  the last  command to finish  before con-
+tinuing.
+
+Commands and pipelines can be joined into a sequence by using the
+tokens `;',  `&', `&&', and  `||', in addition  to newlines.  The
+shell executes commands  or pipelines separated by newlines or by
+`;' sequentially.  For example,
+
+
+        a | b ; c | d
+
+
+first executes the pipeline a  | b and then executes the pipeline
+c  |  d.   The   shell  executes  any  command  followed  by  `&'
+asynchronously as  a background (or detached)  process and prints
+its  process id.   The shell executes  the command  following the
+token  `&&' only  if the  preceding command  returns a  zero exit
+status, signifying  success.  Similarly, it  executes the command
+following `||'  only if the  preceding command returns  a nonzero
+exit status, signifying  failure.  Newline, `;' and `&' bind less
+tightly than  `&&' and `||'; the shell  parses command lines from
+left to right if separators bind equally.
+
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+sh                           Command                           sh
+
+
+
+***** I/O Redirection *****
+
+The standard  input, standard output, and  standard error streams
+are normally connected  to the terminal.  A pipeline attaches the
+output of one command to  the input of another command.  In addi-
+tion, the  operators `>', `>>', `<', and  `<<' redirect the stan-
+dard output and the standard input.
+
+Output redirection  sends standard output to  file rather than to
+the terminal:
+
+
+        >file
+
+
+creates file if it does not exist, and destroys its previous con-
+tents if it does exist.  The operator
+
+
+        >>file
+
+
+appends standard  output to an existing file,  or creates file if
+it does not exist.
+
+In input redirection,
+
+
+        <file
+
+
+accepts standard  input from file rather  than from the terminal.
+The input redirection operator
+
+
+        <<token
+
+
+accepts standard  input from the shell input  until the next line
+containing only  token in the  shell input.  The  shell input be-
+tween tokens  is called a here document.   The shell will perform
+parameter substitution  on the  here document unless  the leading
+token is quoted; parameter substitution and quoting are described
+below.
+
+The standard input and output may also be redirected to duplicate
+other file descriptors.   The operator `<&_n' duplicates the stan-
+dard input from file descriptor n, and `>&_n' duplicates the stan-
+dard output.   The operators `<&-'  and `>&-' close  the standard
+input and output.
+
+Other descriptors  may be redirected by preceding  the `<' or `>'
+with the digit of the descriptor to be redirected.  For example,
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+sh                           Command                           sh
+
+
+
+
+        2>&1
+
+
+redirects file descriptor 2 (the standard error) to file descrip-
+tor 1  (the standard output).  The system  call dup performs file
+descriptor duplication.
+
+Each command  executed as a foreground  process inherits the file
+descriptors and  signal traps  (described below) of  the invoking
+shell, modified by any specified redirection.  Background proces-
+ses take input from the null device /dev/null (unless redirected)
+and ignore interrupt and quit signals.
+
+***** File Name Patterns *****
+
+The shell interprets an input token containing any of the special
+characters `?', `*', or `[' as a file name pattern.  The question
+mark `?'  matches any single  character except newline.   The as-
+terisk  `*' matches  a string  of  non-newline characters  of any
+length (including  zero).  Square  brackets `[ ]'  enclose alter-
+natives to match a single  character; as in ed, ranges of charac-
+ters can  be separated by `-'.  The slash  `/' and leading period
+`.' must be matched explicitly in a pattern.  The shell generates
+an  alphabetized  list  of file  names  matching  the pattern  to
+replace the token.  It passes  the token unchanged if it finds no
+match.
+
+In addition, the characters  `\', `"', and `'' remove the special
+meaning  of  other  characters.   The  backslash `\'  quotes  the
+following character.   The shell ignores  a backslash immediately
+followed by  a newline,  called a  concealed newline.  A  pair of
+apostrophes ' '  prevents interpretation of  any enclosed special
+characters.  A  pair of quotation marks " "  has the same effect,
+except that  parameter substitution and  command output substitu-
+tion (described below) occur within quotation marks.
+
+***** Scripts *****
+
+Shell commands can be stored in a file, or script.  The command
+
+
+        sh _s_c_r_i_p_t [ _p_a_r_a_m_e_t_e_r ... ]
+
+
+executes the  commands in  script with  a new subshell  sh.  Each
+parameter  is a  value for a  positional parameter,  as described
+below.  If  script has been  made executable with  the chmod com-
+mand, the sh may be omitted.
+
+Formal  parameters of  the form  `$_n', where  n ranges  from zero
+through nine,  represent positional parameters in  a script.  The
+parameter `$0' gives the name of the script.  If no corresponding
+actual parameter  is given  on the  command line, the  shell sub-
+stitutes the null string for the positional parameter.  The shell
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+sh                           Command                           sh
+
+
+
+substitutes the  actual values  of all positional  parameters for
+the reference `$*'.
+
+Commands in a  script can also be executed with  the . (dot) com-
+mand.  It  resembles the  sh command,  but the current  shell ex-
+ecutes the  script commands without creating a  new subshell or a
+new environment; positional parameters are not allowed.
+
+***** Variables *****
+
+Shell variables are names  which may be assigned string values on
+a command line, in the form
+
+
+        _n_a_m_e=_v_a_l_u_e
+
+
+The  name must  begin  with a  letter, and  may contain  letters,
+digits,  and  underscores   `_'.   In  shell  input,  `$_n_a_m_e'  or
+`${_n_a_m_e}' represents the value of the variable.  If an assignment
+precedes a  command on the  same command line, the  effect of the
+assignment is local to the command; otherwise, the effect is per-
+manent.  For example,
+
+
+        kp=one testproc
+
+
+assigns variable  kp the value one only for  the execution of the
+script testproc.
+
+The shell sets the following variables:
+
+#  The  number of actual positional parameters  given to the cur-
+   rent command.
+
+@  The list of positional parameters ``$1 $2 ...''.
+
+*  The list of positional parameters ``$1'' ``$2'' ...  (the same
+   as `$@' unless quoted).
+
+-  Options set in the invocation  of the shell or by the set com-
+   mand.
+
+?  The exit status returned by the last command.
+
+!  The process number of the last command invoked with `&'.
+
+$  The process number of the current shell.
+
+The shell also references the following variables:
+
+HHOOMMEE     Initial working  directory;  usually  specified  in  the
+        password file /etc/passwd.
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+sh                           Command                           sh
+
+
+
+IIFFSS     Delimiters for tokens; usually space, tab and newline.
+
+LLAASSTTEERRRROORR
+        Name of last command returning nonzero exit status.
+
+MMAAIILL    Checked at the end of each command.  If file specified in
+        this variable is new since last command, the shell prints
+        ``You have mail.'' on the user's terminal.
+
+PPAATTHH    Colon-separated  list  of directories  searched for  com-
+        mands.
+
+PPSS11     First prompt string, usually `$'.
+
+PPSS22     Second prompt  string, usually `>'.  Used  when the shell
+        expects more input, such  as when an open  quote has been
+        typed but a close  quote has not been  typed, or within a
+        shell construct.
+
+The special forms `${_n_a_m_e_c_t_o_k_e_n}',  where c is one of the charac-
+ters `-',  `=', `+', or  `?', perform conditional  parameter sub-
+stitution.  The  shell replaces  the form `${_n_a_m_e-_t_o_k_e_n}'  by the
+value of name if it is  set and by token otherwise.  The `=' form
+has the same effect, but also  sets the value of name to token if
+it was  not set previously.   The shell replaces the  `+' form by
+token if the given name is  set.  The shell replaces the `?' form
+by the value of name if set, and otherwise prints token and exits
+from the shell.
+
+***** Command Output Substitution *****
+
+The shell can use the output of a command as shell input (as com-
+mand arguments,  for example) by  enclosing the command  in grave
+characters ` `.   To list directories  given in a  file dirs, use
+the command
+
+
+        ls -l `cat dirs`
+
+
+***** Constructs *****
+
+The  shell provides  control over  execution  of commands  by the
+bbrreeaakk, ccaassee, ccoonnttiinnuuee, ffoorr, iiff, uunnttiill, and wwhhiillee constructs.  The
+shell recognizes each reserved word only if it occurs unquoted as
+the first token of a command.  This implies that a separator must
+precede each reserved  word in the following constructs.  For ex-
+ample, newline or `;' must precede do in the for construct.
+
+bbrreeaakk [_n]
+     Exit from for, until, or while.   If n is given, exit from n
+     levels.
+
+ccaassee _t_o_k_e_n iinn [ _p_a_t_t_e_r_n [ | _p_a_t_t_e_r_n ] ...) _s_e_q_u_e_n_c_e;; ] ... eessaacc
+     Check the  token against each  pattern, and execute  the se-
+
+
+COHERENT Lexicon                                           Page 5
+
+
+
+
+sh                           Command                           sh
+
+
+
+     quence associated with the first matching pattern.
+
+ccoonnttiinnuuee [_n]
+     Branch to the end of  the nth enclosing for, until, or while
+     construct.
+
+ffoorr _n_a_m_e [ iinn _t_o_k_e_n ... ] ddoo _s_e_q_u_e_n_c_e ddoonnee
+     Execute sequence once for each member of the specified token
+     list.  On  each iteration, the  name takes the  value of the
+     next token in the list.  If  the in clause is omitted, $@ is
+     assumed.  For example, to list all files ending with .c:
+
+             for i in *.c
+             do cat $i
+             done
+
+
+iiff _s_e_q_1 tthheenn _s_e_q_2 [ eelliiff _s_e_q_3 tthheenn _s_e_q_4 ] ... [ eellssee _s_e_q_5 ] ffii
+     Execute seq1.  If the exit status is zero, execute seq2.  If
+     not, execute the optional seq3 if given.  If its exit status
+     is zero, execute seq4 and so on.  If the exit status of each
+     tested sequence is nonzero, execute seq5.
+
+uunnttiill _s_e_q_u_e_n_c_e_1 [ ddoo _s_e_q_u_e_n_c_e_2 ] ddoonnee
+     Execute sequence2  until the execution  of sequence1 results
+     in an exit status of zero.
+
+wwhhiillee _s_e_q_u_e_n_c_e_1 [ ddoo _s_e_q_u_e_n_c_e_2 ] ddoonnee
+     Execute  sequence2 as  long  as the  execution of  sequence1
+     results in an exit status of zero.
+
+(_s_e_q_u_e_n_c_e)
+     Execute the sequence within a subshell.  This allows the se-
+     quence to change the current directory, for example, and not
+     affect the enclosing environment.
+
+{_s_e_q_u_e_n_c_e}
+     Braces simply enclose a sequence.
+
+***** Special Commands *****
+
+The shell usually executes  commands by a fork system call, which
+creates another  process.  However,  the shell executes  the com-
+mands  in this  section either  directly or  with an  exec system
+call.  The Lexicon describes fork and exec.
+
+. _s_c_r_i_p_t
+     Read   and  execute   commands   from  script.    Positional
+     parameters are not allowed.  The shell searches PATH to find
+     the given script.
+
+: [_t_o_k_e_n ...]
+     A colon `:' indicates a ``partial comment''.  The shell nor-
+     mally  ignores all  commands on  a line  that begins  with a
+     colon, except  for redirection and such symbols  as $, {, ?,
+
+
+COHERENT Lexicon                                           Page 6
+
+
+
+
+sh                           Command                           sh
+
+
+
+     etc.
+
+#    A complete  comment: if # is the first  character on a line,
+     the shell ignores all text that follows on that line.
+
+ccdd [_d_i_r]
+     Change  the working  directory to  dir.   If no  argument is
+     given, change to the home directory.
+
+eevvaall [_t_o_k_e_n ...]
+     Evaluate each token and treat the result as shell input.
+
+eexxeecc [_c_o_m_m_a_n_d]
+     Execute command directly  rather than performing fork.  This
+     terminates the current shell.
+
+eexxiitt [_s_t_a_t_u_s]
+     Set the exit status to status, if given; otherwise, the pre-
+     vious status is unchanged.  If the shell is not interactive,
+     terminate it.
+
+eexxppoorrtt [_n_a_m_e ...]
+     The shell executes  each command in an environment, which is
+     essentially a set  of shell variable names and corresponding
+     string values.   The shell inherits an  environment when in-
+     voked, and  normally it passes the  same environment to each
+     command it invokes.   export specifies that the shell should
+     pass the  modified value of each given  name to the environ-
+     ment  of subsequent  commands.  When no  name is  given, the
+     shell prints the name  and value of each variable marked for
+     export.
+
+rreeaadd _n_a_m_e ...
+     Read a line from the standard input and assign each token of
+     the input to  the corresponding shell variable name.  If the
+     input contains  fewer tokens than the  name list, assign the
+     null string to  extra variables.  If the input contains more
+     tokens, assign the last name the remainder of the input.
+
+rreeaaddoonnllyy [_n_a_m_e ...]
+     Mark each shell variable name as a read only variable.  Sub-
+     sequent assignments to  read only variables will not be per-
+     mitted.  With no arguments, print the name and value of each
+     read only variable.
+
+sseett [-cceeiikknnssttuuvvxx [_n_a_m_e ...] ]
+     Set  listed  flag.   If name  list  is  provided, set  shell
+     variables name to  values of positional parameters beginning
+     with $1.
+
+sshhiifftt
+     Rename positional parameter 1 to current value of $2, and so
+     on.
+
+
+
+
+COHERENT Lexicon                                           Page 7
+
+
+
+
+sh                           Command                           sh
+
+
+
+ttiimmeess
+     Print  the total  user  and system  times  for all  executed
+     processes.
+
+ttrraapp [_c_o_m_m_a_n_d] [_n ...]
+     Execute command if  the shell receives signal n.  If command
+     is  omitted, reset  traps to original  values.  To  ignore a
+     signal, pass  null string as command.   With n zero, execute
+     command when the  shell exits.  With no arguments, print the
+     current trap settings.
+
+uummaasskk [_n_n_n]
+     Set  user file  creation  mask to  nnn.  If  no argument  is
+     given, print the current file creation mask.
+
+wwaaiitt [_p_i_d]
+     Hold execution  of further  commands until process  pid ter-
+     minates.  If  pid is omitted, wait  for all child processes.
+     If  no  children  are  active,  this  command  finishes  im-
+     mediately.
+
+***** Options *****
+
+
+-cc _s_t_r_i_n_g
+    Read shell commands from string.
+
+-ee  Exit  on any  error (command  not found or  command returning
+    nonzero status) if the shell is not interactive.
+
+-ii  The  shell is  interactive, even if  the terminal is  not at-
+    tached to  it; print prompt  strings.  For a  shell reading a
+    script, ignore the signals SIGTERM and SIGINT.
+
+-kk  Place all  keyword arguments into the environment.  Normally,
+    the shell places  only assignments to variables preceding the
+    command into the environment.
+
+-nn  Read commands but do not execute them.
+
+-ss  Read commands from  the standard input and write shell output
+    to the standard error.
+
+-tt  Read and execute one command rather than the entire file.
+
+-uu  If the  actual value of a shell variable  is blank, report an
+    error rather than substituting the null string.
+
+-vv  Print each line as it is read.
+
+-xx  Print each command and its arguments as it is executed.
+
+-   Cancel the -x and -v options.
+
+
+
+
+COHERENT Lexicon                                           Page 8
+
+
+
+
+sh                           Command                           sh
+
+
+
+If the first character of argument  0 is `-', the shell reads and
+executes  the  scripts  /etc/profile  and  $HOME/.profile  before
+reading the  standard input.  /etc/profile is  a convenient place
+for initializing system-wide variables, such as TIMEZONE.
+
+***** Examples *****
+
+The first  example is a shell  script that moves to  the next al-
+phabetical sibling directory.
+
+
+# DEF_NAME is a command that defines the current directory name.
+DEF_NAME="basename `pwd`"
+
+
+
+# CUR_DIR current directory name.
+CUR_DIR=`$DEF_NAME`
+
+
+
+# If current directory is root exit, else
+# go the to parent directory.
+if [ $CUR_DIR = '/' ]; then
+        echo This is root directory.
+        exit
+else
+        cd ..
+fi
+
+
+
+# DIR_NUM is the alphabetical number of the current directory
+# in the directory list of the parent directory.
+DIR_NUM=`lc -d1 | sed -n -e "/ $CUR_DIR/="`
+
+
+
+# NEXT is the number of the next alphabetical directory.
+NEXT=`expr $DIR_NUM + 1`
+
+
+
+# If next directory exists then come to this directory,
+# else stay in parent directory.
+if [ $NEXT -le `lc -d1 | wc -l` ]; then
+        cd `lc -d1 | sed -n -e $NEXT\p`
+fi
+
+
+The second  example is a  script that logs UUCP  information to a
+file.  Usage is uuuuiinnffoo _o_u_t_f_i_l_e, where outfile is the file to hold
+the logged information.
+
+
+
+
+COHERENT Lexicon                                           Page 9
+
+
+
+
+sh                           Command                           sh
+
+
+
+
+OUTFILE=$1
+
+
+
+> $OUTFILE
+echo "Descriptive text for top of file, ended by Ctrl-D:"
+echo "UUCP and Com Port Information." >> $OUTFILE
+cat >> $OUTFILE
+echo "===============================================" >> $OUTFILE
+
+
+
+echo "/usr/lib/uucp" >> $OUTFILE
+(
+  cd /usr/lib/uucp
+  echo "==============================================="
+  ls -l L.sys L-devices Permissions
+  echo "==============================================="
+  echo "L.sys"
+  echo "==============================================="
+  cat L.sys
+  echo "==============================================="
+  echo "L-devices"
+  echo "==============================================="
+  cat L-devices
+  echo "==============================================="
+  echo "Permissions"
+  echo "==============================================="
+  cat Permissions
+  echo "==============================================="
+) >> $OUTFILE
+
+
+
+echo "/etc/ttys" >> $OUTFILE
+echo "===============================================" >> $OUTFILE
+ls -l /etc/ttys >> $OUTFILE
+echo "===============================================" >> $OUTFILE
+cat /etc/ttys >> $OUTFILE
+echo "===============================================" >> $OUTFILE
+echo "/dev/com*" >> $OUTFILE
+echo "===============================================" >> $OUTFILE
+ls -l /dev/com* >>  $OUTFILE
+echo "===============================================" >> $OUTFILE
+echo "End of file." >> $OUTFILE
+echo "$OUTFILE written."
+echo "Remove confidential passwords & phone numbers from $OUTFILE."
+
+
+***** Files *****
+
+/eettcc/pprrooffiillee -- System-wide initial commands
+$HHOOMMEE/.pprrooffiillee -- User-specific initial commands
+/ddeevv/nnuullll -- For background input
+
+
+COHERENT Lexicon                                          Page 10
+
+
+
+
+sh                           Command                           sh
+
+
+
+/ttmmpp/sshh* -- Temporaries
+
+***** See Also *****
+
+commands, dup(), environ,  exec, fork(), login, newgrp, signal(),
+test
+_I_n_t_r_o_d_u_c_t_i_o_n _t_o _s_h, _t_h_e _B_o_u_r_n_e _S_h_e_l_l, tutorial
+
+***** Diagnostics *****
+
+The shell  notes on the standard error  syntax errors in commands
+and commands which it  cannot find.  Syntax errors cause a nonin-
+teractive shell to exit.  It gives error messages if I/O redirec-
+tion is incorrect.  The shell returns the exit status of the last
+command executed or the status specified by an exit command.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                          Page 11
+
+

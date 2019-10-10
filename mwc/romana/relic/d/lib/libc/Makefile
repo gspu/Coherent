@@ -1,0 +1,43 @@
+# /usr/src/libc/Makefile 7/23/91
+# Assumes $(SRCPATH) defines root libc source directory, e.g. /usr/src/libc.
+# To build a new libc.a, move to an empty object directory and
+# type "make SRCPATH=/usr/src/libc" (or other pathname as appropriate).
+# This takes about 20 minutes from scratch on 20 MHz 386.
+
+# Copyright module is first entry in the archive.
+OBJ=\
+	copyright.o
+
+# Primary target.
+# The order of targets here is significant.
+# dstdio must be the last target, because it plays tricks to reduce size
+# of executable if stdio is not required.
+# dgen is next to last because e.g. perror() references stdio.
+all:	ROOT dcrt dstring dsys dgen dstdio
+	: libc done.
+
+# Pseudotargets.
+# The lower case pseudotargets are made every time to check each subdirectory.
+# The upper case pseudotargets indicate when the objects in a given directory
+# were last made, allowing replacement of only the stale object files.
+ROOT:	$(OBJ)
+	ar rckus libc.a $?
+	touch $@
+dcrt:	
+	make SRCPATH=$(SRCPATH)/crt
+dgen:
+	make SRCPATH=$(SRCPATH)/gen
+dstdio:
+	make SRCPATH=$(SRCPATH)/stdio
+dstring:
+	make SRCPATH=$(SRCPATH)/string
+dsys:
+	make SRCPATH=$(SRCPATH)/sys
+
+# Secondary targets.
+copyright.o:	$(SRCPATH)/gen/copyright.c
+
+clean:
+	rm *.o
+
+# end of /usr/src/libc/Makefile

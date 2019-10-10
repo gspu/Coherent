@@ -1,0 +1,935 @@
+head     1.8;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.8
+date     91.05.15.15.34.38;  author root;  state Exp;
+branches ;
+next	1.7;
+
+1.7
+date     91.05.14.10.06.56;  author root;  state Exp;
+branches ;
+next	1.6;
+
+1.6
+date     91.05.13.09.58.46;  author root;  state Exp;
+branches ;
+next	1.5;
+
+1.5
+date     91.05.13.06.19.28;  author root;  state Exp;
+branches ;
+next	1.4;
+
+1.4
+date     91.05.12.14.20.12;  author root;  state Exp;
+branches ;
+next	1.3;
+
+1.3
+date     91.05.11.14.24.56;  author root;  state Exp;
+branches ;
+next	1.2;
+
+1.2
+date     91.05.11.12.28.56;  author root;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.05.09.15.18.32;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Stack machine pseudocode.
+@
+
+
+1.8
+log
+@Mostly in step with ss.c.1.40.
+@
+text
+@/*
+ * ss.sst - Seagate SCSI state machine (one per target device)
+ *
+ * $Log:	/usr/src/sys/i8086/drv/RCS/ss.sst,v $
+ * Revision 1.7	91/05/14  10:06:56	root
+ * Minor revisions during coding of main state machine.
+ * 
+ * Revision 1.6	91/05/13  09:58:46	root
+ * First complete draft.
+ * 
+ * Revision 1.5	91/05/13  06:19:28	root
+ * Rethreading main loop.
+ * 
+ * Revision 1.4	91/05/12  14:20:12	root
+ * Adding timeout logic.
+ * 
+ * Revision 1.3	91/05/11  14:24:56	root
+ * Includes error recovery - still quite incomplete.
+ *
+ * Revision 1.2	91/05/11  12:28:56	root
+ * Further draft as of 05/10
+ *
+ * Revision 1.1	91/05/09  15:18:32	root
+ * Initial incomplete draft.
+ */
+
+Things to do.
+=============
+	RV_BF_TIMEOUT
+	"special"
+
+Host status.
+============
+	host_busy - arbitrating or connected to a target device
+
+Target status.
+==============
+	TG_BUSY - processing a block i/o request.  Don't start another block
+		i/o request.
+	TG_WAITING - if this status is TRUE, a timer has been started.  Don't
+		start another command until either the timer expires or the
+		awaited condition has occurred.  Things to wait for are listed
+		under set_timeout().
+
+Commands that appear on the stack.
+==================================
+	SST_BUS_DEV_RESET
+	SST_DEQUEUE (initial value for current state)
+	SST_HIPRI_RESET
+	SST_LOPRI_RESET
+	SST_POLL_ARBITN
+	SST_POLL_BEGIN_IO
+	SST_POLL_RESELECT
+	SST_REQ_SENSE
+	SST_RESET_DONE
+	SST_RESET_OFF
+
+Block I/O counters.
+===================
+For each device there are values for the current block I/O request.  These
+are
+	avl_count
+	Number of times we have polled for (not host_busy) and BUS_FREE
+	(i.e., host available).
+
+	bdr_count
+	Number of times we have tried Bus Device Reset while attempting the
+	current request.
+
+	bsy_count
+	Number of times we have received Device Busy status while attempting
+	the current request.
+
+	try_count
+	Total number of times the current request has been attempted.
+All of these are initialized to zero when a new block request = taken from
+the queue.
+
+Pseudocode for the machine.
+===========================
+do_sst_op = TRUE  // plan to run this routine again in most cases
+while (do_sst_op)
+	switch (current state)
+	// polling state execute whether TG_WAITING or not
+	case SST_POLL_ARBITN
+		if arbitration complete
+			TG_WAITING = FALSE
+			if host_identify succeeds
+				do_connect()
+			else
+				recover(RV_P_TIMEOUT)
+			endif
+		else
+			if timer has expired
+				recover(RV_A_TIMEOUT)
+			else
+				do_sst_op = FALSE
+			endif
+		endif
+	case SST_POLL_BEGIN_IO
+		if current request = NULL
+			target_state = SST_DEQUEUE
+		else
+			if not host_busy and bus free
+				host_busy = TRUE
+				TG_WAITING = FALSE
+				reset data pointers
+				if current request is buffer i/o
+					reset b_resid
+				endif
+				// may be retrying a block request
+				start arbitration
+				if arbitration complete
+					if host_identify succeeds
+						do_connect()
+					else
+						recover(RV_P_TIMEOUT)
+					endif
+				else
+					target_state = SST_POLL_ARBITN
+					set_timeout(DELAY_ARB)
+				endif
+			else  // host_busy or bus not free
+				set_timeout(DELAY_BSY)
+			endif
+		endif
+	case SST_POLL_RESELECT
+		if target is doing Reselect
+			TG_WAITING = FALSE
+			if reconnect handshake succeeds
+				do_connect()
+			else
+				recover(RV_P_TIMEOUT)
+			endif
+		else  // Reselect poll = negative
+			if timer has expired
+				recover(RV_R_TIMEOUT)
+			else
+				do_sst_op = FALSE
+			endif
+		endif
+	default
+		if TG_WAITING
+			do_sst_op = FALSE
+		else
+	// nonpolling states execute only if no target timer is running
+			switch (current state)
+	case SST_BUS_DEV_RESET
+		try sending Bus Device Reset message to target
+		if successful
+			do_sst_op = FALSE
+			set_timeout(DELAY_BDR)
+			target_state = SST_REQ_SENSE
+		else
+			recover(RV_P_TIMEOUT)
+		endif
+	case SST_DEQUEUE
+		if block i/o queue for target not empty and not TG_BUSY
+			TG_BUSY = TRUE
+			remove head request from queue
+			form current block request - initialize try counts, etc.
+			target_state = SST_POLL_BEGIN_IO
+		else // queue is empty or TG_BUSY
+			do_sst_op = FALSE
+		endif
+	case SST_HIPRI_RESET
+		turn on Reset bus line
+		target_state = SST_RESET_OFF
+		set_timeout(DELAY_RST)
+	case SST_LOPRI_RESET
+		// same as SST_HIPRI_RESET for now;  later, can implement
+		a delay to allow other targets to finish pending operations
+	case SST_REQ_SENSE
+		try sending Request Sense command to target (no disconnect)
+		if successful
+			target_state = SST_POLL_BEGIN_IO
+		else
+			recover(RV_P_TIMEOUT)
+		endif
+	case SST_RESET_DONE
+		target_state = SST_POLL_BEGIN_IO
+	case SST_RESET_OFF
+		turn off Reset bus line
+		target_state = SST_RESET_DONE
+		set_timeout(DELAY_RST)
+			endswitch
+		endif
+	endswitch
+endwhile
+
+Subroutines.
+============
+
+do_connect
+----------
+if current request is buffer i/o
+	try_info_xfer()
+else
+	special_xfer()
+endif
+host_busy = FALSE
+if transfer timed out
+	recover(RV_P_TIMEOUT)
+else if Disconnect message was received
+	target_state = SST_POLL_RESELECT
+	set_timeout(DELAY_RES)
+else if Command Complete
+	cleanup - bdone(), etc.
+	current request = NULL
+	TG_BUSY = FALSE
+	if current request is buffer i/o
+		target_state = SST_DEQUEUE
+	else
+		special status = TRUE
+		wakeup special
+	endif
+else if Busy
+	recover(RV_CS_BUSY)
+else if Check
+	recover(RV_CS_CHECK)
+else  // something else went wrong
+	recover(RV_P_TIMEOUT)
+endif
+
+recover
+-------
+Here are the inputs to the error recovery process:
+
+RV_A_TIMEOUT (arbitration timeout)
+Host adapter takes too long to respond with arbitration complete.
+
+RV_P_TIMEOUT (protocol timeout)
+Timeout waiting for desired SCSI bus status while connected to a target.
+
+RV_R_TIMEOUT (reconnect timeout)
+Timeout after target disconnects, waiting for reconnect.
+
+RV_CS_BUSY (target device busy)
+Command status returned was Busy.
+
+RV_CS_CHECK (target device check)
+Command status returned was CHECK.
+
+Whenever an error occurs, one of the above inputs, together with the SCSI id
+of the target, is sent to the recovery process.  The recovery process in turn
+programs the next state for the machine.
+
+add 1 to try_count
+if try_count < MAX_TRY_COUNT (6)
+	switch error_type
+	case RV_CS_BUSY
+		add 1 to bsy_count
+		if bsy_count < MAX_BSY_COUNT (2)
+			target_state = SST_POLL_BEGIN_IO
+			set_timeout(DELAY_BSY)
+		else
+			target_state = SST_BUS_DEV_RST
+		endif
+	case RV_CS_CHECK
+		target_state = SST_REQ_SENSE
+	case RV_P_TIMEOUT, RV_R_TIMEOUT
+		add 1 to bdr_count
+		if bdr_count < MAX_BDR_COUNT (2)
+			target_state = SST_BUS_DEV_RST
+		else
+			target_state = SST_LOPRI_RESET
+		endif
+	case RV_A_TIMEOUT
+		target_state = SST_HIPRI_RESET
+	endswitch
+else // try_count >= MAX_TRY_COUNT
+	set BFERR in buffer from kernel
+	TG_BUSY = FALSE
+	cleanup - bdone(), etc.
+	current request = NULL
+	if current request is buffer i/o
+		target_state = SST_DEQUEUE
+	else
+		special status = FALSE
+		wakeup special
+	endif
+endif
+
+set_timeout
+-----------
+Start a timer so as not to wait forever in case something goes wrong while
+waiting for an event.  Available delays are:
+	DELAY_ARB -	wait for arbitration complete
+	DELAY_BDR -	allow settling time after Bus Device Reset
+	DELAY_BSY -	wait for (not host_busy) and bus free
+	DELAY_RES -	wait for reselect by target
+	DELAY_RST -	allow settling times when doing SCSI Bus Reset
+
+TG_WAITING = TRUE
+do_sst_op = FALSE
+do call to kernel timeout with function that will:
+	set TG_WAITING to FALSE
+	invoke the state machine
+
+Interrupt.
+==========
+if a device is doing Reselect
+	defer state machine
+endif
+
+Watchdog.
+=========
+Whenever any open is pending for the target, invoke the state machine once
+per second.
+
+Block function in CON structure.
+================================
+If block request is valid
+	create a new node
+	put it at tail of request queue
+	target_state = SST_DEQUEUE
+else
+	BFERR, etc.
+endif
+
+Special commands.
+=================
+This includes Inquiry, Read Capacity, and Mode Sense.
+@
+
+
+1.7
+log
+@Minor revisions during coding of main state machine.
+@
+text
+@d5 3
+d29 2
+d34 1
+a34 1
+	HOST_BUSY - arbitrating or connected to a target device
+d61 4
+a64 4
+include
+	arb_count
+	Number of times we have polled the host adapter while waiting for
+	arbitration complete.
+d104 2
+a105 2
+			if not HOST_BUSY and bus free
+				HOST_BUSY = TRUE
+d123 1
+a123 1
+			else  // HOST_BUSY or bus not free
+d201 1
+a201 1
+HOST_BUSY = FALSE
+d290 1
+a290 1
+	DELAY_BSY -	wait for not HOST_BUSY and bus free
+@
+
+
+1.6
+log
+@First complete draft.
+@
+text
+@d5 3
+a25 1
+	startup and other special commands - Inquiry, Read Capacity, etc.
+d35 1
+a35 1
+	TG_WAITING - if this status = TRUE, a timer has been started.  Don't
+d43 1
+a43 1
+	SST_DEQUEUE (initial value for current command)
+d78 2
+a79 2
+	switch (current command)
+	// polling commands execute whether TG_WAITING or not
+d83 5
+a87 1
+			do_connect()
+d108 7
+a114 1
+				if timeout
+a116 2
+				else // arbitration complete
+					do_connect()
+d123 1
+a123 1
+		if target = doing Reselect
+d126 1
+a126 1
+				do_reconnect()
+d141 2
+a142 2
+	// nonpolling commands execute only if no target timer is running
+			switch (current command)
+d158 1
+a158 1
+		else // queue = empty or TG_BUSY
+a174 2
+			endswitch
+		endif
+d181 2
+d241 1
+a241 1
+places commands on the state machine stack.
+d297 1
+a297 1
+if a device is doing Reselect and that device is at SST_POLL_RESELECT
+@
+
+
+1.5
+log
+@Rethreading main loop.
+@
+text
+@d2 1
+a2 1
+ * ss.sst - Seagate SCSI stack machine (one per target device)
+d5 3
+d23 1
+a23 12
+	startup
+	watchdog
+	timeouts
+	stack machine vs. single current command - this is mainly a problem
+		in case of error recovery where we "push" a retry under
+		e.g. a Bus Device Reset
+	while loop - poll for any awaited activity
+	checklist of SST_ commands
+	SST_DEQUEUE
+	what if another target resets the host?
+		rely on usual error handling
+	when to turn off TIMING
+d27 1
+a27 1
+	BUSY - arbitrating or connected to a target device
+d31 6
+a36 10
+	BUSY - processing a block i/o request.  Don't start another block i/o
+		request.
+	DISCONNECTED - awaiting reselect to complete the pending block
+		request.  Only pay attention to Reselect when DISCONNECTED.
+	TIMING - in each case below, a timer has been started.  Don't start
+		another command until either the timer expires or the awaited
+		condition has occurred.  Things to wait for are:
+			arbitration complete
+			target not BUSY
+			reselect interrupt
+a39 1
+	SST_BEGIN_IO
+d41 1
+a41 1
+	SST_DEQUEUE (initial value for current command?!)
+d45 1
+a45 1
+	SST_POLL_CS_BUSY
+d48 2
+a50 17
+Inputs to the error recovery process.
+=====================================
+A_TIMEOUT (arbitration timeout)
+Host adapter takes too long to respond with arbitration complete.
+
+P_TIMEOUT (protocol timeout)
+Timeout waiting for desired SCSI bus status while connected to a target.
+
+R_TIMEOUT (reconnect timeout)
+Timeout after target disconnects, waiting for reconnect.
+
+TGT_BUSY (target device busy)
+Command status returned was BUSY.
+
+TGT_CHECK (target device check)
+Command status returned was CHECK.
+
+d69 1
+a69 1
+All of these are initialized to zero when a new block request is taken from
+a73 1
+
+d77 1
+a77 1
+	// polling commands execute whether target is WAITING or not
+d80 1
+a80 1
+			target is not WAITING
+d84 1
+a84 1
+				recover(A_TIMEOUT)
+d89 11
+a99 5
+	case SST_BEGIN_IO
+		if host not BUSY and bus free
+			target is not WAITING
+			if current request is not NULL
+				reset b_resid and data pointers
+d103 2
+a104 2
+					push SST_POLL_ARBITN
+					set_timeout(ARB_DELAY)
+d108 2
+a110 2
+		else  // host is BUSY or bus not free
+			set_timeout(BSY_DELAY)
+d113 6
+a118 18
+		If target is DISCONNECTED
+		// avoid race condition with host interrupt
+			target is not DISCONNECTED
+			// mask host interrupt
+			if target is doing Reselect
+				target is not WAITING
+				if reconnect handshake succeeds
+					do_reconnect()
+				else
+					recover(P_TIMEOUT)
+				endif
+			else  // Reselect poll is negative
+				if timer has expired
+					recover(R_TIMEOUT)
+				else
+					do_sst_op = FALSE
+					target is DISCONNECTED
+				endif
+d120 6
+d128 1
+a128 1
+		if target is WAITING
+d131 1
+a131 1
+	// nonpolling commands execute only if target is not WAITING
+d134 8
+d143 2
+a144 2
+		if block i/o queue for target not empty and target is not BUSY
+			target is BUSY
+d147 2
+a148 2
+			push SST_POLL_CS_BUSY
+		else // queue is empty or target is BUSY
+d152 3
+d156 2
+d159 6
+d167 6
+a174 27
+======
+while (do_sst_op and target is not TIMING)
+	if stack empty
+		if block i/o queue for target not empty and target is not BUSY
+			target is BUSY
+			remove head request from queue
+			form current block request - initialize try counts, etc.
+			push SST_POLL_CS_BUSY
+		else // queue is empty or target is BUSY
+			do_sst_op = FALSE
+		endif
+	else // stack not empty
+		remove top command from stack
+		switch (command)
+		case SST_POLL_CS_BUSY
+			do_blockio()
+		case SST_BUS_DEV_RESET
+		case SST_DEQUEUE
+		case SST_HIPRI_RESET
+		case SST_LOPRI_RESET
+		case SST_POLL_ARBITN
+		case SST_REQ_SENSE
+		case SST_POLL_RESELECT
+			ignore the command
+		endswitch
+	endif
+endwhile // do_sst_op
+d179 1
+a179 1
+do_blockio
+d181 6
+a186 6
+
+
+do_connect
+----------
+try_info_xfer()
+host is not BUSY
+d188 1
+a188 1
+	recover(P_TIMEOUT)
+d190 2
+a191 3
+	push SST_POLL_RESELECT
+	set_timeout(RECON_DELAY)
+	target is DISCONNECTED
+d194 8
+a201 3
+	current request is NULL
+	push SST_DEQUEUE
+	target is not BUSY
+d203 1
+a203 1
+	recover(TGT_BUSY)
+d205 1
+a205 1
+	recover(TGT_CHECK)
+d207 1
+a207 1
+	recover(P_TIMEOUT)
+d212 17
+a234 1
+	push SST_POLL_CS_BUSY
+d236 1
+a236 1
+	case TGT_BUSY
+d239 2
+a240 1
+			set_timeout(BSY_DELAY)
+d242 1
+a242 1
+			push SST_BUS_DEV_RST
+d244 3
+a246 3
+	case TGT_CHECK
+		push SST_REQ_SENSE
+	case P_TIMEOUT, R_TIMEOUT
+d249 1
+a249 1
+			push SST_BUS_DEV_RST
+d251 1
+a251 1
+			push SST_LOPRI_RESET
+d253 2
+a254 2
+	case A_TIMEOUT
+		push SST_HIPRI_RESET
+d258 1
+a258 1
+	target is not BUSY
+d260 7
+a266 2
+	current request is NULL
+	push SST_DEQUEUE
+d273 5
+a277 3
+	ARB_DELAY -	wait for arbitration complete
+	BSY_DELAY -	wait for target not busy
+	RECON_DELAY -	wait for reselect by target
+d279 1
+a279 1
+target is TIMING
+d281 3
+a283 1
+do call to kernel sleep with function that will turn off timing
+d287 2
+a288 2
+if a device is doing Reselect and that device is DISCONNECTED
+	defer stack machine
+d290 19
+@
+
+
+1.4
+log
+@Adding timeout logic.
+@
+text
+@d5 3
+d23 9
+d39 4
+a42 2
+	BUSY - processing a block i/o request
+	DISCONNECTED - awaiting reselect to complete the pending block request
+d54 1
+d58 2
+a60 1
+	SST_TRY_RECONNECT
+d103 8
+a110 7
+do_sst_op = TRUE  // plan to run this routine again under most cases
+If target is DISCONNECTED  // avoid race condition with host interrupt
+	target is not DISCONNECTED  // mask host interrupt
+	if target is doing Reselect
+		discard all pending commands on stack
+		if reconnect handshake succeeds
+			do_reconnect()
+d112 5
+a116 1
+			recover(R_TIMEOUT)
+d118 62
+a179 7
+	else if stack not empty
+		remove top command from stack
+		switch (command)
+		case SST_TRY_RECONNECT		// timed out if we're here
+		endswitch
+	endif
+endif
+d186 1
+a186 1
+			push SST_BEGIN_IO
+d193 1
+a193 1
+		case SST_BEGIN_IO
+d196 1
+d201 1
+a201 1
+		case SST_TRY_RECONNECT
+a212 13
+if host is BUSY or bus not free
+	push SST_BEGIN_IO
+	set_timeout(BSY_DELAY)
+else // host not BUSY and bus free
+	reset b_resid and data pointers - may be retrying a block request
+	start arbitration
+	if timeout
+		push SST_POLL_ARBITN
+		set_timeout(ARB_DELAY)
+	else // arbitration complete
+		do_connect()
+	endif
+endif
+d221 1
+a221 1
+	push SST_TRY_RECONNECT
+d245 1
+a245 1
+	push SST_BEGIN_IO
+@
+T_ARB_DELAY
+	SST_WAIT_BSY_DELAY
+	SST_WAIT_RECON_DELAY
+d87 1
+a87 1
+defer_machine = TRUE  // plan to run this routine again under most cases
+a100 1
+		case SST_WAIT_RECON_DELAY	// set timer interval
+d103 24
+a126 8
+else if stack empty
+	if block i/o queue for target not empty and target is not BUSY
+		target is BUSY
+		remove head request from queue
+		form current block request - initialize try counts, etc.
+		push SST_BLOCKIO
+	else // queue is empty or target is BUSY
+		defer_machine = FALSE
+d128 1
+a128 19
+else // stack not empty
+	remove top command from stack
+	switch (command)
+	case SST_BLOCKIO
+		do_blockio()
+	case SST_BUS_DEV_RESET
+	case SST_HIPRI_RESET
+	case SST_LOPRI_RESET
+	case SST_POLL_ARBITN
+	case SST_REQ_SENSE
+	case SST_TRY_RECONNECT
+		ignore the command
+	case SST_WAIT_ARB_DELAY
+	case SST_WAIT_BSY_DELAY
+	case SST_WAIT_RECON_DELAY
+		ignore the command
+	endswitch
+endif
+defer stack machine
+d137 2
+a138 2
+	push SST_BLOCKIO
+	push SST_WAIT_BSY_DELAY
+d144 1
+a144 1
+		push SST_WAIT_ARB_DELAY
+d158 1
+a158 1
+	push SST_WAIT_RECON_DELAY
+d162 2
+d181 1
+a181 1
+	push SST_BLOCKIO
+d186 1
+a186 1
+			push SST_WAIT BSY_DELAY
+d204 1
+a204 1
+	target is IDLE
+d206 2
+d210 12
+a223 1
+
+@
+hine
+d106 1
+a106 1
+		 do nothing
+a116 1
+	case SST_RECONNECT
+d119 1
+d123 1
+d126 1
+d134 1
+a134 1
+if host not IDLE or bus not free
+d137 1
+a137 2
+	defer stack machine
+else // host IDLE and bus free
+a138 1
+	host is ARBITRATING
+a142 1
+		defer stack machine
+d144 1
+a144 21
+		host is CONNECTED
+		try_info_xfer()
+		host is IDLE
+		if transfer timed out
+			recover(P_TIMEOUT)
+		else if Disconnect message was received
+			push SST_TRY_RECONNECT
+			push SST_WAIT_RECON_DELAY
+			target is DISCONNECTED
+			defer stack machine
+		else if Command Complete
+			cleanup - bdone(), etc.
+			target is IDLE
+			defer stack machine
+		else if Busy
+			recover(TGT_BUSY)
+		else if Check
+			recover(TGT_CHECK)
+		else  // something else went wrong
+			recover(P_TIMEOUT)
+		endif
+d148 20
+d169 35
+a207 2
+	discard all pending commands on stack
+	push SST_RECONNECT
+@
+
+
+1.1
+log
+@initial incomplete draft
+@
+text
+@d4 4
+a7 1
+ * $Log$
+d17 1
+d27 16
+a42 5
+"tail recur" means re-execute the stack algorithm as if the given command
+is the top item on the stack
+
+If stack empty
+	if block i/o queue for target not empty
+d45 4
+a48 3
+		tail recur SST_BLOCKIO
+	else // queue is empty
+		return
+d59 1
+d76 2
+a77 1
+	tail recur SST_WAIT_BSY_DELAY
+d84 2
+a85 1
+		tail recur SST_WAIT_ARB_DELAY
+d94 3
+a96 1
+			tail recur SST_WAIT_RECON_DELAY
+d99 2
+a100 1
+			tail recur - no command
+d110 10
+@

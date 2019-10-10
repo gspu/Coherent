@@ -1,0 +1,262 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.54.40;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * This file contains a number of small, machine dependent output
+ * routines called from the main code output routines in 'out.c'.
+ * Most have something to do with function calls and argument lists.
+ */
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+/*
+ * Output a call.
+ * Make the left subtree (the name) addressable if required.
+ * Take a quick look to see if the semantics of the indirect call will work.
+ * If this is not an indirect call (iflag==0), then the "nsef" flag is set
+ * in the call to "genadr", to supress the generation of escape prefix bytes.
+ */
+outcall(tp, cxt, lab)
+register TREE *tp;
+{
+	register int	nb;
+	register int	iflag;
+	register int	isalien;
+	register int	isptr;
+	register int	type;
+
+	isalien = 0;
+	if (isvariant(VALIEN)) {
+		if (tp->t_lp->t_op == GID && tp->t_lp->t_seg == SALIEN) {
+			++isalien;
+			type = tp->t_type;
+			isptr = ispoint(type);
+			/* Adjust types not adjusted in parser. */
+			if (type == S8)
+				tp->t_type = S16;
+			else if (type == U8)
+				tp->t_type = U16;
+#if !OMF286
+			callfixup(tp->t_lp);
+#endif
+		}
+	}
+	if (isalien) {
+		genr(ZPUSH, A_RSI);
+		genr(ZPUSH, A_RDI);
+		if (isvariant(VSMALL))
+			genr(ZPUSH, A_RES);
+	}
+	nb = outargs(tp->t_rp, isalien);
+	iflag = 0;
+	tp = tp->t_lp;
+	if (tp->t_op == STAR) {
+		iflag = 1;
+		tp = tp->t_lp;
+		if (!isadr(tp->t_flag)) {
+			while (tp->t_op == LEAF)
+				tp = tp->t_lp;
+			outofs(tp);
+		}
+	}
+	outopcall(iflag);
+	genadr(tp, iflag==0, 0, NULL);
+	if (isalien) {
+		if (isptr) {
+			genrr(ZMOV, A_RAX, A_RBX);
+#if !ONLYSMALL
+			if (isvariant(VLARGE))
+				genrr(ZMOV, A_RDX, A_RES);
+#endif
+		}
+		if (type == S8) {
+			bput(CODE); bput(ZCBW);
+		}
+		else if (type == U8)
+			genrr(ZSUBB, A_RAH, A_RAH);
+		if (isvariant(VSMALL))
+			genr(ZPOP, A_RES);
+		genr(ZPOP, A_RDI);
+		genr(ZPOP, A_RSI);
+	} else if (nb != 0)
+		genri(ZADD, A_RSP, nb);
+}
+
+#if !OMF286
+/* Remove the trailing '_' appended to GID's by cc0, for alien call. */
+callfixup(tp)
+TREE *tp;
+{
+	register char *cp1, *cp2;
+
+	cp1 = tp->t_sp->s_id;
+	cp2 = id;
+	while (*cp2++ = *cp1++)
+		;
+	cp2[-2] = 0;
+	tp->t_sp = gidpool(id);
+}
+#endif
+
+/*
+ * Output the argument list of a function.
+ * The arguments are moved to the stack right to left.
+ * Structure arguments, marked by a PTB type, get block moved into place.
+ * If the function is "alien" we push in the opposite order.
+ */
+outargs(atp, isalien)
+TREE *atp;
+{
+	register TREE *tp;
+	register s, n;
+	TYPE type;
+
+	if ((tp=atp) == NULL)
+		return (0);
+	if (tp->t_op == ARGLST) {
+		s = 0;
+		if (isalien)
+			s += outargs(tp->t_lp, isalien);
+		s += outargs(tp->t_rp, isalien);
+		if ( ! isalien)
+			s += outargs(tp->t_lp, isalien);
+		return (s);
+	}
+#if !ONLYSMALL
+	if ((type=tp->t_type)==LPTB || type==SPTB) {
+#else
+	if ((type=tp->t_type) == SPTB) {
+#endif
+		n = s = tp->t_size;
+		if (isvariant(VALIGN))
+			n = (s+1)&~01;
+		if (n != 0) {
+			if (isvariant(V80186)) {
+				genri(ZSUB, A_RSP, n);
+				geni(ZPUSH, s);
+			} else {
+				if (s == n) {
+					genri(ZMOV, A_RAX, s);
+					genrr(ZSUB, A_RSP, A_RAX);
+				} else {
+					genri(ZSUB, A_RSP, n);
+					genri(ZMOV, A_RAX, s);
+				}
+				genr(ZPUSH, A_RAX);
+			}
+			output(tp, MFNARG, 0, 0);
+#if !ONLYSMALL
+			if (type == LPTB) {
+				genr(ZPUSH, A_RSS);
+				genrr(ZMOV, A_RAX, A_RSP);
+				genri(ZADD, A_RAX, 8);
+				genr(ZPUSH, A_RAX);
+				geng(ZXCALL, "blkmv");
+				genri(ZADD, A_RSP, 10);
+			} else {
+#endif
+				genrr(ZMOV, A_RAX, A_RSP);
+				genri(ZADD, A_RAX, 4);
+				genr(ZPUSH, A_RAX);
+				geng(ZCALL, "blkmv");
+				genri(ZADD, A_RSP, 6);
+#if !ONLYSMALL
+			}
+#endif
+		}
+		return (n);
+	}
+	output(tp, MFNARG, 0, 0);
+	return (pertype[type].p_size);
+}
+
+/*
+ * This routine does the work of the [TLOP0], [TLOP1] and [TLOP2] macros.
+ * It is given an opcode and returns the opcode that is used.
+ */
+maptype(opvariant, opcode, tp)
+int		opvariant;
+register int	opcode;
+register TREE	*tp;
+{
+	if (opvariant == M_TL)
+		tp = tp->t_lp;
+	else if (opvariant == M_TR)
+		tp = tp->t_rp;
+	else if (opvariant != M_TN)
+		return (opcode);
+	if (isbyte(tp->t_type)) {
+		if (opcode == ZADD)
+			opcode = ZADDB;
+		if (opcode == ZSUB)
+			opcode = ZSUBB;
+		if (opcode == ZINC)
+			opcode = ZINCB;
+		if (opcode == ZDEC)
+			opcode = ZDECB;
+	}
+	return (opcode);
+}
+
+/*
+ * This routine does the ZLDES opcode mapping.
+ */
+mapzldes(tp)
+register TREE	*tp;
+{
+	if (hihalf(tp->t_treg) == DS)
+		return (ZLDS);
+	else if (hihalf(tp->t_treg) == ES)
+		return (ZLES);
+	else
+		cbotch("ldes");
+}
+
+/*
+ * Emit call opcode.
+ */
+outopcall(iflag)
+{
+	register op;
+
+#if !ONLYSMALL
+	if (notvariant(VSMALL)) {
+		op = ZXCALL;
+		if (iflag)
+			op = ZIXCALL;
+	} else {
+#endif
+		op = ZCALL;
+		if (iflag)
+			op = ZICALL;
+#if !ONLYSMALL
+	}
+#endif
+	bput(CODE);
+	bput(op);
+}
+@

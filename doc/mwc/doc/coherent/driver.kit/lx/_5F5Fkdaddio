@@ -1,0 +1,95 @@
+.TH __kdaddio() "" "" "Internal Kernel Routine"
+.PC "Let a user-level program use a given port"
+.B "#include <sys/coherent.h>"
+.B "#include <sys/vtkd.h>"
+.B "void"
+\fB__kdaddio(\fIport\^\fB)\fR
+\fBunsigned short \fIport\^\fB;\fR
+.PP
+Function
+.B __kdaddio()
+lets the current user-level process perform input and output on
+.IR port ,
+which is a port address.
+This function is required to support the
+.B KDADDIO
+IOCTL associated with the console device.
+.SH Example
+The following uses
+.B __kdaddio()
+and its related functions to implement an ioctl routine for the console device.
+In this example, the console device prefix is
+.BR is .
+.DM
+#if __USE_PROTO__
+static void isioctl(o_dev_t dev, int com, __VOID__ * vec,
+  int __NOTUSED (_mode), __cred_t * __NOTUSED( _credp), int *__NOTUSED(_rvalp))
+#else
+void
+static isioctl (dev, com, vec)
+o_dev_t dev;
+int com;
+__VOID__ * vec;
+#endif
+{
+	...
+.DE
+.DM
+	switch (com) {
+	...
+.DE
+.DM
+	case KDDISABIO:
+		__kddisabio();
+		break;
+.DE
+.DM
+	case KDENABIO:
+		__kdenabio();
+		break;
+.DE
+.DM
+	case KDADDIO:
+		__kdaddio((unsigned short)vec);
+		break;
+.DE
+.DM
+	case KDDELIO:
+		__kddelio((unsigned short)vec);
+		break;
+.DE
+.DM
+	default:				/* pass to TTY driver */
+		...
+	}
+}
+.DE
+.SH "See Also"
+.B
+__kddelio()
+__kddisabio(),
+__kdenabio(),
+internal kernel routines
+.R
+.SH Notes
+All else being equal, user-level programs should
+.I not
+perform I/O directly to the port hardware.
+This work is best left to device drivers.
+.PP
+Note that there are a few exceptions in which it is not practical
+to go through a device driver to access the I/O hardware,
+most notably graphics programs such as window managers.
+Such a program must obtain access to I/O space via the console IOCTLs
+.B KDADDIO
+et al., and should relinquish this privilege before it exits.
+Once it has called the IOCTL
+.BR KDADDIO ,
+it can perform I/O operations on the console by calling
+.BR inb() ,
+.BR outb() ,
+et al.
+.PP
+If a user-level program calls I/O routines,
+it must link in the kernel-support library
+.BR /etc/conf/lib/k386.a .

@@ -1,0 +1,455 @@
+.TH sgtty "" "" "Device Driver"
+.PC "General terminal interface"
+.PP
+.II "terminal^functions"
+.II "terminal^interface"
+\*(CO uses two method for controlling terminals:
+.B sgtty
+and
+.BR termio .
+To use
+.BR sgtty ,
+simply include the statement
+.B "#include <sgtty.h>"
+in your sources.
+To use
+.BR termio ,
+include the statement
+.BR "#include <termio.h>" .
+.PP
+The rest of this article discusses the
+.B sgtty
+method of controlling terminals.
+.PP
+When a terminal file is opened,
+it normally causes the process to wait until a connection is established.
+In practice, users' programs seldom open these files;
+they are opened by the program
+.I getty
+and become a user's standard input, output, and error files.
+The very first terminal file opened by the process group leader
+of a terminal file not already associated with a process group becomes the
+.I "controlling terminal"
+for that process group.
+The controlling terminal plays a special role in handling
+.B quit
+and
+.B interrupt
+signals, as discussed below.
+The controlling terminal is inherited by a child process during a call to
+.BR fork .
+A process can break this association by changing its process group using
+.BR setpgrp .
+.PP
+A terminal associated with one of these files ordinarily operates in
+full-duplex mode.
+Characters can be typed at any time, even while output is occurring,
+and are only lost when the system's input buffers become completely
+full, which is rare, or when the user has accumulated the maximum allowed
+number of input characters that have not yet been read by some program.
+Currently, this limit is 256 characters.
+When the input limit is reached,
+the sytems throws away
+all the saved characters without notice.
+.PP
+Normally, terminal input is processed in units of lines.
+A line is delimited by a newline character (ASCII LF)
+or an end-of-file character (ASCII EOT).
+Unless otherwise directed, a program attempting to read will be suspended
+until an entire line has been typed.
+Also, no matter how many characters are requested in the read call,
+at most one line will be returned.
+It is not, however, necessary to read a whole line at once;
+any number of characters may be requested in a read, even one,
+without losing information.
+.PP
+During input, the system normally processes
+.B erase
+and
+.B kill
+characters.
+By default, the backspace character erases the last character typed,
+except that it will not erase beyond the beginning of the line.
+By default, the \fB<ctrl-U>\fR kills (deletes) the entire input line,
+and optionally outputs a newline character.
+Both these characters operate on a keystroke-by-keystroke basis,
+independently of any backspacing or tabbing which may have been done.
+Both the erase and kill characters may be entered literally by
+preceding them with the escape character (\e).
+In this case, the escape character is not read.
+You may change the erase and kill characters via command
+.BR stty .
+.PP
+Certain characters have special functions on input.
+These functions and their default character values are summarized as follows:
+.RS
+.IP \fBINTR\fR 1.0i
+(\fB<ctrl-C>\fR or ASCII ETX) generates an
+.I interrupt
+signal that is sent to all processes associated with the controlling terminal.
+Normally, each such process is forced to terminate,
+but arrangements may be made either to ignore the signal or to receive a trap
+to an agreed-upon location; see the Lexicon entry for
+.BR signal .
+.IP \fBQUIT\fR
+(Control-\e or ASCII ES) generates a
+.I quit
+signal.
+Its treatment is identical to that of the interrupt signal except that,
+unless a receiving process has made other arrangements,
+it will not only be terminated but a core image file (called \fBcore\fR)
+will be created in the current working directory.
+.IP \fBERASE\fR
+(\fB<backspace>\fR or ASCII BS) erases the preceding character.
+It will not erase beyond the start of a line,
+as delimited by a newline or
+.B EOF
+character.
+.IP \fBKILL\fR
+(\fB<ctrl-U>\fR or ASCII NAK) deletes the entire line,
+as delimited by a newline or
+.B EOF
+character.
+.IP \fBEOF\fR
+(\fB<ctrl-D>\fR or ASCII EOT) generates
+an end-of-file character from a terminal.
+When received, all the characters waiting to be read are immediately passed
+to the program without waiting for a newline, and the
+.B EOF
+is discarded.
+Thus, if no characters are waiting,
+which is to say the
+.B EOF
+occurred at the beginning of a line.
+zero characters will be passed back,
+which is the standard end-of-file indication.
+.IP \fBNL\fR
+(ASCII LF) is the normal line delimiter.
+It cannot be changed or escaped.
+.IP \fBSTOP\fR
+(\fB<ctrl-S>\fR or ASCII DC3) can be used to suspend output.
+It is useful with CRT terminals to prevent output from disappearing
+before it can be read.
+While output is suspended, STOP characters are ignored and not read.
+.IP \fBSTART\fR
+(\fB<ctrl-Q>\fR or ASCII DC1) resumes output that has been suspended
+by a STOP character.
+While output is not suspended, START characters are ignored and not read.
+The start/stop characters can be changed via command
+.BR stty ,
+or via special
+.B ioctl()
+calls described below.
+.RE
+.PP
+The character values for INTR, QUIT, ERASE,
+.BR EOF ,
+and KILL may be changed to suit individual tastes.
+The ERASE, KILL,
+and
+.B EOF
+character may be escaped by a preceding \e
+character, in which case the system ignores its special meaning.
+See the Lexicon article on
+.B stty
+for information on how to change these settings dynamically.
+.PP
+When using a ``modem control'' serial line, loss of
+carrier from the data-set (modem) causes a
+.I hangup
+signal to be sent to all processes that have this terminal as the controlling
+terminal.
+Unless other arrangements have been made,
+this signal causes the process to terminate.
+If the hangup signal is ignored,
+any subsequent read returns with an end-of-file indication.
+Thus programs that read a terminal and test for end-of-file can terminate
+appropriately when hung up on.
+.PP
+When one or more characters are written,
+they are transmitted to the terminal as soon as previously written characters
+have finished typing.
+Input characters are echoed by putting them into
+the output queue as they arrive.
+If a process produces characters more rapidly than they can be printed,
+it will be suspended when its output queue exceeds some limit,
+known as the ``high water mark''.
+When the queue has ``drained'' down to some threshold, the program resumes.
+.PP
+The header file \fB<sgtty.h>\fR declares structures and manifest constants
+to control the \fBsgtty\fR interface.
+Of interest to users are the constants that define baud rates for
+terminal ports; these are as follows.
+.II "baud rate^table"
+.nf
+.sp \n(pDu
+.ta 1.5iR 3.0iR 3.1i
+	\fBB50\fR	50 baud
+	\fBB75\fR	75 baud
+	\fBB110\fR	110 baud
+	\fBB134\fR	134 baud
+	\fBB150\fR	150 baud
+	\fBB200\fR	200 baud
+	\fBB300\fR	300 baud
+	\fBB600\fR	600 baud
+	\fBB1200\fR	1200 baud
+	\fBB1800\fR	1800 baud
+	\fBB2400\fR	2400 baud
+	\fBB4800\fR	4800 baud
+	\fBB9600\fR	9600 baud
+	\fBB19200\fR	19,200 baud
+	\fBB38400\fR	38,400 baud
+.fi
+.SH "Terminal ioctl() Functions"
+Header file
+.B <sgtty.h>
+defines the following data structures used by the various device drivers
+to convey terminal specific information.
+These structures are used in conjunction with special terminal or
+device driver symbolic constants as part of
+.B ioctl()
+requests.
+.PP
+The
+.B sgttyb
+structure contains information related to line discipline, such as
+serial line speed, if appropriate, the ``erase'' and ``kill'' characters,
+and a series of flags which set the mode of the line.
+.PP
+.DM
+.ta 0.5i 1.0i 1.5i 2.5i
+	/*
+	 * Structure for TIOCSETP/TIOCGETP
+	 */
+	struct sgttyb {
+		char	sg_ispeed;	/* Input speed */
+		char	sg_ospeed;	/* Output speed */
+		char	sg_erase;	/* Character erase */
+		char	sg_kill;	/* Line kill character */
+		int	sg_flags;	/* Flags */
+	};
+.DE
+.PP 
+The following symbolic constants are used to access bit positions of member
+.B sg_flags
+in data structure
+.BR sgttyb :
+.IP \fBCBREAK\fP 1.2i
+Each input character causes wakeup (i.e., forces a return from a
+.B read()
+system call).
+.IP \fBCRMOD\fP
+Map the carriage return characters '\er' to the newline character '\en'.
+.IP \fBCRT\fP
+Use CRT\-style character erase.
+.IP \fBECHO\fP
+Echo input characters.
+.IP \fBEVENP\fP
+Select even parity.
+If used in conjunction with
+.BR ODDP ,
+allow either parity.
+.IP \fBLCASE\fP
+Lowercase mapping on input.
+.IP \fBODDP\fP
+Select odd parity.
+If used in conjunction with
+.BR EVENP ,
+allow either parity.
+.IP \fBRAW\fP
+Raw mode.
+Same as
+.B RAWIN
+plus
+.BR RAWOUT .
+.IP \fBRAWIN\fP
+Input is treated as 8-bit characters and not interpreted.
+.IP \fBRAWOUT\fP
+Output is treated as 8-bit characters and not interpreted.
+.IP \fBTANDEM\fP
+Use X-ON/X-OFF flow control protocol to remote device.
+.IP \fBXTABS\fP
+Expand tabs to spaces.
+.PP
+Data structure
+.B tchars
+specifies additional special terminal characters such as
+the ``interrupt'' and ``quit'' characters, the ``start'' and ``stop''
+characters used for flow control, and the ``end-of-file'' character.
+.DM
+.ta 0.5i 1.0i 1.5i 2.5i
+	/*
+	 * Structure for TIOCSETC/TIOCGETC
+	 */
+	struct tchars {
+		char	t_intrc;	/* Interrupt */
+		char	t_quitc;	/* Quit */
+		char	t_startc;	/* Start output */
+		char	t_stopc;	/* Stop output */
+		char	t_eofc;		/* End of file */
+		char	t_brkc;		/* Input delimiter */
+	};
+.DE
+.PP
+The following symbolic constants are used to access various
+device functions via
+.B ioctl()
+calls, as defined in header file
+.BR <sgtty.h> .
+Note that not all functions are appropriate for all classes of devices.
+.IP \fBTIOCCBRK\fP 1.2i
+Clear a BREAK condition on a serial line (i.e., ``mark'' the line).
+This request cancels a previously issued
+.B TIOCSBRK
+request.
+.IP \fBTIOCCDTR\fP
+Clear modem control signal Data Terminal Ready (DTR) on a serial line.
+.IP \fBTIOCCHPCL\fP
+Do not force a hangup on ``last close'' on a modem line.
+The normal mode of operation for serial lines is to drop modem signal
+Data Terminal Ready (DTR) when the last
+.B close()
+operation is performed,
+thus requesting the attached modem to drop the connection.
+.IP \fBTIOCCRTS\fP
+Clear the Request To Send (RTS) signal on a serial line.
+Modem control signal RTS is often used for hardware flow control.
+.IP \fBTIOCEXCL\fP
+Set device access as exclusive use.
+This request requires the process to have
+.B root
+privileges.
+.IP \fBTIOCFLUSH\fP
+Flush the input queue, discarding any pending input characters,
+and wait for the output queue to ``drain''.
+.IP \fBTIOCGETC\fP
+Get current values of the special terminal characters,
+as defined by data structure
+.BR tchars .
+.IP \fBTIOCGETF\fP
+Get current console keyboard function key bindings.
+This request is specific to the
+.B nkb
+console keyboard device driver.
+See Lexicon article
+.B nkb
+for further details.
+.IP \fBTIOCGETKBT\fP
+Get current console keyboard key mapping table.
+This request is specific to the
+.B nkb
+console keyboard device driver.
+See Lexicon article
+.B nkb
+for further details.
+.IP \fBTIOCGETP\fP
+Get current terminal line settings, as defined by data structure
+.BR sgttyb .
+.IP \fBTIOCGETTF\fP
+Get current value of the terminal flags, as defined by field
+.B t_flags
+in the TTY structure.
+.IP \fBTIOCHPCL\fP
+Set hangup on ``last close''.
+See
+.B TIOCCHPCL
+for further details.
+.IP \fBTIOCRMSR\fP
+Get the current value of the Modem Status Register (MSR)
+for the specified serial line.
+This request is device driver specific and is currently supported
+only in the
+.B al
+device driver.
+Symbolic constants
+.BR MSRCTS ,
+.BR MSRDSR ,
+.BR MSRRI ,
+and
+.B MSRRLSD
+correspond to the Clear To Send, Data Set Ready, Ring Indicator and
+Receive Line Status Detect (i.e. Carrier Detect) signals, respectively,
+in the MSR.
+.IP \fBTIOCNXCL\fP
+Set this device or port as non-exclusive use.
+See
+.B TIOCEXCL
+for further details.
+.IP \fBTIOCQUERY\fP
+Query the number of characters currently waiting in the input queue.
+.IP \fBTIOCSBRK\fP
+Assert BREAK (i.e., ``space the line'') on the given serial port.
+This is often used during login to signal a remote system to ``hunt''
+to the next baud rate in a sequence.
+See
+.B TIOCCBRK
+for further details.
+.IP \fBTIOCSDTR\fP
+Assert modem control signal Data Terminal Ready (DTR) on a serial line.
+.IP \fBTIOCSETC\fP
+Wait for output to ``drain'', then set the terminal control
+characters for this device, as specified by data structure
+.BR tchars .
+.IP \fBTIOCSETF\fP
+Set console keyboard function key mapping.
+This request is specific to the
+.B nkb
+console keyboard device driver.
+See Lexicon article
+.B nkb
+for further details.
+.IP \fBTIOCSETKBT\fP
+Set console keyboard key mapping table.
+This request is specific to the
+.B nkb
+console keyboard device driver.
+See Lexicon article
+.B nkb
+for further details.
+.IP \fBTIOCSETN\fP
+Set terminal line settings, as defined by data structure
+.BR sgttyb .
+Do not flush the input queue prior to using the new settings.
+.IP \fBTIOCSETP\fP
+Same as request
+.BR TIOCSETN ,
+but also flush the input queue.
+.IP \fBTIOCSRTS\fP
+Assert the Request To Send (RTS) signal on a serial line.
+Modem control signal RTS is often used for hardware flow control.
+.PP
+.SH Examples
+The following code fragment gets the current terminal settings
+and turns off echo.
+.DM
+	#include <sgtty.h>
+	static struct sgttyb new, orig;
+	. . .
+	/*
+	 * Get the existing terminal parameters for the terminal
+	 * device associated with file descriptor 0 (stdin),
+	 * turn off echo, turn on CBREAK (break on every input character)
+	 * and set the new parameters.
+	 */
+	ioctl(0, TIOCGETP, &orig);
+	new = orig;
+	new.sg_flags &= ~ECHO;           /* Turn off echo */
+	new.sg_flags |= CBREAK;          /* Turn on CBREAK mode */
+	ioctl(0, TIOCSETN, &new);
+.DE
+.PP
+The following line uses the previously saved terminal mode
+to return the terminal mode to its prior state:
+.DM
+	ioctl(0, TIOCSETN, &orig);
+.DE
+.PP
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr "gtty()," gtty
+.Xr "ioctl()," ioctl
+.Xr "sgtty.h," sgtty.h
+.Xr "stty," stty.c
+.Xr "stty()," stty.s
+.Xr "terminal," terminal
+.Xr "termio" termio

@@ -1,0 +1,15 @@
+bin
+conf
+conf/kbd
+etc
+etc/conf
+etc/conf/bin
+etc/default
+mnt
+tmp
+usr
+usr/bin
+usr/lib
+usr/lib/mail
+usr/lib/terminfo
+usr/lib/terminfo/a

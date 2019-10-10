@@ -1,0 +1,166 @@
+/*
+ * The routines in this file handle
+ * the reading in of functions. The internal data
+ * structures are built and threaded together.
+ */
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+/*
+ * Read in a function.
+ * Pack it into the internal data structure.
+ * Copy non shared stuff straight through to save
+ * both space and time. Switch tables are in the
+ * shared data, so this works w.r.t. label reference
+ * counts. The PROLOG item has been already read.
+ */
+getfunc()
+{
+	register INS	*ip;
+
+	ins.i_fp = &ins;
+	ins.i_bp = &ins;
+	for (;;) {
+		ip = getins();
+		if (dotseg<0 || isshared(dotseg)==0
+		|| (ip->i_type==ENTER && isshared(ip->i_seg)==0)) {
+			genins(ip);
+			free((char *) ip);
+			continue;
+		}
+		ip->i_fp = &ins;
+		ip->i_bp = ins.i_bp;
+		ins.i_bp->i_fp = ip;
+		ins.i_bp = ip;
+		if (ip->i_type == EPILOG)
+			break;
+	}
+}
+
+/*
+ * This routine reads an item from
+ * the input file and constructs and INS node
+ * to hold it. A pointer to the INS node is
+ * returned. Any format errors are fatal.
+ */
+INS *
+getins()
+{
+	register INS	*ip;
+	register int	op;
+
+loop:
+	op = bget();
+	switch (op) {
+
+	case ENTER:
+		ip = newi(sizeof(INS));
+		ip->i_seg = bget();
+		break;
+
+	case FNAME:
+		sget(file, NFNAME);
+		goto loop;
+
+	case LINE:
+		line = iget();
+		ip = newi(sizeof(INS));
+		ip->i_line = line;
+		break;
+
+	case DLABEL:
+		gendbgt(1);
+		goto loop;
+
+	case AUTOS:
+		getautos();
+		goto loop;
+
+	case BLOCK:
+		ip = newi(sizeof(INS));
+		ip->i_len = zget();
+		break;
+
+	case LLABEL:
+		ip = newi(sizeof(INS));
+		ip->i_labno = iget();
+		ip->i_sp = NULL;
+		ip->i_refc = 0;
+		break;
+
+#ifdef KLUDGE
+	case SGUESS:
+	{
+		register SYM *sp;
+		int seg;
+		sget(id, NCSYMB);
+		seg = bget();
+		sp = glookup(id, 0);
+		if ((sp->s_flag&S_DEF) == 0)
+			sp->s_seg = seg;
+		goto loop;
+	}
+
+#endif
+	case EPILOG:
+		ip = newi(sizeof(INS));
+		break;
+
+	case ALIGN:
+		ip = newi(sizeof(INS));
+		ip->i_align = bget();
+		break;
+
+	case CODE:
+		return (getcode());
+
+	case EOF:
+		cfatal("unexpected EOF");
+
+	default:
+		cbotch("bad temporary file opcode %d", op);
+	}
+	ip->i_type = op;
+	ip->i_fp = ip->i_bp = NULL;
+	return (ip);
+}
+
+/*
+ * Return true if segment "s" is
+ * shared. All local label references must be
+ * in a shared segment, or label reference counting
+ * will get screwed up. This includes the dispatch
+ * tables of switch statements.
+ */
+isshared(s)
+{
+	if (s==SCODE || s==SPURE)
+		return (1);
+	return (0);
+}
+
+/*
+ * Allocate a new INS node.
+ */
+INS *
+newi(n)
+{
+	register INS	*ip;
+
+	if ((ip = (INS *) malloc(n)) == NULL)
+		cnomem("newi");
+	return (ip);
+}
+
+/*
+ * Allocate a new INS node with
+ * an `n' element `i_af' field on the end.
+ */
+INS *
+newn(n)
+{
+	return (newi(sizeof(INS)+n*sizeof(struct afield)));
+}

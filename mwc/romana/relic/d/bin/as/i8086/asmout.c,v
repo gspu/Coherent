@@ -1,0 +1,365 @@
+head     1.3;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.02.06.21.08.02;  author bin;  state Exp;
+branches ;
+next	1.2;
+
+1.2
+date     91.02.06.20.43.59;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.06.20.43.51;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@steve 2/6/91
+Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@steve 2/6/91
+Changed bogus condition in if command (lines 239ff.)
+so that the -x flag strips local symbols from object as advertised.
+@
+text
+@/*
+ * Output routines.
+ * Intel iAPX-86.
+ * Small model.
+ */
+#include <canon.h>
+#include "asm.h"
+
+#define NTXT	128
+#define NREL	128
+
+#define outlst(b)	{ if (cp < &cb[NCODE]) *cp++ = (b); }
+
+address	txtla;
+long	crbase;
+long	crseek;
+struct	ldheader ldh;
+struct	loc *txtlp;
+char	txt[NTXT];
+char	rel[NREL];
+char	*txtp	= { txt };
+char	*relp	= { rel };
+
+outab(b)
+{
+	if (pass == 2) {
+		if (inbss)
+			serr();
+		else {
+			outlst(b);
+			outchk(1, 0);
+			*txtp++ = fbyte(b);
+		}
+	}
+	++dot->s_addr;
+}
+
+outaw(w)
+{
+	if (pass == 2) {
+		if (inbss)
+			serr();
+		else {
+			outlst(fbyte(w));
+			outlst(sbyte(w));
+			outchk(2, 0);
+			*txtp++ = fbyte(w);
+			*txtp++ = sbyte(w);
+		}
+	}
+	dot->s_addr += 2;
+}
+
+outrb(esp, pcrf)
+register struct expr *esp;
+{
+	register address a;
+	register n;
+	int t;
+
+	if (pass == 2) {
+		if (inbss)
+			serr();
+		else {
+			t = esp->e_type;
+			if (t==E_AREG || t==E_ASEG)
+				t = E_ACON;
+			a = esp->e_addr;
+			if (pcrf)
+				a -= dot->s_addr+1;
+			outlst(fbyte(a));
+			if (t == E_ACON) {
+				n = 0;
+				if (pcrf)
+					n = 3;
+				outchk(1, n);
+				*txtp++ = fbyte(a);
+				if (pcrf) {
+					*relp++ = LR_BYTE|LR_PCR|L_ABS;
+					*relp++ = fbyte(dot->s_addr);
+					*relp++ = sbyte(dot->s_addr);
+				}
+			} else {
+				n = 3;
+				if (t == E_SYM)
+					n = 5;
+				outchk(1, n);
+				*txtp++ = fbyte(a);
+				n = LR_BYTE;
+				if (pcrf)
+					n |= LR_PCR;
+				if (t == E_SYM)
+					n |= L_SYM;
+				else
+					n |= esp->e_base.e_lp->l_seg;
+				*relp++ = n;
+				*relp++ = fbyte(dot->s_addr);
+				*relp++ = sbyte(dot->s_addr);
+				if (t == E_SYM) {
+					n = esp->e_base.e_sp->s_ref;
+					*relp++ = fbyte(n);
+					*relp++ = sbyte(n);
+				}
+			}
+		}
+	}
+	++dot->s_addr;
+}
+
+outrw(esp, pcrf)
+register struct expr *esp;
+{
+	register address a;
+	register n;
+	int t;
+
+	if (pass == 2) {
+		if (inbss)
+			serr();
+		else {
+			t = esp->e_type;
+			if (t==E_AREG || t==E_ASEG)
+				t = E_ACON;
+			a = esp->e_addr;
+			if (pcrf)
+				a -= dot->s_addr+2;
+			outlst(fbyte(a));
+			outlst(sbyte(a));
+			if (t == E_ACON) {
+				n = 0;
+				if (pcrf)
+					n = 3;
+				outchk(2, n);
+				*txtp++ = fbyte(a);
+				*txtp++ = sbyte(a);
+				if (pcrf) {
+					*relp++ = LR_WORD|LR_PCR|L_ABS;
+					*relp++ = fbyte(dot->s_addr);
+					*relp++ = sbyte(dot->s_addr);
+				}
+			} else {
+				n = 3;
+				if (t == E_SYM)
+					n = 5;
+				outchk(2, n);
+				*txtp++ = fbyte(a);
+				*txtp++ = sbyte(a);
+				n = LR_WORD;
+				if (pcrf)
+					n |= LR_PCR;
+				if (t == E_SYM)
+					n |= L_SYM;
+				else
+					n |= esp->e_base.e_lp->l_seg;
+				*relp++ = n;
+				*relp++ = fbyte(dot->s_addr);
+				*relp++ = sbyte(dot->s_addr);
+				if (t == E_SYM) {
+					n = esp->e_base.e_sp->s_ref;
+					*relp++ = fbyte(n);
+					*relp++ = sbyte(n);
+				}
+			}
+		}
+	}
+	dot->s_addr += 2;
+}
+
+/*
+ * Make sure there is room in
+ * the buffers for `nt' bytes worth
+ * text and `nr' bytes of rel.
+ * If not, write the buffers out
+ * to the file.
+ */
+outchk(nt, nr)
+{
+	register unsigned n;
+	register tn;
+	long ts;
+
+	if (txtp+nt>&txt[NTXT] || relp+nr>&rel[NREL]) {
+		if ((n = txtp-txt) != 0) {
+			ts = txtla + sizeof(ldh);
+			tn = txtlp->l_seg;
+			if (tn > L_BSSI) {
+				ts -= ldh.l_ssize[L_BSSI];
+				if (tn > L_BSSD)
+					ts -= ldh.l_ssize[L_BSSD];
+			}
+			fseek(ofp, ts, 0);
+			xwrite(txt, sizeof(char), n);
+			if ((n = relp-rel) != 0) {
+				fseek(ofp, crseek, 0);
+				xwrite(rel, sizeof(char), n);
+				crseek += n;
+				relp = rel;
+			}
+		}
+		txtp = txt;
+	}
+	if (txtp == txt) {
+		txtla = dot->s_addr;
+		txtlp = dot->s_base.s_lp;
+	}
+}
+
+outinit()
+{
+	register struct loc *lp;
+	register struct sym *sp;
+	register i;
+	struct ldsym lds;
+	int rn;
+	long sb, ss;
+
+	ldh.l_magic = L_MAGIC;
+	ldh.l_flag = 0;
+	ldh.l_machine = M_8086;
+	ldh.l_entry = 0;
+	sb = sizeof(ldh);
+	for (i=0; i<nloc; ++i) {
+		ss = 0;
+		lp = loc[i];
+		while (lp != NULL) {
+			ss += locrup(lp->l_break);
+			lp = lp->l_lp;
+		}
+		ldh.l_ssize[i] = ss;
+		if (i!=L_BSSI && i!=L_BSSD)
+			sb += ss;
+	}
+	fseek(ofp, sb, 0);
+	ss = 0;
+	rn = 0;
+	for (i=0; i<NHASH; ++i) {
+		sp = symhash[i];
+		while (sp != NULL) {
+			if (((sp->s_flag&S_SYMT) != 0)
+			&&  ((xflag == 0) || ((sp->s_flag&S_GBL) != 0))) {
+				sp->s_ref = rn++;
+				symcopy(lds.ls_id, sp->s_id);
+				if (sp->s_kind == S_NEW)
+					lds.ls_type = L_REF;
+				else if (sp->s_type != E_DIR)
+					lds.ls_type = L_ABS;
+				else
+					lds.ls_type = sp->s_base.s_lp->l_seg;
+				if ((sp->s_flag&S_GBL) != 0)
+					lds.ls_type |= L_GLOBAL;
+				lds.ls_addr = sp->s_addr;
+				xwrite(&lds, sizeof(lds), 1);
+				ss += sizeof(lds);
+			}
+			sp = sp->s_sp;
+		}
+	}
+	ldh.l_ssize[L_SYM] = ss;
+	crseek = sb+ss;
+	crbase = crseek;
+}
+
+/*
+ * Finish up l.out
+ */
+outfinish()
+{
+	register int i;
+
+	ldh.l_ssize[L_REL] = crseek-crbase;
+	canint(ldh.l_magic);
+	canint(ldh.l_flag);
+	canint(ldh.l_machine);
+	canvaddr(ldh.l_entry);
+	for (i=0; i<NLSEG; i++)
+		cansize(ldh.l_ssize[i]);
+	fseek(ofp, (long)0, 0);
+	xwrite(&ldh, sizeof(ldh), 1);
+	fclose(ofp);
+}
+
+/*
+ * Write code file.
+ * Check for any errors.
+ */
+xwrite(p, s, n)
+char *p;
+{
+	if (fwrite(p, s, n, ofp) != n) {
+		fprintf(stderr, "%s: I/O error.\n", ofn);
+		exit(1);
+	}
+}
+@
+
+
+1.2
+log
+@steve 2/6/91
+Descriptive error messages.
+@
+text
+@d239 2
+a240 4
+			if ((sp->s_flag&S_SYMT) != 0
+			&& (xflag == 0
+			|| (sp->s_flag&S_GBL) != 0
+			||  sp->s_id[0] != 'L')) {
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d28 1
+a28 1
+			err('s');
+d42 1
+a42 1
+			err('s');
+d63 1
+a63 1
+			err('s');
+d119 1
+a119 1
+			err('s');
+@

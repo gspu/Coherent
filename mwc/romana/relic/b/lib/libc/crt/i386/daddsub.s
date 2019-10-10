@@ -1,0 +1,251 @@
+//////////
+/ libc/crt/i386/daddsub.s
+/ i386 C runtime library.
+/ IEEE software floating point support.
+//////////
+
+//////////
+/ double _dadd(double d)
+/ Return d + %edx:eax in %edx:%eax.
+/
+/ double _dsub(double d)
+/ Return d - %edx:eax in %edx:%eax.
+/
+/ double _drsub(double d)
+/ Return %edx:eax - d in %edx:%eax.
+/
+/ Addition is easy: align the mantissa of the smaller operand with the larger,
+/ possibly rounding up; add the aligned mantissas; shift right 1 bit
+/ if necessary to normalize the result mantissa.
+/
+/ Subtraction is a bit trickier: normalizing the result is nontrivial,
+/ and we must be careful not to lose precision.  A simple example:
+/	A =	0x10 0000 0000 0001		53 bits
+/	B =	 0x8 0000 0000 0000 . 8		53 bits
+/	A-B =	 0x8 0000 0000 0000 . 8		53 bits
+/ If we justify the mantissa of B with A before subtracting, we round it to
+/	B' =	 0x8 0000 0000 0001		52 bits
+/ and the result of the subtraction is
+/	A-B' =	 0x8 0000 0000 0000		52 bits
+/ so we have lost a bit of precision.
+/ Shifting the larger operand left one bit eliminates this problem:
+/	A' =	0x10 0000 0000 0001 . 0		54 bits (1 after '.')
+/	A'-B =	 0x8 0000 0000 0000 . 8		53 bits
+/ which is the correct result.  Shifting once is enough, because subtraction
+/ can clear at most the first result bit when operands are not aligned.
+//////////
+
+d	.equ	8
+EXPMASK	.equ	0x7FF00000
+MANMASK	.equ	0x000FFFFF
+SGNMASK	.equ	0x80000000
+HIDDEN	.equ	0x00100000
+DMBITS	.equ	53
+
+	.globl	_dadd
+	.globl	_dsub
+	.globl	_drsub
+
+_drsub:
+	xchgl	%edx, 8(%esp)
+	xchgl	%eax, 4(%esp)		/ exchange arg order
+/	jmp	_dsub			/ and fall through to subtract
+
+_dsub:
+	xorl	%edx, $SGNMASK		/ flip rhs sign
+/	jmp	_dadd			/ and fall through to add
+
+_dadd:
+	push	%ebp
+	mov	%ebp, %esp
+	push	%esi
+	push	%edi
+	push	%ebx
+	push	%ecx
+
+	movl	%esi, d+4(%ebp)
+	movl	%edi, d(%ebp)		/ d to ESI:EDI
+					/ now done with EBP as index register
+
+	/ Check for special cases +-0.0, +-infinity, NaN on each side.
+	/ Ignore denormals.
+	movl	%ebx, %esi
+	andl	%ebx, $EXPMASK
+	jz	?done			/ lhs 0.0, return rhs; ignore denormal
+	cmpl	%ebx, $EXPMASK
+	jz	?retlhs			/ lhs +-infinity or NaN, return it
+	movl	%ecx, %edx
+	andl	%ecx, $EXPMASK
+	jz	?retlhs			/ rhs 0.0, return lhs; ignore denormal
+	cmpl	%ecx, $EXPMASK
+	jz	?done			/ rhs +-infinity or NaN, return it
+
+	/ Force arg with larger exponent to EDX:EAX.
+	shrl	%ebx, $20		/ lhs biased exp in EBX
+	shrl	%ecx, $20		/ rhs biased exp in ECX
+	cmpl	%ecx, %ebx
+	jge	?expdiff
+	xchgl	%esi, %edx
+	xchgl	%edi, %eax		/ force |EDX:EAX| >= |ESI:EDI| (maybe)
+	xchgl	%ebx, %ecx		/ and exchange exponents accordingly
+
+	/ Compute the exponent difference in preparation for shifting ESI:EDI.
+	/ We know that exponent(EDX:EAX) >= exponent(ESI:EDI).
+?expdiff:
+	movl	%ebp, %ecx		/ save EDX:EAX exponent in EBP
+	subl	%ecx, %ebx		/ nonnegative exponent difference to ECX
+	cmpl	%ecx, $DMBITS+1
+	jg	?done			/ ESI:EDI insignificant, return EDX:EAX as is
+
+	movl	%ebx, %edx
+	xorl	%ebx, %esi		/ sign bit 0 iff arg signs match
+	pushfl				/ save as add/sub flag
+	movl	%ebx, %edx
+	andl	%ebx, $SGNMASK		/ save result sign bit in EBX
+	andl	%edx, $MANMASK
+	orl	%edx, $HIDDEN		/ extract mantissa, restore hidden bit
+	andl	%esi, $MANMASK
+	orl	%esi, $HIDDEN		/ extract mantissa, restore hidden bit
+
+	/ Align mantissas by shifting ESI:EDI to the right position.
+	jecxz	?addsub			/ skip shift if exponents match
+	popfl				/ recover add/sub flag
+	pushfl
+	jns	?align			/ addition, just adjust
+
+	/ For subtraction with differing exponents, shift args left one bit
+	/ to avoid loss of precision; see comment at top.
+	shld	%esi, %edi, $1
+	shll	%edi, $1		/ shift ESI:EDI left 1 bit
+	shld	%edx, %eax, $1
+	shll	%eax, $1		/ shift EDX:EAX left 1 bit
+	decl	%ebp			/ adjust result exponent
+
+?align:
+	cmpl	%ecx, $32
+	jl	?adj
+	movl	%edi, %esi
+	subl	%esi, %esi		/ shift ESI:EDI right by 32 bits
+?adj:
+	shrd	%edi, %esi, %cl
+	pushfl
+	shrl	%esi, %cl		/ shift ESI:EDI right by CL mod 32
+	popfl				/ carry indicates rounding
+	adcl	%edi, $0		/ round up
+	adcl	%esi, $0
+	
+?addsub:
+	popfl				/ restore add/sub flag
+	js	?sub
+	addl	%eax, %edi		/ add lo mantissas
+	adcl	%edx, %esi		/ and hi mantissas
+	cmpl	%edx, $HIDDEN<<1	/ check for carry past hidden bit
+	jl	?pack			/ done if none
+
+	/ Shift result mantissa right one bit.
+?rshift:
+	incl	%ebp			/ bump result exponent
+	cmpl	%ebp, $EXPMASK
+	je	?inf			/ exponent overflow, return +-infinity
+	shrd	%eax, %edx, $1
+	pushfl
+	shrl	%edx, $1		/ shift result right one bit
+	popfl
+	adcl	%eax, $0
+	adcl	%edx, $0		/ round up, carry to hidden bit impossible
+
+	/ Pack result mantissa from EDX:EAX, exponent from EBP, sign from EBX.
+?pack:
+	andl	%edx, $MANMASK		/ mask off hidden bit
+	orl	%edx, %ebx		/ pack with sign
+	shll	%ebp, $20		/ position exponent
+	orl	%edx, %ebp		/ pack with exponent
+	
+	/ Return the value from EDX:EAX.
+?done:
+	pop	%ecx
+	pop	%ebx
+	pop	%edi
+	pop	%esi
+	pop	%ebp
+	ret
+
+	/ Return the value from ESI:EDI.
+?retlhs:
+	xchgl	%esi, %edx
+	xchgl	%edi, %eax
+	jmp	?done
+
+	/ Return +-infinity.
+?inf:
+	subl	%eax, %eax
+	subl	%edx, %edx		/ zero mantissa
+	jmp	?pack
+
+	/ Subtract.
+	/ We want the result mantissa to be nonnegative.
+	/ The exponent check above assures that exp(EDX:EAX) >= exp(ESI:EDI),
+	/ but when the exponents are equal we must compare mantissas.
+?sub:
+	jcxz	?argtest		/ compare mantissas if exponents equal
+
+?dosub:
+	subl	%eax, %edi		/ subtract lo mantissas
+	sbbl	%edx, %esi		/ and hi mantissas
+
+	/ Normalize the difference.
+	/ The code would be simpler if it used iterated left shift by 1
+	/ to find hidden bit, but the reverse bit scan used here is faster.
+	/ Bit 21 can be set if the EDX:EAX operand was shifted left above.
+	bsrl	%ecx, %edx		/ hi bit position 0-21 to ECX
+	jz	?lotest			/ hi mantissa is 0
+	cmpl	%ecx, $21
+	jz	?rshift			/ right shift one bit if hi bit was 21
+
+?normalize:
+	negl	%ecx
+	addl	%ecx, $20		/ shift count to CL
+
+	/ Shift left by CL bits to normalize, adjusting exponent accordingly.
+?lshift:
+	shld	%edx, %eax, %cl
+	shll	%eax, %cl		/ shift EDX:EAX left CL bits
+	subl	%ebp, %ecx		/ adjust result exponent
+	jg	?pack			/ pack and go home
+	subl	%eax, %eax		/ exponent underflow, return 0.0
+	subl	%edx, %edx
+	jmp	?done
+	
+	/ Hi mantissa EDX is 0, check lo mantissa EAX.
+?lotest:
+	bsrl	%ecx, %eax		/ hi bit position 0-31 to ECX
+	jz	?done			/ mantissa difference 0, return 0.0
+	cmpl	%ecx, $20
+	jle	?losmall		/ hi bit of lo mantissa is 0 to 20
+					/ else hi bit is bit 21 to 31
+	negl	%ecx			/ -21 to -31
+	addl	%ecx, $52		/ 31 to 21 shift count in CL
+	jmp	?lshift			/ shift EDX:EAX as above
+
+	/ EDX is 0, hi bit of EAX is bit 0 to 20; move EAX up to EDX.
+?losmall:
+	xchgl	%edx, %eax		/ shift left 32 bits; EAX becomes 0
+	subl	%ebp, $32		/ adjust exponent
+	jmp	?normalize		/ and shift as above
+
+	/ Compare mantissas, exchange args to force |EDX:EAX| >= |ESI:EDI|.
+?argtest:
+	cmpl	%edx, %esi		/ compare hi mantissas
+	ja	?dosub
+	jb	?flip
+	cmpl	%eax, %edi		/ compare lo mantissas
+	jae	?dosub
+
+	/ |ESI:EDI| > |EDX:EAX|, flip args and change result sign.
+?flip:
+	xchgl	%esi, %edx
+	xchgl	%edi, %eax		/ force |EDX:EAX| >= |ESI:EDI| (for sure)
+	xorl	%ebx, $SGNMASK		/ and change the result sign
+	jmp	?dosub
+
+/ end of libc/crt/i386/daddsub.s

@@ -1,0 +1,819 @@
+;AUX 11/19/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;statement auxilliary routines
+
+;general purpose routines used in statement execution
+
+;LINBC gets current line # in BC.
+;Call:	(LNNUM)	current line # address, 0 if direct
+;Retn:	A	clobbered
+;	BC	if (LNNUM) = 0 then 0 else ((LNNUM))
+;	DE	preserved
+;	HL	if (LNNUM) = 0 then 0 else (LNNUM) + 1
+;	Zero	set iff (LNNUM) = 0
+linbc:	lhld	lnnum
+linb1:	mov	a,h
+	ora	l
+	jz	linb2		;line # is 0, i.e. direct
+	mov	c,m
+	inx	h
+	mov	b,m		;line # to BC
+	ret
+linb2:	mov	b,a
+	mov	c,a		;0 to BC
+	ret
+
+;IDTST issues a fatal ID error if current statement is direct, i.e. (LNNUM)=0.
+;IITST performs EOS test, then issues fatal II error if current is indirect.
+	if	compl
+idtst	equ	linbc		;just return current line in BC
+	else
+idtst:	call	linbc		;zero set iff direct
+	rnz
+iderr:	error	f, I, D		;fatal ID error
+iitst:	call	eos
+	call	linbc		;zero set iff direct
+	rz			;ok if direct
+	error	f, I, I		;issue fatal II error
+	endif			;end of NOT COMPL conditional
+
+;RTEST returns Zero set iff location HL is RAM.
+rtest:	mov	a,m		;fetch byte
+	cma
+	mov	m,a		;store complement
+	cmp	m		;compare to stored value
+	cma
+	mov	m,a		;restore value
+	ret
+
+	if	romsq and not compl
+;ISSRC returns if SOURC address working space, issues fatal RO error otherwise.
+issrc:	lxi	d,srcad
+	lhld	sourc
+	call	cmdhu		;compare SOURC to SRCAD
+	rz			;addressing working space, OK
+roerr:	error	f, R, O		;fatal RO error
+
+;ISROM checks if current program is running in ROM, issues nonfatal RO error
+;and scans to next command if so.
+isrom:	lhld	sourc
+	call	rtest		;test if ROM
+	rz			;RAM, OK
+	error	c, R, O		;nonfatal RO error and scan on
+
+	endif			;end of ROMSQ AND NOT COMPL conditional
+
+;EOS checks for garbage on end of statement, and is called by routines which
+;alter normal control flow (GOTO, GOSUB, RETURN, etc.).
+;Falls through to syntax error if next nonspace char is not :, ' or <cr>.
+;Retn:	A	next nonspace char
+;	BC,DE	preserved
+;	HL	address of next nonspace char (i.e. of :, ' or <cr>)
+eos:	call	dtst0
+	rnc			;ok if next is delimiter
+snerr:	error	c, S, N		;issue SN error and scan to next
+exerr:	error	f, E, X		;fatal EX error
+
+	if	compl
+uferr:	error	c, U, F		;issue UF error and scan to next
+	endif
+
+;DTEST tests whether A contains a delimiter.
+;Retn:	Carry	reset iff (A) = :, ' or <cr>
+;	Registers	preserved
+dtst0:	call	gtcho
+dtest:	cpi	':'
+	rz
+dtst1:	cpi	cr
+	rz
+	if	rtpak or not compl	;comments already purged if compiled
+	cpi	''''
+	rz
+	endif
+	stc
+	ret
+
+;GTLHS gets a destination variable reference.  It calls GTVAR with
+;INLHS true (to indicate tracing may be desired) and stores the
+;destination returned in LHSAD for ASSGN to perform assignment.
+gtlhs:	if	not compl
+	mvi	a,255
+	sta	inlhs		;set INLHS to true
+	endif
+	call	gtvar		;perform variable reference
+	jc	snerr		;no variable name
+	sta	lhsty		;save type
+	shld	lhsad		;save destination
+	if	not compl
+	mov	b,a		;save type
+	xra	a
+	sta	inlhs		;reset INLHS to false
+	mov	a,b		;restore type
+	endif
+	ret
+
+;ASIGN is CALLed by FOR, NEXT, LET, READ, INPUT to change a variable's value.
+;The value addressed by HL is assigned to the destination LHSAD.
+;Trace information is printed if (VTRAC) is negative.
+asigv:	call	esval		;value to ESTACK
+	lhld	estkp
+	inx	h		;point to value
+asign:	lda	lhsty		;desired type to A
+	call	cnvrt		;convert value to desired type
+	if	strng
+	cpi	strst
+	cz	scopv		;copy to string space if type string
+	endif
+	call	bytsd		;# bytes in value to DE
+	inx	h		;point to value
+	mov	b,h
+	mov	c,l		;value source to BC
+	lhld	lhsad		;destination to HL
+	if	compl
+	jmp	moved		;value to destination and return if COMPL
+	else
+	push	psw		;save type
+	push	b		;and save value location
+	call	moved		;value to destination
+	pop	h		;value location to HL
+	pop	b		;value type to B
+				;and fall through to TRVAL
+;TRVAL prints variable value if tracing is desired.
+;Call:	VTRAC	bit 7 set iff tracing desired
+;	B	value type
+;	HL	value location
+trval:	lda	vtrac
+	ora	a
+	rp			;done if not tracing
+trva1:	mvi	a,'='		;BTEST entry point
+	call	writc		;write the =
+	dcx	h		;point to type
+	mov	a,b		;fetch type
+	if	strng
+	cpi	strst
+	jnz	prval		;print nonstring value
+	xchg
+	lxi	h,stemp
+	inr	m		;increment STEMP count before fetching string
+	xchg
+	endif
+	jmp	prval		;print the value and return
+	endif			;end of NOT COMPL conditional
+
+;ASIGI performs traced integer assignment for NEXT and SCALL value return.
+asigi:	mov	m,b
+	dcx	h
+	mov	m,c		;value to destination
+	if	not compl
+	push	b
+	mvi	b,intst
+	call	trval		;print trace info if desired
+	pop	b
+	endif
+	ret
+
+;BYTSD returns with the number of bytes in an value in DE.
+bytsd:	lxi	d,vbyts-1
+	if	float
+	cpi	sngst
+	rz			;return 4 if floating
+	if	fpbcd
+	mvi	e,3
+	else
+	dcx	d
+	endif
+	endif
+	if	strng
+	cpi	strst
+	rz			;return 3 if string
+	endif
+	if	float or strng
+	dcx	d
+	endif
+	ret			;return 2 if integer
+
+;FETCH fetches a value addressed by HL and returns its type in the status bits.
+;Call:	HL	pointer to type
+;Retn:	A	type token
+;	BC	value if integer, Carry reset and Zero set
+;	C,DE	length, location if string, Carry set and Zero set
+;	FACC	value if floating, Carry reset and Zero reset
+;FETBC does a FETCH of arg in BC.
+fetbc:	mov	h,b
+	mov	l,c
+fetch:	mov	a,m		;fetch the type token
+fetc1:	if	float
+	cpi	sngst
+	jz	fetcf		;fetch floating
+	endif
+	if	strng
+	cpi	strst
+	jz	fetcs		;fetch string
+	endif
+fetci:	cpi	intst
+	jnz	exerr
+	if	float
+	shld	argad		;save location for retry of ambiguous op
+	endif
+mobcm:	inx	h		;Zero is set, Carry reset
+	mov	c,m
+	inx	h
+	mov	b,m		;fetch integer to BC
+	ret
+	if	strng
+fetcs:	inx	h
+	mov	c,m		;length to C
+	call	modem		;location to DE
+	lxi	h,stemp
+	dcr	m		;decrement # string temps in use
+	jm	exerr		;EX error if negative
+	xra	a		;Zero is set
+	stc			;and Carry set also
+	ret
+	endif
+	if	float
+	if	f9511		;9511 version fetches to 9511 stack
+fetcf:	push	h
+	push	b
+	inx	h		;point to first value byte
+	call	lod95		;load value to 9511 stack
+	pop	b		;restore BC
+	pop	h		;restore HL
+	mvi	a,sngst		;floating point token to A
+	ora	a		;clear Carry and Zero
+	ret			;and return
+	else			;NOT F9511
+fetcf:	push3			;save registers
+	inx	h		;point to value
+	call	fload		;load value to FACC
+	mvi	a,sngst		;return type in A
+	ora	a		;Carry reset, Zero reset
+	jmp	pop3		;restore registers and return
+	endif
+	endif
+
+;MVDEM returns (M):(M-1) in DE, (HL)-2 in HL
+;BC, PSW preserved
+mvdem:	mov	d,m
+	dcx	h
+	mov	e,m
+	dcx	h
+	ret
+
+;MVMDE moves (DE) to (M-1):(M-2), returns (HL)-2 in HL
+mvmde:	dcx	h
+	mov	m,d
+	dcx	h
+	mov	m,e
+	ret
+
+;MODEM moveds (M+2):(M+1) to DE, returns (HL)+2 in HL.
+modem:	inx	h
+	mov	e,m
+	inx	h
+	mov	d,m
+	ret
+
+;ISBYT checks whether (B) = 0.  If so, it returns.
+;If not, a nonfatal BY error is issued and B is set to 0.
+;A clobbered, B forced to 0, other registers preserved.
+isbyt:	mov	a,b
+	ora	a		;clear carry, set zero iff (B) = 0
+	rz
+	mvi	b,0		;force (B) to 0
+	error	n, B, Y		;nonfatal BYte error
+	ret			;and return
+
+;CPLDE replaces (DE) with its two's complement.
+;CPLD1 replaces (DE) with its one's complement.
+;Retn:	A	clobbered
+;	BC,HL	preserved
+;	DE	two's complemented
+;	Carry	set iff (DE) = 8000H, i.e. overflow
+cplde:	dcx	d
+cpld1:	mov	a,e		;entry point to one's complement DE --
+	cma			;   NB carry set if called with 7FFFH
+	mov	e,a
+	mov	a,d
+	cma
+	mov	d,a
+	xri	80H
+	ora	e		;zero set iff (DE) = 8000H
+	rnz
+	cmc			;set carry if overflow
+	ret
+
+;ADAHL adds (A) + (HL), leaves result in HL and sets carry on overflow.
+adahl:	add	l
+	mov	l,a
+	rnc			;done if no carry
+	inr	h		;else inc high order
+	rz			;return with carry set iff overflow
+	cmc
+	ret
+
+;SBAHL subtracts (HL) - (A), leaves result in HL and sets carry on underflow.
+sbahl:	sub	l		;(A) - (L) to A, carry set iff L > A
+	cma			;L - A - 1
+	mov	l,a
+	inx	h		;L - A
+	rc
+	dcr	h
+	ret
+
+;CMBDU compares (BC) to (DE) as 16 bit unsigned integers.
+;Retn:	A	clobbered
+;	BC,DE,HL	unchanged
+;	Zero	set iff (BC) = (DE)
+;	Carry	set iff (BC) < (DE)
+cmbdu:	mov	a,b
+	cmp	d		;carry set iff (B) < (D)
+	rnz			;finished unless (B) = (D)
+	mov	a,c		;(B) = (D), so compare (C) to (E)
+	cmp	e
+	ret
+
+;CMDHU same as CMBDU except DE::HL
+cmdhu:	mov	a,d
+	cmp	h
+	rnz
+	mov	a,e
+	cmp	l
+	ret
+
+;CMBDS compares (BC) to (DE) as 16 bit signed (two's complement) integers.
+;Retn:	same as CMBDU above.
+cmbds:	mov	a,b
+	xra	d		;sign set iff signs agree
+	jp	cmbdu		;unsigned compare works when signs agree
+	mov	a,b		;signs disagree, sign of B gives result
+	ral			;NB zero is reset from xra above
+	ret
+
+;FLIP is called by READ and INPUT to exchange text pointers in TEXTP and TXTP2.
+;Clobbers DE, preserves PSW, leaves TEXTP in HL.
+flip:	lhld	txtp2
+	xchg			;TXTP2 to DE
+	lhld	textp
+	shld	txtp2		;TEXTP to TXTP2
+	xchg
+	shld	textp		;TXTP2 to TEXTP
+	ret
+
+;DMODX is a common exit for various versions of LOAD and EXEC.
+;First the control and expr stacks are reset.  Then execution continues
+;if the command was direct, and XYBASIC returns to DMODE if indirect
+;(since the source program has been changed by the EXEC or LOAD).
+;Call:	HL	eof address of new program
+	if	not compl
+dmodx:	call	new1		;reset stacks
+	call	linbc		;Zero set iff direct
+	rz			;continue normally if direct
+	jmp	dmod2		;otherwise to DMODE
+	endif
+
+;BDTST is called from FOR and NEXT to test FOR-loop termination.
+;Call:	BC or FACC	new FOR-variable value (integer or floating)
+;	DE	increment pointer
+;	HL	bound pointer
+;	LHSTY	FOR-variable type
+;Retn:	Carry	Set iff exit condition satisfied, i.e. value>bound and inr>=0
+;			or value<bound and inr<0
+bdtst:	inx	d		;point to second incr byte
+	if	float
+	lda	lhsty
+	cpi	sngst
+	jnz	bdts1		;integer type
+	push	d
+	if	f9511
+	call	lod95		;load bound to 9511 stack
+	call	cmpf0		;perform floating compare, no arg switch
+	else
+	call	cmpfl		;do floating compare
+	endif
+	pop	d
+	rz			;value=bound, return Carry reset
+	if	f9511 or fpbcd
+	dcx	d		;first byte has sign of 9511, BCD
+	endif
+	ldax	d
+	rlc			;incr sign to Carry
+	rm			;value<bound, return incr sign as result
+	cmc			;value>bound, return complemented incr sign
+	ret
+	endif
+bdts1:	ldax	d
+	mov	e,m
+	inx	h
+	mov	d,m		;integer bound to DE
+	rlc
+	cnc	bcde		;exchange value and bound if incr>=0
+	jmp	cmbds		;and CMBDS returns desired Carry status
+
+;FNDST is called from FOR and READ to scan through a program for
+;the matching NEXT or next DATA statement.
+;Call:	(textp)	text address at which scanning is to begin
+;	B	token to be matched (NEXT or DATA)
+;		(1) Found				(2) Notfound
+;Retn:	A	token					0
+;	B	preserved				preserved
+;	C,DE	clobbered				clobbered
+;	HL	address of next unparsed text char	eof address
+;	Carry	reset					set
+;	(textp)	ditto					eof address - 1
+fnds0:	call	dtst0		;check if at delimiter
+	cmc
+	rnc			;return carry reset if not
+				;else empty DATA, fall through to retry
+fndst:	mvi	c,1		;initialize FOR count
+	lxi	d,4		;to skip bytes after <cr>
+fnds1:	call	gtcha		;get next char
+	cmp	b
+	jz	fnds3		;found one
+	cpi	':'
+	jz	fnds1		;multiple statements -- look at next
+	if	rtpak or not compl	;comments purged if compiled
+	cpi	''''
+	cz	rem		;on-line comment -- scan to <cr>
+	endif
+	cpi	cr
+	jz	fnds2		;cr
+	cpi	fort
+	cz	inrc		;increment FOR-count if FOR
+	call	gtdel		;scan to delimiter
+	jmp	fnds1		;keep trying
+inrc:	inr	c
+	ret
+fnds2:	mov	a,m		;fetch next line length byte
+	ora	a		;check for end of file
+	jz	bkupc		;return carry set if failed
+	dad	d		;point to next text byte
+	shld	textp		;store new pointer
+	jmp	fnds1		;and keep looking
+fnds3:	cpi	datat
+	jz	fnds0		;done if DATA
+fnds4:	call	gtnam		;look for var name after NEXT
+	dcr	c		;decrement count
+	jnc	fnds5
+	cmc			;clear carry in case found
+	rz			;done if NEXT and FOR count is 0
+	jmp	fnds1		;and keep looking
+fnds5:	rz			;return if counted to 0
+	call	gtcom		;look for comma after <var name>
+	jc	fnds1		;none
+	jmp	fnds4		;else look for more
+
+;FNDLN finds the line # address of the line which DE points into.
+;Used by READ for DATA syntax errors.
+;Call:	DE	pointer into text
+;Retn:	BC,DE	preserved
+;	HL	line # address of desired text line
+fndln:	if	not romsq
+	lxi	h,srcad
+	else
+	lhld	sourc
+	endif
+fnln1:	shld	temp		;save length byte address
+	mov	a,m		;fetch length
+	call	adahl		;address next line
+	call	cmdhu		;compare to desired pointer
+	jnc	fnln1		;keep looking
+	lhld	temp		;restore length byte addr
+	inx	h		;point to line #
+	ret
+
+	if	realt
+;CLOCK is the interrupt service routine to tick the real-time clock.
+;The interrupt branches to 10H, POKEd during initialization to come here.
+;The four bytes at TIMEX contain 20ths-20, seconds-60, minutes-60 and hours-24.
+clock:	push	psw
+	push	h
+	lxi	h,timex		;address 20ths counter
+	inr	m		;tick it
+	jnz	clocx		;done
+	mvi	m,255 and -20	;reset to -20
+	inx	h		;address seconds counter
+	inr	m		;tick it
+	jnz	clocx		;done
+	mvi	m,255 and -60	;reset to -60
+	inx	h		;address minutes counter
+	inr	m		;tick...
+	jnz	clocx		;done
+	mvi	m,255 and -60	;reset
+	inx	h		;address hours counter
+	inr	m		;tick...
+	jnz	clocx		;done
+	mvi	m,255 and -24	;welcome to tomorrow
+clocx:	pop	h
+	mvi	a,20H
+	out	0D8H		;reinitialize the clock
+	pop	psw
+	ei			;reenable interrupts
+	ret
+	endif
+
+	if	editc and (not compl)
+;LNREF changes all occurrences of <line #>s in source text for RENUM.
+lnref:	lxi	h,srcad		;begin at the beginning
+;process next line of source text
+lnre1:	mov	a,m		;fetch length byte
+	ora	a
+	rz			;eof, done
+	push	h
+	inx	h
+	inx	h
+	inx	h
+	inx	h		;address first text byte
+;process next byte of source text
+lnre2:	mov	a,m		;fetch a text byte
+	inx	h
+	cpi	cr		;check if end of line
+	jz	lnre5		;yes
+	cpi	''''
+	jz	lnre4		;on-line comment, scan to <cr>
+	cpi	remt
+	jz	lnre4		;REM, scan to <cr>
+	if	key80
+	cpi	20H
+	jc	lnre3		;reserved word token, check it
+	endif
+	cpi	80H
+	jc	lnre2		;not a token, try next
+;found a <token>, check if <line #> can and does follow
+lnre3:	call	kltst		;test if token can have <line #> following
+	jc	lnre2		;no, try next
+	sta	txtp2		;save token in TXTP2 in case ON list or LIST
+	shld	textp		;set TEXTP to scan possible <line #>
+lnr3j:	call	gtcho		;skip spaces, if any
+	push	h		;save HL pointing to first nonspace
+	call	gtlno		;look for <line #>
+	xthl			;restore HL
+	pop	b		;first nondigit location to BC
+	jc	lnre2		;not a <line #>, try next byte
+;found a <line #>
+	push	h		;save first for insertion of new line #
+	xchg
+	call	cplde		;- first
+	xchg
+	dad	b		;last + 1 - first = <line #> length to HL
+	push	h		;save length
+	call	findl		;look for <line #>
+	jc	lnr3c		;not found, flag the line
+	push	h		;save location
+	lhld	rnold
+	xchg
+	call	findl		;find location of first renumbered line
+	pop	d		;location of desired line to DE
+	call	cmdhu
+	jc	lnr3d		;before renumbered lines, unchanged
+	push	h		;save first loc
+	lhld	rninc
+	mov	b,h
+	mov	c,l		;increment to BC
+	lhld	rnnew		;first destination line # to HL
+	jz	lnr3b		;matched, take first line #
+;compute new <line #> corresponding to old <line #>
+lnr3a:	xthl			;first line loc to HL
+	mov	a,m
+	call	adahl		;address next line
+	call	cmdhu		;compare to desired line #
+	xthl
+	dad	b		;compute new line #
+	jnz	lnr3a		;no match, try next
+;convert new <line #> to string and compare to length of old
+lnr3b:	pop	d		;discard saved location
+	mov	b,h
+	mov	c,l		;new line # to BC
+	xra	a
+	call	cvtis		;and converted to string, no leading char
+	call	bcde		;location to BC, length to E
+	pop	h		;length of old line # to L
+	sub	l		;new length - old length
+	pop	h		;old line # loc to HL
+	jm	lnr3e		;old line # longer
+	jnz	lnr3f		;old line # shorter
+	call	movd0		;move new line # to replace old
+	jmp	lnr3h		;and keep scanning
+;old <line #> not found, flag bit 7 of line break byte
+lnr3c:	pop	h		;discard saved length
+	pop	h		;and discard saved first loc
+	pop	h		;length byte addr to HL
+	push	h		;and resaved
+	inx	h
+	inx	h
+	inx	h		;address break byte
+	mvi	m,80H		;set bit 7 to indicate line # not found
+	jmp	lnr3h		;and keep scanning
+;old <line #> precedes renumbered lines, leave unchanged
+lnr3d:	pop	h		;discard saved length
+	pop	h		;and discard saved first loc
+	jmp	lnr3h		;and keep scanning
+;old <line #> longer than new <line #>
+lnr3e:	push	psw		;save offset
+	call	movd0		;copy new line # to old place
+	shld	textp		;and set new TEXTP
+	xchg			;new destination to DE
+	pop	psw		;restore offset
+	pop	h		;line length pointer to HL
+	push	psw
+	add	m		;add offset
+	mov	m,a		;and store new line length
+	pop	psw
+	push	h		;resave line length pointer
+	cma
+	inr	a		;complement offset
+	xchg			;restore destination to HL
+	push	h		;save destination
+	call	adahl		;+offset = source
+	push	h
+	xchg
+	call	cplde		;-source
+	lhld	eofad
+	inx	h
+	dad	d		;count bytes to move
+	xchg			;to DE
+	pop	b
+	pop	h
+	call	moved		;block move the remaining text
+	dcx	h
+	shld	eofad		;store new eof
+	jmp	lnr3h		;and keep scanning
+;old <line #> shorter than new
+lnr3f:	push	psw
+	push	b
+	push	d
+	push	h		;save all
+	xchg			;first old line # byte addr to DE
+	lhld	eofad
+	mov	b,h
+	mov	c,l		;end of file to BC
+	call	adahl		;offset + eof = new eof
+	shld	eofad		;store new eof
+lnr3g:	ldax	b		;fetch a text byte
+	mov	m,a		;and store in new location
+	dcx	b
+	dcx	h
+	mov	a,e
+	cmp	c
+	jnz	lnr3g
+	mov	a,d
+	cmp	b
+	jnz	lnr3g		;copy more text bytes
+	pop	h
+	pop	d
+	pop	b		;restore new line # info
+	call	movd0		;and copy line # into text
+	shld	textp
+	pop	psw		;offset
+	pop	h		;line length addr
+	add	m		;old length + offset
+	mov	m,a		;gives new length
+	push	h
+lnr3h:	lda	txtp2		;recover token preceding <line #>
+	lhld	textp
+	cpi	gotot
+	jz	lnr3i		;GOTO
+	cpi	gsubt
+	jz	lnr3i		;GOSUB
+	cpi	listt
+	jnz	lnre2		;not GOTO, GOSUB nor LIST, keep scanning
+lnr3i:	call	gtcom		;look for comma
+	jc	lnre2		;none, keep scanning
+	jmp	lnr3j		;look for next element in <line #> list
+;scan to next <cr>
+lnre4:	mov	a,m
+	inx	h
+	cpi	cr
+	jnz	lnre4
+;end of source text line, try the next
+lnre5:	pop	h		;length byte addr to HL
+	mov	a,m
+	call	adahl		;address next line
+	jmp	lnre1		;and try next line
+
+;KLTST tests if token in A may have <line #> following.
+;Call:	A	Token
+;Retn:	C	Clobbered
+;	A,B,DE,HL	Preserved
+;	Carry	Set iff not found
+kltst:	push	h
+	mvi	c,klnct		;table count to C
+	lxi	h,klnta		;table addr to HL
+klts1:	cmp	m		;compare token to table entry
+	jz	klts2		;matched
+	inx	h
+	dcr	c
+	jnz	klts1		;try next
+	stc			;not found
+klts2:	pop	h		;restore HL
+	ret			;and return
+	endif			;end of EDITC conditional
+
+	if	not compl
+;BKNAM constructs a 3-byte symbol table 'name' at BUFAD for a line break.
+;Byte 1 is H6-H0, byte 2 is L6-L0, both with bit 7 reset.
+;Byte 3 has 1,H7,L7 in bits 7-5 and bits 4-0 reset.
+;Call:	HL	desired break entry 'name' (i.e. line # addr)
+bknam:	xchg			;desired line # addr to DE
+	lxi	h,bufad
+	mov	a,d
+	ani	7FH
+	mov	m,a		;byte 1 = D6-D0 to BUFAD
+	inx	h
+	mov	a,e
+	ani	7FH
+	mov	m,a		;byte 2 = E6-E0 to BUFAD+1
+	inx	h
+	mov	a,d
+	ral			;D7 to Carry
+	mov	a,e
+	rar			;D7, E7 to A7, A6
+	stc
+	rar			;1, D7, E7 to A7-5
+	ani	0E0H		;mask off A4-0
+	mov	m,a		;byte 3 to BUFAD+2
+	ret
+	endif			;end of NOT COMPL conditional
+
+;GTPAR gets a parameter from CALL command line.
+;Parameters must be <var ref> or *<array var name>.
+;Retn:	A	0 if no more params, 1 if integer, 2 if string, 3 if floating
+;	B	bytes per entry
+;	C	# dims
+;	DE	address of first dimension
+;	HL	address of first data item
+gtpar:	call	gtcnd		;look for comma not followed by delimiter
+	mvi	a,0
+	rc			;no more parameters, return 0
+	mvi	d,multt
+	call	gtd		;look for *
+	jnc	gtpa1		;array passed
+	call	gtvar		;else var ref
+	lxi	b,0		;# dims = 0 to C
+	push	b		;push 0 for DE
+	jnc	gtpa2		;and continue below
+mcerr:	error	f, M, C		;fatal MC error
+gtpa1:	call	fdvar		;look for var name
+	jc	mcerr
+	ldax	d		;fetch type
+	mov	c,m		;# dims to C
+	mvi	b,0		;to allow dad
+	inx	h		;point to first dim byte
+	push	h		;and save
+	dad	b
+	dad	b		;point to first data byte
+gtpa2:	call	bytsd		;bytes per entry to DE
+	mov	b,e		;and then to B
+	pop	d		;dim addr to DE
+	mov	a,b
+	dcr	a		;A gets 1 for int, 2 string, 3 floating
+	ret
+
+;DISAB disables all interrupts
+	if	not wild
+disab:	xra	a
+	sta	inttc		;reset interrupt table count
+	sta	intad		;clear interrupt table
+	ret
+
+;<byte expr> , <byte expr> [, <byte expr>] [,$]
+;IINFO gets interrupt information for ENABLE and WAIT.
+;Four bytes corresponding to the first four bytes of an interrupt table
+;entry are returned in BCDE (type, port, mask, value).
+iinfo:	call	gtbex
+	mov	b,c		;port # to  B
+	mvi	c,0C0H		;type to C
+	push	b		;and saved
+	call	gtcbe
+	mov	d,c		;value to D
+	mvi	e,0		;mask 0 for now
+	call	gtcom
+	jc	iinf3		;default mask 0, null $
+	call	gtcho
+	cpi	'$'
+	jz	iinf1		;default mask 0, $
+	call	gtbex
+	mov	e,c		;mask to E
+	call	gtcom
+	jc	iinf2		;null $
+iinf1:	call	gtcha
+	cpi	'$'
+	jnz	snerr
+	mov	a,d
+	cma
+	ora	e
+	mov	d,a		;value = NOT value OR mask (if $)
+	pop	b
+	mvi	c,0E0H		;set type $ bit
+	ret
+iinf2:	mov	a,d
+	ora	e
+	mov	d,a		;value = value OR mask (if null $)
+iinf3:	pop	b
+	ret
+	endif			;end of NOT WILD conditional
+
+
+;end of AUX
+	page

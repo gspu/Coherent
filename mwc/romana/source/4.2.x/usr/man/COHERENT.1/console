@@ -1,0 +1,431 @@
+ccoonnssoollee -- Device Driver
+
+Console device driver
+
+/ddeevv/ccoonnssoollee is the device driver for the console of a COHERENT system.  It
+is currently assigned major device number 2 and minor device number 0.
+
+/ddeevv/ccoonnssoollee  interprets  escape sequences  in  console  output to  control
+output  on  the  console  monitor.   These  escape  sequences  include  the
+sequences from  ANSI 3.4-1977 and  ANSI X3.64-1979 that  deal with terminal
+control.  Thus, they are similar to those used by the DEC VT-100 and VT-220
+terminals.
+
+_E_s_c_a_p_e _S_e_q_u_e_n_c_e_s
+In addition  to the ASCII control  characters BEL, BS, CR,  FF, HT, LF, and
+VT, /ddeevv/ccoonnssoollee recognizes a number of special sequences, each of which is
+introduced by the ASCII character ESC.  You can type these on the keyboard,
+or write them in a file  and invoke them by ccaatting the file to the standard
+output.
+
+The following gives the escape sequences that /ddeevv/ccoonnssoollee recognizes.  The
+text in parentheses gives the ANSI mnemonic for this escape sequence.  Note
+that in  this table, EESSCC  represents the ASCII character  ESC (i.e., 0x1B).
+CCSSII  stands for  Control Sequence  Introducer, which  here consists  of the
+character ESC followed by the  character `[' (ASCII 0x5B).  Note, too, that
+this table inserts spaces between  characters.  This is simply for the sake
+of legibility;  at present, no escape sequence can  contain a literal space
+character:
+
+EESSCC =     Enter  alternate  keypad  mode.   This  escape sequence  is  non-
+          standard and is slated for removal; you should avoid embedding it
+          in scripts or programs.
+EESSCC >     Exit alternate keypad mode.  This escape sequence is non-standard
+          and  is slated  for  removal; you  should avoid  embedding it  in
+          scripts or programs.
+EESSCC _n     Print the special graphics character _n.
+EESSCC 77     Save the  current cursor position.  This  escape sequence is non-
+          standard and is slated for removal; you should avoid embedding it
+          in scripts or programs.
+EESSCC 88     Restore  the  previously  saved  cursor  position.   This  escape
+          sequence is  non-standard and is  slated for removal;  you should
+          avoid embedding it in scripts or programs.
+EESSCC DD (IND, Index)
+          Move  the  cursor  down  one  line  without changing  the  column
+          position.  This  command moves the  scrolling region text  up and
+          inserts blank  lines if required.  Although  this escape sequence
+          now moves  the cursor down, it  may not do so  in the future when
+          COHERENT supports writing  systems other than left-to-right, top-
+          to-bottom.   Furthermore, this control  sequence has  been marked
+          for  removal from  future international  standards.   This escape
+          sequence has been  slated for removal; you should avoid embedding
+          it in scripts or programs.
+EESSCC EE (NEL, Next Line)
+          Move  the cursor  to the  first  column of  the next  line.  This
+          command move the scrolling  region down and inserts blank line if
+          required.
+EESSCC MM (RI, Reverse Index)
+          Move the cursor up one line without changing column position.  As
+          with IND,  the direction of motion depends  on the writing system
+          currently in use.
+CCSSII _n @ (ICH, Insert Character)
+          Insert _n characters at the current position (default, one).
+CCSSII _n AA (CUU, Cursor Up)
+          Move the cursor up _n rows (default, one).  Stop at top of page.
+CCSSII _n BB (CUD, Cursor Down)
+          Move the cursor down _n  rows (default, one).  Stop at bottom edge
+          of scrolling region.
+CCSSII _n CC (CUF, Cursor Forward)
+          Move the cursor _n  columns forward (default, one).  Stop at right
+          bottom corner of scrolling region.
+CCSSII _n DD (CUB, Cursor Backwards)
+          Move the cursor _n columns backwards (default, one).
+CCSSII _n EE (CNL, Cursor Next Line)
+          Move  the cursor  _n  rows down  (default,  one).  Move  scrolling
+          region up and insert a blank line if required.
+CCSSII _n FF (CPL, Cursor Preceding Line)
+          Move the  cursor _n rows  up (default, one).   Move the scrolling-
+          region text down and insert a blank line if required.
+CCSSII _n GG (CHA, Cursor Character Absolute)
+          Move the cursor to column _n of the current line.
+CCSSII _n ; _m HH (CUP, Cursor Position)
+          Move the cursor to column _m of row _n. Position is relative to the
+          scrolling region.
+CCSSII _n II (CHT, Cursor Horizontal Tabulation)
+          Move the cursor _n tabulation stops forward (default, one).
+CCSSII _c JJ (ED, Erase in Display)
+          Erase display, where _c is one of the following characters:
+
+          00  Erase from cursor to end of screen.
+          11  Erase from beginning of screen to cursor.
+          22  Erase the entire screen.
+
+CCSSII _c KK (EL, Erase in Line)
+          Erase line, where _c is one of the following characters:
+
+          00  Erase from cursor to end of line.
+          11  Erase from beginning of line to cursor.
+          22  Erase entire line.
+
+CCSSII _n LL (IL, Insert Line)
+          Insert _n blanks lines (default, one).
+CCSSII _n MM (DL, Delete Line)
+          Delete _n lines (default, one).
+CCSSII _c OO (EA, Erase in Area)
+          Erase  scrolling  region,   where  _c  is  one  of  the  following
+          characters:
+
+          00  Erase from cursor to end of scrolling region.
+          11  Erase from beginning of scrolling region to cursor.
+          22  Erase entire scrolling  region.  Reposition cursor at top left
+             corner of scrolling region.
+
+CCSSII _n PP (DC, Delete Character)
+          Delete _n characters at the current position (default, one).
+CCSSII _n SS (SU, Scroll Up)
+          Scroll  the characters  in  the scrolling  region up  by _n  lines
+          (default, one).  The bottom of the scrolling region is cleared to
+          blanks.
+CCSSII _n TT (SD, Scroll Down)
+          Scroll  the  characters  in the  scrolling  region  down _n  lines
+          (default, one).  The top  line of the scrolling region is cleared
+          to blanks.
+CCSSII _n XX (ECH, Erase Character)
+          Erase _n characters at the current position (default, one).
+CCSSII _n ZZ (CBT, Cursor Backward Tabulation)
+          Move the cursor backwards by _n tabulation stops (default, one).
+CCSSII _n ` (HPA, Horizontal Position Absolute)
+          Move the cursor to column _n of the current line.
+CCSSII _n aa (HPR, Horizontal Position Relative)
+          Move the  cursor forward  (i.e., to the  right) _n columns  in the
+          current line.
+CCSSII _n dd (VPA, Vertical Position Absolute)
+          Move the cursor to row _n of the display.
+CCSSII _n ee (VPR, Vertical Postition Relative)
+          Move the cursor down _n rows.
+CCSSII _n ; _m ff (HVP, Horizontal and Vertical Position)
+          Move the cursor to column _m of row _n.
+CCSSII _s_1 ; ... _s_N mm (SGR, Select Graphic Rendition)
+          Select graphics  rendition on  the terminal.  This  command takes
+          one  or more  colon-separated parameters _c_1  through _c_N,  each of
+          which is one of the following strings:
+
+          00  All attributes off.
+          11  Bold intensity.
+          44  Underscore on.
+          55  Blink on.
+          77  Reverse video.
+          1100 Select primary font (see notes, below).
+          1111 Select first alternative font (see notes, below).
+          1122 Select second alternative font (see notes, below).
+          3300 Black foreground.
+          3311 Red foreground.
+          3322 Green foreground.
+          3333 Brown foreground.
+          3344 Blue foreground.
+          3355 Magenta foreground.
+          3366 Cyan foreground.
+          3377 White foreground.
+          4400 Black background.
+          4411 Red background.
+          4422 Green background.
+          4433 Brown background.
+          4444 Blue background.
+          4455 Magenta background.
+          4466 Cyan background.
+          4477 White background.
+          5500 Black border.
+          5511 Red border.
+          5522 Green border.
+          5533 Brown border.
+          5544 Blue border.
+          5555 Magenta border.
+          5566 Cyan border.
+          5577 White border.
+
+          The following  is not standard, and  are slated for modification.
+          Do not embed these codes in scripts or programs:
+
+          In  the  default  font  (font  0), /ddeevv/ccoonnssoollee  ignores  control
+          characters other  than BEL, BS,  CR, ESC, FF,  HT, LF and  VT and
+          prints all other ASCII characters.
+
+          In font 1,  /ddeevv/ccoonnssoollee prints all characters (including control
+          characters), except ESC.
+
+          In font  2, /ddeevv/ccoonnssoollee prints  every character except  ESC with
+          the high  bit toggled.  This provides access  to the IBM graphics
+          character set using ordinary ASCII characters.
+CCSSII _n ; _m rr
+          Make rows  _n through _m of the display  into the scrolling region.
+          This  is   not  a  standard  control   sequence.   It  implements
+          functionality included in standard sequences, and will be removed
+          from  a  future  console  driver  that  implements  the  standard
+          sequence.
+CCSSII _c vv   Select  cursor  rendition,  where  _c  is  one  of  the  following
+          characters:
+
+          00  Cursor visible.
+          11  Cursor invisible.
+
+          This is not a standard sequence.  It implements functionality not
+          provided by any standard sequence.  Developers are cautioned that
+          there is  no truly portable equivalent  (although on many systems
+          positioning the cursor off the screen has the same effect).
+
+CCSSII ? 44 hh (SM, Set Mode)
+          Enable  smooth  scrolling.   This  eliminates ``snow''  from  the
+          screen, but  slows down the  speed at which  the console scrolls.
+          The  mode  selected by  the  private-use parameter  ?44  is not  a
+          standard mode.
+CCSSII ? 44 ll (RM, Reset Mode)
+          Disable  smooth scrolling  (default).  The  mode selected  by the
+          private-use parameter ?44 is not a standard mode.
+CCSSII ? 77 hh (SM, Set Mode)
+          Enable wraparound.  Typing past column 80 moves the cursor to the
+          first column of the  next line, scrolling if necessary.  The mode
+          selected by the private-use  parameter ?77 is not a standard mode,
+          but is mandated by iBCS2.
+CCSSII ? 77 ll (RM, Reset Mode)
+          Disable  wraparound.  The  cursor will not  move past  column 80.
+          This  is useful  if  the screen  is  being used  as a  block-mode
+          interface.  The mode  selected by the private-use parameter ?77 is
+          not a standard mode, but is mandaetd by iBCS2.
+CCSSII ? 88 hh (SM, Set Mode)
+          Erase in the current foreground color.
+CCSSII ? 88 ll (RM, Reset Mode)
+          Erase in the original  foreground color, even if the current mode
+          is reverse video.
+CCSSII ? 2255 hh (SM, Set Mode)
+          Enable line 25.
+CCSSII ? 2255 ll (RM, Reset Mode)
+          Disable line 25.
+CCSSII > 1133 hh (SM, Set Mode)
+          Enable the screen saver.  This is not standard.
+CCSSII > 1133 ll (RM, Reset Mode)
+          Disable the screen saver.  This is not standard.
+EESSCC ` (DMI, Disable Manual Input)
+          Disable manual input.  Terminal ``beeps'' (outputs <ccttrrll-GG>) when
+          you press a key on  the keyboard.  Interrupt and quit signals are
+          still passed to the  terminal process.  Input may be renabled via
+          EESSCC cc (power up reset) or EESSCC bb (enable manual input).
+EESSCC bb (EMI, Enable Manual Input)
+          Enable keyboard input that has been disabled by EESSCC `.
+EESSCC cc (RIS, Reset to Initial State)
+          Reset to power-up configuration
+EESSCC tt     Enter keypad-shifted mode.   This is a non-standard sequence that
+          conflicts with explicit provisions of the relevant standards.  It
+          will be  removed from  future versions  of the console  driver in
+          favor of a sequence that does not conflict.
+EESSCC uu     Exit keypad-shifted  mode.  This is a  non-standard sequence that
+          conflicts with explicit provisions of the relevant standards.  It
+          will be  removed from  future versions  of the console  driver in
+          favor of a sequence that does not conflict.
+
+_N_u_m_e_r_i_c _K_e_y_p_a_d
+The following describes the sequences sent by the numeric keypad.
+
+The keypad sends the following escape sequences:
+
+KKeeyy 00     Send CCSSII LL.
+KKeeyy 11     Send CCSSII FF.
+KKeeyy 22     Send CCSSII BB.
+KKeeyy 33     Send CCSSII GG.
+KKeeyy 44     Send CCSSII DD.
+KKeeyy 55     Send EESSCC 77.
+KKeeyy 66     Send CCSSII CC.
+KKeeyy 77     Send CCSSII HH.
+KKeeyy 88     Send CCSSII AA.
+KKeeyy 99     Send CCSSII II.
+KKeeyy .     Send ASCII DEL.
+
+When the  <sshhiifftt> key is pressed  or the <nnuumm-lloocckk> key  is set, the keypad
+sends the  literal characters `0'  through `9' and `.'.   If the <nnuumm-lloocckk>
+key is set, pressing <sshhiifftt> restores the escape sequences shown above.
+
+The escape  sequence EESSCC =  sets the alternate-keypad mode.   In this mode,
+the keypad sends the following  escape sequences when the <nnuumm-lloocckk> key is
+not set:
+
+KKeeyy 00     Send EESSCC ? pp.
+KKeeyy 11     Send EESSCC ? qq.
+KKeeyy 22     Send EESSCC ? rr.
+KKeeyy 33     Send EESSCC ? ss.
+KKeeyy 44     Send EESSCC ? tt.
+KKeeyy 55     Send EESSCC ? uu.
+KKeeyy 66     Send EESSCC ? vv.
+KKeeyy 77     Send EESSCC ? ww.
+KKeeyy 88     Send EESSCC ? xx.
+KKeeyy 99     Send EESSCC ? yy.
+KKeeyy .     Send EEsscc ? nn.
+
+The escape sequence EESSCC > resets this mode.
+
+_O_t_h_e_r _S_p_e_c_i_a_l _K_e_y_s
+The following  gives the  escape sequences  sent by the  keyboard's special
+keys:
+
+<hhoommee>    Send ``cursor home'' ( CCSSII HH).
+<uupp>      Send ``cursor up'' (CCSSII AA).
+<ppgg uupp>   Send CCSSII II.
+<lleefftt>    Send ``cursor left'' (CCSSII DD).
+<rriigghhtt>   Send ``cursor right'' (CCSSII CC).
+<eenndd>     Send  CCSSII FF.   Note that  this escape sequence  does not  do what
+          users normally  expect: to send cursor to  bottom left of screen,
+          send the escape sequence CCSSII 2244 HH.
+<ddoowwnn>    Send ``cursor down'' (CCSSII BB).
+<ppgg ddnn>   Move cursor to previous page (CCSSII GG).
+<iinnss>     Send  CCSSII LL.   Note that  this escape sequence  does not  do what
+          users normally expect.
+<ddeell>     Send ASCII DEL.
+FF11        Send CCSSII MM.
+FF22        Send CCSSII NN.
+FF33        Send CCSSII OO.
+FF44        Send CCSSII PP.
+FF55        Send CCSSII QQ.
+FF66        Send CCSSII RR.
+FF77        Send CCSSII SS.
+FF88        Send CCSSII TT.
+FF99        Send CCSSII UU.
+FF1100       Send CCSSII VV.
+<sshhiifftt>FF11 Send CCSSII YY.
+<sshhiifftt>FF22 Send CCSSII ZZ.
+<sshhiifftt>FF33 Send CCSSII aa.
+<sshhiifftt>FF44 Send CCSSII bb.
+<sshhiifftt>FF55 Send CCSSII cc.
+<sshhiifftt>FF66 Send CCSSII dd.
+<sshhiifftt>FF77 Send CCSSII ee.
+<sshhiifftt>FF88 Send CCSSII ff.
+<sshhiifftt>FF99 Send CCSSII gg.
+<sshhiifftt>FF1100
+          Send CCSSII hh.
+<ccttrrll>FF11  Send CCSSII kk.
+<ccttrrll>FF22  Send CCSSII ll.
+<ccttrrll>FF33  Send CCSSII mm.
+<ccttrrll>FF44  Send CCSSII nn.
+<ccttrrll>FF55  Send CCSSII oo.
+<ccttrrll>FF66  Send CCSSII pp.
+<ccttrrll>FF77  Send CCSSII qq.
+<ccttrrll>FF88  Send CCSSII rr.
+<ccttrrll>FF99  Send CCSSII ss.
+<ccttrrll>FF1100 Send CCSSII tt.
+<ccttrrll><sshhiifftt>FF11
+          Send CCSSII ww.
+<ccttrrll><sshhiifftt>FF22
+          Send CCSSII xx.
+<ccttrrll><sshhiifftt>FF33
+          Send CCSSII yy.
+<ccttrrll><sshhiifftt>FF44
+          Send CCSSII zz.
+<ccttrrll><sshhiifftt>FF55
+          CCSSII @.
+<ccttrrll><sshhiifftt>FF66
+          CCSSII [.
+<ccttrrll><sshhiifftt>FF77
+          CCSSII \.
+<ccttrrll><sshhiifftt>FF88
+          CCSSII ].
+<ccttrrll><sshhiifftt>FF99
+          CCSSII ^.
+<ccttrrll><sshhiifftt>FF1100
+          CCSSII _.
+<aalltt>FF11   Send CCSSII 11 yy.
+<aalltt>FF22   Send CCSSII 22 yy.
+<aalltt>FF33   Send CCSSII 33 yy.
+<aalltt>FF44   Send CCSSII 44 yy.
+<aalltt>FF55   Send CCSSII 55 yy.
+<aalltt>FF66   Send CCSSII 66 yy.
+<aalltt>FF77   Send CCSSII 77 yy.
+<aalltt>FF88   Send CCSSII 88 yy.
+<aalltt>FF99   Send CCSSII 99 yy.
+<aalltt>FF1100  Send CCSSII 00 yy.
+<eesscc>     Send ASCII ESC (0x1B).
+<ttaabb>     Send ASCII HT.
+<ccttrrll>    When combined with  `A' through `_', send the corresponding ASCII
+          control  character; when  combined  with the  <rreettuurrnn> key,  send
+          ASCII LF; when combined  with the key <bbaacckkssppaaccee>, send ASCII DEL
+          ; when combined with <aalltt> and <ddeell>, issue system reset.
+<sshhiifftt>   Change alphabetic  keys from  lower case  to upper case.   If the
+          <ccaappss-lloocckk> is set, shift from upper case to lower case.
+<aalltt>     When combined with <ccttrrll> and <ddeell>, issue a system reset.
+<bbaacckkssppaaccee>
+          Send ASCII BS; when combined with <ccttrrll>, send ASCII DEL.
+<rreettuurrnn>  Send ASCII CR; when combined with <ccttrrll>, send ASCII LF.
+*         Send ASCII `*'.
+<ccaappss-lloocckk>
+          Toggle ``caps lock'' mode.
+<nnuumm-lloocckk>
+          Toggle  the interpretation  of the  numeric keypad,  as described
+          above.
+<ssccrroollll-lloocckk>
+          Send <ccttrrll-SS> and toggle the Scroll Lock LED.
+-         Send `-'.
++         Send `+'.
+
+_A_l_t_e_r_i_n_g _C_o_n_s_o_l_e _C_o_n_f_i_g_u_r_a_t_i_o_n
+To change the hardware configuration  of your console (i.e., to switch from
+a monochrome  to a color console, or modify  your keyboard or configuration
+of virtual consoles),  log in as the superuser rroooott  and type the following
+commands:
+
+    cd /etc/conf
+    console/mkdev
+    bin/idmkcoh -o /_k_e_r_n_e_l__n_a_m_e
+
+where _k_e_r_n_e_l__n_a_m_e  is what you wish  to name the newly  built kernel.  When
+you  reboot,   invoke  _k_e_r_n_e_l__n_a_m_e  in  the  usual   manner  and  your  new
+configuration will have been implemented.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, AASSCCIIII, ddeevviiccee ddrriivveerrss, nnkkbb, vviirrttuuaall ccoonnssoolleess
+
+_N_o_t_e_s
+Under COHERENT release 4.2, the codes  sent by the keys FF11 through FF1100, <ppgg
+uupp>, <ppgg  ddnn>, <iinnss>, <ddeell>, and  <eenndd> have changed from  those sent under
+previous releases.  This was done so that COHERENT can more closely conform
+to the standard expected by  many third-party packages.  If this presents a
+problem, you can use the COHERENT command ffnnkkeeyy to change the codes sent by
+the function.
+
+If you  are using the keyboard  driver nnkkbb, you can  remap the keyboard and
+(within limits) change  the codes sent by some keys.   For details, see the
+Lexicon entries nnkkbb and kkeeyybbooaarrdd ttaabblleess.
+
+Beginning with  COHERENT release  4.2, the  console uses a  25-line screen,
+rather than the 24-lines used in previous releases.  This is to support the
+numerous  third-party packages  that assume a  25-line display.   A variant
+form of the  tteerrmmccaapp and tteerrmmiinnffoo entries for aannssiippcc  returns the screen to
+24 lines, should you need that feature.
+
+Please note that as of this writing (March 1994), the sequences CCSSII _n _m; ddoo
+nnoott wwoorrkk, wwhheerree _n iiss bbeettwweeeenn 5500 aanndd 5577.  TThhiiss iiss bbeeiinngg wwoorrkkeedd rreeppaaiirreedd.

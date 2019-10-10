@@ -1,0 +1,70 @@
+# splitdist Sun Sep 19 18:13:28 1993 CDT
+
+# Split directory $1 into $TARGET/distrib1, $TARGET/distrib2
+# $TARGET/distrib1 contains files needed on a boot disk,
+# $TARGET/distrib2 contains the rest.
+# Run as root from mkdist.
+
+/bin/echo "splitdist $*"
+
+if [ ! "$UAD" ] ; then
+	/bin/echo "Need \$UAD"
+	echo 'This script should only be invoked from mkdist!  Exiting....'
+	exit 1
+fi
+
+if [ $# -eq 5 ] ; then
+	FORMAT=$1
+	DISTRIB=$2
+	TARGET=$3
+	UBLOCKS=$4
+	KER_BLOCKS=$5
+else
+	/bin/echo \
+"usage: splitdist {fha|fva} distrib_dir target_dir ublocks ker_blocks"
+	exit 1
+fi
+
+
+echo -n "Splitting $DISTRIB to $TARGET/distrib[12] .... [hit enter]"
+read x
+
+# Make $TARGET/distrib1, $TARGET/distrib2 and their subdirectories.
+
+rm -r $TARGET/distrib1 $TARGET/distrib2 2>/dev/null
+/bin/mkdir $TARGET/distrib1 $TARGET/distrib2
+/bin/chmog 755 root root $TARGET/distrib1 $TARGET/distrib2
+
+# create dirs for boot disk
+
+cd $TARGET/distrib1
+/bin/mkdir `cat $UAD/Dirs.boot`
+$UAD/setperm `cat $UAD/Dirs.boot` 2>&1 | egrep -v link
+
+# Copy distribution to $TARGET/distrib2 and move boot stuff to $TARGET/distrib1.
+
+cpdir -ad $DISTRIB $TARGET/distrib2
+/bin/echo 'Completed the cpdir.  Moving files into distrib1....'
+
+cd $TARGET/distrib2
+for i in dev `cat $UAD/Files.boot.$FORMAT`
+do
+	mv $TARGET/distrib2/$i $TARGET/distrib1/$i
+done
+
+# See if the files in distrib1 will fit on a boot floppy.
+
+set $(du -s $TARGET/distrib1)
+FBLOCKS=$(expr $1 + $KER_BLOCKS)
+
+if [ "$FBLOCKS" -gt "$UBLOCKS" ]; then
+	/bin/echo "\007WARNING: Only have room for $UBLOCKS blocks on boot floppy."
+	/bin/echo "But there are $FBLOCKS blocks of data in distrib1."
+	/bin/echo -n "Hit <Enter> "
+	read JUNK
+else
+	/bin/echo "Boot floppy uses $FBLOCKS of $UBLOCKS available blocks."
+fi
+
+echo "Done with splitdist."
+/bin/sync

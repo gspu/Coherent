@@ -1,0 +1,323 @@
+deftok(_ANDF) = type -1, ass 0, pred -1, # 256
+deftok(_ASGN) = type -1, ass 0, pred -1, # 257
+deftok(_CASE) = type -1, ass 0, pred -1, # 258
+deftok(_CBRAC) = type -1, ass 0, pred -1, # 259
+deftok(_DO) = type -1, ass 0, pred -1, # 260
+deftok(_DONE) = type -1, ass 0, pred -1, # 261
+deftok(_DSEMI) = type -1, ass 0, pred -1, # 262
+deftok(_ELIF) = type -1, ass 0, pred -1, # 263
+deftok(_ELSE) = type -1, ass 0, pred -1, # 264
+deftok(_ESAC) = type -1, ass 0, pred -1, # 265
+deftok(_FI) = type -1, ass 0, pred -1, # 266
+deftok(_FOR) = type -1, ass 0, pred -1, # 267
+deftok(_IF) = type -1, ass 0, pred -1, # 268
+deftok(_IN) = type -1, ass 0, pred -1, # 269
+deftok(_IORS) = type -1, ass 0, pred -1, # 270
+deftok(_NAME) = type -1, ass 0, pred -1, # 271
+deftok(_NULL) = type -1, ass 0, pred -1, # 272
+deftok(_OBRAC) = type -1, ass 0, pred -1, # 273
+deftok(_ORF) = type -1, ass 0, pred -1, # 274
+deftok(_PARENS) = type -1, ass 0, pred -1, # 275
+deftok(_RET) = type -1, ass 0, pred -1, # 276
+deftok(_THEN) = type -1, ass 0, pred -1, # 277
+deftok(_UNTIL) = type -1, ass 0, pred -1, # 278
+deftok(_WHILE) = type -1, ass 0, pred -1, # 279
+Input grammar:
+
+$accept:
+
+0:	  session $end 
+	;
+
+session:
+
+1:	  session cmd_line 
+2:	| 
+	;
+
+cmd_line:
+
+3:	  '\n' 
+4:	| cmd_list '\n' 
+5:	| error '\n' 
+	;
+
+cmd_list:
+
+23:	  logical_cmd 
+24:	| logical_cmd '&' 
+25:	| logical_cmd ';' 
+26:	| logical_cmd '&' cmd_list 
+27:	| logical_cmd ';' cmd_list 
+	;
+
+if:
+
+6:	  _IF optnls 
+	;
+
+optnls:
+
+114:	  nls 
+115:	| 
+	;
+
+then:
+
+7:	  _THEN optnls 
+	;
+
+elif:
+
+8:	  _ELIF optnls 
+	;
+
+else:
+
+9:	  _ELSE optnls 
+	;
+
+whuntile:
+
+10:	  _WHILE optnls 
+11:	| _UNTIL optnls 
+	;
+
+do:
+
+12:	  _DO optnls 
+13:	| _DO ';' optnls 
+	;
+
+in:
+
+14:	  _IN 
+15:	| _IN sep 
+	;
+
+sep:
+
+111:	  nls 
+112:	| ';' 
+113:	| ';' nls 
+	;
+
+oror:
+
+16:	  _ORF optnls 
+	;
+
+andand:
+
+17:	  _ANDF optnls 
+	;
+
+or:
+
+18:	  '|' optnls 
+	;
+
+oparen:
+
+19:	  '(' optnls 
+	;
+
+obrack:
+
+20:	  _OBRAC optnls 
+	;
+
+cparen:
+
+21:	  ')' optnls 
+	;
+
+dsemi:
+
+22:	  _DSEMI optnls 
+	;
+
+logical_cmd:
+
+28:	  pipe_cmd 
+29:	| pipe_cmd oror logical_cmd 
+30:	| pipe_cmd andand logical_cmd 
+	;
+
+pipe_cmd:
+
+31:	  cmd or pipe_cmd 
+32:	| cmd 
+	;
+
+cmd:
+
+33:	  turn_on_keywords command 
+	;
+
+turn_on_keywords:
+
+34:	  
+	;
+
+command:
+
+35:	  simple_command 
+36:	| compound_command 
+37:	| compound_command redirect_list 
+38:	| function_definition 
+39:	| _RET name 
+40:	| _RET 
+	;
+
+simple_command:
+
+45:	  cmd_prefix cmd_word cmd_suffix 
+46:	| cmd_prefix cmd_word 
+47:	| cmd_prefix 
+48:	| cmd_name cmd_suffix 
+49:	| cmd_name 
+	;
+
+compound_command:
+
+41:	  control 
+	;
+
+redirect_list:
+
+43:	  redirect_node 
+44:	| redirect_list redirect_node 
+	;
+
+function_definition:
+
+42:	  name _PARENS optnls obrack cmd_seq _CBRAC 
+	;
+
+name:
+
+81:	  _NAME 
+	;
+
+control:
+
+84:	  _FOR name in_name_list sep do_list _DONE 
+85:	| _FOR name in_name_list do_list _DONE 
+86:	| _CASE name sep in case_list _ESAC 
+87:	| _CASE name in case_list _ESAC 
+88:	| whuntile cmd_seq do_list _DONE 
+89:	| if cmd_seq then opt_cmd_seq else_part _FI 
+90:	| oparen opt_cmd_seq ')' 
+91:	| obrack opt_cmd_seq _CBRAC 
+	;
+
+cmd_seq:
+
+109:	  cmd_list nls cmd_seq 
+110:	| cmd_list optnls 
+	;
+
+redirect_node:
+
+78:	  redirect 
+	;
+
+cmd_prefix:
+
+50:	  redirect_node 
+51:	| redirect_node cmd_prefix 
+52:	| asgn_node 
+53:	| asgn_node cmd_prefix 
+	;
+
+cmd_word:
+
+55:	  name_node 
+	;
+
+cmd_suffix:
+
+56:	  redirect_node 
+57:	| redirect_node cmd_suffix 
+58:	| non_keyword_name 
+59:	| non_keyword_name cmd_suffix 
+60:	| asgn_node 
+61:	| asgn_node cmd_suffix 
+	;
+
+cmd_name:
+
+54:	  name_node 
+	;
+
+asgn_node:
+
+82:	  asgn 
+	;
+
+name_node:
+
+80:	  name 
+	;
+
+non_keyword_name:
+
+62:	  non_keyword_string 
+	;
+
+non_keyword_string:
+
+63:	  _NAME 
+64:	| _CASE 
+65:	| _DO 
+66:	| _DONE 
+67:	| _ELIF 
+68:	| _ELSE 
+69:	| _ESAC 
+70:	| _FI 
+71:	| _FOR 
+72:	| _IF 
+73:	| _IN 
+74:	| _RET 
+75:	| _THEN 
+76:	| _UNTIL 
+77:	| _WHILE 
+	;
+
+redirect:
+
+79:	  _IORS 
+	;
+
+asgn:
+
+83:	  _ASGN 
+	;
+
+in_name_list:
+
+92:	  _IN name_list 
+93:	| 
+	;
+
+do_list:
+
+102:	  do opt_cmd_seq 
+103:	| 
+	;
+
+case_list:
+
+96:	  case_line dsemi case_list 
+97:	| case_line 
+98:	| 
+	;
+
+opt_cmd_seq:
+
+107:	  cmd_seq 
+108:	| 
+	;
+
+else_part:

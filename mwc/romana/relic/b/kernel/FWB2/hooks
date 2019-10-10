@@ -1,0 +1,81 @@
+The Coherent instance of this software requires no assembly routines (thank God).
+The MSDOS instance includes the sourcefile talkbios.asm,
+which contains interface routines between the speech functions,
+the BIOS calls, and the timer and keyboard interrupts.
+This file also contains replicas of several essential Coherent kernel routines,
+such as sphi, kalloc, outb, read_t0, etc.
+Thus the C code is largely portable between Coherent and MSDOS.
+
+sdload is called by isload (in kb.c), as the last command.
+It performs the load/initialization functions for the speech session.
+
+sduload is called by isuload (in kb.c), as the last command.
+It performs the unload/free functions for the speech session.
+
+sdtime is called by mmtime (in mm.c), as the last command before rescheduling.
+Sdtime manages longer sounds such as error bells,
+and executes the deferred speech commands.
+It also maintains the ongoing reading of text in the internal buffer.
+Once reading is initiated, sdtime performs a form of polling,
+asking whether the synthesizer is ready for more.
+If it is, send more text.
+Continue reading until another command is entered.
+The polling rate of 10HZ is (generally) adequate for this task.
+The rescheduling frequency is dynamically determined by the variable mmticks.
+Usually this is set to 10 ticks, the original value.
+It is upped to 1 tick when producing audio feedback
+or initiating speech.
+The new routine mmhasten hastens the execution
+of mmtime() by rescheduling with mmticks = 1.
+Unfortunately, I virtually rewrote mmtime() and mmstart().
+This is far from the decoupled driver we had hoped for,
+but I believe these rewrites are necessary.
+
+mmgo1() is called from mm_start() in mm.c.
+mmgo1() in turn calls mmgo() (the original) if the character needs
+to be displayed on the screen.
+After each byte is taken from the output queue of the tty,
+c = ttout(tp),
+call mmgo1(c), and exit the loop if the return value is 1.
+This is used to generate a significant delay between characters,
+e.g. when each character produces a distinct tone.
+If the return is 0 then continue the loop, processing the next output character.
+This resurrects the original functionality,
+appropriate when running in the (backward compatible) transparent mode.
+Normally the return value is 2, which invokes some nontrivial fine timing.
+If the timer shows we are at the start of the 11932 cycle,
+wait until the cycle is (roughly) 1/5 finished.
+(Use read_t0 to implement this timing control.)
+Thus output characters and their associated clicks are somewhat synchronized.
+The second character is held until 1/5+1/2 of the cycle has elapsed.
+No more than two characters are displayed per cycle.
+Once displayed, mmtime() returns and gives another process
+a chance to grab the CPU.
+However its timeout value is set to 1,
+so if there is no contention, it immediately
+receives the CPU and displays the next two characters.
+Thus the output rate is (roughly) 200 characters per second,
+which is just about optimal.
+Furthermore, this is accomplished without monopolizing
+the CPU or consuming too many CPU resources.
+
+isrint() in kb.c calls sdinkey_coh().
+This in turn calls isin() if the character is destined
+for the tty input queue.
+If the return is 0 then kb.c calls the usual machinery,
+including isspecial() to interpret special characters.
+Some code in isrint() is modified to allow control-fkeys to pass through;
+they were originally discarded.
+
+Before initializing the serial ports, al.c calls sdport_taken
+to see if a speech session has taken over a serial port,
+whereupon al.c should leav it alone.
+As a quick hack, both sibling ports are declared nonexistent.
+Someday we will leave the sibling port accessible.
+
+Patchable variables sd0synth, sd0comport, and sd0bufsize
+determine the type of synthesizer, the serial port it is attached to,
+and the desired size of the internal circular buffer respectively.
+Use patch to change these parameters.
+Set sd0synth to 0 and the driver behaves
+exactly as it use to.

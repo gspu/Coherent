@@ -1,0 +1,63 @@
+#pprraaggmmaa -- Preprocessing Directive
+
+Perform implementation-specific preprocessing
+
+#pprraaggmmaa  is the  C  preprocessing directive  that triggers  implementation-
+specific  behavior.   The  ANSI  Standard  demands  that  every  conforming
+implementation of C document what #pprraaggmmaa does.
+
+COHERENT recognizes one use of #pprraaggmmaa:
+
+    #pragma align [_n]
+
+This   directive  permits   COHERENT  to  conform   to  the   Intel  Binary
+Compatability  Standard (BCS), which  specifies alignment  requirements for
+ssttrruucctts.
+
+The BCS  requires that a ssttrruucctt be aligned  consistently with the alignment
+of its most strictly aligned member.  For example, the structure
+
+    struct s {
+        short   s_s1;
+        int s_i;
+        short   s_s2;
+    };
+
+must put member ss_ii at offset  4, not 2 (because iinntt is dword-aligned).  If
+you have an array of ssttrruucctt ss objects, the second will be at offset 12, not
+10 (or 8), because ssttrruucctt ss itself must also be dword-aligned.
+
+This, unfortunately, creates problems with existing compiled code, and with
+some standards, e.g., COFF.  For  example, a ssttrruucctt ffiillssyyss (a COHERENT file
+system, e.g.,  on a floppy  or hard disk)  is defined in  <ssyyss/ffiillssyyss.hh> as
+starting out just like the above:
+
+    struct filsys {
+        unsigned short  s_isize;
+        daddr_t     s_fsize;
+        short       s_nfree;
+        ...
+    };
+
+Because ddaaddddrr_tt  is lloonngg,  COHERENT would compile  this and expect  to find
+ss_ffssiizzee at  offset 4 (not 2)  and ss_nnffrreeee at offset 8 (not  6); but this is
+not  where the  bits  actually fall  on  an existing  file  system.  So  we
+circumvent the BCS with #pprraaggmmaa  aalliiggnn. The directive #pprraaggmmaa aalliiggnn _n means
+``align objects  on _n-byte boundaries,  at most,'' and  #pprraaggmmaa aalliiggnn means
+``restore default alignment.'' Thus, <ssyyss/ffiillssyyss.hh> is edited to read:
+
+    struct filsys {
+        unsigned short  s_isize;
+    #pragma align 2
+        daddr_t     s_fsize;
+    #pragma align
+        short       s_nfree;
+        ...
+    };
+
+and the  compiler thinks  the struct  members fall at  offsets 0, 2  and 6,
+which preserves compatibility with existing binary objects.
+
+_S_e_e _A_l_s_o
+ccpppp, CC pprreepprroocceessssoorr
+ANSI Standard, section 6.8.6

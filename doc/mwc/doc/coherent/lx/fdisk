@@ -1,0 +1,215 @@
+.TH fdisk "" "" Command
+.PC "Hard-disk partitioning utility"
+\fB/etc/fdisk [-r] [-c] [-b \fImboot\^\fB] \fIxdev\fR ...
+.PP
+.HS
+.SH Options:
+.IC \fB\-r\fR
+Read-only access
+.IC \fB\-b\fR
+Add master boot code from file \fImboot\fR
+.IC \fB\-c\fR
+Specify disk geometry for non-standard drives
+.IC \fB\-V\fR
+Display the version number of \fBfdisk\fR
+.Pp
+A hard disk can be split into a maximum of four partitions (logical devices).
+.HE
+The command
+.B fdisk
+lets you view how a hard disk is partitioned, alter how it is partitioned,
+and mark a partition so that the \*(CO bootstrap will automatically boot
+the operating system it contains.
+If you wish, you can use
+.B fdisk
+to assign partitions to different operating systems, e.g.,
+\*(MD, CP/M, Windows NT, \*(CO, and XENIX.
+.PP
+.B fdisk
+recognizes the following command-line options:
+.IP \fB\-b\fR 0.3i
+Use the first 446 bytes of the file
+.I mboot
+to replace the bootstrap information in
+.IR xdev .
+Use this option to overwrite the \*(CO bootstrap with another bootstrap.
+.IP \fB\-c\fR
+Specify the disk geometry (i.e., number of cylinders,
+heads, sectors) for disk drives that your system's BIOS does not support.
+.IP \fB\-r\fR
+Read-only access.
+.B fdisk
+reads the partition table and displays its contents, but does not let
+you change how a disk is partitioned.
+This is the ``safe'' option.
+.IP \fB\-V\fR
+Display the version number of
+.BR fdisk .
+PP
+When you invoke
+.BR fdisk ,
+it reads the first block from the special device
+.IR xdev ,
+which holds the partitioning information for that disk.
+.I xdev
+is the device whose name ends in
+.BR x ;
+for example, if you have one SCSI hard disk and one AT-style hard disk
+installed in your machine,
+.I xdev
+would be either
+.B /dev/sd0x
+or
+.BR /dev/at0x .
+If you use
+.B fdisk
+with a device other than the
+.B x
+device (e.g., with device
+.BR /dev/at0a ),
+.B fdisk
+displays values for your partitions that are totally bogus \(em and
+probably quite alarming.
+.PP
+After you invoke
+.BR fdisk ,
+it displays a warning message, then the layout of the disk whose
+partition-table device you named on the command line.
+The following gives an example layout, for a 33-megabyte AT disk:
+.B1
+	Drive 0 Currently has the following logical partitions:
+	              [In Cylinders] [  In Tracks  ]
+	Number  Type  Start End Size Start  End Size Mbyte Blocks Name
+	0 Boot MS-DOS    0  149  150     0  899  900  7.83  15300 /dev/at0a
+	1     EXT-DOS  150  614  464   900 3684 2784 24.28  47430 /dev/at0b
+	2      UNUSED    0    0    0     0    0    0     0      0 /dev/at0c
+	3      UNUSED    0    0    0     0    0    0     0      0 /dev/at0d
+.B2
+.PP
+In this example, partition 1 (which is accessed via device
+.BR /dev/at0a )
+holds an MS-DOS file system.
+It is marked as the ``Boot'' partition, which means that the \*(CO bootstrap
+will boot its operating system automatically when you reboot your computer.
+The other columns show the size of each partition, and its beginning and
+end points in both cylinders and tracks.
+.PP
+If you invoked
+.B fdisk
+with its option
+.BR \-r ,
+the program exits at this point.
+If you did
+.I not
+invoke it with option
+.BR \-r ,
+it displays the following menu of actions:
+.DM
+	Possible actions:
+	   0 = Quit	
+	   1 = Change active partition (or make no partition active)
+	   2 = Change one logical partition
+	   3 = Change all logical partitions
+	   4 = Delete one logical partition
+	   5 = Change drive characteristics
+	   6 = Display drive information
+	   7 = Proceed to next drive
+.DE
+.PP
+The following describes each action in detail:
+.IP \fB0.\fR 0.3i
+Quit
+.BR fdisk .
+.IP \fB1.\fR
+Change which partition is the active partition.
+You can also say that your system has
+.I no
+active partition.
+If you do so, the \*(CO bootstrap will prompt you at boot time
+to enter the number of the partition whose operating system you wish to boot.
+.B fdisk
+will let you set only one active partition at a time.
+.IP \fB2.\fR
+Change the dimensions (i.e., the size, beginning point, or end point)
+of one partition.
+Doing this destroys the data on that partition.
+.IP \fB3.\fR
+Change the dimensions of every partition.
+Doing this destroys the data on your hard disk.
+.IP \fB4.\fR
+Delete a partition.
+.IP \fB5.\fR
+Change the parameters of the drive.
+Use this option if \*(CO somehow has a faulty notion of your disk's size.
+You should never have to use this option; using it will wipe out all data
+on your hard disk.
+.IP \fB6.\fR
+Give summary information about the disk \(em that is, re-display the
+table shown above.
+.IP \fB7.\fR
+This option appears only if you have more than one hard disk drive.
+Use this option to display information about another hard disk on your system.
+.PP
+Before you change the dimensions of any partition on your system, read
+the warnings given in the notes below.
+When you have finished modifying your disk,
+.B fdisk
+then writes your changes into
+.IR xdev .
+.SH Files
+\fB<fdisk.h>\fR
+.SH "See Also"
+.Xr "commands," commands
+.Xr "hard disk," hard_disk
+.Xr "ideinfo" ideinfo
+.SH Notes
+If you change a device's partition table, reboot your system.
+Most device drivers will not recognize the revised partition information
+until a reboot occurs.
+.PP
+As the \fB-r\fR and \fB-b\fR options are contradictory, attempting to use
+them together triggers an error message.
+.PP
+Note that many operating systems implement a program named
+.BR fdisk .
+Each manipulates a hard disk's partition table, but not all respect the
+fact that a disk may hold more than one operating system.
+In particular, the \*(MD edition of
+.B fdisk
+can rearrange the order of entries in the partition table.
+If this happens, you may lose the ability to run \*(CO until the table
+is restored to its previous order.
+A sign of this problem is seeing the prompt
+.B "AT boot?"
+when you try to start \*(CO after running any
+.B fdisk
+program, and not being able to get past it.
+.PP
+Computer systems that use older releases of a BIOS
+may report incorrect disk parameters.
+Users of such systems should change the CMOS setup values if possible,
+but the BIOS on some older systems will not
+allow you to specify arbitrary values for disk parameters.
+Users with such systems can use the option \fBfdisk \-c\fR option instead.
+.PP
+.II "MS-DOS^on same hard drive as COHERENT"
+.II "COHERENT^on same hard drive as MS-DOS"
+If you plan to install and run \*(CO and \*(MD on the same hard disk,
+note the following:
+.IP \(bu 0.3i 
+If you wish to install \*(CO and \*(MD on the same hard drive, you
+.I must
+run the \*(MD \fBfdisk\fR first!
+.IP \(bu
+If you plan on running both operating systems, you
+.I must
+install \*(MD first and leave some free cylinders on the disk for \*(CO
+as well as a free partition.
+You can have both primary as well as extended \*(MD partitions on the same
+drive as \*(CO, but \*(CO cannot use a sub-partition of the \*(MD
+extended partition.
+\*(CO must have one of the four
+.I real
+partitions.
+Failure to observe these rules will result in loss of data!
+.IR "Caveat utilitor" .

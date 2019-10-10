@@ -1,0 +1,125 @@
+/*
+ * This header file contains definitions used by the stream routines
+ * for UDI, COHERENT, VAX/VMS, GEMDOS, and MSDOS versions of the compiler.
+ */
+
+#ifdef	UDI
+/*
+ * UDI (Series III, RMX).
+ */
+#define	SRMODE	"rb"
+#define	SWMODE	"wb"
+#define	SUMODE	"r+w+b"
+
+#if	RUNNING_LARGE
+#define	pget()	((char *)lget())
+#define	pput(p)	lput((p))
+#else
+#define	pget()	((char *)iget())
+#define	pput(p)	iput((p))
+#endif
+
+extern	ival_t	iget();
+extern	lval_t	lget();
+extern	void	dget();
+#endif
+
+#ifdef	COHERENT
+/*
+ * Coherent (many machines).
+ */
+#define	SRMODE	"r"
+#define	SWMODE	"w"
+#define	SUMODE	"r+w"
+
+#if	RUNNING_LARGE
+#define pget()	((char *)lget())
+#define pput(p)	lput(p)
+#else
+#define	pget()	((char *)iget())
+#define	pput(p)	iput((p))
+#endif
+
+extern	ival_t	iget();
+extern	lval_t	lget();
+extern	void	dget();
+#endif
+
+#ifdef	vax
+/*
+ * VAX/VMS.
+ */
+#define	SRMODE	"r"
+#define	SWMODE	"w"
+#define	SUMODE	"r+w"
+
+#define	pget()	((char *)lget())
+#define	pput(p)	lput((p))
+
+extern	ival_t	iget();
+extern	lval_t	lget();
+extern	int	dget();
+#endif
+
+#ifdef	GEMDOS
+/*
+ * GEMDOS for the Atari ST.
+ */
+#define	SRMODE	"rb"
+#define	SWMODE	"wb"
+#define	SUMODE	"rwb"
+
+#define pget()	((char *)lget())
+#define pput(p)	lput(p)
+#undef	getc
+#define	getc	bingetc
+#undef	putc
+#define	putc	binputc
+
+
+extern	ival_t	iget();
+extern	lval_t	lget();
+extern	void	dget();
+#endif
+
+#ifdef	MSDOS
+#define SRMODE "rb"
+#define SWMODE "wb"
+#define SUMODE "rwb"
+
+#if	RUNNING_LARGE
+#define	pget()	((char *)lget())
+#define	pput(p)	lput((p))
+#else
+#define	pget()	((char *)iget())
+#define	pput(p)	iput((p))
+#endif
+
+extern	ival_t	iget();
+extern	lval_t	lget();
+extern	void	dget();
+#endif
+
+/*
+ * The following definitions are required if the compiler uses
+ * memory buffers instead of disk files for temporaries.
+ * Currently, the VAX version uses 512K memory buffers by default;
+ * other versions use 0K memory buffers (i.e. disk temp files) by default.
+ */
+#if	TEMPBUF
+extern	unsigned char	*inbuf, *inbufp, *inbufmax;
+extern	unsigned char	*outbuf, *outbufp, *outbufmax;
+#ifdef	vax
+#define	TEMPSIZE 524288		/* default memory buffer size */	
+#else
+#define	TEMPSIZE 0
+#endif
+#endif
+
+#if	SIZEOF_LARGE	/* ie, sizeof_t != ival_t */
+#define zget()	((sizeof_t)lget())
+#define zput(z)	lput(z)
+#else
+#define zget()	((sizeof_t)iget())
+#define zput(z)	iput((ival_t)z)
+#endif

@@ -1,0 +1,134 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.46.47;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+prefix(wbuf, hbuf, wi1, wi2, tab, nel)
+CODE *wbuf;
+char *hbuf;
+char *tab[];
+{
+	int ti, ti1, ti2, wi, c1, c2;
+	register char *bp;
+
+next:
+	ti0 = -1;
+	ti1 = 0;
+	ti2 = nel;
+	for (;;) {
+		ti0 = ti;
+		if ((ti=(ti1+ti2)/2) == ti0)
+			goto fail;
+		wi = wi1;
+		bp = tab[ti];
+		for (;;) {
+			if (*bp == LEOK) {
+				bp++;
+				goto patn;
+			}
+			if (*bp == LHYP) {
+				bp++;
+				hbuf[wi-1] = 1;
+			}
+			if (wi >= wi2)
+				goto fail;
+			if ((c=wbuf[wi++].c_code) != (c2=*bp++)) {
+				if (c1 > c2)
+					ti1 = ti;
+				else
+					ti2 = ti;
+			}
+		}
+	}
+patn:
+	for (;;) {
+		switch (*bp++) {
+		case LNUL:
+			goto succ;
+		case LHYP:
+			hbuf[wi-1] = 1;
+			continue;
+		case LCON:
+			wi0 = wi;
+			continue;
+		case LPPS:
+			if (wi >= wi2)
+				goto succ;
+			c = wbuf[wi++].c_code;
+			continue;
+		case LPPF:
+			if (wi >= wi2)
+				goto fail;
+			c = wbuf[wi++].c_code;
+			continue;
+		case LMMC:
+			c = wbuf[--wi].c_code;
+			continue;
+		case LBRF:
+			goto fail;
+		case LBRS:
+			goto succ;
+		case LCBT:
+			if ((n=*bp++) != c)
+				continue;
+			if (n == 0)
+				goto fail;
+			if (n == 1)
+				goto succ;
+			bp += n-1;
+			continue;
+		case LCBF:
+			if ((n=*bp++) == c)
+				continue;
+			if (n == 0)
+				goto fail;
+			if (n == 1)
+				goto succ;
+			bp += n-1;
+			continue;
+		}
+	}
+succ:
+	if (wi0 != NULL) {
+		wi1 = wi0;
+		goto next;
+	}
+	return (1);
+fail:
+	for (n=wi1; n<wi2; n++)
+		hbuf[n] = 0;
+	return (0);
+}
+@

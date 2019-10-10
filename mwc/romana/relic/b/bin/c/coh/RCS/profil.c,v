@@ -1,0 +1,553 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.47.51;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * profil.c
+ * 2/8/85
+ * Usage:  profil [ -alnz ] [ infile [ profile [ outfile ] ] ]
+ *
+ * Reads Intel 8086 OMF SMALL model executable infile and profile, then
+ * writes profile information on outfile; defaults are stdin, PFILE, stdout.
+ * The profile information is normally a list of nonzero counts and names
+ * (sorted by count), followed by a list of unmatched profile counts.
+ * Options:	-a	print addresses in addition to counts and names
+ *		-l	sort by location; implies -a
+ *		-n	sort by name
+ *		-z	include symbols with zero counts
+ *
+ * Reference:  "8086 Relocatable Object Module Formats,"
+ * Intel 121748-001 (c) 1981 Intel Corp.
+ */
+
+#define	VERSION	"1.0"		/* version number */
+#ifdef	UDI
+#define	VFLAG	'v'		/* flags must be l.c. for UDI */
+#else
+#define	VFLAG	'V'
+#endif
+
+#define	NERRMSG	80		/* error message buffer length */
+#define NAMELEN	41		/* max length of an lname + NUL */
+
+#include <stdio.h>
+#include <prof.h>
+
+extern char *malloc();
+extern addrcomp();
+extern countcomp();
+extern long getlong();
+extern namecomp();
+
+/*
+ * OMF types.
+ */
+#define	RHEADR	0x6E		/* R-module header */
+#define BLKDEF	0x7A		/* Block definition */
+#define BLKEND	0x7C		/* Block end */
+#define	THEADR	0x80		/* T-module header */
+#define	LHEADR	0x82		/* L-module header */
+#define	MODEND	0x8A		/* Module end */
+#define	PUBDEF	0x90		/* Public definition */
+#define	LNAMES	0x96		/* list of names */
+#define	SEGDEF	0x98		/* Segment definition */
+#define	GRPDEF	0x9A		/* Group definition */
+
+/*
+ * Symbols.
+ */
+struct sym {
+	struct sym *s_link;	/* link */
+	char *s_addr;		/* address */
+	long s_count;		/* count */
+	char s_name[];		/* name */
+};
+
+/*
+ * Globals.
+ */
+int	aflag;			/* print address info */
+int	lflag;			/* sort by location */
+int	nflag;			/* sort by name */
+int	zflag;			/* print zero counts */
+int	lnamen;			/* lname index */
+int	segn;			/* segment index */
+int	groupn;			/* group index */
+int	len;			/* record length excluding checksum */
+int	csum;			/* checksum */
+int	codelname;		/* lname index of CODE */
+int	cseg;			/* segment index of CODE */
+int	cgrouplname;		/* lname index of CGROUP */
+int	cgroup;			/* group index of CGROUP */
+int	nsyms;			/* number of symbols */
+int	nnotfound;		/* profile entries not found in symbols */
+struct	sym *symlist;		/* linked list of symbols */
+struct	sym **sympp;		/* sorted table of symbols */
+char	id[NAMELEN];		/* identifier */
+char	*filename;		/* file name */
+
+main(argc, argv)
+int argc;
+char **argv;
+{
+	register int c;
+	++argv;
+	if ((argc > 1) && (**argv == '-')) {
+		while (c = *++*argv) {
+			switch (c) {
+			case 'a':	++aflag;
+					break;
+			case 'l':	++lflag;
+					++aflag;
+					break;
+			case 'n':	++nflag;
+					break;
+			case 'z':	++zflag;
+					break;
+			case VFLAG:	fprintf(stderr, "profil:  V%s\n", VERSION);
+					break;
+			default:	usage();
+					break;
+			}
+		}
+		++argv;
+		--argc;
+	}
+	if (argc > 4)
+		usage();
+	if (argc >=2) {
+		filename = *argv++;
+		if (freopen(filename, "rb", stdin) == NULL)
+			fatalf("cannot open executable %s for input");
+	}
+	else
+		filename = "stdin";	/* For error messages... */
+	readsyms();			/* Read symbols from the executable. */
+	addrsort();			/* Sort the symbols by address. */
+	filename = (argc >= 3) ? *argv++ : PFILE;
+	if (freopen(filename, "rb", stdin) == NULL)
+		fatalf("cannot open profile %s for input");
+	readprof();			/* Read the profile information. */
+	if (argc == 4) {
+		filename = *argv;
+		if (freopen(filename, "w", stdout) == NULL)
+			fatalf("cannot open %s for output");
+	}
+	dumpprof();			/* Dump the profile. */
+	exit(0);
+}
+
+/*
+ * Compare the addresses of two symbols for qsort.
+ */
+addrcomp(p1, p2)
+struct sym **p1, **p2;
+{
+ 	register char *a1, *a2;
+	a1 = (*p1)->s_addr;
+	a2 = (*p2)->s_addr;
+	return((a1 < a2) ? -1 : ((a1 == a2) ? 0 : 1));
+}
+
+/*
+ * Sort the symbols by address.
+ */
+addrsort()
+{
+	register struct sym **spp;
+	/* Allocate a table for the sym pointers. */
+	if ((sympp = (struct sym **)malloc((nsyms+1)*sizeof(struct sym *))) == NULL)
+		fatal("out of memory for symbol sorting");
+	/* Copy the sym pointers from the linked list into the table. */
+	spp = sympp;
+	while (symlist) {
+		*spp++ = symlist;
+		symlist = symlist->s_link;
+	}
+	*spp = NULL;			/* Null terminate the table. */
+	qsort(sympp, nsyms, sizeof(struct sym *), addrcomp);	/* Sort it. */
+}
+
+/*
+ * Add a new symbol with name id to the symbol list.
+ */
+addsym(offset)
+unsigned offset;
+{
+	register struct sym *sp;
+	if ((sp = (struct sym *) malloc(sizeof(struct sym) + strlen(id) + 1)) == NULL)
+		fatal("out of memory for symbols");
+	sp->s_link = symlist;
+	sp->s_addr = offset;
+	sp->s_count = 0L;
+	strcpy(sp->s_name, id);
+	symlist = sp;
+}
+
+/*
+ * Compare the counts of two symbols for qsort.
+ */
+countcomp(p1, p2)
+struct sym **p1, **p2;
+{
+ 	register long l1, l2;
+	l1 = (*p1)->s_count;
+	l2 = (*p2)->s_count;
+	return((l1 < l2) ? -1 : ((l1 == l2) ? 0 : 1));
+}
+
+/*
+ * Dump the profile information.
+ */
+dumpprof()
+{
+	/* Sort symbol table (now sorted by address) by desired method. */
+	if (nflag)
+		qsort(sympp, nsyms, sizeof(struct sym *), namecomp);
+	else if (!lflag)
+		qsort(sympp, nsyms, sizeof(struct sym *), countcomp);
+	dumpsyms();			/* Dump the sorted list. */
+	if (nnotfound == 0)
+		return;			/* No unmatched symbols. */
+	printf("Not found:\n");
+	nsyms = nnotfound;
+	addrsort();			/* Sort the not found list. */
+	if (!lflag)
+		qsort(sympp, nsyms, sizeof(struct sym *), countcomp);
+	aflag = 1;			/* Force address printing. */
+	dumpsyms();			/* Dump the not found list. */
+}
+
+/*
+ * Dump the sorted symbol table.
+ * Free the symbols and the table.
+ */
+dumpsyms()
+{
+	register struct sym **spp;
+	register struct sym *sp;
+	for (spp = sympp; *spp; spp++) {
+		sp = *spp;
+		if (!zflag && (sp->s_count == 0L))
+			continue;
+		printf("%8ld ", sp->s_count);
+		if (aflag)
+			printf("0x%04x ", sp->s_addr);
+		printf("%s\n", sp->s_name);
+		free(sp);
+	}
+	free(sympp);
+}
+ 
+/*
+ * Print error message and exit.
+ */
+fatal(s)
+register char *s;
+{
+	fprintf(stderr, "profil:  %s\n", s);
+	exit(1);
+}
+
+/*
+ * Print error message with current filename and exit.
+ */
+fatalf(s)
+register char *s;
+{
+	char errmsg[NERRMSG];
+	sprintf(errmsg, s, filename);
+	fatal(errmsg);
+}
+
+/*
+ * Read a byte from standard input, update checksum and len.
+ */
+getb()
+{
+	register int i;
+	if ((i = getchar()) == EOF)
+		fatalf("premature EOF on %s");
+	csum += i;
+	--len;
+	return(i);
+}
+
+/*
+ * Get BLKDEF procedure name info.
+ * This is not done for nested BLKDEFs.
+ */
+getblkdef()
+{
+	if (getgsf()) {
+		++nsyms;
+		getname();
+		addsym(geti());
+	}
+}
+
+/*
+ * Get GRPDEF info.
+ * Set cgroup if the LNAME is "CGROUP".
+ */
+getgrpdef()
+{
+	++groupn;			/* Bump group index. */
+	if (getindex() == cgrouplname)
+		cgroup = groupn;
+}
+
+/*
+ * Get group, segment and optional frame number.
+ * Returns TRUE if group is CGROUP and segment is CODE.
+ */
+getgsf()
+{
+	register int group, segm;
+	group = getindex();
+	segm = getindex();
+	if ((group == 0) && (segm == 0))
+		return(0);
+	return((group==cgroup) && (segm==cseg));
+}
+
+/*
+ * Read a word and return it.
+ */
+geti()
+{
+	register int i = getb();
+	return(i | (getb() << 8));
+}
+
+/*
+ * Read an index and return it.
+ */
+getindex()
+{
+	register int i = getb();
+	if ((i&0x80) == 0)
+		return(i);
+	return(((i&0x7F)<<8) | getb());
+}
+
+/*
+ * Get an LNAME record.
+ * Set codelname if the LNAME is "CODE".
+ * Set cgrouplname if the LNAME is "CGROUP".
+ */
+getlnames()
+{
+	while (len) {
+		++lnamen;		/* Bump LNAME index. */
+		getname();
+		if (strcmp(id, "CODE") == 0)
+			codelname = lnamen;
+		else if (strcmp(id, "CGROUP") == 0)
+			cgrouplname = lnamen;
+	}
+}
+
+/*
+ * Read a long and return it.
+ */
+long
+getlong()
+{
+	register long l = geti();
+	return(l | (geti() << 16));
+}
+
+/*
+ * Read a name into id.
+ */
+getname()
+{
+	register int len = getb();
+	register char *cp = &id[0];
+	while (len--)
+		*cp++ = getb();
+	*cp = '\0';
+}
+
+/*
+ * Get PUBDEF info.
+ * Add it to symbols if in CGROUP and CODE segment.
+ */
+getpubdef()
+{
+	if (getgsf()) {
+		while (len) {
+			++nsyms;
+			getname();
+			addsym(geti());
+			getindex();
+		}
+	}
+}
+
+/*
+ * Get SEGDEF info.
+ * Set cseg if the LNAME is "CODE".
+ */
+getsegdef()
+{
+	register int a;
+	++segn;				/* Bump segment index. */
+	a = (getb()&0xE0) >> 5;
+	if (a == 5)
+		return;
+	else if (a == 0) {
+		geti();
+		getb();
+	}
+	else if (a == 6) {
+		getb();
+		geti();
+		geti();
+	}
+	geti();				/* Length. */
+	if (getindex() == codelname)
+		cseg = segn;		/* Set code segment index. */
+}
+
+/*
+ * Ignore len bytes.
+ */
+ignore()
+{
+	while (len)
+		getb();
+}
+
+/*
+ * Compare the names of two symbols for qsort.
+ */
+namecomp(p1, p2)
+struct sym **p1, **p2;
+{
+	return(strcmp((*p1)->s_name, (*p2)->s_name));
+}
+
+/*
+ * Print warning message.
+ */
+nonfatal(s)
+register char *s;
+{
+	fprintf(stderr, "profil:  warning:  %s\n", s);
+}
+
+/*
+ * Read the profile file.
+ */
+readprof()
+{
+	register struct sym **spp;
+	register unsigned int addr;
+	register int i;
+	register long count;
+	if (geti() != PSMALL)
+		fatalf("%s is not a profile file");
+	id[0] = '\0';				/* Nil id for nonfounds. */
+	while ((i=getchar()) != EOF) {		/* Look ahead for EOF. */
+		ungetc(i, stdin);		/* Put it back. */
+		count = getlong();		/* Get count. */
+		geti();				/* Ignore link. */
+		addr = geti() -  PSBACK;	/* Get loc and adjust. */
+		for (spp = sympp; *spp ; spp++) {
+			if ((*spp)->s_addr == addr) {	/* Matched. */
+				(*spp)->s_count = count;
+				break;
+			}
+			else if ((*spp)->s_addr > addr) {
+				++nnotfound;	/* Not found. */
+				addsym(addr);	/* Add to not found list. */
+				symlist->s_count = count;
+				break;
+			}
+		}
+	}
+}
+
+/*
+ * Read symbols from the OMF executable file and build symbol table.
+ */
+readsyms()
+{
+	register int type, blevel, xflag;
+	type = getb();
+	if ((type != THEADR) && (type != LHEADR) && (type != RHEADR))
+		fatalf("%s is not an object file");
+	ungetc(type, stdin);
+	csum = blevel = xflag = 0;
+	while (!xflag) {
+		type = getb();			/* Record type. */
+		len = geti() - 1;		/* Record length without csum. */
+		switch (type) {
+			case BLKDEF:
+				if (blevel++ == 0)
+					getblkdef();
+				break;
+			case BLKEND:
+				--blevel;
+				break;
+			case GRPDEF:
+				getgrpdef();
+				break;
+			case LNAMES:
+				getlnames();
+				break;
+			case MODEND:
+				xflag = 1;
+				break;
+			case PUBDEF:
+				getpubdef();
+				break;
+			case SEGDEF:
+				getsegdef();
+				break;
+			default:
+				break;
+		}
+		ignore();			/* Skip to csum. */
+		getb();				/* Read the csum. */
+		if ((csum&0xFF) != 0)
+			fatalf("checksum error on executable %s");
+	}
+	if (getchar() != EOF)
+		fatalf("data after MODEND on executable %s");
+	if (cseg == 0)
+		nonfatal("cannot find CODE segment");
+	if (cgroup == 0)
+		nonfatal("cannot find CGROUP");
+}
+
+/*
+ * Print usage message and exit.
+ */
+usage()
+{
+	fatal("Usage:  profil [ -alnz ] [ infile [ profile [ outfile ] ] ]");
+}
+@

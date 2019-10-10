@@ -1,0 +1,603 @@
+.TH ld "" "" Command
+.PC "Link relocatable object modules"
+\fBld \fI[option .\^.\^.\^] \fIfile .\^.\^.\fR
+.PP
+.HS
+.SH Options:
+.\".IC \fIthis\fB=\fIthat\fR
+.\"Replace symbol \fIthis\fR with \fIthat\fR at link time.
+.IC "\fB\-e\fI ent\fR"
+Set entry point to symbol or octal number
+.IC \fB\-f\fR
+(Force)
+Force link even if there are errors
+.IC \fB\-i\fR
+Bind output sepid
+.IC \fB\-G\fR
+Suppress the common/global warning
+.IC \fB\-K\fR
+Rebuilt a new kernel.
+.\".IC \fB\-k[\fIsys\fB]\fR
+.\"Kernel process: use system symbol table (default, \fB/coherent\fR)
+.IC \fB\-L\fIdirectory\fR
+Search \fIdirectory\fR for libraries and objects before searching the
+directories named in the environmental variable \fBLIBPATH\fR
+.IC \fB\-l\fIlib\fR
+Use standard library \fIlib\fR
+.\".IC \fB\-n\fR
+.\"Bind output shared, force \fB\-i\fR option
+.IC "\fB\-o \fIfile\fR"
+Write output into \fIfile\fR (default, \fIl.out\fR)
+.IC \fB\-q\fR
+(Quiet)
+Suppress all warning messages
+.IC \fB\-Q\fR
+Quiet:
+Suppress all error messages
+.IC \fB\-r\fR
+Retain relocation information
+.IC \fB\-s\fR
+Discard symbol table
+.IC "\fB\-u \fIsym\fR"
+Undefine \fIsym\fR (force library search)
+.IC \fB\-x\fR
+Discard all local symbols
+.IC \fB\-X\fR
+Discard C internal local symbols
+.HE
+A compiler translates a file of source code into a
+.IR "relocatable object" .
+This relocatable object cannot be executed by itself, for calls to
+routines stored in libraries have not yet been resolved.
+.B ld
+combines, or
+.IR links ,
+relocatable object files with routines stored in libraries produced by the
+archiver
+.B ar
+to construct an executable file.
+For this reason,
+.B ld
+is sometimes called a
+.IR linker ,
+a
+.IR "link editor" ,
+or a
+.IR loader .
+.PP
+.B ld
+scans its arguments in order and interprets each option as described below.
+Each non-option argument is either a relocatable object file, produced by
+.BR cc ,
+.BR as ,
+or
+.BR ld ,
+or a library archive produced by
+.BR ar .
+It rejects all other arguments and prints a diagnostic message.
+.PP
+Each relocatable file argument is bound into the output file if its
+machine type matches the machine type of the first file so bound; if
+it does not,
+.B ld
+prints a diagnostic message.
+The symbol table of the file is merged into the output symbol table and
+the list of defined and undefined symbols updated appropriately.
+If the file redefines a symbol defined in an earlier bound module,
+the redefinition is reported and the link continues.
+The last such redefinition determines the value that the symbol will have
+in the output file, which may be acceptable but is probably an error.
+.PP
+Each library archive argument is searched only to resolve undefined
+references, i.e., if there are no undefined symbols, the linker goes
+to the next argument immediately.
+The library is searched from first module to last and any module that
+resolves one or more undefined symbols is bound into the output exactly
+as an explicitly named relocatable file is bound.
+The library is searched repeatedly until an entire scan adds nothing to
+the executable file.
+.PP
+The order of modules in a library is important in two respects:
+it will affect the time required to search the library, and, if more than
+one module resolves an undefined symbol, it can alter the set of library
+modules bound into the output.
+.PP
+A library will link faster if the undefined symbols in any given library
+module are resolved by a library module that comes later in the library.
+Thus, the low-level library modules, those with no undefined symbols,
+should come at the end of the library, whereas the higher-level modules,
+those with many undefined symbols, should come at the beginning.
+The library module
+.BR ranlib.sym ,
+which is maintained by the
+.B "ar s"
+modifier,
+provides
+.B ld
+with a compressed index to the symbols defined in the library.
+But even with the index, the library will link much faster if the
+modules occur in top-down rather than bottom-up order.
+.PP
+A library can be constructed to provide a type of
+\*(QLconditional\*(QR linking if alternate resolutions of undefined
+symbols are archived in a carefully thought-out order.
+For instance,
+.B libc.a
+contains the modules
+.DS
+.B
+	finit.o
+	exit.o
+	_finish.o
+.R
+.DE
+.PP
+in precisely the order given, though some other modules may intervene.
+.B finit.o
+contains most of the internals of the STDIO library,
+.B exit.o
+contains the
+.B exit()
+function, and
+.B _finish.o
+contains an empty version of
+.BR _finish() ,
+the function that
+.B exit()
+calls to close STDIO streams before process termination.
+If a program uses any STDIO routines, macros, or data, then
+.B finit.o
+will be bound into the output with its version of
+.BR finish() .
+If a program uses no STDIO, then the \*(QLdummy\*(QR
+.B _finish.o
+will be bound into the output because it is the first module that defines
+.B _finish()
+that the linker encounters after
+.B exit.o
+adds the undefined reference.
+.\" Got that?
+This saves approximately 3,000 bytes.
+To set the order of routines within a library, use the archiver
+.BR ar .
+.SH "COFF Linking"
+.II "COFF^linking"
+\*(CO uses the Common Object File Format (COFF).
+This format renders many advantages, but it also places special demands
+upon the linker.
+The following discussing some of the complexities that arise for linking
+into the COFF format.
+.PP
+.II alignment
+Under COFF, common variables are kept aligned according to their
+most strongly aligned contributor.
+If
+.I name
+is linked with another module that also declares
+.I name
+but sets it to another length, the linker creates one such
+variable and gives it the greater length of the two.
+.B ld
+deduces the alignment of a common variable by its length:
+if the length of a common is divisible by four,
+it is aligned on a four-byte boundary;
+if it is divisible by two, it is aligned on a two-byte boundary.
+Otherwise, it is assumed to be unaligned.
+The linker supports only three classes of alignment:
+four-byte, two-byte, and unaligned.
+It then aligns a common variable according to its most strongly aligned
+contributor.
+.PP
+For example, if one assembly-language module
+contributes a \fB.comm\fR (common) variable named
+.B xyz
+whose length is four bytes, and another
+contributes another
+.B xyz
+whose length is five bytes,
+.B ld
+gives the resulting
+.B xyz
+a length of eight bytes
+to satisfy the length requirement (at least five) and the alignment
+requirement (four-byte boundary).
+.PP
+Or in another example, if you declare a C variable
+.B "char x;"
+x is a common variable, with a length of one byte.
+If another C module declares
+.B "long x;"
+the two \fBx\fR's will share a length of four bytes.
+However, in the first module
+.B "sizeof(x) == 1"
+and in the second
+.BR "sizeof(x) == 4" .
+These will cause warning messages to appear, which you can turn off by
+using the
+.B \-q
+option.
+.PP
+After
+.B ld
+has made its first pass, it places all common variables at the end of the
+.B .bss
+segment:
+first the four-byte-aligned variables, then the two-byte-aligned,
+then the unaligned.
+.SH Options
+.B ld
+recognizes the following options:
+.\".IP \fIthis\fB=\fIthat\fR
+.\"Replace symbol \fIthis\fR with \fIthat\fR at link time.
+.\"This is described in more detail below.
+.IP "\fB\-e \fIentry\fR"
+Specify the
+.I entry
+point of the output module,
+either as a symbol or as an absolute octal address.
+.IP \fB\-f\fR
+(Force)
+Force link even if there are errors.
+Results may be undefined.
+.IP \fB\-G\fR
+Suppress the common/global warning \(em that is, tell
+.B ld
+not to complain if a global variable is also used as a common variable.
+.IP \fB\-i\fR
+This option is obsolete, but is kept for compatibility purposes.
+If you include it in a \fBmakefile\fR,
+.B ld
+will silently ignore it.
+.IP "\fB\-K\fR"
+Link a kernel segment.
+.\".IP \fB\-k[\fIsystem\^\fB]\fR
+.\"Bind the output as a kernel process or linkable driver.
+.\"The starting address depends on the target machine, and
+.\".B ld
+.\"scans the
+.\".I system
+.\"link file symbol table for symbols that are currently undefined.
+.\".I system
+.\"defaults to
+.\".B /coherent.
+.IP \fB\-L\fIdirectory\fR
+Search \fIdirectory\fR for libraries and objects before searching the
+directories named in
+.BR LIBPATH .
+Note that you can have more than one \fB\-L\fR option in a \fBld\fR
+command line.
+For example, if
+.B LIBPATH
+is set to
+.BR /lib:/usr/lib ,
+then the command line
+.DM
+	ld -L/search/First -L/search/Next a.o -lxyz
+.DE
+.sp \n(pDu
+tells \fBld\fR to search for libraries
+.B libxyz.a
+and
+.B libc.a
+along the path:
+.DM
+	/search/First:/search/Next:/lib:/usr/lib
+.DE
+.sp \n(pDu
+.II LISTSEP
+The character that separates entries in the path is set by the macro
+.BR LISTSEP .
+Header file
+.B path.h
+defines this to be the `:'.
+.IP "\fB\-l \fIname\fR"
+An abbreviation for the
+library
+\fB/lib/lib\fIname\fB.a\fR
+or
+\fB/usr/lib/lib\fIname\fB.a\fR
+if the first is not found.
+.IP "\fB\-o \fIfile\fR"
+Write output to
+.IR file .
+The default is
+.BR a.out .
+.IP \fB\-q\fR
+Suppress all warning messages.
+.IP \fB\-Q\fR
+Suppress all error messages, not just warnings.
+.IP \fB\-r\fR
+Retain relocation information in the output,
+and issue no diagnostic message for undefined symbols.
+This option builds a
+.B .o
+file that appears as if its pieces had been compiled together.
+.IP \fB\-s\fR
+Strip the symbol table from the output.
+The same effect may be obtained by using the command
+.BR strip .
+The
+.B \-s
+and
+.B \-r
+options
+are mutually exclusive.
+.IP "\fB\-u \fIsymbol\fR"
+Add
+.I symbol
+to the symbol table as a global reference,
+usually to force the linking of a particular library module.
+.IP \fB\-X\fR
+Discard local compiler-generated symbols
+beginning \fB.L\fP.
+.IP \fB\-x\fR
+Discard all local symbols.
+.PP
+.II LDHEAD
+.II LDTAIL
+.B ld
+reads the environmental variables
+.B LDHEAD
+and
+.B LDTAIL
+and appends them to, respectively, the beginning and end of its command line.
+For example, to ensure that
+.B ld
+is always executed with the option \fB\-d\fR, insert the following into your
+.BR .profile :
+.DM
+	export LDHEAD=-d
+.DE
+.PP
+Likewise, to ensure that
+.B ld
+always includes the mathematics library \fBlibm\fR when it links, insert
+the following into your \fB.profile\fR:
+.DM
+	export LDTAIL=-lm
+.DE
+.SH "LIBPATH
+Except when used with its \fB\-l\fR option,
+.B ld
+does not know about paths:
+it links exactly what you tell it to link via the
+.B cc
+command line.
+.B cc
+looks for libraries
+by searching the directories named in the environmental variable
+.BR LIBPATH .
+If you do not define
+.B LIBPATH
+in your environment, it searches the default
+.B LIBPATH
+as defined in
+.BR /usr/include/path.h .
+If you define
+.BR LIBPATH ,
+.B cc
+searches the directories in the order you specify.
+For example, a typical definition is:
+.DM
+	export LIBPATH=:/lib:/usr/lib
+.DE
+.PP
+This searches the current directory `.', then
+.BR /lib ,
+then
+.BR /usr/lib .
+.\".SH "Link-Time Replacement"
+.\"The command-line option \fIthis\fB=\fRthat\fR
+.\"instructs
+.\".B ld
+.\"to replace
+.\".I this
+.\"with
+.\".I that
+.\"at link time.
+.\"For example, consider the following program:
+.\".DM
+.\"	/* in hi.c */
+.\"	main() {
+.\"		zzz("Hello world\en");
+.\"	}
+.\".DE
+.\".PP
+.\"Now, compile and link this module with the following commands:
+.\".DM
+.\"	cc -c hi.c
+.\"	ld -o hi zzz=printf hi.o
+.\".DE
+.\".PP
+.\".B ld
+.\"turns
+.\".B zzz
+.\"into
+.\".B printf
+.\"as it creates the executable
+.\".BR hi .
+.\"It compares all symbol in relocatable objects with the identifiers in its
+.\"rename list, and changes all it finds.
+.\".PP
+.\"The reason has to do with loadable drivers.
+.\"A loadable driver's logic may be linked with many tables.
+.\"The
+.\".B main()
+.\"function refers to
+.\"a table named
+.\".BR con ,
+.\"the table will have a name like
+.\".BR atcon .
+.\"The name
+.\".B con
+.\"must be changed to
+.\".BR atcon ,
+.\"the kernel sees the symbol table and that name must be unique.
+.\".PP
+.\".II drvld
+.\"Actually,
+.\".B drvld
+.\"is a link to
+.\".BR ld .
+.\"When
+.\".B ld
+.\"is acting as
+.\".BR drvld ,
+.\"it loads up the kernel's symbol table.
+.\"It then loads any objects you give it
+.\"and makes any links to the kernel.
+.\"Then it calls the kernel and says, in effect,
+.\"``Hello kernel!
+.\"I'm building a loadable driver, it's got five kilobytes of \fB.text\fR and
+.\"four kilobytes of \fB.data\fR.
+.\"Where do you want it?''
+.\"The kernel replies, ``Put the \fB.text\fR
+.\"at 0x701482 and the \fB.data\fR at 0x901234.''
+.\".B ld
+.\"builds an executable in
+.\".B /tmp
+.\"with those addresses built in and does an
+.\".B execl()
+.\"to start it up.
+.SH "Linker-defined Symbols"
+.II "linker-defined symbols"
+.II "symbols^linker-defined"
+.B ld
+defines the following set of symbols within an executable program:
+.II __end_text
+.II __end_data
+.II __end_bss
+.II __end
+.DS
+.ta 1.0i
+\fB__end_text\fR	End of the \fB.text\fR segment
+\fB__end_data\fR	End of the \fB.data\fR segment
+\fB__end_bss\fR	End of the \fB.bss\fR segment
+\fB__end\fR	End of the highest segment
+.DE
+.PP
+Note that if you have a segment named \fB.xyz\fR, then \fBld\fR
+will allow you to use \fB__end_xyz\fR.
+.SH Files
+\fBa.out\fR \(em Default output
+.br
+\fB/coherent\fR \fRfor \fB\-k\fR option
+.br
+\fB/lib/lib*.a\fR \(em Libraries
+.br
+\fB/usr/lib/lib*.a\fR \(em More libraries
+.SH "See Also"
+.Xr "ar," ar
+.Xr "ar.h," ar.h
+.Xr "as," as
+.Xr "cc," cc
+.Xr "cdmp," cdmp
+.Xr "coff.h," coff.h
+.Xr "commands," commands
+.Xr "l.out.h," l.out.h
+.Xr "LIBPATH," libpath
+.Xr "strip" strip
+.SH Diagnostics
+The following gives the error messages returned by 
+.BR ld .
+The messages are in alphabetical order; each is marked as to whether
+it is a
+.I fatal
+or
+.I warning
+condition.
+A fatal message usually indicates a condition that caused
+the compiler to terminate execution.
+Warning messages point out code that is compilable, but
+may produce trouble when the program is executed.
+.Ip "\fRarchive '\fIstring\fR' is corrupt\fR (fatal)"
+This archive makes no sense.
+You may wish to examine this with the archiver
+.BR ar .
+.Ip "\fRfile \fIstring\fR: module \fIstring\fR: bad header\fR (warning)"
+.I string
+does not look like a real object module.
+.Ip "\fRcan't find \'\fIstring\fR\'\fR (fatal)"
+.B ld
+cannot find the requested library.
+Make sure that the
+.B cc
+command line points to the directory that holds the archive.
+.Ip "\fRcannot create '\fIstring\fR'\fR (fatal)"
+.B ld
+cannot create its output file.
+.Ip "\fRentry point \'\fIstring\fR\' not in .text\fR (warning)"
+.Is "\fRerror reading \'\fIstring\fR\'\fR (fatal)"
+.Ip "\fR'\fIstring\fR' is not a COFF archive\fR (fatal)"
+All files ending \fB.a\fR should be COFF archives.
+You may need to rebuild this archive.
+.Ip "\fRLibrary must be created with ar -s option\fR (fatal)"
+The option \fB\-s\fR to
+.B ar
+gives libraries a symbol table for the use of
+.BR ld .
+.Ip "\fRNo work\fR (fatal)"
+There were no object files loaded.
+.Ip "\fRpass 1, \fIn\fR errors\fR (fatal)"
+At the end of pass 1 there were \fIn\fR errors detected.
+The link stopped here.
+.Ip "\fRsymbol '\fIstring\fR' redefined in file '\fIstring\fR': module '\fIstring\fR'\fR (warning)"
+A symbol is defined in incompatible ways in different files.
+.Ip "\fRsymbol '\fIstring\fR' redefined in file '\fIstring\fR' (warning)"
+A symbol is defined in incompatible ways in different files.
+.Ip "\fRfile \fIstring\fR: module \fIstring\fR: relocation out of range \fI0xn\fR\fR (warning)"
+A relocation record points outside the range of its segment.
+.Ip "\fRsymbol '\fIstring\fR' severe warning symbol defined as a common and a global\fR (warning)"
+A symbol was defined as a common, e.g.
+.DM
+	int x;
+.DE
+and as a global, e.g.:
+.DM
+	int x = 5;
+.DE
+There is no good way to fix this without reading
+the code and thinking about the variable usage.
+The linker turned the global into an external.
+That is, it turned
+.DM
+	int x;
+.DE
+into
+.DM
+	extern int x;
+.DE
+This matches the \*(UN linker.
+.Ip "\fRfile \fIstring\fR: module \fIstring\fR: unknown r_type \fIn\fR in segment \fIn\fR record \fIn\fR\fR (warning)"
+Unknown type on COFF relocation record.
+.Ip "\fRunlikely input file name '\fIstring\fR'\fR (warning)"
+Input file names must end \fB.o\fR for object or \fB.a\fR for archive.
+.Ip "\fRsymbol '\fIstring\fR' warning defined with lengths \fIn\fR and \fIn\fR\fR (warning)"
+A common was defined with different lengths,
+while this is legal it is very unusual in C programs.
+This warning may be turned off with the flag
+.BR \-c .
+.Ip "\fRsymbol '\fIstring\fR' warning, redefines builtin symbol\fR (warning)"
+Some symbols such as
+.B __end
+and
+.B __end_text
+are special to the linker.
+In general, symbols beginning `__' are reserved to implementors and
+should be avoided by users.
+Your definition has been used.
+.Ip "\fRwrite error\fR (fatal)"
+.B ld
+cannot write the executable program.
+Check that you have permission to write into the target directory.
+.SH Notes
+.II "stack^alter size of"
+If you are linking a program by hand
+(that is, running
+.B ld
+independently from the
+.B cc
+command), be sure to include
+the appropriate run-time start-up routine with the
+.B ld
+command line; otherwise, the program will not link correctly.

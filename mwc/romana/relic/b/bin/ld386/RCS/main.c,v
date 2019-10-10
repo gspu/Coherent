@@ -1,0 +1,801 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.2
+date     92.02.28.11.07.56;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.21.09.31.07;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@comment changes by cef
+@
+text
+@/* ld/main.c */
+
+#include "data.h"
+#include <path.h>
+
+extern char *mktemp();
+
+/*
+ * ld mainline.
+ */
+main(argc, argv)
+int	argc;
+char	*argv[];
+{
+	flag_t	nosym = 0,		/* do not output symbol table */
+		memld = 0;		/* do in-memory load */
+	char	*ofname = "a.out",
+		*entrys = NULL,
+		*mfn;
+	seg_t	*sgp;
+	sym_t	*sp;
+	mod_t	*mp;
+	FILE	*ofp;
+	struct	stat	statbuf;
+	int	i, segn, c;
+	long	str_length;
+	unsigned int	symno;
+	fsize_t	daddr;
+	uaddr_t	len;
+#if BREADBOX
+	int	abort();
+#endif
+
+
+	setbuf( stdout, NULL );
+	setbuf( stderr, NULL );
+
+	nmod = mxmsym = mdisk = 0;
+
+	if ( argc <= 1 )
+		usage();
+
+	/*
+	 * Pass 1: Scan argument list.
+	 */
+	while (EOF != (c = getargs(argc, argv, "bcde:ik!Kl:mrno:su:wxX?"))) {
+		extern char *optarg, *pathn();
+
+		switch (c) {
+		case 0: /* Not -option; attempt to read file */
+			if (!rdfile(optarg))
+				fatal("Can't open '%s'", optarg); /* NODOC */
+			continue;
+
+		case 'b':
+			/*
+			 * -b: undocumented option
+			 * 	big link stores module structs on disk
+			 */
+			mdisk++;
+
+			if ( (mfp = fopen(mfn=mktemp("/tmp/ldXXXXXX"),"wr") )
+			   ==NULL) {
+			   	unlink( mfn );
+				fatal( "can't open temporary file" ); /**/
+			}
+
+			mtemp = alloc(sizeof(mod_t));
+			continue;
+
+		case 'c':	/* don't flag comm syms of diff size */
+			comflag++;
+			continue;
+
+		case 'd':
+			/*
+			 * -d: Define commons (even if undefined symbols).
+			 */
+			dcomm++;
+			continue;
+
+		case 'e':
+			/*
+			 * -e ent: Set entry point to given symbol/octal number.
+			 */
+			undef(optarg);
+			entrys = optarg;
+
+		case 'i':
+		case 'n':
+			continue;
+
+		case 'k':
+			/*
+			 * -k[sys]: Kernel process - use system symbol table.
+			 */
+			if (*optarg)
+				rdsystem(optarg);
+			else
+				rdsystem("/coherent");
+
+		case 'K':	/* recompile of Kernel */
+			fileh.f_flags |= F_KER;
+			continue;
+
+		case 'l':
+			/*
+			 * -l<lib>: Use standard library <lib>.
+			 */
+			{
+				char *xp, *lp;
+
+				xp = alloc(strlen(optarg) + 6);
+				sprintf(xp, "lib%s.a", optarg);
+				lp = pathn(xp, "LIBPATH", DEFLIBPATH);
+				free(xp);
+				if (NULL == lp)
+				   fatal("can't find lib%s.a", optarg); /**/
+				if (!rdfile(lp))
+					fatal("can't open '%s'", lp);	/**/
+			}
+				continue;
+
+		case 'm':
+			/*
+			 * -m: Perform in-memory load if possible.
+			 */
+			memld++;
+			continue;
+
+		case 'o':
+			/*
+			 * -o file: Place output in named file (default a.out).
+			 */
+			ofname = optarg;
+			continue;
+
+		case 'r':
+			/*
+			 * -r: Retain relocation information.
+			 */
+			reloc++;
+			continue;
+
+		case 's':
+			/*
+			 * -s: Discard symbol table.
+			 */
+			nosym++;
+			continue;
+
+		case 'u':
+			/*
+			 * -u sym: Undefine 'sym' (forcing library search).
+			 */
+			undef(optarg);
+			continue;
+
+		case 'w':
+			/*
+			 * -w: Watch everything happen.
+			 */
+			watch++;
+			w_message("watch!");
+			continue;
+
+		case 'X':
+			/*
+			 * -X: Discard C internal local symbols.
+			 */
+			noilcl++;
+			continue;
+
+		case 'x':
+			/*
+			 * -x: Discard all local symbols.
+			 */
+			nolcl++;
+			continue;
+
+		case '?':
+			help();
+
+		default:
+			usage();
+		}
+	}
+
+	if (!fileh.f_magic)
+		fatal("no work");
+		/* Argumements did not require any files to be loaded. */
+	/*
+	 * all modules have been read
+	 * resolve meanings of various flags
+	 */
+
+	/*
+	 * Relocation or undefined symbols...
+	 */
+	if (nundef) {
+		/*
+		 * Requires symbol table be retained
+		 */
+		message("the following symbols are undefined:");
+		/* At least one required symbol was undefined,
+		 * a list follows. */
+		errCount--;
+		for (mp = modhead; mp != NULL; mp = mp->next)
+			for (i = 0; i < mp->nsym; i++)
+				if ((NULL != (sp = mp->sym[i])) &&
+				    (sp->mod == mp) &&
+				    (sp->sclass == C_EXT) &&
+				    !sp->value &&
+				    !sp->scnum) {
+				    	if (sp != end_s) {
+					    	if (reloc)
+							errCount--;
+					   	spmsg(sp,""); /* NODOC */
+					}
+				}
+
+	}
+	if (errCount)
+		fatal("pass1 %d errors\n", errCount);
+		/* At the end of pass1 there were \fIn\fB errors detected.
+		 * Link stopped here. */
+
+	if (reloc) {
+		nosym = 0;
+		fileh.f_flags |= F_LNNO | F_AR32WR;
+	}
+	/*
+	 * No relocation, no undefined symbols
+	 */
+	else {
+		dcomm++;			/* Must define commons */
+		/* Discarding reloc info, executable, 32wr machine */
+		fileh.f_flags |= F_RELFLG | F_LNNO | F_EXEC | F_AR32WR;
+	}
+
+	/*
+	 * To define common symbols.
+	 * Round up commons to long boundary.
+	 * Add required space to .bss
+	 */
+	if (dcomm) {
+		comnb += (4 - ((comnb + comns) & 3)) & 3;
+		oseg[S_BSSD].size += comnb + comns + comnl;
+	}
+
+	/*
+	 * Discard symbol table.
+	 */
+	if (nosym)
+		fileh.f_flags |= F_LSYMS;
+
+	w_message("# undefined=%d", nundef);
+
+	/*
+	 * Set segment bases
+	 */
+	daddr = baseall();
+
+	/*
+	 * Open output file
+	 */
+	if ((ofp = fopen(ofname, "w+")) == NULL)
+		fatal("cannot create %s", ofname);
+		/* Cannot create linker output file. */
+
+	if (!reloc) {
+		stat(ofname, &statbuf);
+		chmod(ofname,
+		      statbuf.st_mode & ~(S_IEXEC|(S_IEXEC>>3)|(S_IEXEC>>6)));
+	}
+	setbuf(ofp, NULL);
+
+	/*
+	 * set disk offsets of segments
+	 * if not bigger than a breadbox, build output file in memory;
+	 * otherwise, open the file for each segment,
+	 * to get independent buffering
+	 */
+	w_message("size: %ld", daddr);
+
+	for ( i = 0; i < S_BSSD; i++ ) {
+		sgp = &oseg[i];
+
+		if (sgp->size == 0 )
+			continue;
+
+		{
+#ifdef GEMDOS
+/*
+ * Under GEMDOS multi opens of the same file don't work.
+ * This form produces several files for debugging and does
+ * not actually work.
+ */
+			char work[10];
+
+			sprintf(work, "test%d.dat", i);
+			if ((outputf[i] = fopen(work, "wr")) == NULL )
+				fatal( "cannot open %s (seg %d)", ofname, i );
+				/* NODOC */
+			if (reloc) {
+				sprintf(work, "test%d.rel", i);
+				if ((outputr[i] = fopen(work, "wr")) == NULL )
+					fatal( "cannot open %s (seg %d)",
+						work, i);
+					/* NODOC */
+			}
+#else
+			if ((outputf[i] = fopen(ofname, "r+")) == NULL )
+				fatal( "cannot open file output %s (seg %d)",
+					ofname, i );
+				/* The linker opens it's output file several
+				 * times directed to different places, rather
+				 * than seek constantly. One of those opens
+				 * failed. */
+			fseek(outputf[i], sgp->daddr, 0 );
+
+			if (reloc) {
+				if ((outputr[i] = fopen(ofname, "r+")) == NULL)
+					fatal(
+					"cannot open rel output %s (seg %d)",
+						ofname, i );
+				/* The linker opens it's output file several
+				 * times directed to different places, rather
+				 * than seek constantly. One of those opens
+				 * failed. */
+
+				fseek(outputr[i], sgp->relptr, 0);
+			}
+#endif
+		}
+	}
+
+	/*
+	 * Define internal symbols which have been referenced
+	 */
+	if (dcomm) {
+		i = fileh.f_flags & F_KER;
+		endbind(&etext_s, S_TEXT, i);
+		endbind(&edata_s, S_DATA, i);
+		endbind(&end_s,   S_BSSD, i);
+	}
+
+	/*
+	 * Run through symbol table fixing everything up
+	 */
+	str_length = 4;
+	if (nosym)
+		fileh.f_symptr = fileh.f_nsyms = 0;
+	else {
+		fileh.f_symptr = daddr;
+		fseek(ofp, fileh.f_symptr, 0);
+	}
+
+	symno = 0;
+	/* get starting addresses for 1, 2 and 4 aligned commons */
+	if (dcomm) {
+		w_message("common bytes %ld shorts %ld longs %ld",
+			  comnb, comns, comnl);
+		comnb = oseg[S_BSSD].vbase + oseg[S_BSSD].size - comnb;
+		comns = comnb - comns;
+		comnl = comns - comnl;
+		w_message("commons at 0x%lx 0x%lx 0x%lx",
+			  comnb, comns, comnl);
+	}
+
+	for (mp = modhead; mp != NULL; mp = mp->next) {
+		for (i = 0; i < mp->nsym; i++) {
+			if ((NULL == (sp = mp->sym[i])) || (sp->mod != mp))
+				continue;
+			/*
+			 * Make defined symbol relative to virtual 0
+			 */
+			segn = sp->scnum;
+			switch(sp->sclass) {
+			case C_EXT:
+				if (dcomm && !segn && (len = sp->value)) {
+					if (len & 1) {
+						sp->value = comnb;
+						comnb += len;
+					}
+					else if (len & 2) {
+						sp->value = comns;
+						comns += len;
+					}
+					else {
+						sp->value = comnl;
+						comnl += len;
+					}
+					sp->sclass = C_EXT;
+					sp->scnum  = S_BSSD + 1;
+					break;
+				}
+			case C_STAT:
+				if (segn > 0)
+					sp->value += oseg[segn - 1].vbase;
+			}
+			/*
+			 * nolcl means strip local symbols.
+			 * noilcl means strip local symbols starting .L
+			 */
+			if ((sp->sclass == C_STAT) &&
+			    (nolcl ||
+			     (noilcl  &&
+			      (sp->name[0] == '.') &&
+			      (sp->name[1] == 'L'))))
+				continue;
+
+			/*
+			 * Assign symbol number
+			 */
+			sp->symno = symno++;
+			if (!nosym) {
+				SYMENT sym;
+
+				sym.n_zeroes = 0;
+				sym.n_offset = 0;
+				if (SYMNMLEN < (c = strlen(sp->name))) {
+					w_message("long sym %d %s %d",
+						sp->symno,
+						sp->name,
+						segn);
+					sym.n_offset = str_length;
+					str_length += c + 1;
+				}
+				else
+					strcpy(sym.n_name, sp->name);
+				fileh.f_nsyms = symno;
+				sym.n_value = sp->value;
+				sym.n_scnum = sp->scnum;
+				sym.n_type  = 0;
+				sym.n_sclass = sp->sclass;
+				sym.n_numaux = 0;
+				fwrite(&sym, SYMESZ, 1, ofp);
+			}
+		}
+	}
+
+	if (4 != str_length) {
+		fwrite(&str_length, sizeof(str_length), 1, ofp);
+		for (mp = modhead; mp != NULL; mp = mp->next) {
+			for (i = 0; i < mp->nsym; i++) {
+				if ((NULL == (sp = mp->sym[i])) ||
+				    (sp->mod != mp))
+					continue;
+
+				if (SYMNMLEN < (c = strlen(sp->name)))
+					fwrite(sp->name, c + 1, 1, ofp);
+			}
+		}
+	}
+	fseek(ofp, 0L, 0);
+
+	/* prevent fixup on end symbol */
+	if (NULL != etext_s)
+		etext_s->mod = NULL;
+	if (NULL != edata_s)
+		edata_s->mod = NULL;
+	if (NULL != end_s)
+		end_s->mod = NULL;
+
+	/*
+	 * get entry point (cannot precede symbol table fixup)
+	 */
+	aouth.entry = (entrys != NULL)
+			? lentry(entrys)
+			: ((fileh.f_flags & F_KER) ? 
+				drvbase[M_386] :
+				oseg[S_TEXT].vbase);
+	/*
+	 * Pass 2
+	 */
+	if (mdisk) {
+
+		free(mtemp);
+
+		mp=alloc(sizeof(mod_t)+ mxmsym*sizeof(sym_t *));
+
+		rewind( mfp );
+
+		for ( i = 0; i < nmod; i++ ) {
+
+			if ( fread( mp, sizeof(mod_t), 1 ,mfp ) != 1 )
+baddisk:			fatal("temporary file read error");	/**/
+
+			if ( fread( mp->sym, sizeof(sym_t *), mp->nsym, mfp )
+			   != mp->nsym)
+			   	goto baddisk;
+
+			loadmod( mp );
+		}
+
+		unlink( mfn );
+	}
+	
+	else {
+		for ( mp = modhead; mp != NULL; mp = mp->next )
+			loadmod( mp );
+	}
+
+	/*
+	 * All over but the flushing
+	 */
+	time(&fileh.f_timdat);
+	fileh.f_nscns = NLSEG;
+	fileh.f_opthdr = 0;
+	if (fileh.f_flags & F_EXEC)
+		fileh.f_opthdr = sizeof(aouth);	
+	fwrite(&fileh, sizeof(fileh), 1, ofp);
+
+	if (fileh.f_flags & F_EXEC) {
+		aouth.magic  = Z_MAGIC;
+		aouth.vstamp = 0;
+		aouth.tsize  = oseg[S_TEXT].size;
+		aouth.dsize  = oseg[S_DATA].size;
+		aouth.bsize  = oseg[S_BSSD].size;
+		fwrite(&aouth, sizeof(aouth), 1, ofp);
+	}
+
+	for ( i = S_TEXT; i < NLSEG; i++ )
+		secth[i].s_size = oseg[i].size;
+	strcpy(secth[S_TEXT].s_name, _TEXT);
+	strcpy(secth[S_DATA].s_name, _DATA);
+	strcpy(secth[S_BSSD].s_name, _BSS);
+	secth[S_TEXT].s_flags = STYP_TEXT;
+	secth[S_DATA].s_flags = STYP_DATA;
+	secth[S_BSSD].s_flags = STYP_BSS;
+	secth[S_BSSD].s_scnptr = 0;
+	fwrite(secth, sizeof(secth), 1, ofp); /* an array */
+
+	if (errCount)
+		fatal("pass2 %d errors", errCount);
+		/* At the end of pass1 there were \fIn\fB errors detected.
+		 * Link stopped before making output executable
+		 * with chmod. */
+
+	/*
+	 * Make executable if no undefined symbols, and common storage defined.
+	 */
+	if ((nundef == 0) || (dcomm != 0))
+		chmod(ofname, statbuf.st_mode|S_IEXEC|(S_IEXEC>>3)|(S_IEXEC>>6));
+
+	exit(0);
+}
+
+/*
+ * Set virtual bases in array of segments
+ * according to flags in header.
+ */
+fsize_t
+baseall()
+{
+	uaddr_t inc = segsize[M_386]-1;
+	seg_t all;
+
+	all.size = 0;
+	all.daddr = sizeof(fileh) + sizeof(secth);
+
+	if (fileh.f_flags & F_EXEC)
+		all.daddr += sizeof(aouth);
+	all.vbase = (fileh.f_flags & F_KER) ? drvbase[M_386] : all.daddr;
+
+	/*
+	 * Code segment first.
+	 */
+	setbase(S_TEXT, &all);
+	aouth.text_start = oseg[S_TEXT].vbase;
+
+	/*
+	 * Set data offset
+	 */
+	if (fileh.f_flags & F_KER)
+		all.vbase = (all.vbase + 0x0fff) & ~0x0fffL;
+	else
+		all.vbase = (all.daddr & 0x0fff) + (reloc ? 0 : 0x400000L);
+
+	/*
+	 * Data segment next.
+	 */
+	setbase(S_DATA, &all);
+	aouth.data_start = oseg[S_DATA].vbase;
+
+	/*
+	 * Round up to page boundary
+	 */
+	all.vbase = (all.vbase + inc) & ~inc;
+
+	/*
+	 * Uninitialized data segment next.
+	 */
+	setbase(S_BSSD, &all);
+	all.daddr -= oseg[S_BSSD].size;
+
+	if (reloc) {
+		oseg[S_TEXT].relptr = secth[S_TEXT].s_relptr = all.daddr;
+		secth[S_TEXT].s_nreloc = oseg[S_TEXT].nreloc;
+
+		all.daddr += oseg[S_TEXT].nreloc * RELSZ;
+
+		oseg[S_DATA].relptr = secth[S_DATA].s_relptr = all.daddr;
+		secth[S_DATA].s_nreloc = oseg[S_DATA].nreloc;
+
+		all.daddr += oseg[S_DATA].nreloc * RELSZ;
+	}
+	return(all.daddr);
+}
+
+/*
+ * Set virtual base in given segment and return next address
+ * Check for wraparound and driver space overflow
+ */
+void
+setbase(seg, all)
+register seg_t *all;
+{
+	secth[seg].s_paddr = secth[seg].s_vaddr = oseg[seg].vbase = all->vbase;
+	all->vbase += secth[seg].s_size = oseg[seg].size;
+	all->size += oseg[seg].size;
+
+	oseg[seg].daddr = secth[seg].s_scnptr = all->daddr;
+	all->daddr += oseg[seg].size;
+}
+
+/*
+ * Determine entry point; either octal address or symbol name.
+ */
+uaddr_t
+lentry(str)
+char	*str;
+{
+	register sym_t	*sp;
+	register char	c, *s;
+	uaddr_t	oaddr = 0;
+
+	/*
+	 * Try to scan whole string as octal.
+	 */
+	for (s = str; c = *s++;) {
+		if (('0' > c) && (c > '7'))
+			break;
+		oaddr = (oaddr * 8) + (c - '0');
+	}
+
+	/*
+	 * Octal string: return numeric value.
+	 */
+	if (!c)
+		return (oaddr);
+
+	/*
+	 * Search for string in symbol table.
+	 */
+	for (sp = symtable[hash(str) % NHASH]; sp != NULL; sp = sp->next)
+		if ((sp->sclass == C_EXT) && eq(sp->name, str))
+			return(sp->value);
+
+	message("entry point %s undefined", str); /**/
+	return (0);
+}
+
+/*
+ * Define referenced internal symbol (as end of given segment)
+ */
+void
+endbind(psp, sn, ldrv)
+register sym_t	**psp;
+int	sn, ldrv;
+{
+	register sym_t *sp;
+
+	if ((sp = *psp) == NULL)
+		return;
+
+	if ((sp->sclass == C_EXT) && (sp->value == 0)) {
+		sp->scnum = sn + 1;
+		sp->value = oseg[sn].size;
+		return;
+	}
+
+	*psp = NULL;	/* isn't really end symbol */
+
+	if (ldrv)
+		return;
+	else
+		spmsg(sp, "redefines builtin");
+		/* The symbols etext, edata, and end are builtin
+		 * symbols meaning end of the .text, .data, and .bss
+		 * segments respectivly, you cannot redefine those names. */
+}
+
+/*
+ * Add reference to symbol table
+ */
+void
+undef( s )
+char * s;
+{
+	SYMENT	lds;
+	int	i;
+
+	/*
+	 * Copy reference, extending with NULL.
+	 */
+	for (i = 0; i < SYMNMLEN; i++) {
+		lds.n_name[i] = *s;
+		if (*s != '\0')
+			s++;
+	}
+
+	/*
+	 * Define symbol as global reference.
+	 */
+	lds.n_sclass = C_EXTDEF;
+
+	/*
+	 * Add [undefined] to symbol table.
+	 */
+	addsym(&lds, NULL);
+}
+
+/*
+ * Get space or die.
+ */
+char *
+alloc(n)
+unsigned n;
+{
+	char	*tmp;
+
+	if (NULL == (tmp = malloc(n)))
+		fatal("Out of space");
+		/* A call to malloc failed during a link. */
+	return (memset(tmp, '\0', n));
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d52 1
+a52 1
+				fatal("can't open %s", optarg);	/**/
+d120 1
+a120 1
+					fatal("can't open %s", lp);	/**/
+d191 1
+a191 1
+		/* Argumements did not require any files to be loaded */
+d205 2
+a206 2
+		/* At least one required symbol was undefined 
+		 *a list follows */
+d226 1
+a226 1
+		 * Link stopped here */
+d269 1
+a269 1
+		/* Cannot create linker output file */
+d516 1
+a516 1
+		aouth.magic  = 0x10B;
+d539 1
+a539 1
+		 * with chmod */
+d724 15
+@

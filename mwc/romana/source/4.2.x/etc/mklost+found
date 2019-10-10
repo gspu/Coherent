@@ -1,0 +1,64 @@
+#!/bin/sh
+
+####################################################################
+# Copyright 1993, 1994, Mark Williams Co., Northbrook, IL
+# Revised: Sat Feb 19 15:01:18 1994 CST
+# /etc/mklost+found: Make a suitable lost+found directory
+#
+#
+
+# Default number of slots to create
+DEFSLOTS=250
+
+# Filename to use while creating slots
+TMPNAME=mklf
+
+# Error out function
+fatal_error(){
+	echo $1 >&2
+	exit 1
+}
+
+# Check for proper arguments
+if [ $# -lt 1 ] || [ $# -gt 2 ]
+then
+	fatal_error "Usage: $0 <parent directory> [slots to create]"
+fi
+
+# Use either argument or default value
+if [ $# -eq 1 ]
+then
+	INUM=$DEFSLOTS
+else
+	INUM=$2
+fi
+
+# Parent directory specified by argument 1
+PDIR=$1
+
+# Make sure directory is valid
+if [ ! -d $PDIR ]
+then
+	fatal_error "$0: $PDIR - cannot access"
+fi
+
+# Pathname for lost+found
+LFDIR=$PDIR/lost+found
+
+# make ~/lost+found
+mkdir $LFDIR 2>/dev/null || fatal_error "$0: Cannot create $LFDIR"
+
+
+# Create INUM files as dummies
+for I in `from 1 to $INUM`
+do
+	cat /dev/null >$LFDIR/$TMPNAME.$I || fatal_error "$0: Cannot create $LFDIR/$TMPNAME.$I"
+done
+
+# rm the dummy files leaving only the slots
+for I in `from 1 to $INUM`
+do
+	rm -f $LFDIR/$TMPNAME.$I 2>/dev/null || fatal_error "$0: Cannot rm $LFDIR/$TMPNAME.$I"
+done
+
+exit 0

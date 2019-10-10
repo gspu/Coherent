@@ -1,0 +1,322 @@
+	title	'XYBASIC	REV 2.14.00	05/27/81'
+
+;VERSION 05/18/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;version EQUates
+
+true	equ	-1
+false	equ	0
+	page	0		;lines per page on PRN listing
+
+;version selection switches
+versn	equ	21400		;current version number
+cpm	equ	true		;iff CP/M version
+nonst	equ	false 		;iff nonstandard (Custom I/O) version
+isis2	equ	false		;iff ISIS-II version
+
+;conditional assembly switches
+strng	equ	true		;iff string version
+float	equ	true		;iff floating point version
+rom	equ	nonst		;iff ROM version (NONST only)
+romsq	equ	false		;iff ROMSQ version
+compl	equ	false		;iff COMPILER version (NONST ROM only)
+rtpak	equ	false		;iff RUNTIME version (ROMSQ COMPL only)
+editc	equ	true		;iff editing commands AUTO, DELETE, EDIT, RENUM
+sdisk	equ	true		;iff sequential disk version (CP/M STRNG only)
+f9511	equ	false 		;iff 9511 floating point chip version
+fpbcd	equ	true		;iff BCD floating point, 10 digit mantissa
+realt	equ	false		;iff SBC 80/20 real time clock
+for0	equ	true		;iff e.g. FOR I = 1 TO 0 never entered
+asm80	equ	false		;iff assembling under ASM80
+key80	equ	true 		;iff more than 80H keywords
+debug	equ	false		;iff debugging
+				;CPM and DEBUG: ^B gets SID, ^X echoes to disk
+				;ISIS2 and DEBUG: ^B gets monitor
+				;NONST:  DEBUG has no effect
+				;PACKI and DEBUG: 8251 initialization skipped
+
+;customized versions
+amd	equ	false		;iff AMD
+bendx	equ	false		;iff Bendix (STRNG NONST only)
+camac	equ	false 		;iff KineticSystems (STRNG, NONST or CP/M only)
+c3908	equ	false 		;iff CAMAC version for 3908, false iff 3909
+c3885	equ	false 		;iff CP/M SDISK CAMAC version for 3885
+epstn	equ	false		;iff Epstein (NONST only)
+genmc	equ	false		;iff General Microwave (NONST only)
+packi	equ	false		;iff Packard Instruments
+wild	equ	false		;iff Wild Heerbrugg
+
+;location
+	if	asm80
+	name	xybasic		;ISIS-II module name for ASM80
+	cseg			;start of relocatable code segment
+	else
+romorg	equ	00100H		;first ROM location
+	if	rom
+ramorg	equ	04000H		;first RAM location
+	endif
+	endif
+	org	romorg
+
+;global EQUates
+maxnl	equ	8		;max var name length(>=7 for string conversion)
+inttn	equ	8		;max # of interrupt table entries (< 32)
+inttl	equ	inttn * 8 + 1	;int table length = n 8-byte entries + eof
+randa	equ	64B5H		;pseudorandom number generator multiplier
+randc	equ	3A73H		;pseudorandom number generator constant
+stakl	equ	80H		;stack length
+stakm	equ	25		;max stack use without recursion by GTEXP
+vbyts	set	3		;bytes per ESTACK value entry if integer only
+dbyts	set	10		;bytes needed for string space and file areas
+nlmax	equ	80		;input buffer length
+	if	strng
+stmax	equ	4		;number of string temporaries
+vbyts	set	4		;bytes per value entry if string
+dbyts	set	dbyts+100H	;100H bytes for string space
+	endif
+	if	float
+	if	fpbcd		;BCD floating point
+vbyts	set	7		;bytes per value entry
+fbyts	equ	6		;bytes per FOR-entry value
+	else			;binary floating point
+vbyts	set	5		;bytes per value entry if floating
+fbyts	equ	4		;bytes per FOR-entry value
+sindx	equ	19		;# significant binary places
+	endif
+	else			;not floating point version
+fbyts	equ	2		;bytes per FOR-entry value if integer
+	endif
+
+;ASCII character equivalents
+cntlb	equ	02H
+cntld	equ	04H
+cntle	equ	05H
+cntlf	equ	06H
+cntlg	equ	07H
+cntlh	equ	08H
+lf	equ	0AH
+cntlk	equ	0BH
+cntll	equ	0CH
+cr	equ	0DH
+cntln	equ	0EH
+cntlo	equ	0FH
+cntlq	equ	11H
+cntlr	equ	12H
+cntls	equ	13H
+cntlt	equ	14H
+cntlx	equ	18H
+cntly	equ	19H
+cntlz	equ	1AH
+semic	equ	3BH
+	if	not epstn
+cntlc	equ	03H
+cntlp	equ	10H
+cntlu	equ	15H
+rbout	equ	7FH
+	else			;Epstein version control chars
+cntlc	equ	0AH
+cntlp	equ	04H
+cntlu	equ	0BH
+rbout	equ	1AH
+escap	equ	1BH
+	endif
+
+;information passed to compiler
+	if	compl and not rtpak
+	db	remt		;REM token value
+	dw	romend+1-romorg	;ROM use
+	dw	ramend+1-ramorg	;RAM use
+	endif
+
+start:	jmp	init		;start initialization dialog
+	jmp	gtpar		;to get parameters for CALL
+
+;nonstandard system EQUates
+	if	nonst and not camac
+timem	equ	8C13H		;time counts
+timen	equ	0FE12H
+timeh	equ	73H
+	if	not wild
+	if	genmc
+headl	equ	17		;header length
+	else
+headl	equ	13
+	endif
+stbyt	equ	3AH		;start byte
+tybyt	equ	0		;type byte -- for future use
+;jump vector for i/o routines
+	jmp	conin
+	jmp	cnout
+	jmp	rdrin
+	jmp	pout
+	jmp	lout
+	jmp	cstat
+;jmp table for user-defined device drivers
+jmpta:	rept	24
+	jmp	0
+	endm
+	if	compl
+boot:	jmp	0		;absolute address, else compilation relocates
+	else
+boot:	jmp	dmodc		;^B same as ^C in nonstandard versions
+	endif
+	endif			;end of NOT WILD conditional
+	endif			;end of NONST conditional
+
+;CP/M EQUates
+	if	cpm
+cpmba	equ	0H		;CP/M base address
+iobyt	equ	cpmba+3H	;io byte address
+bdos	equ	cpmba+5H	;DOS entry point
+fcbad	equ	cpmba+5CH	;default file control block address
+fcbfn	equ	fcbad + 1	;file name address
+fcbft	equ	fcbad + 9	;file type address
+fcbcr	equ	fcbad + 32	;current record number
+dmaad	equ	cpmba+80H	;default DMA address
+dkopf	equ	15		;disk open function
+dkclf	equ	16		;close
+dkdlf	equ	19		;delete
+dkrdf	equ	20		;read
+dkwtf	equ	21		;write
+dkmkf	equ	22		;make
+dkdmf	equ	26		;set DMA address function
+timem	equ	8C13H		;TIME counts
+timen	equ	0FE12H
+timeh	equ	73H
+	if	amd		;serial SAVE/LOAD for AMD version
+headl	equ	13
+stbyt	equ	3AH		;start byte
+tybyt	equ	0		;type byte -- for future use
+	endif
+	if	sdisk
+filen	equ	166		;number of bytes per sequential access file
+dbyts	set	dbyts+2*filen	;number of bytes needed
+	endif
+	if	debug
+boot	equ	cpmba+38H	;^B gets SID instead of CP/M
+	else
+boot	equ	cpmba		;^B gets CP/M if not debugging
+	endif
+	endif			;end of CPM conditional
+
+;ISIS-II EQUates
+	if	isis2
+isis	equ	40H		;ISIS-II entry point
+dkopf	equ	0		;disk open function
+dkclf	equ	1		;close
+dkrdf	equ	3		;read
+dkwrf	equ	4		;write
+exitf	equ	9		;exit to ISIS-II
+erri2	equ	12		;error
+timem	equ	947BH		;time counts
+timen	equ	0FE36H
+timeh	equ	6BH
+;MDS monitor EQUates
+conin	equ	0F803H		;console in
+cnout	equ	0F809H		;console out
+lout	equ	0F80FH		;list out
+cstat	equ	0F812H		;console status
+mechk	equ	0F81BH		;top of free RAM function
+iobyt	equ	3		;iobyte location
+	endif			;end of ISIS2 conditional
+
+;CAMAC RTPAK i/o JMP vector
+	if	camac and nonst and true 
+conin:	jmp	0
+cnout:	jmp	0
+rdrin:	jmp	0
+pout:	jmp	0
+lout:	jmp	0
+cstat:	jmp	0
+boot:	jmp	0
+	endif
+
+;Wild version EQUates
+	if	wild
+	if	rtpak
+	jmp	wtoke		;tokenization module entry point
+weom:	dw	6000H		;default end of RAM
+boot	equ	0H		;boot after program completion in rtpak
+	endif
+wmon	equ	38H		;Wild monitor entry point
+wdbl	equ	80H		;length of central data buffer -- 254 max
+wdbuf	equ	80H		;base address of central data buffer
+wexec	equ	40H		;base address of 18-byte EXEC buffer
+	endif
+
+;ROMSQ version default value bytes
+	if	romsq and not wild
+dfltw:	db	0		;default width
+dfltm:	dw	1		;default end of memory
+dflta:	dw	0		;default program address
+	endif
+
+;CAMAC version boot and conditional interrupt enable on reentry
+	if	camac and nonst and (not true )
+boot:	jmp	nsddi		;DI and return to DOS
+	if	not rtpak
+	call	cndei		;conditional EI, then DMODE
+	endif
+	endif
+
+;Packard Instruments version XYBASIC reentry and interrupt entry point
+	if	packi
+	jmp	dmod2		;to DMODE
+	jmp	paisr		;interrupt service routine entry point
+	endif
+
+;real-time clock version clock tick routine entry point
+	if	realt
+	jmp	dmod2		;to DMODE
+	jmp	clock		;clock routine entry
+	endif
+
+;IFTYP is a macro to simplify coding of conditional type branches.
+iftyp	macro	faddr,saddr
+	if	float
+	jnz	faddr		;;branch to floating routine
+	endif
+	if	strng
+	jc	saddr		;;branch to string routine
+	endif			;;else fall through to integer routine
+	endm
+
+;PUSH3 (and PUSH4) is a macro to save BC, DE, HL (and PSW) on routine entry.
+;The corresponding exit is JMP POP3 (POP4), defined in INOUT.
+push3	macro
+	push	b
+	push	d
+	push	h
+	endm
+push4	macro
+	push3
+	push	psw
+	endm
+
+;DZ is a macro to fill blocks of RAM with 0 (used like DS).
+dz	macro	n
+	rept	n
+	db	0
+	endm
+	endm
+
+;RIM and SIM are 8085 opcodes to read and set interrupt mask.
+rim	macro
+	db	20H
+	endm
+sim	macro
+	db	30H
+	endm
+
+;ERROR is a macro to define error calls.
+;TYP may be F, N or C for fatal, nonfatal, or continue scanning.
+;M1 and M2 are the error message, M2 being the last byte.
+error	macro	typ, m1, m2
+	call	erro&TYP		;;call ERROF, ERRON or ERROC
+	db	'&M1', '&M2' or 80H	;;error message
+	endm
+
+
+;end of VERSION
+	page

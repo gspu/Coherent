@@ -1,0 +1,179 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.4
+date     93.07.16.19.22.42;  author root;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     93.07.16.10.20.10;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.03.02.07.50.22;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.07.12.25.25;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.4
+log
+@Hal: 2nd try at r79
+@
+text
+@/* (-lgl
+ * 	COHERENT Version 4.0
+ * 	Copyright (c) 1982, 1992 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * /usr/include/sys/fd.h
+ * Open file descriptors.
+ */ 
+
+#ifndef	 __SYS_FD_H__
+#define	 __SYS_FD_H__
+
+#include <common/feature.h>
+#include <common/ccompat.h>
+#include <sys/types.h>
+#include <sys/inode.h>
+
+#if	! __KERNEL__
+# error	You must be compiling the kernel to use this header
+#endif
+
+/*
+ * The FD_CLOEXEC is not actually stored in the structure above, because it
+ * is an attribute specific to a single file descriptor rather than global to
+ * an open file object (which may have multiple references to it).
+ *
+ * To capture this information, we note that pointers as returned by an
+ * allocator such as kalloc () are all aligned at integer granularity at a
+ * minimum, leaving us one or possibly two least-significant bits for pointer-
+ * tagging.
+ *
+ * We create a non-arithmetic pointer type for the purpose of holding tagged
+ * pointers. The operations on this type are hidden, however.
+ */
+
+typedef	struct __tagged_fd    *	tagfd_t;
+
+/*
+ * We complete this type to work around a Coherent 'cc' bug.
+ */
+struct __tagged_fd {
+	char	_bogus;
+};
+
+/*
+ * File descriptor structure.
+ */
+
+typedef struct fd {
+	short	 f_flag;		/* Flags */
+	short	 f_refc;		/* Reference count */
+	fsize_t	 f_seek;		/* Seek pointer */
+	struct	 inode *f_ip;		/* Pointer to inode */
+} FD;
+
+typedef	unsigned	fd_t;
+
+#define	ERROR_FD	((fd_t) -1)
+
+__EXTERN_C_BEGIN__
+
+FD	      *	fdget		__PROTO ((fd_t _fd));
+int		fdgetflags	__PROTO ((fd_t _fd));
+int		fdsetflags	__PROTO ((fd_t _fd, int _flags));
+
+fd_t		fddup		__PROTO ((fd_t _old, fd_t _base));
+fd_t		fdalloc		__PROTO ((void));
+int		fdinit		__PROTO ((fd_t _fd, INODE * _ip, int _mode));
+fd_t		fdfinish	__PROTO ((fd_t _fd));
+fd_t		fdopen		__PROTO ((INODE * _ip, int _mode));
+void		fdclose		__PROTO ((fd_t _fd));
+
+void		fdadupl		__PROTO ((void));
+void		fdaclose	__PROTO ((void));
+
+__EXTERN_C_END__
+
+#endif	/* ! defined (__SYS_FD_H__) */
+@
+
+
+1.3
+log
+@Kernel 79 w/streams
+@
+text
+@d17 1
+a17 1
+/* #include <sys/inode.h> */
+@
+
+
+1.2
+log
+@hal: newupdates for kernel 73, several
+changes by Nigel for __COHERENT__
+@
+text
+@d14 2
+d17 1
+a17 1
+#include <sys/inode.h>
+d19 4
+d24 23
+d49 1
+d51 1
+a51 4
+	char	 f_flag;		/* Flags */
+#ifdef _I386
+	char	 f_flag2;		/* More flags */
+#endif
+d57 1
+a57 5
+#ifdef	KERNEL
+/*
+ * Functions.
+ */
+extern	FD	*fdget();		/* fd.c */
+d59 1
+a59 1
+#endif
+d61 1
+a61 1
+#endif
+d63 17
+a79 1
+/* end of /usr/include/sys/fd.h */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d11 2
+a12 2
+#ifndef	 FD_H
+#define	 FD_H
+@

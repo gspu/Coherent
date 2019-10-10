@@ -1,0 +1,265 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.01.13.13.46.58;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.05.05.15.07.27;  author piggy;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.04.30.10.41.40;  author piggy;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@This is the file that prints interesting things on the screen while
+slow things are happening.
+@
+
+
+1.3
+log
+@Hal: added printf code, removed
+buy coherent msg, added fix to coff.c because we were blowing a struct
+when booting the gcc (240K) kernel.
+@
+text
+@/*
+ * pacifier.c - state machine for putting something interesting on the screen.
+ */
+#include "tboot.h"
+#include "pac_states.h"
+
+int slow_flag = FALSE;		/* Slow down pacifier.  */
+int feet_flag = FALSE;		/* Print footprints?  */
+
+void pac_init();		/* Initialise the state machine.  */
+void pac_cleanup();		/* Clean up after the state machine.  */
+void pacifier();		/* Run the next step of the state machine.  */
+void subliminal();	/* Print a subliminal message.  */
+
+static int pac_inited = FALSE;	/* Has pac_init() been called?  */
+static int pac_dirty = FALSE;	/* Has pacifier() been called?  */
+static int state;
+static int substate;
+static int count;
+
+void
+pacifier()
+{
+	pac_dirty = TRUE;
+
+	if (!pac_inited) {
+		pac_init();
+	}
+
+	switch (state) {
+	case FORWARD:
+		switch (substate) {
+		case N_S:
+			FOOTPRINT;
+			puts("|\010");
+			substate = NE_SW;
+			break;
+		case NE_SW:
+			FOOTPRINT;
+			puts("/\010");
+			substate = E_W;
+			break;
+		case E_W:
+			FOOTPRINT;
+			puts("-\010");
+			substate = NW_SE;
+			break;
+		case NW_SE:
+			FOOTPRINT;
+			puts("\\\010");
+			substate = NE_SW;
+			break;
+		default:
+			puts("pacifier(): Illegal substate.\r\n");
+			pac_init();
+			break;
+		} /* switch (substate) */
+
+		if (++count > THRESHOLD) {
+#if 0
+			subliminal("Buy COHware!");
+#endif
+			puts(" \010\010");
+			state = REVERSE;
+			count = 0;
+		}
+		if (slow_flag) {
+			wait_for_keystroke(2, -1);	/* Brief pause.  */
+		}
+		break;	
+	case REVERSE:
+		switch (substate) {
+		case N_S:
+			UNFOOTPRINT;
+			puts("|\010");
+			substate = NW_SE;
+			break;
+		case NW_SE:
+			UNFOOTPRINT;
+			puts("\\\010");
+			substate = E_W;
+			break;
+		case E_W:
+			UNFOOTPRINT;
+			puts("-\010");
+			substate = NE_SW;
+			break;
+		case NE_SW:
+			UNFOOTPRINT;
+			puts("/\010");
+			substate = N_S;
+			break;
+		default:
+			puts("pacifier(): Illegal substate.\r\n");
+			pac_init();
+			break;
+		} /* switch (substate) */
+		if (++count > THRESHOLD) {
+			puts("_\010");
+			state = FORWARD;
+			count = 0;
+		}
+		if (slow_flag) {
+			wait_for_keystroke(2, -1);	/* Brief pause.  */
+		}
+		break;
+	default:
+		puts("pacifier(): Illegal state.\r\n");
+		pac_init();
+		break;
+	} /* switch (state) */
+
+} /* pacifier() */
+
+
+/*
+ * Print a subliminal message on the console.
+ * It does this by printing the message, backspacing over it,
+ * spacing over it, and then backspacing again.
+ */
+void
+subliminal(msg)
+char *msg;
+{
+	int i, len;
+
+	len = strlen(msg);
+	puts(msg);
+
+	for (i = len; i > 0; --i) {
+		puts("\010");
+	}
+
+	if (slow_flag) {
+		wait_for_keystrok(4, -1);	/* Brief pause.  */
+	}
+
+	for (i = len; i > 0; --i) {
+		puts(" ");
+	}
+
+	for (i = len; i > 0; --i) {
+		puts("\010");
+	}
+} /* subliminal() */
+
+/*
+ * Initialize the pacifier state machine.
+ */
+void
+pac_init()
+{
+	pac_inited = TRUE;
+	state = FORWARD;
+	substate = N_S;
+	count = 0;
+} /* pac_init() */
+
+
+/*
+ * Clean up the screen after the pacifier.
+ */
+void
+pac_cleanup()
+{
+	int i;
+
+	if (pac_dirty) {
+		puts("\r");
+		for (i = THRESHOLD+1; i > 0; --i) {
+			puts(" ");
+		}
+		puts("\r");
+	}
+	pac_dirty = FALSE;
+} /* pac_cleanup() */
+@
+
+
+1.2
+log
+@Added footprint support.
+@
+text
+@d60 1
+d62 1
+d119 1
+a119 1
+ * spacing over it, and the backspacing again.
+d123 1
+a123 1
+	char *msg;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d7 2
+a8 1
+extern int slow_flag;
+d34 2
+a35 1
+			puts("_|\010");
+d39 2
+a40 1
+			puts("_/\010");
+d44 2
+a45 1
+			puts("_-\010");
+d49 2
+a50 1
+			puts("_\\\010");
+d72 2
+a73 1
+			puts(" \010\010|\010");
+d77 2
+a78 1
+			puts(" \010\010\\\010");
+d82 2
+a83 1
+			puts(" \010\010-\010");
+d87 2
+a88 1
+			puts(" \010\010/\010");
+@

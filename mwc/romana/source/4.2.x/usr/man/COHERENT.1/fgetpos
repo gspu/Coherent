@@ -1,0 +1,93 @@
+ffggeettppooss() -- STDIO Function (libc)
+
+Get value of file-position indicator
+#iinncclluuddee <ssttddiioo.hh>
+iinntt
+ffggeettppooss(_f_p, _p_o_s_i_t_i_o_n)
+FFIILLEE *_f_p; ffppooss_tt *_p_o_s_i_t_i_o_n;
+
+ffggeettppooss()  copies the  value of  the file-position  indicator for  the file
+stream pointed to  by _f_p into the area pointed  to by _p_o_s_i_t_i_o_n. _p_o_s_i_t_i_o_n is
+of type ffppooss_tt, which is defined in the header ssttddiioo.hh.
+
+The function  ffsseettppooss() can  use the  information written into  _p_o_s_i_t_i_o_n to
+return  the file-position  indicator  to where  it was  when ffggeettppooss()  was
+called.
+
+ffggeettppooss() returns zero if all went  well.  If an error occurred, it returns
+nonzero and sets eerrrrnnoo to an appropriate value.
+
+_E_x_a_m_p_l_e
+This example seeks to a random line in a very large file.
+
+#include <math.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+void
+fatal(message)
+char *message;
+{
+    fprintf(stderr, "%s\n", message);
+    exit(1);
+}
+
+main(argc, argv)
+int argc; char *argv[];
+{
+    int c;
+    long count;
+    FILE *ifp, *tmp;
+    fpos_t loc;
+
+    if (argc != 2)
+        fatal("usage: fscanf inputfile\n");
+    if ((ifp = fopen(argv[1], "r")) == NULL)
+        fatal("Cannot open %s\n", argv[1]);
+    if((tmp = tmpfile()) == NULL)
+        fatal("Cannot build index file");
+
+    /* seed random-number generator */
+    srand ((unsigned int)time(NULL));
+
+    for (count = 1;!feof(ifp); count++) {
+        /* for monster files */
+        if (fgetpos(ifp, &loc))
+            fatal ("fgetpos error");
+
+        if (fwrite(&loc, sizeof(loc), 1, tmp) != 1)
+            fatal("Write fail on index");
+        rand();
+        while('\n' != (c = fgetc(ifp)) && EOF != c)
+            ;
+    }
+
+    count = rand() % count;
+    fseek(tmp, count * sizeof(loc), SEEK_SET);
+
+    if(fread(&loc, sizeof(loc), 1, tmp) != 1)
+        fatal("Read fail on index");
+
+    fsetpos(ifp, &loc);
+    while((c = fgetc(ifp)) != EOF) {
+        if(c =='@')
+            putchar('\n');
+        else
+            putchar(c);
+
+        if(c == '\n')
+            break;
+    }
+}
+
+_S_e_e _A_l_s_o
+ffsseeeekk(), ffsseettppooss(), fftteellll(), lliibbcc, rreewwiinndd()
+ANSI Standard, section 7.9.9.1
+
+_N_o_t_e_s
+The ANSI  Standard introduced ffggeettppooss() and ffsseettppooss()  to manipulate a file
+whose  file-position  indicator  cannot  be  stored  within a  lloonngg.  Under
+COHERENT ffggeettppooss() behaves the same as the function fftteellll().

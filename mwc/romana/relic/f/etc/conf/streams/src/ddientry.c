@@ -1,0 +1,302 @@
+/*
+ * This file contains the entry points into the STREAMS system called by the
+ * Coherent kernel.
+ */
+
+#define	_DDI_DKI	1
+#define	_SYSV3		1
+
+#include <kernel/ddi_cpu.h>
+#include <kernel/ddi_glob.h>
+#include <sys/confinfo.h>
+#include <sys/types.h>
+#include <sys/cmn_err.h>
+#include <stdlib.h>
+
+#ifdef	__MSDOS__
+#include <sys/_con.h>
+#else
+#include <sys/con.h>
+#endif
+
+
+/*
+ * Refer to memory allocated by "space.c" file from tunable parameters.
+ */
+
+extern	size_t	_streams_size;
+extern	uchar_t	_streams_heap [];
+
+
+__EXTERN_C_BEGIN__
+
+int		INTR_INIT	__PROTO ((void));
+int		DDI_GLOB_INIT	__PROTO ((void));
+int 		KMEM_INIT 	__PROTO ((_VOID * _addr, size_t _size));
+int		LOCK_TESTS	__PROTO ((int _negative));
+
+__EXTERN_C_END__
+
+
+#if	__BORLANDC__
+
+void		SETIVEC		__PROTO ((int _num));
+void		CLRIVEC		__PROTO ((int _num));
+
+#elif	__COHERENT__
+
+void		setivec		__PROTO ((int _num, intthunk_t _thunk));
+void		clrivec		__PROTO ((int _num));
+
+#define	SETIVEC(num)	setivec (inttab [num].int_vector, \
+				 inttab [num].int_thunk)
+
+#define	CLRIVEC(num)	clrivec (inttab [num].int_vector)
+
+#else	/* if ! __COHERENT */
+
+#error	How do I set up interrupts?
+
+#endif	/* ! __COHERENT__ */
+
+
+/*
+ * Global start/exit state. We use this so that if an exit or halt routine
+ * panics (which may cause a retry of the shutdown process) we can try again.
+ */
+
+static int	_exitlevel;
+static int	_intlevel;
+static int	_haltlevel;
+
+
+/*
+ * Since we don't have a real trap-handler, I have factored out the deferred-
+ * function check to here.
+ *
+ * Entered with interrupts disabled. This routine must be able to enable
+ * interrupts without causing excess stack growth. Note that if we have
+ * interrupt prologue and epilogue code in assembly language, a rather
+ * different loop structure might work out simpler.
+ */
+
+#if	__USE_PROTO__
+__LOCAL__ int (RUN_INT_DEFER) (defer_t * deferp)
+#else
+__LOCAL__ int
+RUN_INT_DEFER __ARGS ((deferp))
+defer_t	      *	deferp;
+#endif
+{
+	int		recheck = 0;
+	int		idx;
+
+	/*
+	 * If we detected a non-empty global defer table, try and lock the
+	 * table before processing the deferred routines. Only try once; if
+	 * the table is busy, then someone else must be dealing with it.
+	 */
+
+	if (ATOMIC_FETCH_AND_STORE_UCHAR (deferp->df_rlock, 1) != 0)
+		return 1;
+
+	while ((idx = ATOMIC_FETCH_UCHAR (deferp->df_read)) !=
+			ATOMIC_FETCH_UCHAR (deferp->df_write)) {
+		__CHEAP_ENABLE_INTS ();
+
+		(* deferp->df_tab [idx ++]) ();
+
+		if (idx == ATOMIC_FETCH_UCHAR (deferp->df_max))
+			idx = 0;
+
+		ATOMIC_STORE_UCHAR (deferp->df_read, idx);
+
+		recheck = 1;
+
+		__CHEAP_DISABLE_INTS ();
+	}
+
+	/*
+	 * Release the lock on the global defer table.
+	 */
+
+	ATOMIC_STORE_UCHAR (deferp->df_rlock, 0);
+
+	return recheck;
+}
+
+#ifdef	__MSDOS__
+
+#include <dos.h>
+
+void CHECK_DEFER (void) {
+	while (RUN_INT_DEFER (& ddi_global_data ()->dg_defint) ||
+	       RUN_INT_DEFER (& ddi_cpu_data ()->dc_defint))
+		(* (char __far *) MK_FP (0xB800, 6)) ++;
+
+	/*
+	 * For breaking out of bad situations... hold right shift.
+	 */
+
+	if ((* (char __far *) MK_FP (0x40, 0x17) & 1) != 0)
+		cmn_err (CE_PANIC, "Emergency abort!");
+
+}
+#endif
+
+#ifdef	__COHERENT__
+
+#if	__USE_PROTO__
+void (STREAMS_SCHEDULER) (void)
+#else
+void
+STREAMS_SCHEDULER __ARGS (())
+#endif
+{
+	__CHEAP_DISABLE_INTS ();
+
+	while (RUN_INT_DEFER (& ddi_global_data ()->dg_defint) ||
+	       RUN_INT_DEFER (& ddi_cpu_data ()->dc_defint))
+		;	/* DO NOTHING */
+
+	__CHEAP_ENABLE_INTS ();
+}
+#endif	/* ! defined (__COHERENT__) */
+
+
+/*
+ * Shut things down, in the right order.
+ */
+
+#if	__USE_PROTO__
+void (STREAMS_EXIT) (void)
+#else
+void
+STREAMS_EXIT __ARGS (())
+#endif
+{
+	spltimeout ();
+	ddi_cpu_data ()->dc_int_level = 0;
+
+	while (_exitlevel > 0)
+		(* exittab [-- _exitlevel]) ();
+
+	/*
+	 * Turn off interrupts.
+	 */
+
+	while (_intlevel > 0)
+		CLRIVEC (-- _intlevel);
+
+	while (_haltlevel > 0)
+		(* halttab [-- _haltlevel]) ();
+}
+
+
+/*
+ * Get an old Coherent "CON" entry.
+ */
+
+#if	__USE_PROTO__
+CON * (STREAMS_GETCON) (o_dev_t dev)
+#else
+CON *
+STREAMS_GETCON __ARGS ((dev))
+o_dev_t		dev;
+#endif
+{
+	int		omajor = (dev >> 8) & 0xFF;
+
+	return (omajor > _maxmajor || _major [omajor] == NODEV) ? NULL :
+			& cdevsw [_major [omajor]].cdev_con;
+}
+
+
+/*
+ * Start things up, in the right order. If we can't proceed, panic.
+ */
+
+#if	__USE_PROTO__
+void (STREAMS_INIT) (void)
+#else
+void
+STREAMS_INIT __ARGS (())
+#endif
+{
+	int		i;
+
+	/*
+	 * We call upon INTR_INIT () to ensure that we can call spl... ()
+	 * functions safely. For some environments, this needs to take note of
+	 * the existing interrupt masks.
+	 */
+
+	while (INTR_INIT ())
+		cmn_err (CE_PANIC, "Initial DDI/DKI setup failed");
+
+#ifdef	__MSDOS__
+	/*
+	 * Arrange for the exit routines to be called eventually.
+	 */
+
+	atexit (STREAMS_EXIT);
+#endif
+
+	/*
+	 * Bootstrap the heap allocator. The allocation routines may need
+	 * locking (which needs an allocator), but we depend on KMEM_INIT ()
+	 * to deal with that.
+	 */
+
+	while (KMEM_INIT (_streams_heap, _streams_size) != 0)
+		cmn_err (CE_PANIC, "Unable to initalise STREAMS heap");
+
+	/*
+	 * Other global initialization which can proceed now we have an
+	 * allocation system active.
+	 */
+
+	while (DDI_GLOB_INIT ())
+		cmn_err (CE_PANIC, "Unable to set up DDI/DKI global data");
+
+	/*
+	 * After the defer tables have been set up, we can call LOCK_TESTS (),
+	 * which we couldn't before because the ..._DEALLOC () calls that the
+	 * tests perform at the end require defer-table support.
+	 */
+
+	if (LOCK_TESTS (0))
+		cmn_err (CE_PANIC, "Lock primitives not functional");
+
+	/*
+	 * Call the configured init routines for the system. According to the
+	 * specification of init (D2DK), this happens before interrupts are
+	 * enabled and before there is any real process context for us to
+	 * be able to sleep.
+	 */
+
+	for (i = 0 ; i < ninit ; i ++)
+		(* inittab [i]) ();
+
+	_exitlevel = nexit;
+
+
+	/*
+	 * Now we can configure the interrupts for the system.
+	 */
+
+	for (_intlevel = 0 ; _intlevel < nintr ; _intlevel ++)
+		SETIVEC (_intlevel);
+
+	splbase ();
+
+
+	/*
+	 * And finally, we can call the start routines.
+	 */
+
+	for (i = 0 ; i < nstart ; i ++)
+		(* starttab [i]) ();
+
+}
+

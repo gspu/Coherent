@@ -1,0 +1,115 @@
+.TH "device numbers" "" "" "Technical Information"
+.PC
+.PP
+Device numbering is evolving under \*(CO toward compability with
+\*(UN System V release 4.
+For this reason, the internal-kernel and DDI/DKI interfaces differ in their
+treatment of device numbers.
+.PP 
+Under both the internal-kernel and DDI/DKI interfaces,
+a device number, or
+.BR dev_t ,
+combines major and minor numbers.
+.PP
+The major device number is arbitrarily assigned.
+A driver's logic should not rely on that driver being assigned any specific
+major-device numbers.
+A driver's major-device number is set by its entry in the file
+.BR mdevice .
+.PP
+The driver's programmer assigns minor-device numbers.
+If a device driver controls several distinct units of the same
+device simultaneously (e.g., multiple floppy-disk drives or multiple
+partitions on a hard disk), the minor-device
+number often indicates which unit is being accessed.
+If a device driver allows different options for accessing a device, such as
+hardware flow control for a serial device or rewind-on-close for a tape
+device, it is common for some part of the minor-device number to
+indicate the user's choice of options.
+.PP
+The literature discusses internal versus external device numbers.
+As of release 4.2.05, this does not apply to \*(CO.
+The internal-kernel interface does not distinguish between these entities;
+and it has not yet been implemented for \*(CO's version of the DDI/DKI
+interface.
+.\"
+.\"The following describes how \*(ST manages device numbers.
+.\".PP
+.\"In the DDI/DKI system, all device numbers are passed in 32-bit quantities to
+.\"ensure adequate room for future expansion.
+.\"Even if the rest of the kernel is using 16-bit device numbers,
+.\"the DDI/DKI drivers are presented a 32-bit interface for binary compatibility
+.\"with future system releases.
+.\".PP
+.\"It is considered bad practice for drivers to assume anything
+.\"about the format of packed device numbers (as stored in items with type
+.\".BR dev_t ),
+.\"but the DDI/DKI states this more strongly:
+.\"conforming drivers
+.\".I "must not"
+.\"assume anything about the internal format of such items.
+.\"Only the size of the type is guaranteed.
+.\"Unlike previous systems, in which changes to
+.\"the format of such items is considered possible, in the DDI/DKI we must
+.\"consider such changes likely as a side-effect of upgrading other kernel
+.\"subsystems to take advantage of the DDI/DKI driver system.
+.\".PP
+.\"The external/internal device number distinction is an important new addition
+.\"to the system.
+.\"Typically, parts of device numbers are used for such purposes
+.\"as kernel or driver table indices; although this is a simple and transparent
+.\"mechanism, it is also inflexible.
+.\"The burden of assigning device numbers and
+.\"ensuring that any filesystem entry relating to a device correctly matches
+.\"the magic numbers in the kernel after reconfiguration falls upon the system
+.\"administrator, who traditionally has relied on the power of fiat and some
+.\"strong historical conventions to ensure that things work.
+.\"In distributed
+.\"systems or systems with many attached devices, these are often insufficient.
+.\".PP
+.\"The DDI/DKI defines a reasonable flexible set of procedures for mapping
+.\"between internal numbers assigned for driver-private or kernel-private
+.\"reasons (such as suitability for use as table indices) and external numbers
+.\"assigned by the system administrator, visible to users via the medium  of
+.\"the file system.
+.\"This allows flexible use of the large, sparse device
+.\"address space provided by 32-bit device numbers while retaining the ability
+.\"to work with compact, sequential addressing schemes suitable for table
+.\"allocation in C-language driver code.
+.\".PP
+.\"Because the mapping is largely arbitrary, it can be used to solve the
+.\"reverse problem as DDI/DKI drivers are introduced to systems which use the
+.\"smaller, 16-bit, ``traditional'' device-driver system.
+.\"Rather than being restricted to 256 subunits,
+.\"an appropriate mapping function allows the
+.\"driver to see a contiguous sequence of internal unit numbers even when the
+.\"device numbers made visible to the applications are spread over multiple
+.\"major numbers.
+.\".PP
+.\"The internal major device number corresponds to the traditional use of the
+.\"major device number; it functions as an index into a kernel table that
+.\"associates internal device numbers with device-driver entry points.
+.\"This table is built by automated kernel configuration tools based on the
+.\"manifest of drivers that the system administrator has selected to include in
+.\"the kernel;
+.\"therefore, the internal major number has the potential to change with every kernel
+.\"rebuild.
+.\"The internal major number is guaranteed to be unique within a
+.\"system for a given driver entry point.
+.\".PP
+.\"The driver defines the meaning of the internal minor number.
+.\"Each external major number has a specified number of valid minor entries.
+.\"The details of the mapping are currently defined by the
+.\".B mdevice
+.\"and
+.\".B sdevice
+.\"configuration files.
+.SH "See Also"
+.B
+makedevice(),
+getemajor(),
+geteminor(),
+getmajor(),
+getminor(),
+technical information
+.R

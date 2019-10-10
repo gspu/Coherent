@@ -1,0 +1,43 @@
+# uutry: force a call to a remote system and display debug information
+#	 to screen.
+
+X="-x3"
+SYS= 
+
+while [ $# -gt 0 ]
+	do
+		case $1 in
+
+		-x)  shift; X="-x$1"; shift;;
+		-x*) X=$1; shift;;
+		-?)  echo "Usage: uutry [-xdebug_level] system_name"; exit 1;;
+		*)   SYS=$1; shift ;;
+		
+		esac
+	done
+
+# do we have a system name ?
+
+if [ -z "$SYS" ]
+	then
+	echo "System name not secified"
+	exit 1
+fi
+
+
+# save old debug file and create empty one
+mv /usr/spool/uucp/.Admin/audit.local /usr/spool/uucp/.Admin/audit.OLD 
+su uucp touch /usr/spool/uucp/.Admin/audit.local
+
+# now invoke uucico and tell the user to press the interrupt key when
+# the transaction has completed.
+
+echo"
+Invoking uucico to call $SYS with a debug level of $X. Press the
+interrupt key to abort printing the debug information to the screen
+or to exit this program when the call has completed.
+"
+
+/usr/lib/uucp/uucico -S$SYS $X &
+
+tail -f /usr/spool/uucp/.Admin/audit.local

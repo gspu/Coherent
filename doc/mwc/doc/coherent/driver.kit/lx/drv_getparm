@@ -1,0 +1,107 @@
+.TH drv_getparm() "" "" "DDI/DKI Kernel Routine"
+.PC "Retrieve information about the kernel state"
+.B "#include <sys/types.h>"
+.B "#include <sys/ddi.h>"
+\fBint drv_getparm(\fIparameter\^\fB, \fIaddress\^\fB)\fR
+\fBulong_t \fIparameter\^\fB; ulong_t *\fIaddress\^\fB;\fR
+.PP
+.B drv_getparm()
+retrieves the value of
+.IR parameter ,
+and writes it into
+.IR address .
+.I parameter
+can be one of the following:
+.IP \fBLBOLT\fR 1.0i
+The number of clock ticks since the kernel was last booted.
+The difference between successive values of this parameter can be used
+to calculate the number of ticks that elapsed between calls.
+.IP
+Under \*(CO, each tick is one one-hundredth
+of a second; however,
+the length of a clock tick varies among implementations, and if you wish
+your driver to be portable to other operating systems,
+do not hard-code this value.
+You can use functions
+.B drv_hztousec()
+and
+.B drv_usectohz()
+to convert between clock ticks and microseconds.
+.IP \fBUPROCP\fR
+The address of the current process's process (\fBUPROC\fR) structure.
+The value written at address
+.I value
+is of type
+.B "proc_t *" .
+The only valid use of this value is as an argument to function
+.BR vtop() .
+Because this value is associated with the current process,
+the caller must have process context (that is, must be at base level)
+when it attempts to retrieve this value.
+Use this value only within the context of the process
+within which it was retrieved.
+.IP \fBUCRED\fR
+The address of the structure
+that describes the current user's credentials for the current process.
+The value written at address
+.I value
+is of type
+.BR "cred_t *" .
+The only valid use of this value is an an argument to function
+.BR drv_priv() .
+Because this value is associated with the current process,
+the caller must have process context (that is, must be at base level)
+when it attempts to retrieve this value.
+Use this value only within the context of the process
+within which it was retrieved.
+.IP \fBTIME\fR
+Read the current time, in seconds.
+This is the same value returned by the system call
+.BR time() ,
+that is, in the number of seconds that have elapsed since
+January 1, 1970, 00:00:00 UTC.
+This definition presupposes that the
+administrator has set the system's date and time correctly.
+.PP
+.B drv_getparm()
+returns zero if all went well; otherwise, it returns \-1.
+This usually indicates that
+.I parameter
+held an invalid parameter.
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+drv_hztousec(),
+drv_priv(),
+drv_usectohz(),
+vtop()
+.R
+.br
+\*(CO Lexicon:
+.B
+time()
+.R
+.SH Notes
+.B drv_getparm()
+has base level
+.I parameter
+is set to
+.B UPROCP
+or
+.BR UCRED ,
+or base or interrupt level when
+.I parameter
+is set to
+.B LBOLT
+or
+.BR TIME .
+It does not sleep.
+.PP
+A driver can hold a
+driver-defined basic lock, read/write lock, or sleep lock
+across a call to this function.
+.PP
+.B drv_getparm()
+does not check whether the driver has
+the appropriate context when the driver calls it.
+Use this function only when it is appropriate.

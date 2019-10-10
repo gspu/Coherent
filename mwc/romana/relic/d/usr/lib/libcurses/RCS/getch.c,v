@@ -1,0 +1,180 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.09.30.13.05.38;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.04.30.17.55.28;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.03.18.41.44;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version provided by cef
+@
+
+
+1.3
+log
+@cef updated for better handling of 8bit chars
+@
+text
+@/*
+ * Copyright (c) 1981 Regents of the University of California.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms are permitted
+ * provided that the above copyright notice and this paragraph are
+ * duplicated in all such forms and that any documentation,
+ * advertising materials, and other materials related to such
+ * distribution and use acknowledge that the software was developed
+ * by the University of California, Berkeley.  The name of the
+ * University may not be used to endorse or promote products derived
+ * from this software without specific prior written permission.
+ * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+ * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+#ifndef COHERENT
+#ifndef lint
+static uchar sccsid[] = "@@(#)getch.c	5.5 (Berkeley) 6/30/88";
+#endif /* not lint */
+#endif /* not COHERENT */
+
+# include	<sys/fcntl.h>
+# include	"curses.ext"
+
+/*
+ *	This routine reads in a character from the window.
+ *
+ */
+wgetch(win)
+reg WINDOW	*win; {
+
+	reg bool	weset = FALSE;
+	reg int		inp;
+	reg int		fflgs; /* fcntl flags to be restored */
+	reg int		fmods; /* fcntl flags were modified */
+
+	if (!win->_scroll && (win->_flags&_FULLWIN)
+	    && win->_curx == win->_maxx - 1 && win->_cury == win->_maxy - 1)
+		return ERR;
+# ifdef DEBUG
+	fprintf(outf, "WGETCH: _echoit = %c, _rawmode = %c\n", _echoit ? 'T' : 'F', _rawmode ? 'T' : 'F');
+# endif
+#ifndef COHERENT
+	if (_echoit && !_rawmode) {
+		cbreak();
+		weset++;
+	}
+
+	/*
+	 * Obtain the fcntl flags.
+	 */
+	fflgs = fcntl( fileno(stdin), F_GETFL, 0 );
+	fmods = 0;
+
+	/*
+	 * Non-blocking input is required, fcntl flags may have to be changed.
+	 */
+	if ( win->_nodelay ) {
+		if ( (fflgs & O_NDELAY) == 0 ) {
+			fcntl( fileno(stdin), F_SETFL, fflgs | O_NDELAY );
+			fmods++;
+		}
+	}
+
+	/*
+	 * Blocking input is required, fcntl flags may have to be changed.
+	 */
+	else {
+		if ( (fflgs & O_NDELAY) != 0 ) {
+			fcntl( fileno(stdin), F_SETFL, fflgs & ~O_NDELAY );
+			fmods++;
+		}
+	}
+#endif
+	/*
+	 * Get next character, or keyboard token.
+	 * NOTE: Valid characters are in range 1 to 127.
+	 *	 Valid keyboard tokens start at 256 [0400].
+	 */
+	if ( win->_use_keypad )
+		inp = getkey();
+
+	/*
+	 * Get next character, without token translation.
+	 */
+	else
+		inp = getchar();
+
+	if ( (inp < 0200) && (inp > 0) ) {
+# ifdef DEBUG
+		fprintf(outf,"WGETCH got '%s'\n",unctrl(inp));
+# endif
+		if (_echoit) {
+			mvwaddch(curscr, win->_cury + win->_begy,
+				win->_curx + win->_begx, inp);
+			waddch(win, inp);
+		}
+	}
+# ifdef DEBUG
+	else {
+		fprintf( outf, "WGETCH got 0%o\n", inp );
+	}
+#endif
+
+#ifndef COHERENT
+	/*
+	 * Fcntl flags were modified - restore previous value.
+	 */
+	if ( fmods )
+		fcntl( fileno(stdin), F_SETFL, fflgs );
+
+	if (weset)
+		nocbreak();
+#endif
+	return inp;
+}
+@
+
+
+1.2
+log
+@cef fixed bug where under certain conditions garbage would be returned
+@
+text
+@d20 1
+a20 1
+static char sccsid[] = "@@(#)getch.c	5.5 (Berkeley) 6/30/88";
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d45 1
+d76 1
+a76 1
+
+d107 1
+d116 1
+a116 1
+
+@

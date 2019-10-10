@@ -1,0 +1,54 @@
+/*
+ * Non-floating ASCII to int conversion
+ * int atoi(cp)
+ * char *cp;
+ * Modified by rec 22.Apr.82 to allow octal and hexadecimal.
+ */
+
+atoi(cp)
+register char *cp;
+{
+	register val;
+	register c;
+	register base;
+	int sign;
+
+	val = sign = 0;
+	while ((c = *cp)==' ' || c=='\t')
+		cp++;
+	if (c == '-') {
+		sign = 1;
+		cp++;
+	} else if (c == '+')
+		cp++;
+	base = 10;
+	if ((c = *cp) == '0') {
+		cp++;
+		if ((c = *cp) == 'x' || c == 'X') {
+			cp++;
+			base = 16;
+		} else
+			base = 8;
+	}
+	for (;;) {
+		c = *cp++;
+		if ((c -= '0') >= 0 && c <= 9) {
+			val = val*base - c;
+			continue;
+		}
+		if (base == 16) {
+			if ((c += 10 + '0' - 'A') >= 0 && c < base) {
+				val = val*base - c;
+				continue;
+			}
+			if ((c += 'A' - 'a') >= 0 && c < base) {
+				val = val*base - c;
+				continue;
+			}
+		}
+		break;
+	}
+	if (!sign)
+		val = -val;
+	return (val);
+}

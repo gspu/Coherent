@@ -1,0 +1,208 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @# @;
+
+
+1.1
+date     92.07.02.09.03.56;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@copyrigh.c
+copyright.c
+dos0.c
+36 a 37
+> short		isdir_keep;
+dos1.c
+dos2.c
+273 c 273
+< 			if (s < &buf[11])
+---
+> 			if (s <= &buf[11])
+324 a 325,326
+> 	char *argsd[512], *argsf[512];
+> 	short dnargs = 0, fnargs = 0;
+334,335 c 336,337
+< 	else for (ap = args; nargs ; ap++, nargs--) {
+< 		if ((mdp = find(*ap, root, &dp)) == NULL)
+---
+> 	else {
+> 		if ((mdp = find(args[0], root, &dp)) == NULL)
+338,343 c 340,362
+< 			do {	
+< 				base = basehold;
+< 				strcpy(base,*ap);
+< 				if isdir(mdp)
+< 					extractdir(dp);
+< 				else
+---
+> 			do {
+> 				cohname(mdp->m_name, dp);
+> 				if (isdir(mdp)) {
+> 					if (!sflag) {
+> 						argsd[dnargs] = 
+> 						    malloc(strlen(cohfile)+1);
+> 						strcpy(argsd[dnargs++],
+> 								cohfile);
+> 					}
+> 				}
+> 				else {
+> 					argsf[fnargs] = 
+> 						malloc(strlen(cohfile) + 1);
+> 					strcpy(argsf[fnargs++],cohfile);
+> 				}
+> 	 		} while (mdp = findnext(&dp));
+> 			numargs = fnargs + (sflag ? 0 : dnargs);
+> 			if (fnargs > 0) {
+> 				for (ap = argsf; fnargs ; ap++, fnargs--) {
+> 					isdir_keep = 0;
+> 					mdp = find(*ap, root, &dp);
+> 					base = basehold;
+> 					strcpy(base,*ap); 
+345 c 364,374
+<  			} while (mdp = findnext(&dp));
+---
+> 				}
+> 			}
+> 			if ((!sflag) && (dnargs > 0)) {
+> 				for (ap = argsd; dnargs ; ap++, dnargs--) {
+> 					isdir_keep = 1;
+> 					mdp = find(*ap, root, &dp);
+> 					base = basehold;
+> 					strcpy(base,*ap); 
+> 					extractdir(dp);
+> 				}
+> 			}
+dos3.c
+38 c 38
+< 						    lmatch(name, cohn(s))));
+---
+> 						    lmatch(tname, cohn(s))));
+89 a 90
+> 	dbprintf(("findnext(%s)\n", sname));
+208 c 209
+< 			if (s < &buf[11])
+---
+> 			if (s < &buf[12])
+311 c 312,313
+< 	if (c != 'y' && c != 'Y')
+---
+> 	if (c != 'y' && c != 'Y') {
+> 		rm_lock();
+312 a 315
+> 	}
+506 a 510,511
+> 	if (volume != NULL)
+> 		deletefile(volume, root);
+511,512 d 515
+< 	if (volume != NULL)
+< 		deletefile(volume, root);
+dos4.c
+278 c 278
+< 	int done = 0;
+---
+> 	short done = 0, rs;
+279 a 280
+> 	short srcd, destd, deste; 
+284 d 284
+< 	}
+286,290 c 286,290
+<  	if (cr) {
+< 		if ((stat(base1, &s) == -1) || !(s.st_mode & S_IFDIR)) {
+< 			done = 1;
+< 			if (strcspn(base, "*?") != strlen(base))
+< 				fatal("Cannot copy multiple sources to a file\n");
+---
+> 		if (cr) {
+> 			srcd = isdir_keep;
+> 			rs = stat(base1, &s);
+> 			deste = (rs == 0);
+> 			destd = (s.st_mode & S_IFDIR);
+292,297 c 292,297
+< 	}
+< 	else {
+<  		if (((mdp = find(base1, root, NULL)) == NULL) || !isdir(mdp)){
+< 			done = 1;
+< 			if (numargs > 1)
+< 				fatal("Cannot copy multiple sources to a file\n");
+---
+> 		else {
+> 			mdp = find(base1,root,NULL);
+> 			deste = (mdp != NULL);
+> 			destd = isdir(mdp);
+> 			stat(base, &s);
+> 			srcd = (s.st_mode & S_IFDIR);
+299 d 298
+< 	}
+300 a 300,321
+> dbprintf(("numargs = %d, deste = %d, destd = %d, srcd = %d\n",numargs,deste,destd,srcd));
+> 
+> 		if ((numargs > 1) && (deste) && !(destd))
+> 			fatal("Error: <%s> is a file", base1);
+> 		
+> 		if (numargs == 1) {
+> 			if (!deste) {
+> 				if (!srcd)
+> 					done = 1;
+> 			}
+> 			else {
+> 				if (!destd) {
+> 					if (srcd)
+> 						fatal("Error: <%s> is a file"
+> 								, base1);
+> 					else
+> 						done = 1;
+> 				}
+> 			}
+> 		}
+> 	}
+> 
+303 c 324,325
+< 			*t++ = '/';
+---
+> 			if (base1)
+> 				*t++ = '/';
+310 c 332,333
+< dbprintf(("base = <%s>, base1 = <%s>, tname = <%s>\n", base, base1, tname));
+---
+> 
+> dbprintf(("base = <%s>, base1 = <%s>\n  name = <%s>, tname = <%s>\n", base, base1, name, tname));
+317 c 340
+< 	short basesize;
+---
+> 	short basesize, nwsize;
+327,329 c 350,353
+< 	
+< 	
+< 	if ((tmp = strrchr(base, '/')) != NULL)
+---
+> 
+> 	tmp = strrchr(base + 1, '/');
+> 
+> 	if (tmp != NULL)
+332 c 356
+< 		basesize = 0;
+---
+> 		basesize = strlen(base);
+334 c 358
+< 	return strchr(name + basesize + 1, '/') + 1;
+---
+> 	return name + basesize + 1;
+dosdrives.c
+dosdump.c
+dosshrink.c
+@

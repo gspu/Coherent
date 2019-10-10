@@ -1,0 +1,125 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     92.06.02.08.05.37;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * getargs - get option letters and arguments from argv
+ *
+ * This is an improved form of getopt. If an option is followed
+ * by an ! it has an optional argument.
+ * 	while(EOF != (c = getargs(argc, argv, "xyf:g!")))
+ * Is a call of getargs from its test section. The x and y
+ * options take no arguments. The f option takes a mandidory
+ * argument, -f arg, and -farg, are both legal forms. The g option
+ * takes an optional argument which if present must be connected
+ * -garg. Additional arguments are returned as if they were preceeded
+ * by an option of '\0'. This allows programs such as ld and as to
+ * process mixed options and file names.
+ */
+#include <stdio.h>
+
+char	*optarg;	/* Global argument pointer. */
+int	optix = 1;	/* Global argv index. Reset to 1 to rescan. */
+
+static char	*scan = NULL;	/* Private scan pointer. */
+extern char	*strchr();
+
+int
+getargs(argc, argv, optstring)
+int argc;
+char *argv[];
+char *optstring;
+{
+	register char c, a;
+	register char *place;
+
+	for (optarg = NULL; scan == NULL || !*scan; scan++, optix++) {
+		if (optix >= argc) {
+			scan = NULL;
+			return(EOF);
+		}
+		if (*(scan = argv[optix]) != '-') {
+			optarg = scan;
+			scan = NULL;
+			optix++;
+			return (0);
+		}
+	}
+
+	if ((place = strchr(optstring, c = *scan++)) == NULL ||
+	     c == ':' || c == '!')
+		fatal("unknown command option %c", c);
+
+	if (((a = place[1]) == ':') || (a == '!')) {
+		if (*scan || (a == '!')) {
+			optarg = scan;
+			scan = NULL;
+		} else if (optix < argc)
+			optarg = argv[optix++];
+		else
+			fatal("command option %c missing its argument", c);
+	}
+
+	return(c);
+}
+
+#ifdef TEST
+/*
+ * This test example shows how to use getargs in a program.
+ * Typical test lines are
+ * getargs -fxxx -f yyy a b c -x -gabc -g
+ * getargs -xj	# invalid stuff
+ */
+main(argc, argv)
+char *argv[];
+{
+	char c;
+
+	while(EOF != (c = getargs(argc, argv, "xyf:g!"))) {
+		switch(c) {
+		case 'x':
+		case 'y':
+			printf("option %c\n", c);
+			break;
+		case 'g':
+			if (*optarg)
+				printf("option g with %s\n", optarg);
+			else
+				printf("option g with no argument\n");
+			break;
+		case 'f':
+			printf("option f with %s\n", optarg);
+			break;
+		case 0:
+			printf("argument '%s'\n", optarg);
+			break;
+		default:
+			printf(
+		"usage: getargs [-xy] [-f filen] [-g[option]] name ...\n");
+			exit(1);
+		}
+	}
+	exit(0);
+}
+#endif
+@

@@ -1,0 +1,247 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3; strict;
+comment  @ * @;
+
+
+1.3
+date     92.10.05.12.05.43;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.05.05.12.17.00;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.12.30.15.03.16;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Vlad's port of SYSV cron
+@
+
+
+1.3
+log
+@update byvlad to fix multiple cron execs
+@
+text
+@/*
+ * entry.c
+ *
+ * Keep track about all children processes.
+ *
+ */
+#include	<stdio.h>
+#include	<string.h>
+#include	"cron.h"
+
+#define	HUGE	1024		/* Size of the hostname+domain, is it enough */
+
+extern char	*mktemp();	/* Generate temporary name */
+extern int	gethostname();	/* Get host name */
+extern int	getdomain();	/* Get domain name */
+
+child_id	*add_entry(),	/* Add an new entry to a link list */
+		*find_entry(),	/* Find an entry in the link list */
+		*del_entry();	/* Remove an entry from the link list */
+void		mail_entry();	/* Send mail to user if command failed */
+
+extern child_id	*current;	/* Pointer to the lasr allocated struct. */
+
+/*
+ * Add a new entry to the link list. Return pointer to the new entry or
+ * NULL if entry cannot be allocated.
+ */
+child_id *add_entry(pid, u_name, c_time, cmd)
+int	pid;		/* Process ID */
+char	*u_name;	/* User name */
+time_t	c_time;		/* Time when command started */
+char	*cmd;		/* Command */
+{
+	register child_id	*pst;
+
+	/* Structure child_id has one extracharacter at the end */
+	if ((pst = (child_id *) malloc(sizeof(child_id) + strlen(cmd))) 
+								== NULL) {
+		fprintf(stderr, "crond: out of memory\n");
+	} else {	/* Write information about child to a table */
+		pst->prev = current;
+		if (current != NULL)
+			current->next = pst;
+		current = pst;
+		current->next = NULL;
+		current->pid = pid;
+		strncpy(current->name, u_name, MAX_UNAME - 1);
+		current->time = c_time;
+		strcpy(current->command, cmd);
+		Dprint("add_entry: added ID is %d, ", current->pid);
+	}
+	return current;
+}
+
+/*
+ * Find an entry by process id. Return pointer to the entry or
+ * NULL if entry not found.
+ */
+child_id *find_entry(pid)
+int	pid;
+{
+	register child_id	*pst;
+
+	Dprint("find_entry: request ID is %d. List of incore pids:\n", pid);
+	for (pst = current; pst != NULL; pst = pst->prev) {
+		Dprint(" %d ", pst->pid);
+		if (pst->pid == pid)
+			break;
+	}
+	Dprint("find_entry: found ID is %d\n", pst->pid);
+	return pst;
+}
+
+/*
+ * Delete entry. Return pointer to the last allocated entry ("current").
+ */
+child_id *del_entry(corpse)
+child_id	*corpse;	/* Entry that should be deleted */
+{
+	child_id	*pst;
+
+	Dprint("del_entry: ID should be %d\t", corpse->pid);
+	Dprint("next_id is %d\t", corpse->next->pid);
+	Dprint("prev_id is %d\n", corpse->prev->pid);
+
+	if (corpse == NULL)
+		return current;
+
+	if ((pst = corpse->prev) != NULL) {
+		pst->next = corpse->next;
+		Dprint("del_entry: prev_id is %d\n", pst->pid);
+	}
+
+	if ((pst = corpse->next) != NULL) {
+		pst->prev = corpse->prev;
+		Dprint("del_entry: next_id is %d\n", pst->pid);
+	}
+
+	if (corpse->next == NULL) {
+		pst = corpse->prev;
+		free(corpse);
+		return pst;
+	}
+	free(corpse);
+	return current;
+}	
+
+char	tmpFoo[] = "/tmp/cronXXXXXX";	/* Temporary file */
+
+/*
+ * Mail entry. Send mail to a user about failed command.
+ */
+void mail_entry(entry)
+child_id	*entry;
+{
+	char	mailBuf[MAX_STR_LEN];	/* Message buffer */
+	char	tmpName[20];		/* Name of the temporary file */
+	char	tmpBuf[HUGE];		/* Huge buffer for hostname */
+	FILE	*fp;			/* Pointer to a temporary file */
+	int	sz;			/* Size of the Hostname + '.' */
+
+	*tmpBuf = 0;	/* Just to have */
+
+	strcpy(tmpName, mktemp(tmpFoo));
+	if ((fp = fopen(tmpName, "w+")) == NULL) {
+		fprintf(stderr, "crond: cannot open temporary file %s.\n",
+							tmpName);
+		return;
+	}
+
+	if (gethostname(tmpBuf, HUGE))
+		strcat(tmpBuf, "");
+	else {
+		strcat(tmpBuf, ".");
+		sz = strlen(tmpBuf);
+		if (getdomain(&tmpBuf[sz], HUGE - sz));
+			strcat(tmpBuf, "");
+	}
+	fprintf(fp, "From: CRON@@%s\n", tmpBuf);
+	fprintf(fp, "Subject: failed command\n\n");
+	fprintf(fp, "Time was %sCommand was \"%s\".\n\n", 
+			ctime(&(entry->time)), entry->command);
+	fprintf(fp, "Have a good one cron!\n");
+	rewind(fp);
+	sprintf(mailBuf, "smail %s < %s", entry->name, tmpName);
+	system(mailBuf);
+	fclose(fp);
+	unlink(tmpName);
+}	
+
+@
+
+
+1.2
+log
+@vlad fixed "memory leak" problem
+@
+text
+@d108 2
+d124 1
+a124 1
+	strcpy(tmpName, mktemp("/tmp/cronXXXXXX"));
+d143 1
+a143 1
+	fprintf(fp, "Have a good one, cron!\n");
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d34 1
+a34 1
+	child_id	*pst;
+a39 1
+		pst = current;
+d42 9
+a50 8
+		pst->next = NULL;
+		pst->pid = pid;
+		strncpy(pst->name, u_name, MAX_UNAME - 1);
+		pst->time = c_time;
+		strcpy(pst->command, cmd);
+		Dprint("add_entry: ID should be %d\t", pid);
+		Dprint("Command is %s\t", cmd);
+		Dprint("Command is %s\n", pst->command);
+d52 1
+a52 1
+	return pst;
+d62 1
+a62 1
+	child_id	*pst;
+d64 1
+a64 1
+	Dprint("find_entry: request ID is %d\n", pid);
+d66 1
+a66 1
+		Dprint("find_entry: next ID is %d\n", pst->pid);
+d82 5
+a86 1
+	if (pst == NULL)
+d89 1
+a89 1
+	if ((pst = corpse->prev) != NULL)
+d91 2
+d94 1
+a94 1
+	if ((pst = corpse->next) != NULL)
+d96 2
+d148 1
+@

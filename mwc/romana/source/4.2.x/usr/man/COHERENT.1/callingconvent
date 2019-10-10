@@ -1,0 +1,141 @@
+ccaalllliinngg ccoonnvveennttiioonnss -- Definition
+
+The following presents the calling conventions for COHERENT.
+
+The calling conventions of C take into account machine architecture and the
+fact that the number of arguments  passed to a function may vary, as in the
+functions pprriinnttff() and ssccaannff().
+
+For example, consider the following C program, called ffoooo.cc:
+
+    short a;
+    long b;
+    char c;
+
+    foo()
+    {
+        example(a, b, c);
+    }
+
+Compiling this program with the command
+
+    cc -S foo.c
+
+generates the assembly-language code (with added comments):
+
+     .alignoff
+     .comm  a,      2    / a, b, and c are commons in the .bss
+     .comm  b,      4
+     .comm  c,      1
+
+foo:
+     .text
+     .globl foo
+
+foo:
+     push   %ebp
+     movl   %ebp, %esp
+     movsxb %eax, c      / move c to %eax with sign extend
+     push   %eax         / pass c
+     push   b            / pass b
+     movsxw %eax, a      / move a to %eax with sign extend
+     push   %eax         / pass a
+     call   example
+
+     leave               / epilog code for foo
+     ret
+     .align 4
+
+Note the following points:
+
+-> Parameters are  pushed in reverse order.  You should  not depend on this
+   feature, as the ANSI standard says that parameters may be calculated and
+   pushed in any order.
+
+-> The stack is reset by the caller, not the callee.  Only the caller knows
+   the number of parameters pushed.
+
+-> All  parameters  become iinntt  or  ddoouubbllee when  passed  under Kernighan  &
+   Ritchie C.  This changes under ANSI C.
+
+Now consider the module eexxaammppllee.cc, which gives the receiving end:
+
+    double
+    example(x, y, z)
+    short x;
+    long y;
+    char z;
+    {
+        int tmp;
+
+        tmp = x * y;
+        return (tmp + z);
+    }
+
+The command
+
+    cc -S example.c
+generates the code:
+
+     .alignoff
+
+     .text
+     .globl example
+
+example:
+     enter  $4, $0       / 4 bytes of local variables
+     push   %edi
+     movl   %eax, 12(%ebp)/ x * y
+     imull  8(%ebp)      / 8 == 4 + sizeof(int)
+     movl   -4(%ebp), %eax/ save into tmp
+     movl   %edi, 16(%ebp)/ tmp + z
+     addl   %edi, %eax   / return double in EDX:EAX
+     movl   %eax, %edi
+     call   _dicvt
+     pop    %edi
+
+     leave               / leave with result in %eax:%edx
+     ret
+     .align 4
+
+After the prologue code, the stack always looks like
+
+    =========================   <- High addresses
+    | passed parameters     |
+    =========================   4(%ebp)
+    | return address        |
+    =========================   <- %ebp
+    | saved %ebp            |
+    =========================   -4(%ebp)
+    | local variables       |
+    =========================
+    | other saved registers |
+    | may include %esi,     |
+    | %edi and %ebx         |
+    =========================   <- %esp
+
+Notice that parameters start at
+
+    [4 + _f_i_r_s_t _p_a_r_m _s_i_z_e](%ebp)
+
+and go to higher addresses, whereas local variables start at
+
+    -4(%ebp)
+
+and  go to  lower addresses.   Therefore,  if you  have a  local array  and
+overwrite it  in the forward direction, you clobber  your caller's %eebbpp; if
+you  overwrite it  in  the backward  direction, you  clobber your  caller's
+register variables  (although if the caller has  no register variable, it's
+harmless).
+
+On the 80386, the stack starts  at 0x80000000 and grows down being expanded
+by  the system  as it  is  needed.  Reasonable  programs should  never have
+stack-overflow problems, as they did under COHERENT 286.
+
+Note  that  the  convention  for  returning floating-point  numbers  differ
+depending upon whether a program uses software floating-point emulation, or
+hardware floating-point  code as invoked  by the cccc  option -VVNNDDPP. Programs
+that use hardware floating point return ddoouubbllee in the NDP stack top $sstt00.
+
+_S_e_e _A_l_s_o
+CC llaanngguuaaggee, PPrrooggrraammmmiinngg CCOOHHEERREENNTT

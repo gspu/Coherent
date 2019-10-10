@@ -1,0 +1,55 @@
+# bootperm
+# Sun Nov 14 09:31:25 1993 CST
+
+# Run me as root.
+
+##### Functions ######
+
+# Call with the $0 of the script as a parameter; this commands writes the
+# name of the directory containing the script to standard output.
+# Example:
+#	cmd_path $0
+
+cmd_path () {
+
+	# if arg passed contains a slash 
+	#   strip smallest suffix
+	# else if "which" finds a path to it with a slash
+	#   strip suffix from result of "which"
+	# else use current directory
+
+	case $1 in
+	*/*) echo "${1%/*}"
+		;;
+	*)   WHICH=`which $1 2>/dev/null`
+		case $WHICH in
+		*/*) echo "${WHICH%/*}"
+			;;
+		*)   echo .
+			;;
+		esac
+		;;
+	esac
+
+	return 0
+}
+
+##### Script ######
+
+if [ $# -ne 1 ] ; then
+	/bin/echo 'You need to specify a directory argument to mkperm'
+	exit 1
+fi
+
+# UAD is usually /usr/adm/distrib
+
+UAD=`cmd_path $0`
+PDIR=$1
+PLIST=$UAD/permlist
+
+cd $PDIR
+mv -f $PLIST $PLIST.old
+find . -exec $UAD/perm {} ';' | sort -o $PLIST
+chmod 666 $PLIST
+diff $PLIST.old $PLIST | $PAGER
+

@@ -1,0 +1,366 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.01.20.17.20;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Initial version checked into src admin system. Provided by Steve Ness.
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Print calendar for specified year (and month).
+ * Allows month to be numeric or alphabetic.
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+#include <time.h>
+
+#define	GREGYEAR 1752		/* Year of start of Gregorian calendar */
+#define	GREGMON	 SEP		/* Month of above */
+#define	GREGDAY	3		/* day of month of changeover */
+#define	GREGADJ	11		/* Adjustment of cal. (days) for Gregorian */
+	/* The calendar skipped 11 days after
+	 * September 3, 1752 in England.
+	 * That made the date jump 12 days
+	 * forward rather than the usual 1.
+	 * The original Gregorian reform was in
+	 * 1582, at which time only 10 days were
+	 * suppressed.  France and Russia adopted
+	 * the Gregorian calendar after 1752.
+	 * My calculations, which don't make
+	 * complete sense, suggest that the
+	 * corrections would be:
+	 *	12 days after 1800
+	 *	13 days after 1900
+	 * and	14 days after 2100
+	 * because the Gregorian calendar skips
+	 * leap years which fall on century years
+	 * unless they are quadracents and not
+	 * 4000 AD.
+	 */
+#define	TMYBIAS	1900		/* bias of year field in struct tm */
+
+char	*mnames[] = {
+	"January", "February", "March", "April", "May", "June",
+	"July", "August", "September", "October", "November", "December"
+};
+
+/*
+ * Days per month array (non-leap).
+ * January is at dpm[1].
+ */
+char	dpm[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+char	dayhead[] = " Su Mo Tu We Th Fr Sa";
+
+#define	DAYWIDTH	(sizeof dayhead -1)
+#define	GAP	5			/* Gap between months */
+#define	CENTRE	((3*DAYWIDTH+2*GAP)/2+2) /* Centred 4 digit year pos. */
+#define	MPL	3			/* Months per line */
+#define	JAN	1
+#define	FEB	2
+#define	MAR	3
+#define	APR	4
+#define	MAY	5
+#define	JUN	6
+#define	JUL	7
+#define	AUG	8
+#define	SEP	9
+#define	OCT	10
+#define	NOV	11
+#define	DEC	12
+
+
+char	caldays[MPL][6][7],		/* 3 per line, 6 lines, 7 days */
+	outbuf[BUFSIZ];			/* stdout setbuf */
+int	baseday;			/* Weekday of current year's Jan. 1 */
+
+main(argc, argv)
+register char	*argv[];
+{
+	int		month;
+	unsigned	year;
+	struct tm	*now;
+	long		intime;
+	long		time();
+
+	setbuf(stdout, outbuf);
+	intime = time(NULL);
+	now = localtime(&intime);
+	month = 0;
+	year = now->tm_year + TMYBIAS;
+	++argv;
+	switch (argc) {
+	case 1:
+		month = now->tm_mon + 1;
+		break;
+	case 2:
+		if (isdigit(**argv))
+			year = atoi(*argv);
+		else
+			month = getmon(*argv);
+		break;
+	case 3:
+		if (!isdigit(*argv[0]))
+			month = getmon(*argv++);
+		else if (isdigit(*argv[1])) {
+			month = atoi(*argv++);
+			if (month == 0)
+				month = -1;
+		} else
+			month = getmon(argv[1]);
+		year = atoi(*argv);
+		break;
+	default:
+		usage();
+	}
+	if (month < 0 || month > 12 || year <= 0 || year > 9999)
+		usage();
+	cal(year, month);
+	exit(0);
+}
+
+/*
+ * Produce a calendar for the specifed year and month.
+ * (If month is zero, then do whole year.)
+ * Setup baseday for fillcal to speed it up a lot.
+ */
+cal(yr, mon)
+{
+	register xmon, pos;
+	register wday;
+
+	/*
+	 * Start at 1 January, 1 which was a Saturday.
+	 */
+	wday = 6;
+	for (pos=1; pos<yr; pos++) {
+		if (pos == GREGYEAR)
+			wday -= GREGADJ;
+		wday = (wday + (isleap(pos) ? 366 : 365)) % 7;
+	}
+	baseday = wday;
+	if (mon != 0)  {
+		fillcal(0, mon, yr);
+		outcal(mon, 1);
+	} else {
+		printf("\n%*d\n", CENTRE, yr);
+		pos = 0;
+		for (xmon = 1; xmon <= 12; xmon++) {
+			fillcal(pos, xmon, yr);
+			if (++pos >= MPL) {
+				outcal(xmon-MPL+1, MPL);
+				pos = 0;
+			}
+		}
+	}
+}
+
+/*
+ * Fill the caldays array element for the particular month
+ * and year specified.
+ */
+fillcal(pos, month, year)
+{
+	register i, j, day;
+	int wday, special, mdays;
+
+	for (i=0; i<6; i++)
+		for (j=0; j<7; j++)
+			caldays[pos][i][j] = 0;
+	wday = baseday;
+	dpm[FEB] = isleap(year) ? 29 : 28;
+	special = (year==GREGYEAR);
+	for (i=1; i<month; i++) {
+		if (special && i==GREGMON)
+			wday -= GREGADJ;
+		wday = (wday + dpm[i]) % 7;
+	}
+	special = (special && month==GREGMON);
+	mdays = dpm[month];
+	i = 0;
+	j = wday;
+	for (day = 1; day <= mdays; day++) {
+		caldays[pos][i][j] = day;
+		if (special && day==GREGDAY)
+			day += GREGADJ;
+		if (++j >= 7) {
+			j = 0;
+			i++;
+		}
+	}
+}
+
+/*
+ * Put out `n' months from caldays, starting at month `mon'.
+ */
+outcal(mon, n)
+{
+	register i, j, k;
+	int left, cent;
+	int val;
+	char *name;
+
+	mon--;
+	lput('\n');
+	for (i=1; i<=n; i++) {
+		name = mnames[mon++];
+		cent = strlen(name);
+		left = (DAYWIDTH-cent)/2;
+		spaceover(left);
+		lputs(name);
+		spaceover(DAYWIDTH+GAP-left-cent);
+	}
+	lput('\n');
+	for (i=1; i<=n; i++) {
+		lputs(dayhead);
+		spaceover(GAP);
+	}
+	lput('\n');
+	for (j=0; j<6; j++) {
+		for (i=0; i<n; i++) {
+			for (k=0; k<7; k++) {
+				lput(' ');
+				val = caldays[i][j][k];
+				lput(val>=10 ? val/10 + '0' : ' ');
+				if (val)
+					lput(val%10 + '0');
+				else
+					lput(' ');
+			}
+			spaceover(GAP);
+		}
+		lput('\n');
+	}
+}
+
+/*
+ * Put out calendar characters saving them up until a
+ * newline so that trailing blanks can be stripped.
+ */
+
+static	char	lline[100];
+static	char	*lp = lline;
+lput(c)
+register c;
+{
+	register char *cp;
+
+	if (c != '\n')
+		*lp++ = c;
+	else {
+		for (cp = lp; *--cp == ' '; )
+			;
+		*++cp = '\n';
+		*++cp = '\0';
+		printf("%s", lp = lline);
+	}
+}
+
+/*
+ * Put out a string using `lput'.
+ */
+lputs(s)
+register char *s;
+{
+	while (*s != '\0')
+		lput(*s++);
+}
+
+spaceover(n)
+register n;
+{
+	if (n>0)
+		do {
+			lput(' ');
+		} while (--n);
+}
+
+/*
+ * Return 1 on leap years; 0 otherwise.
+ */
+isleap(yr)
+register yr;
+{
+	if (yr<=GREGYEAR)
+		return (yr%4 == 0);
+	if (yr%4000 == 0)
+		return (0);
+	if (yr%400==0 || (yr%100!=0 && yr%4==0))
+		return (1);
+	return (0);
+}
+
+/*
+ * Return the month (1-12) from `mname' which is
+ * roman numeric, the name in ascii of a month, or wrong.
+ * Trailing '.' is accepted as are upper case letters.
+ */
+struct	months {
+	char	*m_name;
+	int	m_num;
+}	months[] = {
+	"i",		JAN,	"jan",		JAN,	"january",	JAN,
+	"janvier",	JAN,	"ii",		FEB,	"feb",		FEB,
+	"february",	FEB,	"fevrier",	FEB,	"iii",		MAR,
+	"mar",		MAR,	"march",	MAR,	"mars",		MAR,
+	"iv",		APR,	"apr",		APR,	"april",	APR,
+	"avril",	APR,	"v",		MAY,	"may",		MAY,
+	"mai",		MAY,	"vi",		JUN,	"jun",		JUN,
+	"june",		JUN,	"juin",		JUN,	"vii",		JUL,
+	"jul",		JUL,	"july",		JUL,	"juillet",	JUL,
+	"viii",		AUG,	"iix",		AUG,	"aug",		AUG,
+	"august",	AUG,	"aout",		AUG,	"ix",		SEP,
+	"sep",		SEP,	"sept",		SEP,	"september",	SEP,
+	"septembre",	SEP,	"x",		OCT,	"oct",		OCT,
+	"october",	OCT,	"octobre",	OCT,	"xi",		NOV,
+	"nov",		NOV,	"november",	NOV,	"novembre",	NOV,
+	"xii",		DEC,	"dec",		DEC,	"december",	DEC,
+	"decembre",	DEC,	NULL
+};
+
+getmon(mname)
+char *mname;
+{
+	register struct months *mp;
+	register char *p1, *p2;
+
+	for (p1 = mname; *p1 != '\0'; p1 += 1)
+		if (isupper(*p1))
+			*p1 = tolower(*p1);
+	if (*--p1 == '.')
+		*p1 = '\0';
+	for (mp = months; mp->m_name != NULL; mp++) {
+		p1 = mname;
+		p2 = mp->m_name;
+		while (*p1 == *p2 && *p1 != '\0' && *p2 != 0)
+			p1 += 1, p2 += 1;
+		if (*p1 == *p2)
+			return (mp->m_num);
+	}
+	return (-1);
+}
+
+usage()
+{
+	fprintf(stderr, "Usage: cal [month] [year]\n");
+	exit(1);
+}
+
+@

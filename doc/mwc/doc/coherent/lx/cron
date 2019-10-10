@@ -1,0 +1,268 @@
+.TH cron "" "" "System Administration"
+.PC "Execute commands periodically"
+.B /etc/cron&
+.PP
+.HS
+cron is invoked only once, usually from \fB/etc/rc\fR.
+Thereafter, it sleeps in the background, awaking periodically to check
+crontab files \(em either the file \fB/usr/lib/crontab\fR if it exists, or the
+files in directory \fB/usr/spool/cron/crontabs\fR if
+\fB/usr/lib/crontab\fR does not exist.
+.Pp
+Entries in a crontab file consist of commands preceded by five fields;
+these represent minute (0-59), hour (0-23), day of the month (1-31),
+month (1-12), and day of the week (1-7).  An asterisk `*' in a field means
+all possible entries for that field.
+.HE
+.B cron
+is a daemon that executes commands at preset times.
+.PP
+Once each minute
+.B cron
+searches for commands to execute.
+.B cron
+first looks for file
+.BR /usr/lib/crontab .
+If it exists, then
+.B cron
+reads it for commands to execute.
+If
+.B /usr/lib/crontab
+does not exist, however,
+.B cron
+searches \fB/usr/spool/cron/crontabs\fR for command files.
+Each user can have her own command file in that directory.
+See the Lexicon entry for
+.B crontab
+for information how to write and load a command file.
+.PP
+For each entry in each command file,
+.B cron
+compares the current time with the scheduled execution time and executes
+the command if the times match.
+When it finishes the search,
+.B cron
+sleeps until the next minute.
+Because it never exits,
+.B cron
+should be executed only once (customarily by
+.BR /etc/rc ).
+.PP
+.B cron
+is designed for commands that must be executed regularly.
+Temporal commands that need to be executed only once should be handled
+with the command
+.BR at .
+.SH "Permissions"
+.B cron
+performs some interesting manipulations with permissions.
+This is necessary to allow
+.B cron
+to run a wide variety of programs untended without creating loopholes
+in the system's security.
+Occasionally, this can create difficulties for users who do not grasp what
+.B cron
+does or why.
+The following describes how
+.B cron
+manipulates permissions on the programs you ask it to run.
+.PP
+To begin, when
+.B cron
+executes a user's
+.B crontab
+file, it changes the effective user ID to the ID of that user whose
+.B crontab
+file is being executed,
+.BR cd 's
+to the user's
+.B HOME
+directory.
+When, however,
+.B cron
+runs an entry from a
+.BR /usr/lib/crontab ,
+it uses the user ID and group ID of user
+.BR daemon .
+This prevents security holes involving entries in a
+.B crontable
+file.
+.PP
+For example, the following
+.B crontab
+entry contains redirection:
+.DM
+	* * * * *	echo hello world >/dev/console 2>&1
+.DE
+.PP
+If
+.B cron
+finds this entry in
+.BR /usr/lib/crontab ,
+it tries to execute the command as user
+.BR daemon .
+The command will not execute it if user
+.B daemon
+lacks permission to write to
+.BR /dev/console .
+Note that using
+.B /usr/lib/crontab
+is
+.I not
+recommended.
+.PP
+If however, it finds the entry in user
+.BR henry 's
+.B crontab
+file, it tries to execute the command under the effective user ID of
+.BR henry .
+The command will fail if
+.B henry
+lacks permission to write to
+.BR /dev/console ,
+and will succeed if he does.
+.PP
+When the shell executes a command in the background,
+it reads its standard input from
+.B /dev/null
+(unless redirected) and writes its standard output to the controlling tty.
+If
+.B cron
+is invoked with
+.B /etc/cron&
+from
+.BR /etc/rc ,
+there is no controlling tty, so the standard output goes to
+.BR /dev/null .
+Thus,
+.DM
+	* * * * *	echo hello world
+.DE
+.PP
+typically writes
+.B "hello world"
+to
+.BR /dev/null .
+.\"If the superuser kills the
+.\".B /etc/cron
+.\"invoked from
+.\".B /etc/rc
+.\"and reinvokes
+.\".B /etc/cron&
+.\"directly from the console, this command echoes
+.\".B "hello world"
+.\"to the console every minute.
+.PP
+When a user logs in,
+.B /bin/login
+grabs the tty and runs
+.B chown
+and
+.B chmod
+on it.
+It is owned by the user with default permissions 700.
+If the user who has logged in on the console types the command
+.DM
+	chmod /dev/console a+w
+.DE
+.PP
+to allow all users to write to it, then the
+.B crontab
+entry
+.DM
+	* * * * *	echo hello world >/dev/console 2>/tmp/cron.err
+.DE
+.PP
+will indeed echo to the console every minute.
+.PP
+.B cron
+should be executed only once, at boot time.
+It uses
+.B /usr/lib/cron/FIFO
+as a lock file to prevent the execution more than one
+.B cron
+daemon.
+.PP
+If mail options are enabled, which is the default,
+.B cron
+sends mail to the owner of a
+.B crontab
+about all commands in that file that failed.
+.PP
+To allow
+.B cron
+to remove lock file
+.BR /usr/lib/cron ,
+do
+.I not
+send signal
+.B KILL
+to
+.BR cron .
+Instead, use
+signal
+.BR TERM .
+.B cron
+ignores signals
+.BR INT ,
+.BR HUP ,
+and
+.BR PIPE .
+.B cron
+uses the signal
+.B ALRM
+internally.
+.SH "Files and Directories"
+.IP \fB/usr/lib/cron/FIFO\fR
+Lock file (named pipe).
+Created by
+.BR cron ;
+removed by
+.BR cron/rc .
+.IP \fB/usr/lib/cron/cron.allow\fR
+List of allowed users.
+Permissions: \fB600 root root\fR.
+.IP \fB/usr/lib/cron/cron.deny\fR
+List of denied users.
+Permissions: \fB600 root root\fR.
+.IP \fB/usr/lib/crontab\fR
+Global \fBcrontab\fR file, used by previous \*(CO
+.B cron
+mechanism.
+.IP \fB/usr/spool/cron\fR
+Spool directory parent.
+Permissions: \fB700 root root\fR.
+.IP \fB/usr/spool/cron/crontabs\fR
+Main
+.B cron
+directory.
+It holds each user's command file.
+Permissions: \fB700 root root\fR.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "commands," commands
+.Xr "crontab" crontab
+.SH "Notes"
+.B cron
+does not presently write into the log file.
+The size of the \fIhostname + domain\fR must not exceed 1,000 characters.
+.PP
+.B cron
+looks for
+.B /usr/lib/crontab
+to remain compatible with the \*(CO 286 version of
+.BR cron .
+If, however, you continue to keep all
+.B cron
+commands in file
+.BR /usr/lib/crontab ,
+it will not be possible to run
+.B "setuid cron"
+tasks for logins that have a password.
+It is strongly recommended that you do
+.I not
+use
+.BR /usr/lib/crontab ,
+and instead create individual
+.B crontab
+files.

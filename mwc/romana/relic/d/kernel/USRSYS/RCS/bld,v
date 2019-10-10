@@ -1,0 +1,362 @@
+head     1.9;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.9;
+comment  @@;
+
+
+1.9
+date     91.11.06.11.47.21;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     91.10.31.08.38.28;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     91.10.24.13.58.37;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     91.07.24.08.05.48;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.07.15.14.07.50;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.07.03.13.16.54;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.06.20.14.24.52;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.06.17.12.44.48;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.06.10.14.15.11;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version prov by hal
+@
+
+
+1.9
+log
+@hal fixed problem building scsi kernels
+@
+text
+@#
+# Build - make a complete COHERENT kernel.
+#
+
+# Shell variables
+#	DRIVERS is the list of device drivers to be linked into the kernel.
+#	COH_TYPE is one of [ fl | at | ss | aha ] and is for information -
+#		it is the suffix on the name of the kernel produced.
+#	BOOTDEV is the device name for the COHERENT boot floppy or partition -
+#		it is passed to the "config" script.
+#	HD is the device driver name for the hard drive device driver linked
+#		into this kernel - it is one of [ aha154x | at | ss ], or
+#		may be omitted entirely for a floppy-only system.
+#	KB is one of [ kb | nkb ] - the first of these uses fixed keyboard
+#		tables and scan code set 1, and source is provided in the
+#		driver kit;  use it if you are concerned about supporting
+#		keyboards of questionable compatibility or want to work with
+#		keyboard driver source - the second of these uses loadable
+#		keyboard tables for international support, but requires
+#		full compatibility, and source code is not provided in the
+#		driver kit.
+
+if [ $USRSYS ]
+then
+if [ $USRSRC ]
+then
+if [ $KOBJ ]
+then
+if [ $LOBJ ]
+then
+DRIVERS="rm fl lp mm"
+COH_TYPE=fl
+BOOTDEV="fha0"
+HD=""
+KB=kb
+for ARG
+do
+	case $ARG in
+	at)
+#		BOOTDEV="at0a"
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	aha)
+#		BOOTDEV="sd0a"
+		HD=aha154x
+		COH_TYPE=$ARG
+		;;
+	ss)
+#		BOOTDEV="ss0a"
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	kb|nkb|kb_d|kb_f)
+		KB=$ARG
+		;;
+	*)	echo "Usage: $0 { at | ss | aha | fl } { kb | nkb | kb_d | kb_f }"
+		exit 0
+		;;
+	esac
+done
+DRIVERS="$KB $HD $DRIVERS"
+echo "Kernel:    /coh.$COH_TYPE"
+echo "Version:   `version ID`"
+echo "Devices:   $DRIVERS"
+echo "Default root/pipe device is $BOOTDEV."
+export KB HD
+( cd $USRSRC/ldrv; make ld_support )			|| exit 1
+( cd $USRSRC/i8086/drv; make -f Mf.mwc install )	|| exit 1
+( make kernel )						|| exit 1
+./config.mwc ibm-at $DRIVERS root=$BOOTDEV		|| exit 1
+cp coherent /tmp/coh					|| exit 1
+strip /tmp/coh						|| exit 1
+set `ls -s /tmp/coh`
+SIZE=$1
+rm /tmp/coh						|| exit 1
+echo "Coherent bootable limit is 138 blocks.  This kernel is $SIZE"
+if [ $SIZE -gt 138 ] ;then
+	echo 
+	echo Your Coherent image exceeds the bootable limit of 138 blocks
+	echo by `expr $SIZE - 138` 'block(s).'  You will need to decrease the
+	echo size of your kernel in order to make it bootable.
+	echo
+	echo We suggest removing some of the non critical drivers from the
+	echo default list of drivers linked into Coherent.  These additional
+	echo drivers may then be linked as loadable drivers using the
+	echo ldconfig script located in this directory.
+fi
+mv coherent /coh.$COH_TYPE
+chown sys /coh.$COH_TYPE
+chgrp sys /coh.$COH_TYPE
+chmod 400 /coh.$COH_TYPE
+echo "New kernel in /coh.$COH_TYPE"
+ls -l /coh.$COH_TYPE
+# the rest is error exits
+else
+echo "Error - LOBJ not defined - (e.g. /usr/lobj)"
+fi
+else
+echo "Error - KOBJ not defined - (e.g. /usr/kobj)"
+fi
+else
+echo "Error - USRSRC not defined - (e.g. /usr/src/sys)"
+fi
+else
+echo "Error - USRSYS not defined - (e.g. /usr/sys)"
+fi
+
+-Hal Snyder-      Mark Williams Tech. Support     (708)-291-6700 (voice)
+hal@@mwc.com            uunet!mwc!support          (708)-291-6750 (fax)
+
+@
+
+
+1.8
+log
+@provided by hal for building 3204{k} kernels.
+@
+text
+@d1 22
+a22 3
+:
+:  Build a Coherent executable with a host adapter driver linked in.
+:
+d35 1
+a35 1
+KB=nkb
+d40 1
+a40 1
+		BOOTDEV="at0a"
+d45 1
+a45 1
+		BOOTDEV="sd0a"
+d50 1
+a50 1
+		BOOTDEV="sd0a"
+d67 1
+a67 1
+
+d108 4
+@
+
+
+1.7
+log
+@changes by hal. Added different keyboard/aha handling
+@
+text
+@d14 1
+d20 2
+a21 1
+	at|aha|ss)
+a22 4
+		if [ $HD = "aha" ]
+		then
+			HD=aha154x
+		fi
+d25 10
+d38 1
+a38 1
+	*)	echo "Usage: $0 { at | ss | aha } { kb | nkb | kb_d | kb_f }"
+d47 1
+a48 4
+: default root/pipe device
+BOOTDEV="fva0"
+echo "Default root/pipe device is $BOOTDEV."
+
+@
+
+
+1.6
+log
+@update prov by hal
+@
+text
+@d21 4
+d27 1
+a27 1
+	kb|nkb|gkb)
+d30 3
+a32 3
+	*)		echo "Usage: $0 { at | ss | aha } { kb | nkb | gkb }"
+			exit 0
+			;;
+d47 1
+a47 1
+./config.mwc ibm-at $DRIVERS root=$BOOTDEV			|| exit 1
+@
+
+
+1.5
+log
+@update prov. by hal (moves objects to relocatable directories)
+@
+text
+@d12 23
+a34 17
+HDDR=${1-"at"}
+case $HDDR in
+at)
+	DRIVERS="at rm fl lp mm"
+	;;
+ss)
+	DRIVERS="ss rm fl lp mm"
+	;;
+aha)
+	DRIVERS="aha154x rm fl lp mm"
+	;;
+*)
+	echo "Usage: $0 { at | ss | aha }"
+	exit 0
+	;;
+esac
+echo "Building kernel /coh.$HDDR Version `version ID` with drivers ($DRIVERS)."
+d40 9
+a48 10
+( cd $USRSRC/ldrv; make ld_support )				|| exit 1
+( cd $USRSRC/i8086/drv; make install )				|| exit 1
+( make kernel )							|| exit 1
+./config ibm-at $DRIVERS root=$BOOTDEV				|| exit 1
+cp coherent /tmp/coh						|| exit 1
+strip /tmp/coh							|| exit 1
+: the SIZE expression needs fewer backslashes since Steve fixed sh
+:SIZE=`ls -s /tmp/coh | sed -n -e 's/^\\\(....\\\).*$/\\\1/p'`
+SIZE=`ls -s /tmp/coh | sed -n -e 's/^\(....\).*$/\1/p'`
+rm /tmp/coh							|| exit 1
+d61 6
+a66 6
+mv coherent /coh.$HDDR
+chown sys /coh.$HDDR
+chgrp sys /coh.$HDDR
+chmod 400 /coh.$HDDR
+echo "New kernel in /coh.$HDDR"
+ls -l /coh.$HDDR
+d69 1
+a69 1
+echo "Error - LOBJ not defined - (e.g. /tmp/lobj)"
+d72 1
+a72 1
+echo "Error - KOBJ not defined - (e.g. /tmp/kobj)"
+@
+
+
+1.4
+log
+@updates provided by hal
+@
+text
+@d8 4
+d64 1
+a64 1
+echo "Error - USRSRC not defined - (was /usr/src/sys)"
+d67 1
+a67 1
+echo "Error - USRSYS not defined - (was /usr/sys)"
+d69 6
+@
+
+
+1.3
+log
+@another hal update
+@
+text
+@d24 1
+a24 1
+echo "Building kernel /coh.$HDDR with drivers ($DRIVERS)."
+d30 1
+a31 1
+( cd $USRSRC/ldrv; make ld_support )				|| exit 1
+@
+
+
+1.2
+log
+@new version provided by hal to handle environmental variable
+for src box and to allow generic copies of this source to be distributed
+with relative paths.
+@
+text
+@d31 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+a2 1
+:	Build a Coherent executable
+d4 4
+d30 1
+a30 1
+( cd /usr/src/sys/i8086/drv; make install )			|| exit 1
+d57 7
+@

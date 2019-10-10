@@ -1,0 +1,214 @@
+.TH crontab "" "" Command
+.PC "Copy a command file into the crontab directory"
+\fB/usr/bin/crontab [\-l] [\-r] [\-f \fIfilename\fB] [\-m[ed]] [\-u\fIuser\fB]\fR
+.PP
+.HS
+.SH Option:
+.IC "\fB\-f \fIfilename\fR"
+Replace a user's command file.
+.IC \fB\-l\fR
+List your command file.
+.IC "\fB\-m[ed]\fR"
+Enable/disable sending mail upon failure of a command within a command file.
+.IC \fB\-r\fR
+Remove user's command file.
+.IC "\fB\-u\fIuser\fR"
+Specify that the file being copied is to be applied to
+.IR user .
+Only the superuser
+.B root
+can execute this option.
+.HE
+The command
+.B crontab
+copies a command file into directory
+.BR /usr/spool/cron/crontabs .
+This directory holds the command files for all users.
+This mechanism permits each user to have her own file of commands
+to be executed periodically.
+If the file name is `-', then
+.B crontab
+reads the standard input.
+.PP
+.\"The system of individual command files works only if you select the
+.\".B crond
+.\"daemon instead of the
+.\".B cron
+.\"daemon.
+.\"See the Lexicon entry for
+.\".B crond
+.\"for instruction on how to select that daemon.
+.\".PP
+.B crontab
+recognizes the following options.
+.IP "\fB\-f \fIfilename\fR
+Replace your crontab file with \fIfilename\fR.
+.IP \fB\-l\fR
+List your crontab file.
+.IP \fB\-m[ed]\fR
+Enable/disable the sending of mail to a user
+about any command in her crontab file that fails.
+.IP \fB\-r\fR
+Remove your crontab file.
+.IP "\fB\-u \fIuser\fR"
+Specify
+.IR user .
+Only the superuser
+.B root
+can specify any user other than herself.
+.SH "Allowing and Denying Access"
+The files
+.B /usr/lib/cron/cron.allow
+and
+.B /usr/lib/cron/cron.deny
+let the system administrator govern which users can use the
+.B crontab
+command:
+.IP \(bu 0.3i
+If
+.B cron.allow
+exists, then
+.B crontab
+checks its contents; if a given user is identified therein, then she can use
+.BR crontab .
+Obviously, if
+.B cron.allow
+exists but is empty, then nobody can use
+.BR crontab .
+.IP \(bu
+If
+.B cron.allow
+does not exist, then
+.B crontab
+checks the contents of
+.BR cron.deny .
+If a given user is identified therein, then she cannot use
+.BR crontab ;
+otherwise, she can.
+If
+.B cron.allow
+does not exist and
+.B cron.deny
+exists but is empty, then everyone can use
+.BR crontab .
+.IP \(bu
+If neither file exists, then everyone can use
+.BR crontab .
+.SH "Format of a crontab File"
+A
+.B crontab
+command file consists of lines separated by newlines.
+Each line consists of six fields separated by white space (tabs or blanks).
+The first five fields describe the scheduled execution time of the command.
+Respectively, they represent
+the minute (0\-59), hour (0\-23), day of the month (1\-31),
+month of the year (1\-12), and day of the week (0\-6, 0 indicates Sunday).
+Each field can contain a single integer in the appropriate range, a pair of
+integers separated by a hyphen \*(Ql\-\*(Qr
+(meaning all integers between the two, inclusive), an asterisk \*(Ql*\*(Qr
+(meaning all legal values), or a comma-separated list of the above forms.
+The remainder of the line gives the command to be executed at the given time.
+.PP
+For example, the \fBcrontab\fR entry
+.DM
+	29 * * 7 0 msg henry Succotash!
+.DE
+.PP
+means that every hour on the half-hour during each Sunday in July,
+\fBcron\fR will invoke the command \fBmsg\fR, and
+the user named \fBhenry\fR will have the message
+.II succotash
+.DM
+	daemon: Succotash!
+.DE
+.PP
+written on his terminal's screen (if he is logged in).
+.PP
+.B crond
+recognizes three special characters and escape sequences in a
+.B crontab
+file.
+If a command contains the percent character \*(Ql%\*(Qr,
+.B crond
+executes only the portion up to the first \*(Ql%\*(Qr as a command, then passes
+the remainder to the command as its standard input.
+.B crond
+translates any percent characters \*(Ql%\*(Qr in the remainder to newlines.
+To prevent the special interpretation of a \*(Ql%\*(Qr,
+precede it with a backslash, \*(Ql\e%\*(Qr.
+Finally,
+.B crond
+removes the sequence \e\fB<newline>\fR
+from the text before it passes the text to the shell
+.BR sh ;
+this can be used to make an entry in the
+.B crontab
+more legible.
+.PP
+You must pay special attention to permissions when you write a
+.B crontab
+command file.
+For information on how the
+.B crontab
+daemon
+.B crond
+manipulates permissions, see the entry for
+.B crond
+in the Lexicon.
+.SH "Directories and Files"
+.IP \fB/usr/spool/cron/crontabs\fR
+Main
+.B cron
+directory.
+It holds each user's command file.
+Permissions: \fB700 root root\fR.
+.IP \fB/usr/lib/cron/FIFO\fR
+Lock file (named pipe).
+Created by
+.BR cron ;
+removed by
+.BR crond/rc .
+.IP \fB/usr/lib/cron/cron.allow\fR
+List of allowed users.
+Permissions: \fB600 root root\fR.
+.IP \fB/usr/lib/cron/cron.deny\fR
+List of denied users.
+Permissions: \fB600 root root\fR.
+.IP \fB/usr/lib/crontab\fR
+Global \fBcrontab\fR file, used by previous \*(CO
+.B cron
+mechanism.
+\fB/usr/spool/cron\fR
+Spool directory parent.
+Permissions: \fB700 root root\fR.
+.IP \fB/usr/spool/cron/crontabs\fR
+Spool directory.
+Permissions: \fB700 root root\fR.
+.SH "See Also"
+.Xr commands commands
+.Xr cron cron
+.SH "Notes"
+\*(CO
+.B crontab
+is superset of the command of the same name included with
+\*(UN System V release 3 (SVR3).
+The main differences are as follows:
+.IP \(bu 0.3i
+\*(CO
+.B crontab
+prints the usage when no options have been chosen, whereas
+SVR3
+.B crontab
+reads stdin and can just remove the user's crontab file.
+.IP \(bu
+SVR3
+.B crontab
+does not include option \fB\-f \fIfile_name\fR.
+.IP \(bu
+SVR3
+.B crontab
+does not include option \fB\-u \fIuser\fR.
+Under SVR3
+.BR crontab ,
+you must \fBsu\fR to another user (e.g., \fBuucp\fR)
+before you can maintain her \fBcrontab\fR file.

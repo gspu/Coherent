@@ -1,0 +1,297 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.08.10.12.38.35;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ *-IMPORTS:
+ *	<sys/compat.h>
+ *		CONST
+ *		USE_PROTO
+ *		ARGS ()
+ *	<stdlib.h>
+ *		NULL
+ *		malloc ()
+ *		free ()
+ */
+
+#include <sys/compat.h>
+#include <stdlib.h>
+
+#include "ehand.h"
+#include "symbol.h"
+#include "read.h"
+#include "mtune.h"
+#include "input.h"
+
+#include "stune.h"
+
+LOCAL stune_t *	_stunes;
+
+
+/*
+ * Regenerate an 'stune' line from the stored record.
+ */
+
+#if	USE_PROTO
+void (write_stune) (stune_t * stunep, input_t * input)
+#else
+void
+write_stune ARGS ((stunep, input))
+stune_t	      *	stunep;
+input_t	      *	input;
+#endif
+{
+	if ((* input->in_filter) (input, "%s<2>%ld\n",
+				  stunep->st_name->s_data,
+				  stunep->st_value) < 0) {
+
+		throw_error ("Output error");
+	}
+}
+
+
+/*
+ * Read lines from an "stune" file.
+ */
+
+#if	USE_PROTO
+LOCAL stune_t * (read_stune) (input_t * input, lex_t * lexp, int * end_char)
+#else
+LOCAL stune_t *
+read_stune ARGS ((input, lexp, end_char))
+input_t	      *	input;
+lex_t	      *	lexp;
+int	      *	end_char;
+#endif
+{
+	VOLATILE int	ch = '\n';
+	stune_t * VOLATILE stunep;
+	ehand_t		err;
+
+	if ((stunep = (stune_t *) malloc (sizeof (* stunep))) == NULL)
+		throw_error ("out of memory in read_stune ()");
+
+	if (PUSH_HANDLER (err) == 0) {
+		/*
+		 * If the first thing on the line works out to be an EOF,
+		 * then bail out without an error.
+		 */
+
+		ch = read_symbol (input, lexp, & stunep->st_name);
+
+		if (stunep->st_name == NULL) {
+			/*
+			 * We allow an EOF at the beginning of a line and we
+			 * also allow a blank line.
+			 */
+
+			free (stunep);
+			stunep = NULL;
+			goto at_eof;
+		}
+		check_not_eol (ch);
+
+		/*
+		 * Pull in the parameter value
+		 */
+
+		ch = read_longs (input, lexp, & stunep->st_value, NO_RANGE);
+
+		ch = expect_eol (input, lexp, ch);
+	} else {
+		free (stunep);
+		CHAIN_ERROR (err);
+	}
+
+at_eof:
+	POP_HANDLER (err);
+
+	* end_char = ch;
+	return stunep;
+}
+
+
+/*
+ * This function is passed as a parameter to read_dev_string () to read an
+ * 'mtune' entry (usually a program argument) and hook it into a global list.
+ */
+
+#if	USE_PROTO
+LOCAL int _read_stune_string (input_t * input, lex_t * lexp,
+			      stune_t ** stlistp)
+#else
+LOCAL int
+_read_stune_string (input, lexp, stlistp)
+input_t	      *	input;
+lex_t	      *	lexp;
+stune_t	     **	stlistp;
+#endif
+{
+	stune_t	      *	stunep;
+	int		ch;
+
+	if ((stunep = read_stune (input, lexp, & ch)) != NULL) {
+		stunep->st_next = * stlistp;
+		* stlistp = stunep;
+	}
+
+	return ch;
+}
+
+
+/*
+ * This function is called from _read_stune_file () to link an 'stune' entry
+ * into the global lists and check it.
+ */
+
+#if	USE_PROTO
+LOCAL void (link_stune) (stune_t * stunep, input_t * input)
+#else
+LOCAL void
+link_stune ARGS ((stunep, input))
+stune_t	      *	stunep;
+input_t	      *	input;
+#endif
+{
+	if ((stunep->st_mtune = find_mtune (stunep->st_name)) == NULL)
+		throw_error ("Parameter name not in 'mtune' file");
+
+	if (stunep->st_mtune->mt_stune != NULL)
+		throw_error ("Two values configured for parameter");
+
+	if (stunep->st_value < stunep->st_mtune->mt_min ||
+	    stunep->st_value > stunep->st_mtune->mt_max)
+		throw_error ("Parameter value outside configurable range");
+
+	stunep->st_mtune->mt_stune = stunep;
+
+	stunep->st_next = _stunes;
+	_stunes = stunep;
+
+	write_stune (stunep, input);
+}
+
+
+/*
+ * This function is passed as a pointer to read_sdev_file () to read an
+ * 'stune' entry and link it into the global lists.
+ */
+
+#if	USE_PROTO
+LOCAL int _read_stune_file (input_t * input, lex_t * lexp,
+			    stune_t ** changes)
+#else
+LOCAL int
+_read_stune_file (input, lexp, changes)
+input_t	      *	input;
+lex_t	      *	lexp;
+stune_t	      **changes;
+#endif
+{
+	stune_t	      *	stunep;
+	int		ch;
+
+	if ((stunep = read_stune (input, lexp, & ch)) == NULL) {
+		if (ch == READ_EOF) {
+			/*
+			 * Blow remaining changes out as new entries.
+			 */
+
+			while ((stunep = * changes) != NULL) {
+				* changes = stunep->st_next;
+				link_stune (stunep, input);
+			}
+		}
+		return ch;
+	}
+
+
+	/*
+	 * Link the freshly-read entry into the global lists.
+	 */
+
+	if (changes) {
+		stune_t	     **	scan;
+
+		for (scan = changes ; * scan != NULL ;
+		     scan = & (* scan)->st_next) {
+
+			if ((* scan)->st_name == stunep->st_name) {
+				/*
+				 * Our current entry is being replaced by a
+				 * new one; unlink the new entry from the
+				 * change list and discard the old entry.
+				 */
+
+				free (stunep);
+
+				if (report_mode ())
+					return ch;
+
+				stunep = * scan;
+				* scan = stunep->st_next;
+				break;
+			}
+		}
+	}
+
+	link_stune (stunep, input);
+	return ch;
+}
+
+
+/*
+ * Read in an "mtune" entry from a string and add it to a list.
+ */
+
+#if	USE_PROTO
+void read_stune_string (CONST char * string, VOID * extra)
+#else
+void
+read_stune_string (string, extra)
+CONST char    *	string;
+VOID	      *	extra;
+#endif
+{
+	read_dev_string (string, (dev_func_p) _read_stune_string, extra);
+}
+
+
+/*
+ * Suck in a complete 'stune' file.
+ */
+
+#if	USE_PROTO
+void (read_stune_file) (CONST char * inname, CONST char * outname,
+			VOID * extra)
+#else
+void
+read_stune_file ARGS ((inname, outname, extra))
+CONST char    *	inname;
+CONST char    *	outname;
+VOID	      *	extra;
+#endif
+{
+	read_dev_file (inname, outname, (dev_func_p) _read_stune_file, extra);
+}
+@

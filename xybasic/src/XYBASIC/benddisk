@@ -1,0 +1,615 @@
+;BENDDISK 12/12/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;routines for Bendix SDISK version under Monolitic Systems MSOS.
+
+
+	if	bendx and sdisk
+
+;Up to 3 open files are allowed.
+;Each has a 3 byte file block, containing:
+;1	Mode, 0 if unused, 1 if open for Input, 2 if open for Output or Update
+;2	Column (initially 0) for Output, or
+;	lookahead/EOF flag (described under DREAD below) for Input
+;3	Width (initially 0) for Output, or
+;	lookahead char for Input
+;The channel 1 block starts at BFBLK, the channel 2 block at BFBLK+3,
+;and the channel 3 block at BFBLK+6.
+;Channel 4 is reserved for use by SAVE and LOAD, defined in module BENDIX.
+
+;Reading and writing chars from disk is complicated by the fact that
+;a single char lookahead is required for INPUT and LINPUT to work right.
+;The EOF/lookahead byte and lookahead char byte handle lookahead.
+;The lookahead/EOF byte of the file block (byte 2) contains:
+;	0	if next char is unread, last char was not EOF
+;	1	if next char is read and is not EOF
+;	2	if next char is read and is EOF
+;	255	if last char was EOF
+;The lookahead byte (byte 3) contains the char read, in cases 1 and 2.
+
+
+;CLOSE [@<expr>, ...]
+close:	call	gtsfn		;look for file #
+	jc	closn		;none, close all
+	jz	bferr		;DK error if @0 closed
+	mov	a,c		;fetch channel number
+	adi	'0'		;convert channel to ASCII
+	mov	b,a		;and save in B
+;CLOS1 closes an OPEN file.
+;Call:	B	ASCII channel number
+;	HL	pointer to file mode
+;Retn:	HL	preserved
+clos1:	push	h
+	lxi	h,bclo1
+	call	bwmon		;write 'AS ' to monitor
+	mov	a,b
+	call	bch0w		;write channel number to monitor
+	lxi	h,bnucr
+	call	bwmon		;write ' NU', <cr> to monitor
+	pop	h		;restore HL
+	mvi	m,0		;reset to indicate channel closed
+	ret
+
+;CLOSN closes all currently OPEN disk files.
+closn:	lxi	b,('1' shl 8) or 3	;'1' to B, 3 to C
+	lxi	h,bfblk		;file block pointer to HL
+clon1:	mov	a,m		;fetch channel mode
+	ora	a
+	cnz	clos1		;close if currently OPEN
+	dcr	c		;decrement channel count
+	rz			;done
+	inr	b		;bump ASCII channel number
+	inx	h
+	inx	h
+	inx	h		;point to next channel mode
+	jmp	clon1		;and repeat
+
+;INPUT @<expr>, <var list>
+dinp0:	push	psw
+	cnz	drfil		;initialize file reading
+	call	gtcom		;skip trailing comma
+	pop	psw
+	jz	inpu1		;INPUT @0, normal INPUT with no quoted string
+	dcr	a
+	jnz	fmerr		;FM error if file open for Output
+dinp1:	call	gtlhs		;get destination
+	cpi	strst
+	push	psw		;save type (Zero set iff string)
+	lxi	d,nlnad		;input buffer address to DE
+	mvi	c,0		;char count to C
+dinp2:	call	dread		;read a disk file char
+	cpi	' '+1
+	jc	dinp2		;ignore leading spaces or control chars
+	cpi	','
+	jz	dinp2		;and ignore leading commas
+dinp3:	cpi	' '
+	jnz	dinp4		;next not space
+	pop	psw
+	push	psw		;Zero set iff string
+	mvi	a,' '
+	jnz	dinp6		;done if space and numeric
+dinp4:	cpi	','
+	jz	dinp6		;done if comma
+	cpi	cr
+	jz	dinp5		;done if <cr>
+	stax	d		;else store the char
+	inx	d
+	inr	c		;bump the count
+	jz	dinp8		;256 chars
+	call	drea0		;else look at next char
+	jz	dinp6		;done if eof
+	call	dread
+	jmp	dinp3		;and repeat
+dinp5:	call	dinlf		;ignore trailing <linefeed> if present
+dinp6:	pop	psw
+	lxi	h,nlnad
+	jnz	dinp9		;numeric value
+	xchg			;location to DE
+	mvi	a,strst
+dinp7:	call	asigv		;assign value to destination
+	call	gtcnd		;look for comma and more vars
+	jnc	dinp1
+din10:	call	drea0		;look at first unread char
+	rz			;eof, done
+	cpi	' '		
+	jz	din11		;ignore trailing spaces
+	cpi	cr	
+	rnz			;done if next char not space or <cr>
+	call	dread
+;DINLF ignores next character iff <linefeed>
+dinlf:	call	drea0		;look at next char
+	rz			;eof
+	cpi	lf
+	rnz			;not <lf>, return
+	jmp	dread
+din11:	call	dread
+	jmp	din10		;and look for more trailing spaces or <cr>
+dinp8:	call	dunrd
+	dcr	c		;correct the count
+	jmp	dinp6		;and assign it
+dinp9:	mvi	a,cr
+	stax	d		;put <cr> after value
+	shld	txtp2
+	call	flip		;to read the input buffer
+	call	gtlit		;evaluate the numeric value
+	jc	fierr		;bad value
+	cpi	strst
+	jz	fierr		;string value is also bad
+	push	psw
+	push	d
+	call	flip		;to read as before
+	ldax	d		;fetch next char from input buffer
+	cpi	cr
+	jnz	fierr		;FI error if not <cr>, value is bad
+	pop	d
+	pop	psw
+	jmp	dinp7		;else assign value to destination as above
+fierr:	error	f, F, I		;fatal FI error
+fmerr:	error	f, F, M		;fatal FM error
+
+;LINPUT [@<expr>] <string var>
+linpt:	call	idtst		;LINPUT is illegal in direct mode
+	call	gtsfn		;look for file #
+	push	psw
+	push	b
+	push	h
+	call	gtcom		;skip comma, if any
+	call	gtlhs		;get destination
+	cpi	strst
+	jnz	snerr		;must be string
+	pop	h
+	pop	b
+	pop	psw
+	jc	linp0
+	jz	linp0		;normal linput
+	dcr	a
+	jnz	fmerr		;FM error if open for output
+	call	drfil		;initialize for disk read
+	lxi	d,nlnad
+	push	d		;save input buffer address
+	mvi	c,0
+	jmp	linf1
+linf0:	inr	c		;char count to C
+	jz	linf2		;256 chars read
+linf1:	call	dread		;read a disk char
+	stax	d		;store it
+	inx	d
+	cpi	cr
+	jnz	linf0		;read another unless at cr
+	pop	d		;location = input buffer to DE
+	call	dinlf		;skip trailing <lf> if present
+	jmp	linp2		;assign value to destination
+linf2:	call	dunrd
+	dcr	c		;correct the count
+	pop	d		;restore location
+	jmp	linp2		;assign value to desination
+;LINPUT from the console
+linp0:	lhld	textp
+	push	h		;save textp
+	call	gtlin		;get input line
+	xthl			;recover old textp
+	shld	textp
+	pop	h
+	mov	d,h
+	mov	e,l		;copy first char address to DE
+	mvi	a,cr
+	mvi	c,0		;char count to C
+linp1:	cmp	m
+	jz	linp2		;done if char is cr
+	inr	c
+	inx	h
+	jmp	linp1
+linp2:	mvi	a,strst
+	jmp	asigv		;assign string value to destination
+
+;MARGIN [@<expr>,] <expr>
+margn:	call	gtsfn		;find file
+	jc	marg0		;none, change WIDTH
+	push	psw		;save Zero status
+	cpi	2
+	jnz	fmerr		;File Mode error if open for Output or Update
+	push	h
+	mvi	d,','
+	call	gtdsn		;skip ,
+	call	gtbex		;get byte value
+	pop	h		;pointer to HL
+	pop	psw		;restore Zero
+	jz	marg1		;@0, change WIDTH
+	inx	h
+	inx	h		;point to width
+	mov	m,c		;and change it
+	ret
+marg0:	call	gtbex		;get byte value
+marg1:	mov	a,c
+	sta	width		;value to WIDTH
+	ret
+
+;MSOS <string> [;]
+bmsos:	call	evals		;parse string arg
+	call	fetch		;string loc to DE, length to C
+	mov	a,c
+	ora	a
+	jz	bmso2		;null string
+bmso1:	ldax	d		;fetch string char
+	call	bch0w		;write to monitor
+	inx	d
+	dcr	c
+	jnz	bmso1		;more string chars follow
+bmso2:	mvi	d,';'
+	call	gtd		;look for semicolon
+	rnc			;present, so done
+bc0cr:	mvi	a,cr
+	jmp	bch0w		;no semicolon, so write a <cr>
+
+;NAME <filename>, <filename>
+bname:	call	gtfil		;parse old filename
+	call	bfind		;look for edition 1
+	lxi	h,bfna2
+	lxi	d,bfnam
+	call	cpyst		;copy old filename to BFNA2
+	call	gtcom
+	jc	snerr		;skip comma
+	call	gtfil		;parse new filename
+	lxi	h,bfnam
+	mov	a,m		;fetch first char of new filename
+	cpi	':'
+	jz	snerr		;SN error if second <filename> has unit
+	lxi	h,bnam1
+	call	bwmon		;write 'NA ' to monitor
+	lxi	h,bfna2
+	call	bwmon		;write old filename to monitor
+	jmp	bope1		;write ' ', new <filename>, <cr> and return
+
+;OPEN {R | W | A} @<expr>, <filename>
+open:	call	gtcha		;get desired mode
+	push	psw		;and save
+	call	gtcom		;allow comma after mode
+	call	gtatn		;get desired file number
+	jc	bferr		;none specified
+	jz	bferr		;0 not allowed
+	call	sfils		;set up B, DE, HL for search
+	ora	m		;current mode
+	jnz	foerr		;already OPEN
+	pop	psw		;recover desired mode
+	push	h		;save mode pointer
+	mov	b,a		;mode to B
+	push	b		;save mode and channel number
+	push	psw		;and mode
+	mvi	d,','
+	call	gtdsn		;skip ,
+	call	gtfil
+	pop	psw		;recover desired mode
+	cpi	'W'
+	jz	openo
+	cpi	'A'
+	jz	openu
+	cpi	'R'
+	jnz	snerr		;SN error if not R, W or A
+;else open for Reading
+	call	bfind		;look for edition 1
+	pop	b		;restore mode to B, channel to C
+	call	bopen		;perform the ASsign, return EOF status in Carry
+	pop	h		;restore mode pointer
+	mvi	m,1		;mode = Input
+	inx	h
+	mvi	m,0		;eof flag = false
+	dcx	h		;readdress mode
+	call	drfil		;initialize for reading
+opni1:	call	drea0		;read first char
+	ora	a
+	rnz			;first char not null, return
+	dcx	h		;readdress eof flag
+	mov	a,m		;and fetch
+	dcr	m		;was 1 or 2, becomes 0 or 1
+	jz	opni1		;null was not eof, try the next char
+	mvi	m,255		;else file is empty, so set eof flag
+	ret
+;open for Writing
+openo:	call	bopdw		;check if another file OPEN for Writing
+	call	bzap1		;delete previous versions
+opno1:	pop	b		;restore mode to B, channel number to C
+	call	bopen		;perform ASsign
+	pop	h
+	mvi	m,2		;mode is Output
+	inx	h
+	mvi	m,0		;column initially 0
+	inx	h
+	mvi	m,72		;width initially 72
+	ret
+;open for Appending
+openu:	call	bopdw		;check if another file OPEN for Writing
+	call	bfind		;look for edition 1
+	jmp	opno1		;and continue as for Output
+
+;BOPEN is called from Bendix OPEN to write the message
+;	'AS n Dm <filename> <cr>' to the monitor.
+;Call:	B	mode m (ASCII 'R', 'W' or 'A')
+;	C	channel number
+;Retn:	BC	preserved
+bopen:	mov	a,b		;fetch mode
+	cpi	'R'
+	jz	bope0		;skip write count init if reading
+	push	b
+;the following code is emulating monitor FILES command code
+	call	dint		;initialize disk to sector 0
+	lxi	h,scra
+	call	rblk		;and read
+	lxi	d,23
+	dad	d		;address FREE.USR block count
+	mov	d,m		;high order to D
+	inx	h
+	mov	e,m		;and low to E
+	dcx	d
+	dcx	d		;minus 2 for control block
+	dcx	d		;and leave 1 for FREE.USR
+	dcx	d		;so 0 becomes -1
+	mov	a,d
+	ora	a		;check if negative blocks remain
+	jm	dferr		;DF error if so
+	inx	d		;reincrement
+	lxi	h,bwtct
+	mvi	m,ndbs		;data bytes per sector to first count byte
+	inx	h
+	mov	m,e		;then low block count
+	inx	h
+	mov	m,d		;then high
+	pop	b		;restore BC
+bope0:	lxi	h,bclo1
+	call	bwmon		;write 'AS ' to monitor
+	mov	a,c
+	adi	'0'		;convert channel number to ASCII
+	call	bch0w		;and write to monitor
+	lxi	h,bopn1
+	call	bwmon		;write ' D' to monitor
+	mov	a,b
+	call	bch0w		;write mode to monitor
+bope1:	mvi	a,' '
+	call	bch0w		;write ' ' to monitor
+	lxi	h,bfnam
+	call	bwmon		;write filename to monitor
+	jmp	bc0cr		;write <cr> to monitor and return
+foerr:	error	f, F, O		;fatal FO error
+
+;PRINT @<expr>, <print list>
+dprin:	push	psw
+	mvi	d,','
+	push	h
+	call	gtd
+	pop	h
+	pop	psw
+	jz	prin0		;normal PRINT if @0
+	xchg			;file pointer to DE
+	cpi	2		;mode must be 2 for Output
+	jnz	fmerr		;FM error if file is OPEN for input
+	lxi	h,nulls
+	mov	a,m		;fetch current NULLS value
+	push	psw		;and save
+	mvi	m,0		;and reset to 0 for disk PRINT
+	lhld	colum
+	push	h		;save current column and width
+	mov	a,c		;fetch channel number
+	add	a		; * 2
+	add	a		; * 4
+	add	a		; * 8
+	adi	bch0w		; + BCH0W = address of BCHnW
+	sta	bfilp		;and save in BFILP
+	inx	d		;DE points to column
+	push	d		;save column pointer
+	ldax	d		;fetch current channel column
+	mov	l,a		;to L
+	inx	d
+	ldax	d		;fetch channel width
+	mov	h,a		;to H
+	shld	colum		;set file column and width
+	call	prin0		;print the line
+	lda	colum
+	pop	h
+	mov	m,a		;reset file column
+	pop	h
+	shld	colum		;restore column and width
+	pop	psw		;recover original NULLS value
+	sta	nulls		;and restore it
+	xra	a
+	sta	bfilp		;reset file pointer
+	ret
+
+;ZAP <filename>
+bzap:	call	gtfil		;parse filename
+	call	bfind		;issue FN error if not found
+bzap2:	lxi	h,bsav3
+	call	bwmfn		;write 'ZAP ', <filename> to monitor
+	lxi	h,bzap0
+	call	bwmon		;write ' 1' <cr> to monitor to ZAP edition 1
+bzap1:	lxi	h,1
+	call	zaped		;look for edition 1
+	rnz			;not found, done
+	jmp	bzap2
+
+;functions
+
+;EOF: <integer> --> <integer>
+eoffn:	dcx	b		;arg 1-3 become 0-2
+	lxi	d,3
+	call	cmbdu
+	jnc	bferr		;arg was 0 or > 3, BF error
+	inx	b		;restore arg value
+	mov	a,c
+	call	sfils		;find desired file
+	mov	a,m		;fetch mode
+	dcr	a
+	jnz	fmerr		;FM error if not open for Input
+	inx	h		;point to EOF flag
+	ora	m		;fetch flag
+	lxi	b,0		;result (not EOF) to BC
+	rp			;no EOF if flag is 0, 1, 2
+	dcx	b		;else EOF, return -1
+	ret
+
+;messages to monitor
+bclo1:	db	'AS', ' ' or 80H
+bnam1:	db	'NA', ' ' or 80H
+bopn1:	db	' ', 'D' or 80H
+bzap0:	db	' 1', cr or 80H
+
+
+;routines
+
+;BOPDW checks whether a disk file is already OPENed for Writing or Update.
+;Issues DW error if so.
+bopdw:	lxi	h,bfblk		;address file mode block
+	mvi	c,3		;number of file channels
+bopd1:	mov	a,m		;fetch mode
+	cpi	2
+	jz	dwerr		;file OPEN for DW, issue DW error
+	inx	h
+	inx	h
+	inx	h		;address next mode
+	dcr	c
+	jnz	bopd1		;check another
+	ret
+dwerr:	error	f, D, W		;fatal DW error
+
+;DRFIL initializes for disk reading.
+;Call:	C	channel number
+;	HL	file mode pointer
+drfil:	inx	h		;point to EOF/lookahead byte
+	shld	breof		;and save
+	mvi	h,0
+	mov	l,c		;channel number to HL
+	dad	h		;* 2
+	dad	h		;* 4
+	dad	h		;* 8
+	lxi	b,bch0r
+	dad	b		;HL points to read routine desired
+	shld	brcha+1		;so set BRCHA accordingly
+	ret
+
+;The Bendix version assumes BREOF and BRCHA contain
+;pointer to file block EOF flag and read char from disk routine,
+;as initialized by DRFIL.
+
+;DREAD reads the next char to A, issues EF error if end of file passed.
+dread:	call	drea0		;look ahead to next char
+	jz	eferr		;end of file
+	push	psw		;save the char
+	dcx	h		;address lookahead/EOF byte
+	mov	a,m		;and fetch it
+	mvi	m,0		;reset to indicate next char unread
+	dcr	a
+	jz	dred1		;next not EOF, new flag is 0
+	dcr	m		;next is eof, new flag is 255
+dred1:	pop	psw		;restore char
+	ret
+eferr:	lhld	breof		;address eof byte
+	dcx	h		;address mode
+	mvi	m,0		;reset mode to close file
+	error	f, E, F		;fatal EF error
+
+;DREA0 fetches the next char from a disk file.
+;Retn:	A	char read
+;	HL	pointer to lookahead byte of disk file block
+;	Zero	set iff no next char, i.e. EOF
+drea0:	lhld	breof		;pointer to HL
+	mov	a,m		;fetch lookahead/EOF flag
+	cpi	255
+	rz			;EOF
+	ora	a
+	jz	drea1		;next char unread as yet
+	inx	h		;point to lookahead char
+	mov	a,m		;and fetch it
+	ret
+drea1:	inr	m		;bump lookahead flag to 1
+	call	brcha		;read char from disk
+	jnc	drea2		;next char not eof
+	inr	m		;bump flag to 2 if eof on next
+drea2:	inx	h		;point to lookahead char
+	mov	m,a		;and store it
+	ori	1		;reset Zero
+	mov	a,m
+	ret
+
+;DUNRD unreads a DREAD char, assumed to still be in A.
+dunrd:	lhld	breof		;EOF pointer
+	inr	m		;bump EOF value to 0 or 1
+	inx	h
+	mov	m,a		;store lookahead char
+	rnz			;EOF flag was 0, now is 1, done
+	dcx	h		;else EOF flag was 255
+	inr	m
+	inr	m		;and now must be 2
+	ret
+
+;DWRIT writes a char to OPEN disk file.
+;Call:	A	address of BCHnW routine, where n = channel number
+;	C	char to write
+dwrit:	lxi	h,bwtct		;address write count bytes
+	dcr	m		;and decrement sector byte count
+	jnz	dwrt1		;nonzero, write it
+	mvi	m,ndbs		;reset sector data byte count
+	inx	h
+	dcr	m		;decrement low order block count
+	jnz	dwrt1
+	inx	h
+	dcr	m		;decrement high order block count
+	jp	dwrt1
+dferr:	error	f, D, F		;fatal DF error
+dwrt1:	lxi	h,pop4		;return via POP4
+	push	h		;stack return, routine entered via PCHL
+	mvi	h,0
+	mov	l,a		;address to HL
+	mov	a,c		;char to A
+	pchl			;execute BCHnW routine
+
+
+;@ <expr>
+;GTATN gets @ followed by a number for sequential disk routines.
+;A fatal BF error occurs if the <expr> is not in the range 0 to 255.
+;In Bendix version, BF error occurs unless 0 <= <expr> <= 3.
+;Retn:	Carry	Set iff no @ found
+;	Zero	Set iff <expr> is 0
+;	A,C	Value of <expr>
+gtatn:	mvi	d,'@'
+	call	gtd		;look for @
+	rc			;not found
+	call	gtexp		;evaluate the <expr>
+	mov	a,b
+	ora	a
+	jnz	bferr		;fatal BF error if not between 0 and 255
+	mov	a,c		;fetch value
+	cpi	4
+	jnc	bferr		;too large if >= 4
+	ora	c		;value to A
+	ret
+bferr:	error	f, B, F		;fatal BF error
+
+;GTSFN finds an OPEN sequential disk file.  A DK error occurs
+;if a nonzero file # is given but no corresponding OPEN file exists.
+;In the Bendix version, GTSFN returns as follows:
+;Retn:	A	mode of desired channel
+;	C	number of desired channel
+;	HL	points to mode of channel file block
+gtsfn:	call	gtatn		;look for @<expr>
+	rc			;no @
+	rz			;@ 0
+	call	sfils		;find desired channel file block
+	ora	m		;file mode to A
+	jz	bferr		;file not open
+	ret
+
+;Bendix SFILS finds file block for a given channel number.
+;Call:	A,C	channel number (1, 2, or 3)
+;Retn:	A	0
+;	C	preserved
+;	HL	pointer to mode of file block for channel
+sfils:	lxi	h,bfblk		;point to first file block
+sfil1:	dcr	a
+	rz			;gotcha
+	inx	h
+	inx	h
+	inx	h		;point to next file block
+	jmp	sfil1		;and repeat
+
+	endif			;end of BENDX AND SDISK conditional
+
+;end of BENDDISK
+	page

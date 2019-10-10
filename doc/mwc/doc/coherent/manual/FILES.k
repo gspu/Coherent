@@ -1,0 +1,9 @@
+/v/doc/coherent/lx/kb.h
+/v/doc/coherent/lx/kernel
+/v/doc/coherent/lx/keyboard
+/v/doc/coherent/lx/kill.c
+/v/doc/coherent/lx/kill.s
+/v/doc/coherent/lx/ksh
+/v/doc/coherent/lx/ksh_versi
+/v/doc/coherent/lx/kshrc.p
+/v/doc/coherent/lx/ktty.h

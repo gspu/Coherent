@@ -1,0 +1,217 @@
+.TH aliases "" "" "System Administration"
+.PC "File of users' aliases"
+.B /usr/lib/mail/aliases
+.PP
+File
+.B /usr/lib/mail/aliases
+holds aliases for users' addresses \(em either on your system, or on
+other systems.
+.II smail
+The command
+.B smail
+reads this file when it figures out how to deliver a mail message.
+.PP
+An
+.I alias
+is a ``nickname'' for a user.
+Once you have established an alias for a user, you can use that alias to
+send mail to her; this spares you the trouble of typing that person's
+convoluted e-mail address.
+An alias can also name an entire group of users; when you use the alias
+to send a mail message, every person in the group receives a copy.
+.PP
+The format of each alias is
+.DM
+.ta 0.5i 2.0i
+	alias_name:	target
+.DE
+.PP
+where
+.I alias_name
+gives the alias to which you mail your message, and
+.I target
+is name to which where
+.B smail
+actually directs the message.
+.I target
+can be a login identifier on your local system;
+a mail address of a user on another system; or
+a cluster of users either on your system or on remote systems.
+.PP
+For example, consider the user whose e-mail address is
+.BR ivan@lepanto.mwc.com .
+If you add the entry
+.DM
+	ivan:	ivan@lepanto.mwc.com
+.DE
+.PP
+to file
+.BR /usr/lib/mail/aliases ,
+then whenever you send mail to
+.BR ivan ,
+the routing program
+.B smail
+will automatically ``expand'' the address from
+.B ivan
+to
+.BR ivan@lepanto.mwc.com ,
+and dispatch the message properly.
+This spares you needless work, and eliminates the errors that would
+occur if you typed long addresses by hand.
+.PP
+Please note that
+.B smail
+ignores differences in case when it compares a name with an alias.
+If a line begins with a white-space character,
+.B smail
+assumes that that line is a continuation of the previous line.
+.B smail
+ignores strings within parentheses, as well as any text that appears after the
+pound sign `#'.
+Thus, you can use `#' to embed a comment within
+.BR aliases .
+.SH Examples
+The following gives an example form of
+.BR aliases :
+.DM
+.ta 0.5i
+	# this whole line is a comment
+.DE
+.DM
+.ta 0.5i 2.0i
+	# "mail programmers" sends mail to local users joe, jack, and bill
+	programmers:	joe jack bill
+.DE
+.DM
+.ta 0.5i 2.0i
+	# same as above
+	programmers:	joe jack
+		bill
+.DE
+.DM
+.ta 0.5i 2.0i
+	# same as above
+	programmers	joe jack
+		bill
+.DE
+.DM
+.ta 0.5i 2.0i
+	# same as above
+	programmers	joe   # Joe Smith
+		jack  # Jack Thomas
+		bill  # Bill Williams
+.DE
+.DM
+.ta 0.5i 2.0i
+	# and yet another way; note use of parentheses to comment text
+	programmers	joe (Joe Smith) jack (Jack Thomas)
+		bill (Bill Williams)
+.DE
+.DM
+.ta 0.5i 2.0i
+	# send a message to someone on another system.
+	# this uses ``bang-path'' addressing
+	joe:	boston!widget!js
+.DE
+.DM
+.ta 0.5i 2.0i
+	# send a message to users on both your and another system
+	programmers:	boston!widget!js   # Joe Smith
+		chicago!gadget!jt  # Jack Thomas
+		bill               # Bill Williams
+.DE
+.DM
+.ta 0.5i 2.5i
+	# all members of "programmers" group work at site "widget"
+	programmers!widget	joe jack bill
+.DE
+.PP
+.II "mailing lists"
+To tell
+.B smail
+to use the contents of another file to expand an alias,
+use the following form:
+.DM
+.ta 0.5i 2.0i
+	fredlist	:include:/usr/lib/mail/fredlist
+.DE
+.PP
+.B smail
+adds each entry in
+.B /usr/lib/mail/fredlist
+to the alias for
+.BR fredlist .
+.PP
+You can also tell
+.B smail
+to read another alias file, and include its contents in the list of
+aliases to be expanded.
+For example, the following instruction
+.DM
+	:include:/usr/lib/mail/morealiases
+.DE
+.PP
+when embedded within
+.BR /usr/lib/mail/aliases ,
+tells
+.B smail
+to add the contents of
+.B /usr/lib/mail/morealiases
+to those of
+.B /usr/lib/mail/aliases
+as a regular alias file.
+.PP
+All aliases are recursive, so you must be careful when you define them.
+For example, the entries
+.DM
+.ta 0.5i 1.5i
+	bill:	joe
+	joe:	bill
+.DE
+.PP
+causes an infinite loop.
+.B smail
+attempts to detect infinite loops, and to guess what you intended to do.
+The following example illustrates how you can use an alias to
+deliver mail to a remote user as well as to a local user who has
+the same name as the alias being expanded.
+.B smail
+expands the alias
+.DM
+.ta 0.5i 2.0i
+	mylogin:	mypc!mylogin  mylogin
+.DE
+.PP
+to
+.DM
+	mypc!mylogin mylogin
+.DE
+.PP
+even though the second occurrence of
+.B mylogin
+matches the alias name.
+.PP
+Both forms of file inclusion are recursive, too,
+and may lead to infinite loops if handled carelessly.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "mail [overview]," mail.o
+.Xr "smail" smail
+.SH Notes
+Beginning with release 4.2.14 of \*(CO,
+.BR smail 's
+aliases are kept in the form of a DBM data base.
+This is a simple data base that uses a hash table to speed the
+retrieval of information.
+If you change your file of aliases, you must invoke either the command
+.B newaliases
+or the command
+.B "smail \-bi"
+to rebuild the binary data base of aliases.
+For details on what a DBM data base is, see the Lexicon entry for
+.BR libgdbm .
+For details on how to use
+.B newaliases
+or
+.BR smail ,
+see their respective entries in the Lexicon.

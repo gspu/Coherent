@@ -1,0 +1,239 @@
+.TH libgdbm "" "" Library
+.PC "Library for GNU DBM functions"
+.B /usr/lib/libgdbm.a
+.PP
+.II /usr/lib/libgdbm.a
+.II DBM
+.II GDBM
+.II NDBM
+Archive
+.B libgdbm
+contains GNU data-base management (DBM) library of functions.
+These functions implement a version of the standard \*(UN DBM functions,
+which let you create and manipulate a simple hashed data base.
+.SH "What is a Hashed Data Base?"
+A hashed data base consists of a set of records.
+Each record, in turn, has two elements:
+a
+.I key
+that uniquely identifies the record, and a mass of
+.IR data .
+For example, if you were creating a data base of the persons who
+have accounts on your system,
+the key would be the user's login identifier (because that must be unique),
+and the data could be the user's full name.
+.PP
+When the GDBM routines add a record to a data base, they do the following:
+.IP \fB1.\fR 0.3i
+They write the record within a file.
+.IP \fB2.\fR
+They note the size of the record, and
+its offset within the file.
+.IP \fB3.\fR
+They ``hash'' each key into a unique number, then write that hash
+index within a separate index file, along with the offset and size of
+its associated record.
+(For a further explanation of hashing and an example implementation, see the
+Lexicon entry for
+.BR strtoul() .)
+.PP
+By indexing a text file in this manner, a program can find a record
+much more quickly than it could by simply reading the file from
+beginning to end.
+For example, when you mail a message via the mail program
+.BR smail ,
+that program reads a set of aliases to ensure that the message is sent
+to the right person.
+If the aliases were kept in a text file,
+.B smail
+would have to open the file and read its entire contents every time you
+sent a mail message; and on a busy system that has a large number of aliases,
+this can cause a noticeable delay in dispatching a message.
+By keeping its aliases within a hashed index data base,
+.B smail
+greatly reduces the time needed to look up an alias, and so speeds the
+dispatching of your mail.
+.SH "Sets of Routines"
+Library
+.B libgdbm
+contains three sets of functions.
+.IP \(bu 0.3i
+The ``GNU DBM'' (GDBM) routines.
+Each of these functions has the prefix
+.BR gdbm_ ,
+and is declared in the header file
+.BR <gdbm.h> .
+.IP \(bu
+DBM routines.
+These re-implement the original \*(UN DBM routines.
+They are declared in header file
+.BR <dbm.h> .
+.IP \(bu
+``New DBM'' (NDBM) routines.
+These re-implement the extended version of the \*(UN DBM routines.
+Each of these functions has the prefix
+.BR dbm_ ,
+and is declared in the header file
+.BR <ndbm.h> .
+.PP
+Each set implements a hashed data base, but each has a different provenance,
+and somewhat different properties and syntax.
+This library includes all three sets to support the widest possible
+range of third-party software.
+If you are writing new software, however, we urge you to use the
+GDBM routines.
+.PP
+Note that you cannot mix routines from the three sets \(em you must pick
+one set, and stick with it.
+Please note, too, that although this library re-creates the DBM and NDBM
+sets of routines with regard their calling conventions and return values,
+internally these re-creations work somewhat different than the \*(UN
+originals; thus, you cannot expect programs compiled with these routines
+to read binary data bases created by the \*(UN originals.
+.SH "GDBM Routines"
+The following summarizes the GDBM routines:
+.LB
+\fBgdbm_close()\fR	Close a GDBM data base
+\fBgdbm_delete()\fR	Delete a record from a GDBM data base
+\fBgdbm_exists()\fR	Check whether a GDBM data base contains a given record
+\fBgdbm_fetch()\fR	Retrieve a record from a GDBM data base
+\fBgdbm_firstkey()\fR	Return the first record from a GDBM data base
+\fBgdbm_nextkey()\fR	Return the next record from a GDBM data base
+\fBgdbm_open()\fR	Open a GDBM data base
+\fBgdbm_reorganize()\fR	Reorganize a GDBM data base
+\fBgdbm_setopt()\fR	Set GDBM options
+\fBgdbm_store()\fR	Add records to a GDBM data base
+\fBgdbm_strerror()\fR	Translate a GDBM error code into text
+\fBgdbm_sync()\fR	Flush buffered GDBM data into its data base
+.PP
+As noted above, these routines are declared in header file
+.BR <gdbm.h> .
+This header file also defines two structures that the GDBM
+routines use.
+The first,
+.BR datum ,
+defines the structure of a data element, either a key or its associated
+data set:
+.DM
+	typedef struct {
+		char *dptr;
+		int dsize;
+	} datum;
+.DE
+.PP
+This structure lets you have a key and a data element of unlimited length.
+This is a departure from the orthodox \*(UN DBM functions, in which the
+sizes of the key and the datum are both static.
+.PP
+The other structure,
+.BR GDBM_FILE ,
+holds the information that the GDBM routines use to access a GDBM data base:
+.DM
+	typedef struct {int dummy[10];} *GDBM_FILE;
+.DE
+.PP
+Error codes are written into global variable
+.BR gdbm_errno ,
+and are defined in header file
+.BR <gdbmerrno.h> .
+.SH "DBM Routines"
+The following summarizes the DBM routines:
+.LB
+\fBdbmclose()\fR	Close a DBM data base
+\fBdbminit()\fR	Open a DBM data base
+\fBdelete()\fR	Delete a record from a DBM data base
+\fBfetch()\fR	Fetch a record from a DBM data base
+\fBfirstkey()\fR	Retrieve the first record from a DBM data base
+\fBnextkey()\fR	Retrieve the next record from a DBM data base
+\fBstore()\fR	Write a record into a DBM data base
+.PP
+As noted above, these routines are declared in header file
+.BR <dbm.h> .
+It also defines the structure
+.BR datum ,
+which holds a data element, either a key or its associated data set:
+.DM
+	typedef struct {
+		char *dptr;
+		int dsize;
+	} datum;
+.DE
+.PP
+The sizes of the key and its datum together cannot exceed
+.B BSIZE
+bytes \(em that is, the size of one file-system block.
+.B BSIZE
+is defined in header file
+.BR <sys/buf.h> ;
+at present, it equals 512 bytes.
+.PP
+Please note that the function
+.B dbmclose()
+is non-standard.
+Programs that use it cannot be recompiled on an orthodox \*(UN system.
+.SH "NDBM Routines"
+The following summarizes the NDBM routines:
+.LB
+\fBdbm_close()\fR	Close an NDBM data base
+\fBdbm_delete()\fR	Delete records from an NDBM data base
+\fBdbm_dirfno()\fR	Return the file descriptor for an NDBM \fB.dir\fR file
+\fBdbm_fetch()\fR	Fetch a record from an NDBM data base
+\fBdbm_firstkey()\fR	Retrieve the first key from an NDBM data base
+\fBdbm_nextkey()\fR	Retrieve the next key from an NDBM data base
+\fBdbm_open()\fR	Open an NDBM data base
+\fBdbm_pagfno()\fR	Return the file descriptor for an NDBM \fB.pag\fR file
+\fBdbm_rdonly()\fR	Set an NDBM data base into read-only mode
+\fBdbm_store()\fR	Store a record into an NDBM data base
+.PP
+As noted above, these routines are declared in header file
+.BR <ndbm.h> .
+This header file also defines two structures that the NDBM routines use.
+The first,
+.BR datum ,
+defines the structure of a data element, either a key or its associated
+data set:
+.DM
+	typedef struct {
+		char *dptr;
+		int dsize;
+	} datum;
+.DE
+.PP
+This structure lets you have a key and a data element of unlimited length.
+.PP
+The other structure,
+.BR DBM ,
+holds the information that the NDBM routines use to access a NDBM data base:
+.DM
+	typedef struct {int dummy[10];} DBM;
+.DE
+.SH "See Also"
+.Xr "libraries," libraries
+.Xr "Programming COHERENT" programmi
+.SH Notes
+.II "Nelson, Philip A."
+.B libgdbm
+was written by Philip A. Nelson of the Computer Science Department,
+Western Washington University, Bellingham (phil@cs.wwu.edu).
+.II "Gaumond, Pierre"
+This Lexicon entry is based on an
+.B info
+file written by Pierre Gaumond.
+.B libgdbm
+and its documentation are copyright \(co 1989-1993 by the Free Software
+Foundation, Inc.
+.PP
+Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+.PP
+Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided also
+that the entire resulting derived work is distributed under the terms
+of a permission notice identical to this one.
+.PP
+For a full statement of the rights and obligations attached to
+.BR libgdbm ,
+see the file
+.B COPYING
+that accompanies the source code to this library.

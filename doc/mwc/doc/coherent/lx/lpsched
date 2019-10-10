@@ -1,0 +1,185 @@
+.TH lpsched "" "" Command
+.PC "Print jobs spooled with command lp; turn on printer daemon"
+.B lpsched
+.PP
+The daemon
+.B lpsched
+prints jobs spooled with the command
+.BR lp .
+.PP
+Typing the command
+.B lpsched
+by itself launches the daemon.
+The rest of this article describes how
+.B lpsched
+manages printing.
+.PP
+Each file in directory
+.B /usr/spooler/mlp/queue
+is a print job spooled by the command
+.BR lp .
+When
+.B lp
+spools a job, it copies the input (usually a file) into the spool directory
+and appends to the beginning of each job a 192-byte
+header that indicates how the job is to be printed.
+This header includes such information as the name of the printer on which
+to print the job and the date and time the job was spooled.
+For a detailed layout of this header, see the Lexicon entry for
+.BR lp .
+.PP
+.B lp
+also assigned each job a seven-character name.
+The first character is \fBR\fR or \fBr\fR:
+the former indicates that the job is either being printed or is awaiting
+printing; whereas the latter indicates that the job has been printed.
+The second character is a digit, from zero to nine, that sets the job's
+priority:
+zero gives highest priority, nine lowest.
+(The default priority is \fB2\fR.)
+The last five characters give a zero-padded identification number.
+.PP
+.B lpsched
+awakens every 30 seconds
+or whenever the command
+.B lp
+spools a job for printing.
+.B lpsched
+then processes each file in
+.BR /usr/spooler/mlp/queue .
+It reads each job each that is awaiting printing, the order being
+dictated first by the priority code and then by the identification number
+(which indicates the order in which the jobs were spooled).
+.PP
+When
+.B lpsched
+actually prints a job, it performs the following tasks:
+.IP \(bu 0.3i
+First, it opens the file that contains the job to be printed, and reads
+its header.
+The header gives the number of the job;
+the name of the user who spooled the job;
+the name of the printer device upon which the job is to be printed;
+the number of copies to print;
+and the title of the job, as set with the
+.B lp
+option
+.BR \-t .
+(NB, do not confuse an MLP ``device,'' which is set in the file
+.BR /usr/spool/mlp/controls ,
+with the physical device into which the printer is plugged.)
+.IP \(bu
+.B lpsched
+then finds the entry in file
+.B /usr/spool/mlp/controls
+that describes the printer device the user requested.
+An entry in
+.B controls
+is of the form
+.DM
+	printer = banner, /dev/hp, make_banner
+.DE
+.IP
+In this case, the MLP device is named
+.BR banner ;
+the output is to be printed on physical device
+.BR /dev/hp ;
+and the output is to be filtered through backend script
+.BR make_banner ,
+which is a script kept in directory
+.BR /usr/spool/mlp/backend .
+(For details on how to describe an MLP printer device, see the Lexicon entry for
+.BR controls ).
+.IP \(bu
+If the entry for this device does not name a backend script,
+.B lpsched
+copies the body of the job (that is, the text that
+you had spooled) without modification to the device by which the printer is
+accessed.
+.IP \(bu
+If the entry for this device does name a backend script,
+.B lpsched
+invokes the script and redirects its output to the physical device.
+.PP
+When
+.B lpsched
+invokes a backend script, it passes it four arguments:
+(1) the number of the job to be printed,
+(2) the login identifier of the user who spooled the job,
+(3) the number of copies to be printed, and
+(4) the title of the job.
+The script can ignore these arguments, or use them in its filtration
+process; for example, it can use the fourth argument to construct a
+banner page that is printed before the job.
+For examples of backend script that perform various types of sophisticated
+processing, see the Lexicon entry for
+.BR controls .
+.PP
+.B lpsched
+uses a system of lock files to ensure that each device is accessed in a
+disciplined manner.
+For details on \*(CO's system of building lock files, see the Lexicon
+entries for
+.B UUCP
+and
+.BR libmisc .
+.PP
+To abort the printing of a job, invoke the command
+.BR cancel .
+Note that this only affects jobs that are being spooled or waiting to be
+spooled.
+If a job has been downloaded to a printer, the only way to abort printing
+is to manipulate the printer itself through its front panel and switches.
+.PP
+When a job has printed successfully,
+.B lpsched
+changes the status character in its name to \fBr\fR.
+A file remains in the spool directory until its ``lifetime'' has expired.
+You can reprint a quiescent file by invoking the command
+.BR reprint .
+To change a job's target printer, priority, or lifetime,
+use the command
+.BR chreq .
+For details on these commands, see their Lexicon entries.
+.PP
+.B lpsched
+awakens whenever you use the command
+.B lp
+to spool a job for printing.
+It also awakens every five minutes, whether or not a job has been spooled,
+to see if anything needs to be printed and check quiescent files.
+.PP
+After it has processed every job that awaits printing,
+.B lpsched
+reads the header of every quiescent file.
+If a file's ``lifetime'' has expired,
+.B lpsched
+removes it.
+A file with a \fItemporary\fR lifetime survives 30 minutes after spooling;
+one with a \fIshort-term\fR lifetime survives 24 hours; and one with
+a \fIlong-term\fR lifetime survives 72 hours.
+You can change these defaults by editing
+.BR controls ;
+for details, see its entry in the Lexicon.
+By default, a job is given a short-term life expectancy.
+To change a job's life expectancy, use the command
+.BR chreq .
+.PP
+The command
+.B lpsched
+turns on
+.BR lpsched ;
+and command
+.B lpshut
+turns it off.
+Jobs spooled while
+.B lpsched
+is turned off remain spooled until
+.B lpsched
+is reawakened.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "commands," commands
+.Xr "lp," lp
+.Xr "lpshut," lpshut
+.Xr "printer" printer

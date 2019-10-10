@@ -1,0 +1,131 @@
+sseemmggeett() -- General Function (libc)
+
+Create or get a set of semaphores
+#iinncclluuddee <ssyyss/ttyyppeess.hh>
+#iinncclluuddee <ssyyss/iippcc.hh>
+#iinncclluuddee <ssyyss/sseemm.hh>
+sseemmggeett(_s_e_m_k_e_y, _n_u_m_b_e_r, _f_l_a_g)
+kkeeyy_tt _s_e_m_k_e_y; iinntt _n_u_m_b_e_r, _f_l_a_g;
+
+sseemmggeett() creates a set of semaphores plus its associated data structure and
+identifier, links them to the identifier _s_e_m_k_e_y, and returns the identifier
+that it has associated with _s_e_m_k_e_y.
+
+_s_e_m_k_e_y is  an identifier  that your  application generates to  identify its
+semaphores.
+
+_n_u_m_b_e_r gives the of semaphores you want sshhmmggeett() to create.
+
+_f_l_a_g can be bitwise OR'd to include the following constants:
+
+IIPPCC_AALLLLOOCC This process already has a set of semaphores; please fetch it.
+
+IIPPCC_CCRREEAATT If this process does not  have a set of semaphores, please create
+          one.
+
+IIPPCC_EEXXCCLL  Fail if this process already has a set of semaphores.
+
+IIPPCC_NNOOWWAAIITT
+          Fail if the process must wait to obtain a set of semaphores.
+
+When  it creates  a set  of  semaphores, sseemmggeett()  also creates  a copy  of
+structure sseemmiidd_ddss, which the header file <ssyyss/sseemm.hh> defines as follows:
+
+struct semid_ds {
+     struct ipc_perm sem_perm;/* operation permission struct */
+     struct sem *sem_base;  /* pointer to first semaphore in set */
+     unsigned short sem_nsems;/* # of semaphores in set */
+     time_t sem_otime;      /* last semop time */
+     time_t sem_ctime;      /* last change time */
+};
+
+Field  sseemm_bbaassee points  the  semaphores themselves.   Each  semaphore is  a
+structure of type sseemm, which header file <ssyyss/sseemm.hh> defines as follows:
+
+struct sem {
+     unsigned short semval; /* semaphore text map address */
+     short sempid;          /* pid of last operation */
+     unsigned short semncnt;/* # awaiting semval > cval */
+     unsigned short semzcnt;/* # awaiting semval = 0 */
+};
+
+Field  sseemm_ppeerrmm  is  a  structure  of  type  iippcc_ppeerrmm,  which  header  file
+<ssyyss/iippcc.hh> defines as follows:
+
+struct ipc_perm {
+     unsigned short uid;    /* owner's user id */
+     unsigned short gid;    /* owner's group id */
+     unsigned short cuid;   /* creator's user id */
+     unsigned short cgid;   /* creator's group id */
+     unsigned short mode;   /* access modes */
+     unsigned short seq;    /* slot usage sequence number */
+     key_t key;             /* key */
+};
+
+sseemmggeett() initializes sseemmiidd_ddss as follows:
+
+-> It  sets  the  fields  sseemm_ppeerrmm.ccuuiidd, sseemm_ppeerrmm.uuiidd,  sseemm_ppeerrmm.ccggiidd,  and
+   sseemm_ppeerrmm.ggiidd to, respectively,  the effective user and group identifiers
+   of the calling process.
+
+-> It sets  the low-order nine bits of sseemm_ppeerrmm.mmooddee  to the low-order nine
+   bits of  _f_l_a_g. These nine bits define access  permissions: the top three
+   bits  give the  owner's access permissions  (read, write,  execute), the
+   middle three  bits the  owning group's  access permissions, and  the low
+   three bits access permissions for others.
+
+-> It  sets sseemm_nnsseemmss  to _n_u_m_b_e_r.  This gives the  number of  semaphores to
+   which sseemm_bbaassee points.
+
+-> It  sets field  sseemm_oottiimmee to  zero, and field  sseemm_ccttiimmee to  the current
+   time.
+
+sseemmggeett() fails if any of the following are true:
+
+-> _n_u_m_b_e_r is less  than one and the set of  semaphores identified by _s_e_m_k_e_y
+   does not exist.  sseemmggeett() sets eerrrrnnoo to EEIINNVVAALL.
+
+-> _n_u_m_b_e_r exceeds the system-imposed limit (EEIINNVVAALL).
+
+-> A semaphore  identifier exists for _s_e_m_k_e_y,  but permission, as specified
+   ffllaagg's low-order nine bits, is not granted (EEAACCCCEESS).
+
+-> A semaphore  identifier exists for _s_e_m_k_e_y, but  the number of semaphores
+   in its set is less than _n_u_m_b_e_r, and _n_u_m_b_e_r does not equal zero (EEIINNVVAALL).
+
+-> A semaphore identifier does not  exist for _s_e_m_k_e_y and (_f_l_a_g & IIPPCC_CCRREEAATT)
+   is false (EENNOOEENNTT).
+
+-> sseemmggeett() tried to create a set  of semaphores, but could not because the
+   maximum number of sets allowable by the system always exists (EENNOOSSPPCC).
+
+-> A semaphore identifier already  exists for _s_e_m_k_e_y but _f_l_a_g requests that
+   sseemmggeett() create an exclusive set for it -- i.e.
+
+       ( (_f_l_a_g & IPC_CREAT) && (_f_l_a_g & IPC_EXCL) )
+
+   is true (EEEEXXIISSTT).
+
+If all goes well, sseemmggeett()  returns a semaphore identifier, which is always
+a  non-negative integer.   Otherwise, it  returns -1 and  sets eerrrrnnoo  to an
+appropriate value.
+
+_F_i_l_e_s
+/uussrr/iinncclluuddee/ssyyss/iippcc.hh
+/uussrr/iinncclluuddee/ssyyss/sseemm.hh
+
+_S_e_e _A_l_s_o
+ffttookk(), iippccrrmm, iippccss, lliibbcc, lliibbssoocckkeett, sseemmccttll(), sseemmoopp()
+
+_N_o_t_e_s
+Prior to  release 4.2, COHERENT  implemented semaphores through  the driver
+sseemm.  In release  4.2, and  subsequent  releases, COHERENT  has implemented
+semaphores as  a set of  functions that conform  in large part  to the UNIX
+System-V standard.
+
+The  kernel variables  SSEEMMMMNNII  and SSHHMMMMNNSS  set,  respectively, the  maximum
+number of  identifiers that  can exist  at any given  time and  the maximum
+number of  semaphores that a set can hold.   Daredevil system operators who
+have large  amounts of memory  at their disposal  may wish to  change these
+variables to increase the system-defined  limits.  For details on how to do
+so, see the Lexicon entry mmttuunnee.

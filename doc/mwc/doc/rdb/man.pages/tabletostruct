@@ -1,0 +1,159 @@
+.TH tabletostruct "" "" "/rdb Command"
+.PC "Convert table to C-language struct declaration"
+\fBtabletostruct \fItag name\fB < \fItable \fB> \fItable\fB.h\fR
+.PP
+.II struct
+.II "table^convert to C struct"
+.II "C language^struct"
+The command
+.B tabletostruct
+converts a standard
+.B /rdb
+table into a C-language
+.B struct
+declaration.
+.B struct
+is the C language's record format.
+.PP
+.B tabletostruct
+is useful for writing table-driven C code.
+The tables used by your programs can be manipulated
+by the data base and your users, or by nonprogrammer developers
+(engineers, experts, managers, operators),
+then converted to a
+.B struct
+and compiled into the C code for high-speed access.
+.PP
+.I tag
+gives the
+.B struct
+tag for declaring other variables.
+.I name
+is the
+.B struct
+name to reference the structure values.
+.PP
+Please note once code compiled from a table,
+changing that tables no longer affects the program until you recompile it.
+Therefore, you gain maximum speed at the price of
+recompiling the system and losing the flexibility of being
+able to modify the tables during execution.
+.SH Example
+Here we start with a simple table, convert it to
+.B struct,
+make it a header file, and
+compile it into a simple program that prints out each field.
+To begin, consider table
+.BR table ,
+which is structured as followed:
+.DM
+A       B       C
+-       -       -
+1       2       3
+.DE
+.PP
+The following commands converts
+.B table
+to a
+.B struct
+and writes it into file
+.BR table.h :
+.DM
+	tabletostruct Table table < table > table.h 
+.DE
+.PP
+.B table.h
+now holds the following:
+.DM
+struct Table
+{
+char    *A;
+char    *B;
+char    *C;
+}       table [] =
+{ "1","2","3" }
+;
+.DE
+.PP
+The following gives some C code that prints the contents of the
+.B struct
+we call
+.BR Table :
+.DM
+#include "table.h"
+.sp \n(pDu
+main ()
+{
+        printf ("A=%s\en", table[0].A);
+        printf ("B=%s\en", table[0].B);
+        printf ("C=%s\en", table[0].C);
+}
+.DE
+.PP
+When compiled with the command
+.DM
+        cc -o printtable printtable.o
+.DE
+.PP
+the newly created command
+.B printtable
+yields the following output:
+.DM
+	A=1
+	B=2
+	C=3
+.DE
+.PP
+Note that the data are stored in an array of
+.BR struct s,
+so we must give a subscript for each row we want.
+.PP
+We can also put the command
+.B tabletostruct
+into a
+.BR Makefile ,
+so that the COHERENT command
+.B make
+can automate the building of the
+.B struct
+and its compilation.
+For example:
+.DM
+printtable:     table.h printtable.o
+        cc -o printtable printtable.o
+.sp \n(pDu
+table.h:        table
+        tabletostruct Table table < table > table.h
+.DE
+.PP
+This says that the printable program depends upon
+.B table.h
+being up to date, and
+.B table.h
+depends upon table
+.B table
+being up to date.
+If you had modified
+.B table
+since the last compile,
+.B make
+reexecutes the command
+.BR tabletostruct .
+.SH "See Also"
+.B
+listtotable,
+tabletolist
+.R
+.br
+COHERENT Tutorials:
+.B
+The C Language,
+The make Programming Discipline
+.R
+.br
+COHERENT Lexicon:
+.B
+array,
+make,
+struct
+.R

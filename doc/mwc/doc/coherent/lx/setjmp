@@ -1,0 +1,79 @@
+.TH setjmp() "" "" "General Function (libc)"
+.PC "Save machine state for non-local goto"
+.B "#include <setjmp.h>"
+\fBint setjmp(\fIenv\^\fB) jmp_buf \fIenv\^\fB;\fR
+.PP
+The function call is the only mechanism that C provides to
+transfer control between functions.
+This mechanism, however,
+is inadequate for some purposes, such as handling unexpected
+errors or interrupts at lower levels of a program.
+To answer this need, \fBsetjmp\fR helps to provide
+a non-local \fIgoto\fR facility.
+\fBsetjmp()\fR saves a stack context in \fIenv\fR, and returns value zero.
+The stack context can be restored with the function
+.BR longjmp() .
+The type declaration for \fBjmp_buf\fR is in the header file \fBsetjmp.h\fR.
+The context saved includes the program counter, stack pointer, and stack
+frame.
+.SH Example
+The following gives a simple example of
+.B setjmp()
+and
+.BR longjmp() .
+.DM
+#include <setjmp.h>
+#include <stdio.h>
+.DE
+.DM
+jmp_buf env;	/* place for setjmp to store its environment */
+.DE
+.DM
+main()
+{
+	int rc;
+.DE
+.DM
+	if(rc = setjmp(env)) { /* we come here on return */
+		printf("First char was %c\en", rc);
+		exit(EXIT_SUCCESS);
+	}
+	subfun();	/* this never returns */
+}
+.DE
+.DM
+subfun()
+{
+	char buf[80];
+.DE
+.DM
+	do {
+		printf("Enter some data\en");
+		gets(buf);	/* get data */
+	} while(!buf[0]);	/* retry on null line */
+.DE
+.DM
+	longjmp(env, buf[0]);   /* buf[0] must be non zero */
+}
+.DE
+.SH "See Also"
+.Xr "getenv()," getenv
+.Xr "libc," libc
+.Xr "longjmp()," longjmp
+.Xr "sigsetjmp()" sigsetjmp
+.br
+\*(AS, \(sc7.6.1.1
+.br
+\*(PX Standard, \(sc8.1
+.SH Notes
+Programmers should note that many user-level routines cannot
+be interrupted and reentered safely.
+For that reason, improper use of
+.B setjmp()
+and
+.B longjmp()
+can create mysterious and irreproducible bugs.
+The use of
+.B longjmp()
+to exit interrupt exception or signal handlers is particularly
+hazardous.

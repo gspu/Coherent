@@ -1,0 +1,177 @@
+.TH ALIASES 8
+.tr ~
+.SH NAME
+aliases \- alias file for smail
+.SH DESCRIPTION
+This file is used by
+.I smail
+only if
+.I SENDMAIL
+is
+.I not defined.
+If
+.I SENDMAIL
+is defined, then
+.I sendmail
+does all of the aliasing for the host.
+.PP
+This file contains a list of aliases for
+local users or mailing lists.
+The format of each alias is
+.sp
+.ce
+alias_name~recip_name1~recip_name2~...
+.sp
+An attempt has been made to remain compatible with
+.I sendmail
+alias file format, though the syntax is much more format free than
+.I sendmail.
+As distributed,
+.I case differences are ignored
+when comparing names to aliases.
+Only alias names which resolve to the local host are recognized, and are
+stored in their local form.
+Lines which start with a white~space are continuation lines.
+Parenthesised strings are taken as comments (no nesting),
+as is anything after a '#' (as in
+.IR /bin/sh ).
+Here are some examples:
+.sp
+.nf
+# this whole line is a comment
+#
+# These are equivalent definitions
+
+alias_name      recip1 recip2 recip3
+
+alias_name:     recip1, recip2 , recip3
+
+alias_name      recip1 recip2
+                recip3
+
+alias_name      recip1  # Recip1's name
+                recip2  # Recip2's name
+                recip3  # Recip3's name
+
+alias_name      recip1 (Recp1's name) recip2 (Recp2's name)
+                recip3 (Recp3's name)
+
+alias_name@thishost     recip1 recip2 recip3
+
+alias_name@thisdomain   recip1 recip2 recip3
+
+thishost!alias_name     recip1 recip2 recip3
+
+thisdomain!alias_name   recip1 recip2 recip3
+.fi
+.PP
+Mailing lists are easily handled by two forms of file inclusion.
+The first form is the same as is supported by
+.I sendmail
+.sp
+.ce
+mylist	:include:/usr/lib/ml/mylist
+.sp
+In this example, each entry in
+.I /usr/lib/ml/mylist
+would be added to the alias for
+.I mylist.
+The second form is unique to
+.I smail.
+It allows the
+.I aliases
+file to include other
+.I aliases
+files.
+.sp
+.ce
+:include:/usr/lib/ml/more-aliases
+.sp
+This would include the file
+.I /usr/lib/ml/more-aliases
+as a regular alias file.
+This makes it easier to maintain groups of aliases that
+change frequently, such as the list of netnews moderators.
+.PP
+All aliases are recursive, so care
+must be taken in their definition.
+.I smail
+aliasing attempts to prevent infinite loops, and to
+do what was intended by the user.  For example, the alias:
+.sp
+.ce
+mylogin~mypc!mylogin~mylogin
+.sp
+Expands to
+.sp
+.ce
+mypc!mylogin mylogin
+.sp
+even though the second occurrence of
+.I mylogin
+matches the alias name.
+.sp
+Both forms of file inclusion are recursive, too,
+so watch out for nesting include files.  They
+may lead to infinite loops.
+.PP
+While the cost of parsing an alias file is usually negligible,
+it's wise to take savings anywhere savings
+can be found.  Therefore, it's worth mentioning
+.IR smail 's
+parsing strategy.
+.I smail
+will try to get by with doing as little work
+as possible when aliasing.  If on a particular
+invocation of
+.I smail,
+none of the recipent addresses are local,
+(i.e., not potential aliases)
+then the
+.I aliases
+file won't even be read.  Similarly,
+when an
+.I aliases
+file is read, it does not expand any of the :include: files
+until they are referenced.  Thus, in the alias (above) for
+.I mylist,
+the file
+.I :include:/usr/lib/ml/mylist
+would not be opened and read (parsed) unless
+mail was sent to
+.I mylist.
+Wise use of :include: files can greatly
+increase the efficiency of the alias utility.
+It's not clear exactly where the
+.I break-even
+point is when deciding to use an  :include: file in an alias,
+versus having all of the recipents listed on the line;
+but if a mailing list is large (whatever that means)
+it is wise to use the :include: feature to save on
+parsing costs.  Note that this discussion only applies to the
+first form of file inclusion, since reading an
+.I aliases
+file constitutes a reference to :include: files of the second form.
+.PP
+There is another form of aliasing which works with the alias capability.
+This is called
+.I per user forwarding.
+For a given user name, if there is no alias for the user
+then, if the file
+.I ~user/.forward
+exists, then its contents will be treated as an alias for
+the user.  The syntax is the same as that of the
+recipient lists in the alias file described above.
+.PP
+One difference between
+.I smail
+and
+.I sendmail
+is that
+.I smail
+doesn't handle stuff like mail to files
+or command execution.
+.SH SEE ALSO
+smail(8), paths(8), pathproc(8)
+.SH VERSION
+@(#)aliases.8	2.5 (smail) 9/15/87

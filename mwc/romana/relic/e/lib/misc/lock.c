@@ -1,0 +1,478 @@
+/*
+ * lock.c
+ *
+ * Provide a locking mechanism for devices that may be used by
+ * UUCP. This is infact used by UUCP.
+ *
+ * Lock files are created in SPOOLDIR with the name LCK..resource.  The
+ * contents of the lock file are a decimal representation of the pid of
+ * the process that created the lock.
+ *
+ * For a tty device, the "resource" is a string composed of a
+ * decimal representation of its major number, a decimal point, and
+ * the lower five bits of its minor number.  This conversion is done
+ * by gen_res_name().
+ *
+ * Each routine takes a string which names a resource to be locked or
+ * unlocked.  The tty routines want the base name of the tty to be locked
+ * (without the "/dev/" part).
+ *
+ * These routines all return 0 on failure and 1 on success.
+ *
+ * It is possible to provide an alternate pid by using one of the "n"
+ * routines.  A pid of 0 provided to one of the unlocking routines
+ * is treated as an over-ride--the lock will be removed no matter
+ * what the pid of its creating process.
+ *
+ * Here are the lock/unlock pairs:
+ *
+ * locktty(ttyname)		/	unlocktty(ttyname)
+ * lockntty(ttyname, pid)	/	unlockntty(ttyname, pid)
+ * lockit(resource)		/	lockrm(resource)
+ * nlockit(resource, pid)	/	locknrm(resource, pid)
+ *
+ * These are for checking for the existence of locks:
+ * lockexist(resource)
+ * lockttyexist(ttyname)
+ */
+
+#include <stdio.h>
+#include <access.h>
+#include <sys/stat.h>
+
+static char *gen_res_name();
+
+#ifdef UUCP
+#include "dcp.h"
+#else
+#define SPOOLDIR	"/usr/spool/uucp"
+#define LOCKSIG		9	/* Significant Chars of Lockable Resources.  */
+#define LOKFLEN		64	/* Max Length of UUCP Lock File Name.	     */
+#endif /* UUCP */
+
+#define LOCKDIR	SPOOLDIR
+#define	LOCKPRE	"LCK.."
+#define PIDLEN	6	/* Maximum length of string representing a pid.  */
+
+/* There is a special version of DEVMASK for the PE multiport driver
+ * because of the peculiar way it uses the minor device number.  For
+ * all other drivers, the lower 5 bits describe the physical port--
+ * the upper 3 bits give attributes for the port.
+ */
+
+#define PE_DRIVER 21	/* Major device number for the PE driver.  */
+#define PE_DEVMASK 0x3f	/* PE driver minor device mask.  */
+#define DEVMASK 0x1f	/* Minor device mask.  */
+
+
+/*
+ *  lockit(resource)  char *resource;
+ *
+ *  Lock the given resource--just like nlockit, but uses the current pid.
+ *  Returns (0) if already locked or error in locking.
+ *          (1) if all ok, resource locked.
+ */
+int
+lockit(resource)
+char *resource;
+{
+	return(nlockit(resource, getpid()));
+} /* lockit() */
+
+/*
+ *  nlockit(resource, pid)  char *resource; int pid;
+ *
+ *  Lock the given resource.
+ *  Returns (0) if already locked or error in locking.
+ *          (1) if all ok, resource locked.
+ */
+int
+nlockit(resource, pid)
+char *resource;
+int pid;
+{
+
+	int lockfd;
+	char lockfn[LOKFLEN];
+	char pidstring[PIDLEN];
+
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+	if ( (access(lockfn, AEXISTS) == 0) ||
+	     ((lockfd=creat(lockfn, 0644)) == -1) ) {
+#ifdef UUCP
+		printmsg(M_DEBUG, "Can't lock: %s", lockfn);
+#endif /* UUCP */
+		close(lockfd);
+		unlink(lockfn);
+		return(0);
+	}
+#ifdef UUCP
+	printmsg(M_DEBUG, "Just created lock: %s", lockfn);
+#endif /* UUCP */
+	sprintf(pidstring, "%d", pid);
+	if (-1 == write(lockfd, pidstring, strlen(pidstring))) {
+		close(lockfd);
+		unlink(lockfn);
+		return(0);
+	}
+	close(lockfd);
+	return(1);
+} /* nlockit() */
+/*
+ *  lockrm(resource)  char *resource;
+ *
+ *  Simply remove the lock on the given resource.
+ *  Returns (0) if not locked or error in unlocking.
+ *          (1) if all ok, resource lock removed.
+ *
+ *
+ * Open the lock file for read operations to try to read the pid
+ * stored in the file. If the open fails, abort. If the read fails, 
+ * abort. if the read pid does not match our pid, abort. We will only
+ * remove the lock if our pid matches the pid written to the file.
+*/
+
+lockrm(resource)
+char *resource;
+{
+	return(locknrm(resource, getpid()));
+} /* lockrm() */
+
+
+/*
+ *  locknrm(resource, pid)  char *resource;
+ *
+ *  Remove the lock on the given resource, using pid as the process id to
+ *  look for.
+ *
+ *  Returns (0) if not locked or error in unlocking.
+ *          (1) if all ok, resource lock removed.
+ *
+ *  Open the lock file for read operations to try to read the pid
+ *  stored in the file. If the open fails, abort. If the read fails, 
+ *  abort. If the read pid does not match our pid, abort. We will only
+ *  remove the lock if the passed matches the pid written to the file, or
+ *  if the passed pid is
+ */
+
+locknrm(resource, pid)
+char *resource;
+int pid;
+{
+	int lockfd;	/* pointer to file to read */
+	int chars_read;	/* Number of characters read().  */
+
+	char gotpid[PIDLEN + 1];	/* String value of the pid that should be stored
+			 	 * in the lock file pointed to by *lockfp.
+				 */
+	char lockfn[LOKFLEN];
+
+	if (resource == NULL) {
+#ifdef UUCP
+		plog(M_CALL, "Unlocking NULL resource.");
+#endif /* UUCP */
+		return(1);
+	}
+
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+
+	/* open the lock file for read, abort on failure */
+	if(-1 == (lockfd = (open(lockfn, 0)))){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Error opening lock file for pid verify");
+		plog(M_CALL, "Error opening lock file for pid verify");
+#endif /* UUCP */
+		close(lockfd);
+		return(0);
+	}
+
+	/* read the contents of the file. Abort if empty */
+	if ( -1 == (chars_read = read(lockfd, gotpid, PIDLEN))) {
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: Error reading lock file for pid verify");
+		plog(M_CALL, "Lockrm: Error reading lock file for pid verify");
+#endif /* UUCP */
+		close(lockfd);
+		return(0);
+	}
+
+	gotpid[chars_read] = '\0';	/* NUL terminate the string.  */
+	if (pid != 0 && atoi(gotpid) != pid){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: pid verify failed. pid read was %s.", 
+			gotpid);
+		plog(M_CALL, "Lockrm: pid verify failed. pid read was %s", gotpid);
+#endif /* UUCP */
+		close(lockfd);
+		return(0);
+	}else{
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: pid verify successful, removing lock.");
+		plog(M_CALL, "Lockrm: pid verify successful, removing lock.");
+#endif /* UUCP */
+
+		if (unlink(lockfn) < 0) {
+#ifdef UUCP
+			printmsg(M_DEBUG, "Lockrm: Error unlocking: %s", lockfn);
+			plog(M_CALL, "Lockrm: Error unlocking: %s", lockfn);
+#endif /* UUCP */
+			close(lockfd);
+			return(0);
+		}
+#ifdef UUCP
+		printmsg(M_DEBUG, "Just unlocked: %s", lockfn);
+#endif /* UUCP */
+		close(lockfd);
+		return(1);
+	}
+#ifdef UUCP
+	plog(M_CALL, "Unreachable code in locknrm().");
+#endif /* UUCP */
+} /* locknrm() */
+
+/*
+ *  lockexist(resource)  char *resource;
+ *
+ *  Test for existance of a lock on the given resource.
+ *
+ *  Returns:  (1)  Resource is locked.
+ *	      (0)  Resource is not locked.
+ */
+
+lockexist(resource)
+char	*resource;
+{
+	char lockfn[LOKFLEN];
+
+	if ( resource == NULL )
+		return(0);
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+
+	return (!access(lockfn, AEXISTS));
+} /* lockexist() */
+
+
+/*
+ * Attempt to lock a tty device.  Takes the name of the tty itself
+ * otherwise behaves like lockit().
+ */
+locktty(ttyname)
+	char *ttyname;
+{
+	return(lockntty(ttyname, getpid()));
+} /* locktty() */
+
+/*
+ * Attempt to lock a tty device.  Takes the name of the tty itself and
+ * a pid, otherwise behaves like nlockit().
+ */
+lockntty(ttyname, pid)
+char *ttyname;
+int pid;
+{
+	char resource[LOKFLEN];
+	char filename[LOKFLEN];
+
+	sprintf(filename, "/dev/%s", ttyname);
+	if (NULL == gen_res_name(filename, resource)){
+		return(0);
+	}
+	return(nlockit(resource, pid));
+
+} /* lockntty() */
+
+/*
+ * Unlock a tty device.  Takes the name of the tty itself,
+ * otherwise behaves like lockrm().
+ */
+unlocktty(ttyname)
+char *ttyname;
+{
+	return(unlockntty(ttyname, getpid()));
+} /* unlocktty() */
+
+/*
+ * Unlock a tty device.  Takes the name of the tty itself,
+ * otherwise behaves like locknrm().
+ */
+unlockntty(ttyname, pid)
+	char *ttyname;
+	int pid;
+{
+	char resource[LOKFLEN];
+	char filename[LOKFLEN];
+
+	sprintf(filename, "/dev/%s", ttyname);
+	if (NULL == gen_res_name(filename, resource)){
+#ifdef UUCP
+		plog(M_CALL, "Can't generate resource for %s.", ttyname);
+#endif /* UUCP */
+		return(0);
+	}
+	return(locknrm(resource, pid));
+} /* unlockntty() */
+
+/*
+ *  lockttyexist(ttyname)  char *ttyname;
+ *
+ *  Test for existance of a lock on the given tty.
+ *
+ *  Returns:  (1)  Resource is locked.
+ *	      (0)  Resource is not locked.
+ */
+lockttyexist(ttyname)
+char *ttyname;
+{
+	char resource[LOKFLEN];
+	char filename[LOKFLEN];
+
+	sprintf(filename, "/dev/%s", ttyname);
+	if (NULL == gen_res_name(filename, resource)){
+		return(0);	/* Non-existent tty can not be locked :-) */
+	}
+
+	return(lockexist(resource));
+} /* lockttyexist() */
+
+/*
+ * Generates a resource name for locking, based on the major number
+ * and the lower 4 bits of the minor number of the tty device.
+ *
+ * Builds the name in buff as two "." separated decimal numbers.
+ * Returns NULL on failure, buff on success.
+ */
+static char *
+gen_res_name(path, buff)
+char *path;
+char *buff;
+{
+	struct stat sbuf;
+	int status;
+	
+	if (0 != (status = stat(path, &sbuf))) {
+		/* Can't stat the file.  */
+		return (NULL);
+	}
+
+	if (PE_DRIVER == major(sbuf.st_rdev)) {
+		sprintf(buff, "%d.%d", major(sbuf.st_rdev),
+				       PE_DEVMASK & minor(sbuf.st_rdev));
+	} else {
+		sprintf(buff, "%d.%d", major(sbuf.st_rdev),
+				       DEVMASK & minor(sbuf.st_rdev));
+	}
+
+	return(buff);
+} /* gen_res_name */
+
+
+#ifdef PGM
+static char _version[]="lock version 1.0";
+/*
+ * executable file to lock and unlock uucp resources.
+ * must be owned by uucp and setuid.
+ */
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	int c, rc;
+	extern char *optarg;
+	extern int optind;
+	static char umsg[] = "lock [-l dev][-u dev][-t dev]";
+
+	for (rc = 0; EOF != (c = getopt(argc, argv, "l:u:t:"));) {
+		if (NULL == optarg || !*optarg)
+			usage(umsg);
+		/*
+		 * Strip off a possible leading "/dev/".
+		 */
+		if (0 == strncmp(optarg, "/dev/", strlen("/dev/") )) {
+			optarg += strlen("/dev/");
+		}
+
+		switch (c) {
+		case 'l':
+			if (0 == lockntty(optarg, 0)) {
+				fprintf(stderr, "%s locked\n", optarg);
+				rc |= 1;
+			}
+			break;
+		case 'u':
+			unlockntty(optarg, 0);
+			break;
+		case 't':
+			rc |= lockttyexist(optarg);
+			break;
+		default:
+			usage(umsg);
+		}
+	}
+	if (optind < argc)
+		usage(umsg);
+	exit(rc);
+}
+#endif
+
+#ifdef TEST
+#include <stdio.h>
+#define LOCKSIG 9	/* Significant Chars of Lockable Resources.  */
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	char buffer[LOCKSIG + 1];
+	char path[LOKFLEN];
+
+	if (argc != 2) {
+		fprintf(stderr, "Usage: %s ttyname\n", argv[0]);
+		exit(1);
+	}
+
+	sprintf(path, "/dev/%s", argv[1]);
+
+	if (NULL == gen_res_name(path, buffer)) {
+		fprintf(stderr, "%s: Can't stat %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+	printf("Resource to lock: %s\n", buffer);
+
+	if (-1 == locktty(argv[1])) {
+		fprintf(stderr, "%s: Can't lock %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+	printf("I think I've locked %s.\n", argv[1]);
+
+	if (lockttyexist(argv[1])) {
+		printf("Yep, %s is locked.\n", argv[1]);
+	} else {
+		fprintf(stderr, "%s: Failed to lock %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+
+	sprintf(path, "cat /usr/spool/uucp/LCK..%s", buffer);
+	printf("Contents of lock file: ");
+	fflush(stdout);
+	system(path);
+	printf("\n");
+
+	if (-1 == unlocktty(argv[1])) {
+		fprintf(stderr, "%s: Problem removing lock on %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+	printf("I think I've unlocked %s.\n", argv[1]);
+
+	if (lockttyexist(argv[1])) {
+		fprintf(stderr, "%s: Failed to unlock %s.\n", argv[0], argv[1]);
+		exit(1);
+	} else {
+		printf("Successfully unlocked %s.\n", argv[1]);
+	}
+	
+	exit(0);
+}
+#endif /* TEST */

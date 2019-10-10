@@ -1,0 +1,79 @@
+% lib/objshow.ps 11/29/90
+
+/objshowdict 16 dict def
+
+objshowdict begin
+/n  3 array def
+/v  3 array def
+/w  3 array def
+/v1 3 array def
+/v2 3 array def
+/v3 3 array def
+/lcarat 3 array def
+end
+
+% Show a specific instance of generic obj at pos shaded by light from light.
+% obj light pos objshow -
+/objshow {
+	objshowdict begin
+	/pos exch def
+	/light exch def
+	aload pop pop				% discard edges
+	/faces exch def
+	/vertices exch def			% generic vertices
+	/verts exch def				% vertices of this instance
+
+	light lcarat copy vcarat		% reduce to unit light vector
+
+	% Create vertices at desired position.
+	/i 0 def
+	vertices {			% vi
+		verts i get		% vi ai 
+		exch pos vvadd		% ai = vi + pos
+		/i i 1 add def
+	} forall
+
+	% Shade each face.
+	faces {
+		/f exch def
+		f aload pop			% i1 i2 i3 ...
+		4 1 f length { pop pop } for	% pop extras, leaving 3
+		verts exch get /v3 exch def
+		verts exch get /v2 exch def
+		verts exch get /v1 exch def
+		v v2 v1 vvsub			% v = v2 - v1
+		w v3 v1 vvsub			% w = v3 - v1
+		n v w vvcross			% n = v x w, normal to face
+		n vcarat			% n = unit normal
+
+		% This kludge is sometimes useful for getting rid
+		% of inappropriate faces.  Unfortunately, it sometimes makes
+		% visable faces sloping away from the observer disappear,
+		% hence commented out for general use.
+%		n observer vvdot 0 gt {		% skip face if pointing away
+			n lcarat vvdot		% v dot lcarat, light to face
+			/gray exch def
+			gray 0 lt { /gray 0 def } if
+			newpath
+			/flag 1 def
+			f {			% i
+				verts exch get	% ai
+				aload pop	% aix aiy aiz
+				project		% x y
+				flag 1 eq {
+					moveto	% first time
+					/flag 0 def
+				} {
+					lineto	% subsequently
+				} ifelse
+			} forall
+			closepath
+			gsave 1 setgray fill grestore
+			gray setgray
+			fill
+%		} if
+	} forall
+	end
+} bind def
+
+% end of objshow.ps

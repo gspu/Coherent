@@ -1,0 +1,198 @@
+
+
+com                       Device Driver                       com
+
+
+
+
+Device drivers for asynchronous serial lines
+
+
+The  COHERENT system  has  drivers for  four asynchronous  serial
+lines, ccoomm11 through ccoomm44.
+
+A  serial  line  can   be  opened  into  any  of  four  different
+``flavors'', as follows:
+
+
+     ccoomm?ll     Interrupt driven, local mode (no modem control)
+     ccoomm?rr     Interrupt driven, remote mode (modem control)
+     ccoomm?ppll    Polled, local mode (no modem control)
+     ccoomm?pprr    Polled, remote mode (modem control)
+
+
+``Local mode''  means that the line will  have a terminal plugged
+into  it, to  directly  access the  computer.  ``Modem  control''
+means that  the line  will have a  modem plugged into  it.  Modem
+control  is  enabled on  a  serial line  by  resetting the  modem
+control bit  (bit 7)  in the minor  number for the  device.  This
+allows  the system  to generate  a hangup  signal when  the modem
+indicates loss of  carrier by dropping DCD (Data Carrier Detect).
+A  modem  line should  always  have  its DSR,  DCD  and CTS  pins
+connected.   If  left  hanging,  spurious transitions  can  cause
+severe  system thrashing.   To disable modem  control on  a given
+serial line, use the minor device which has the modem control bit
+set (bit 7).  An ooppeenn to  a modem-control line will block until a
+carrier is detected (DCD goes true).
+
+``Interrupt mode'' means  that the port can generate an interrupt
+to attract the  attention of the COHERENT system; ``polled mode''
+means that  the port  cannot generate  an interrupt, but  must be
+checked (or ``polled'')  constantly by the COHERENT system to see
+if activity has occurred on it.
+
+The  COHERENT system  uses two  device  drivers to  manage serial
+lines: one  driver manages COM1  and COM3, and  the other manages
+COM2 and  COM4.  Due to  limitations in the design  of the ports,
+you can enable  interrupts on either COM1 or COM3  (or on COM2 or
+COM4),  but   not  both.    If  you   wish  to  use   both  ports
+simultaneously, one must be  run in polled mode.  For example, if
+you wish to  open all four serial lines, you  can open two of the
+lines  in interrupt  mode: you  can open either  COM1 or  COM3 in
+interrupt mode, and you can open either COM2 or COM4 in interrupt
+mode.  The other two lines must be opened in polled mode.
+
+Opening a  device in polled mode consumes  many CPU cycles, based
+upon the speed of  the highest baud rate requested.  For example,
+on a  20 MHz 80386-based machine, polling  at 9600-baud was found
+to consume about 15% of the CPU time.  As only one device can use
+the interrupt  line at  any given time,  the best approach  is to
+make the  high-speed line of  the pair interrupt  driven and open
+the  low-speed  or  less-frequently  used  line in  polled  mode.
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+com                       Device Driver                       com
+
+
+
+However, if you enable a polled line for logins, the port is open
+and will  be polled as  long as the port  remains open (enabled).
+Thus, even if a port is  not in use, the fact that it has a ggeettttyy
+on it  consumes CPU cycles.  As  a rule of thumb,  try and open a
+port in  interrupt mode.  If you cannot,  use the polled version.
+Also note that use of any of the four serial ports in polled mode
+prevents  other polled  serial  device drivers,  such  as the  hhss
+generic multi-port  polled serial driver, from  being used at the
+same time.
+
+If you intend to use a modem on your serial port, you must insure
+that the DCD signal from  the modem actually _f_o_l_l_o_w_s the state of
+carrier detect.   Some modems allow the user  to ``strap'' or set
+the  DCD  signal so  that  it is  always  asserted (true).   This
+incorrect setup  will cause COHERENT  to think that  the modem is
+``connected''  to a  remote  modem, even  when there  is no  such
+connection.
+
+In addition, if you wish  to allow remote logins to your COHERENT
+system via  your modem, you  must insure that the  modem does nnoott
+echo any  commands or status information.  Failure  to do so will
+result  in severe  system  thrashing due  to the  ggeettttyy or  llooggiinn
+processes endlessly ``talking'' to your modem.
+
+***** Changing Default Port Speeds *****
+
+Serial lines ccoomm11 through  ccoomm44 default to 9600 baud when opened.
+This default  speed can  be permanently  changed on a  "per port"
+basis by changing the value of driver variables CC11BBAAUUDD_, CC22BBAAUUDD_,
+CC33BBAAUUDD_ or CC44BBAAUUDD_. The list of acceptible values can be found in
+header file <ssggttttyy.hh> and range from 1, corresponding to 50 baud,
+up to 17, which corresponds to 19,200 baud.  For a table of legal
+baud rates, see the Lexicon entry for ssggttttyy.hh.
+
+To  change  the  default value  for  a  port,  you  must use  the
+/ccoonnff/ppaattcchh command.   For example,  to change the  default speed
+for port  ccoomm22 to  2400 baud,  enter the following  command while
+running as the superuser:
+
+
+          /conf/patch /drv/al1 C2BAUD_=12
+
+
+The change will not take effect until the next time that you boot
+your system.
+
+***** See Also *****
+
+ccoomm11, ccoomm22, ccoomm33, ccoomm44, ddeevviiccee ddrriivveerrss
+
+***** Diagnostics *****
+
+An  attempt to  open a  non-existent  device will  generate error
+messages.  This can occur if hardware is absent or not turned on.
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+com                       Device Driver                       com
+
+
+
+***** Notes *****
+
+The ccoomm*  series of devices  are not compatible  with the iiooccttll()
+parameters defined in  header file <tteerrmmiioo.hh>. Be sure to include
+header file  <ssggttttyy.hh> if you  wish to perform  terminal specific
+iiooccttll() calls.
+
+In the  current version of these  drivers, the following sequence
+of steps results in a panic:
+
+
+          enable com4pl
+          enable com3pl
+          disable com4pl
+          kill kill <al1 driver process id>
+
+
+The key is that  the driver containing the polling routine cannot
+be unloaded if the other driver is still polling.
+
+Note, too, that if any ccoomm device driver is used in polling mode,
+the hhss driver cannot be used, and vice versa.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 3
+
+

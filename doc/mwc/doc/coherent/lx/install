@@ -1,0 +1,297 @@
+.TH install "" "" Command
+.PC "Install a software update onto COHERENT"
+\fB/etc/install [\-c] \fIid device ndisks\fR
+.PP
+.II "update"
+.II "software, preparing releases"
+.II "software, installing under COHERENT"
+.II "releases, software, preparing"
+.HS
+.SH Option:
+.IC \fB\-c\fR
+Uncompress compressed files.
+.SH Arguments:
+.IC \fIid\fR
+String that identifies the release; e.g., \fBcoh.301\fR identifies
+\*(CO release version 3.0.1.
+.IC \fIdevice\fR
+The physical device from which the installation takes place; e.g.,
+\fB/dev/fha0\fR identifies floppy-disk drive 0 (drive A), where it is a
+high-density, 5.25-inch disk.
+.IC \fIndisks\fR
+Number of floppy disks in the release.
+.HE
+The command
+.B install
+installs an update of the \*(CO system onto your hard disk.
+.I id
+identifies the update to be installed.
+.I device
+is the device from which the update disks will be read.
+.I ndisks
+is the number of disks that comprise the update.
+.PP
+Option
+.B \-c
+tells
+.B install
+to uncompress compressed files directly from the installation disks,
+rather than copy the compressed files onto disk and uncompress them there.
+.II /etc/install.u
+.II install.u
+.B install
+reads information about compression formats and options from file
+.BR /etc/install.u .
+This switch permits software packages other than \*(CO to use compressed files.
+.SH "Third-Party Software"
+.B install
+also provides a standard mechanism by which software developers can
+install their software onto systems that run \*(CO.
+The rest of this article discusses how to prepare a software release
+so that it can be installed using
+.BR install .
+.PP
+For
+.B install
+to be able to install a software distribution, the distribution must
+consist of a set of mountable floppy disks, each holding a \*(CO file
+system created by
+.BR mkfs .
+This keeps the disks independent of each other and
+also lets the user to insert the disks in any order.
+.B install
+records the fact that it has read a given disk from the distribution,
+thus preventing the user from attempting to read a given disk more
+than once during an installation session.
+.PP
+Floppy disks should be built using
+.BR mkfs .
+Each disk in the distribution must hold in its root directory
+a file whose name is of the form:
+.DS
+	/\fIid\fB.\fIsequence\fR
+.DE
+.PP
+Here,
+.I id
+identifies the release, as described above.
+Note that
+.I id
+must be formed from the set of upper- and lower-case letters,
+digits, the period `.', and the underscore character `_', and
+not exceed nine characters in length.
+.I sequence
+indicates which disk in the distribution
+this disk is, from one through the total number of disks.
+.PP
+.B install
+uses the command
+.B cpdir
+to copy each of the distribution disks to directory
+.B /
+on the current system.
+Therefore, every disk should be ``root based''
+(i.e., full path names should be used).
+Because
+.B install
+is run by the superuser,
+.B cpdir
+preserves the date and time for each file, and preserves ownership and modes.
+To keep file ownership consistent with \*(CO conventions,
+make files that are neither
+.I setuid
+nor
+.I setgid
+owned by user
+.B bin
+and group
+.BR bin .
+.B install
+recreates on your hard disk all directories that it finds on the
+distribution disks, as needed.
+Be careful when choosing the ownership and mode of directories because
+you could inadvertently compromise the security of your users' systems.
+.SH Preprocessing
+When you load a disk,
+.B install
+seeks a file named \fIid\fB.\fIdisk\fB.pre\fR upon that disk.
+If it finds such a file,
+.B install
+assumes that that file is a script, copies it into directory
+.BR /conf ,
+and executes it from there
+.I before
+it copies any files from the disk onto your system.
+If you are installing \*(CO, it uses the command:
+.DS
+	\fIid\fB.\fIdisk\fB.pre \fIid\fB.\fIdisk\fB.arch\fR
+.DE
+.PP
+If you are updating a package rather than installing it,
+.B install
+uses the command:
+.DS
+	\fIid\fB.\fIdisk\fB.pre \-u \fIid\fB.\fIdisk\fB.arch\fR
+.DE
+.PP
+.B install
+always gives the same argument to the
+.B .pre
+script.
+As its suffix
+.B .arch
+indicates, the argument usually names a file whose contents
+name files that should be archived
+.B install
+copies the contents of the disk onto your system.
+.B install
+merely passes the name of the
+.B .arch
+file that
+.I might
+exist on the installation disk to the
+.B .pre
+script:
+it is up to the
+.B .pre
+script to check for the existence of the
+.B .arch
+file, read it, and perform the archiving.
+Of course, the
+.B .pre
+script can ignore this argument should it choose.
+.PP
+For example, if you are installing X Windows onto your \*(CO system,
+the identifier is
+.BR CohX .
+When you load the first disk into your system,
+.B install
+looks for file
+.B CohX.1.pre
+on that disk.
+If it finds that file,
+.B install
+copies it into directory
+.B /conf
+on your root file system, and invokes it with the command:
+.DM
+	/conf/CohX.1.pre CohX.arch
+.DE
+.PP
+All of this occurs
+.I before
+.B install
+copies any files from that disk onto your system.
+In this way, files can be archived or otherwise backed up before they
+are overwritten by the package you are installing onto your system.
+.PP
+One last behavior should be noted:
+if
+.B install
+finds a \fB.pre\fR file on the
+.I first
+disk of the installation kit, it also seeks on that disk
+a file that has the suffix
+.BR .supp
+on that disk.
+The suffix \fB.supp\fR stands for ``suppression'':
+normally, it names files that are
+.I not
+to be copied from the release onto your system.
+It is the flip side of the
+.B .arch
+file.
+.PP
+Note that you can mount the disks of a release and edit these
+.B .arch
+and
+.B .supp
+files
+.I before
+you install the package onto your system.
+In this way, you can protect your system from being damaged by installing
+new software onto your system.
+.SH Postprocessing
+After all disks in a distribution have been successfully copied
+by the user,
+.B install
+checks for the existence of a file of the form
+.DM
+	/conf/\fIid\fP.post
+.DE
+.PP
+where
+.I id
+matches the
+.I id
+field found on the
+.B install
+command line.
+If found,
+.B install
+executes this file to allow special \*(QLpostprocessing,\*(QR
+such as installing manual pages into directory
+.B /usr/man
+or executing installation-specific commands.
+.PP
+Before an installation procedure completes its postprocessing,
+it should remove any
+.I id
+files of the following form from the target system:
+.DS
+	/conf/\fIid\fP.post
+	/\fIid\fP.\fIsequence\fP
+.DE
+.SH "Adding Manual-Page Entries"
+As part of building a distribution, you usually must generate
+pre-processed or \*(QLcooked\*(QR manual-page
+entries for distribution with your upgrade or add-on package.
+These should be inserted into the subdirectories of
+.BR /usr/man ,
+with the name of the subdirectory being specific to your product.
+This naming convention avoids name-space collisions,
+should multiple applications use the same name for a manual-page entry.
+.PP
+If you install new or additional manual pages, you must update
+the index file used by the
+.B man
+command to locate manual entries.
+File
+.B /usr/man/man.index
+on the target file system contains index entries for all manual pages
+on the system.
+As part of postprocessing, you must append
+index information for your manual pages to the end of the existing index file.
+In addition, file
+.B /usr/man/man.help
+contains the
+.B man
+command's help message.
+This includes a list of valid topics and some explanatory text.
+You should also append to this file a brief list of the
+manual page entries that you have added.
+For further information on manual pages, see the Lexicon entry for the
+command
+.BR man .
+.SH "Logging"
+.B install
+logs all partial as well as completed installations in file
+.BR /etc/install.log .
+This information includes date/time stamps and the command-line arguments to
+.BR install .
+.SH Example
+The following installs \*(CO update
+.BR coh.301 ,
+which consists of one disk,
+from a high-density 5.25-inch floppy drive:
+.DM
+	/etc/install coh.301 /dev/fha0 1
+.DE
+.SH Files
+.B
+/etc/install.log
+.R
+.SH "See Also"
+.Xr "commands," commands
+.Xr "man," man
+.Xr "mkfs" mkfs

@@ -1,0 +1,742 @@
+head     1.14;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.14;
+comment  @ * @;
+
+
+1.14
+date     93.03.11.13.43.22;  author bin;  state Exp;
+branches ;
+next     1.13;
+
+1.13
+date     93.02.23.09.06.01;  author bin;  state Exp;
+branches ;
+next     1.12;
+
+1.12
+date     93.01.14.08.26.44;  author bin;  state Exp;
+branches ;
+next     1.11;
+
+1.11
+date     92.08.06.12.04.39;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     92.07.16.12.29.45;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     92.07.16.11.18.13;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     92.07.09.07.32.06;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.07.02.09.04.24;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.06.25.16.14.54;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.06.12.11.05.42;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.06.03.15.53.58;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.05.27.07.57.40;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.04.30.15.03.24;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.16.23.40;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.14
+log
+@*** empty log message ***
+@
+text
+@/*
+ * dos0.c
+ * cc -o dos dos[01234].c
+ * Read, write or format an MS-DOS filesystem (default: INFILE in dos1.h).
+ * For usage, see USAGE in dos0.h.
+ * Understands DOS 2.0 tree structured disks.
+ * Understands 1.5 and 2-byte FAT entries;
+ * does not understand 4-byte FAT entries.
+ * Prints some debugging information if compiled -DDEBUG.
+ */
+
+#include "dos0.h"
+
+/* Globals. */
+short		oldstyle;		/* Indicates the this was a dos */
+short		aflag;			/* ASCII text file		*/
+short		bflag;			/* Binary text file		*/
+unsigned char	cohfile[NAMEMAX];	/* COHERENT filename		*/
+unsigned char	cmd[6 + NAMEMAX];	/* system() command buffer	*/
+char *		device = INFILE;	/* Input device filename	*/
+short		estat;			/* Exit status			*/
+short		(*fun)();		/* Function to execute		*/
+short		kflag;			/* Use mtime, not current time	*/
+short		nflag;			/* Sort by time, newest first	*/
+short		fflag;			/* Force removal of rdonly files*/
+long		partseek;		/* Extended MS-DOS part. seek	*/
+short		pflag;			/* Extract/replace is piped	*/
+DIR *		root;			/* Root directory		*/
+short		sflag;			/* Suppress subdirectory x/r	*/
+MDIR *		volume;			/* Volume label			*/
+
+short		xpart;			/* Extended MS-DOS partition	*/
+char *		base, basehold[35];	/* Base for path-including copies */
+char *		base1;
+
+char		ext[512];		/* Ascii Extension list */
+short		sext = 0;		/* size of extension list */
+short		numargs;
+short		isdir_keep;
+
+char *tran_dev();
+char *tran_file();
+short die_signal();
+
+main(argc, argv) short argc; char *argv[];
+{
+	register short mode;
+	short tv, c, i = 0, dev = 2, j, k = 0, dargs = 0;
+	char *tmp;
+
+	argv0 = argv[0];
+
+	if (strcmp((argv[0] + strlen(argv[0]) - 3), "dos")) {
+		usagemsg = USAGE;
+		if (argc < 2)
+			usage(NULL);
+
+		mode = 2;
+		tmp = argv[0];
+		if ((*argv[1] == '-') && (argv[1][1] != '\0')) {
+			while ((c = *argv[1]++) != '\0') {
+				dargs = 1;
+				switch (c) {
+					case 'a':
+					case 'm':	aflag++;	break;
+					case 'b':
+					case 'r':	bflag++;	break;
+					case 'k':	kflag++;	break;
+					case 'f':	fflag++;	break;
+					case 's':	sflag++;	break;
+					case 'n':	nflag++;	break;
+					case 'v':	vflag++;	break;
+					case '1':
+					case '2':
+					case '3':
+					case '4':
+					case '5':
+					case '6':
+					case '7':
+					case '8':
+					case '9':	xpart = c - '0';
+							break;
+					case '-':	break;
+					default:
+					fatal1("Invalid argument %c", c);
+								break;
+				}
+			}
+		}
+		else
+			dev--;
+
+		if ((strstr(tmp, "cp")) || (strstr(tmp, "copy"))) {
+			if (!strstr(tmp, "dir"))
+				sflag++;
+			if (dev+2 > argc)
+				fatal1("Copy must include both a source and a"
+							" destination\n");
+			c=0;
+			for (j=dev; j < argc; j++)
+				if (strchr(argv[j], ':'))  {
+					k++;
+					c=j;
+				}
+			if (k>1)
+				fatal1("Copy can only specify one DOS devic"
+							    "e at a time.\n");
+			else if (!k)
+				fatal1("Use cp for COHERENT-COHERENT copies.\n");
+			if (c == dev) {
+				mode = 0;
+				fun = extract;
+				device = tran_dev(argv[dev]);
+				if((argv[dev] = tran_file(argv[dev])) != NULL)
+					tv=1;
+				else
+					tv=0;
+				tmp = &argv[dev];
+				base1 = argv[dev+1];
+			}
+			else {
+				fun = replace;
+				device = tran_dev(argv[argc-1]);
+				base1 = tran_file(argv[argc-1]);
+				argv[argc-1] = NULL;
+				tv = argc - (1 + dev);
+				tmp = &argv[dev];
+			}
+		}
+		else if (strstr(tmp, "format")) {
+			tv=argc - (2 + dargs);
+			tmp = &argv[dev+1];
+			device = tran_dev(argv[dev]);
+			fun = format;
+		}
+		else if (strstr(tmp, "mkdir")) {
+			if (argc > 2 + dargs)
+				fatal("Too many arguments for MKDIR\n");
+
+			device = tran_dev(argv[dev]);
+			if ((argv[dev] = tran_file(argv[dev])) != NULL)
+				tv=1;
+			else
+				fatal("Must specify a directory to create.\n");
+			tmp = &argv[dev];
+			fun = createdir;
+		}
+		else if (strstr(tmp, "cat")) {
+			if (argc > 2 + dargs)
+				fatal1("Too many arguments for doscat\n");
+
+			device = tran_dev(argv[dev]);
+			if ((argv[dev] = tran_file(argv[dev])) != NULL)
+				tv=1;
+			else
+				fatal1("Must specify a file to display.\n");
+			tmp = &argv[dev];
+			fun = extract;
+			pflag++;
+			mode = 0;
+		}
+		else if ((strstr(tmp, "rm")) || (strstr(tmp, "del"))) {
+			device = tran_dev(argv[dev]);
+			if ((argv[dev] = tran_file(argv[dev])) != NULL)
+				tv=1;
+			else
+				tv=0;
+			tmp = &argv[dev];
+			fun = delete;
+		}
+		else if ((strstr(tmp, "dir")) || (strstr(tmp, "ls"))) {
+			device = tran_dev(argv[dev]);
+			if ((argv[dev] = tran_file(argv[dev])) != NULL)
+				tv=1;
+			else
+				tv=0;
+			tmp = &argv[dev];
+			fun = table;
+			mode = 0;
+		}
+		else if (strstr(tmp, "label")) {
+			tv=argc - (2 + dargs);
+			tmp = &argv[dev+1];
+			device = tran_dev(argv[dev]);
+			fun = label;
+		}
+		else
+			usage("Invalid command.\n\n");
+	}
+	else {
+		oldstyle = 1;
+		usagemsg = OUSAGE;
+		if (argc < 2)
+			usage(NULL);
+		if (argc == 2)
+			++argc;
+		else
+			device = argv[2];
+		mode = key(argv[1]);
+		tv = argc - 3;
+		tmp = &argv[3];
+		strcpy(adev, device);
+	}
+
+	make_lock();
+	if ((fsfd = open(device, mode)) < 0)
+		fatal("cannot open device %s", device);
+
+	if (fun != format) {
+		/* Read the FAT and the root directory. */
+		readfat();
+		root = newdir(NULL, NULL, bpb->b_files);
+		readmdir(root);
+	}
+	numargs = tv;
+	(*fun)(tv , tmp);
+	if (fun != format) {
+		writedir(root);
+		if (fatcflag)
+			writefat();
+		free(fatcache);
+	}
+	rm_lock();
+	exit(estat);
+}
+
+
+#define DEFFILE "/etc/default/msdos"
+char adev[80], dev[80];
+char file[80];
+
+char *tran_dev(arg) char *arg;
+{
+	FILE *fp;
+	char *b, c[80];
+	short found = 0;
+
+	strcpy(dev, arg);
+	if ((b = strchr(dev, ':')) == NULL)
+		fatal1("Error: No device specified\n");
+
+	*b = '\0';
+
+	strcpy(adev, dev);
+	if (adev[0] != '/')
+		adev[0] = toupper(adev[0]);
+
+	if ((fp = fopen(DEFFILE, "r")) != NULL) {
+		while (!feof(fp)) {
+			if(fgets(c, 79, fp)) {
+				if ((c[0] != '#') && (c[0] != '\n')) {
+					if (c[0] == '.') {
+						short i = 0;
+						while (c[i] != '\n')
+							ext[sext++] = c[i++];
+					}
+					else if (!found){
+					   if (b = strchr(c, '=')) {
+						*b++ = '\0';
+						if (!strcmp(c, dev)) {
+							*strpbrk(b,"\t\n #")='\0';
+							strcpy(dev, b);
+							if(b=strchr(dev,';')){
+								*b='\0';
+								xpart=atoi(b+1);
+							}
+							found++;
+						}
+					    }
+					}
+				}
+			}
+		}
+	}
+	fclose(fp);
+	ext[sext++] = '.';
+	ext[sext++] = '\0';
+	return dev;
+}
+
+
+char *tran_file(arg) char *arg;
+{
+	char *t;
+
+	t = strchr(arg, ':') + 1;
+	if (*t == '/')
+		t++;
+	if (*t) {
+		if (strcpy(file, t));
+		return file;
+	}
+	else
+		return NULL;
+}
+
+
+#define SPOOLDIR	"/tmp"
+#define	LOCKPRE	"LCK.."
+char lockfn[64];
+
+make_lock()
+{
+	short lockfd, i;
+	char pidstring[6];
+	char *tmp = strrchr(device, '/') + 1;
+
+#ifdef _I386
+	for (i=1; i < 13; i++)
+#else
+	for (i=1; i < 12; i++)
+#endif
+		signal(i, die_signal);
+
+	sprintf(lockfn, "%s/%s%s", SPOOLDIR, LOCKPRE, tmp ? tmp : device);
+	if ((lockfd = open(lockfn, O_RDONLY)) != -1)
+	{
+		if ((read(lockfd, &i, sizeof(int)) != sizeof(int))
+		     || (kill(i, 0) == -1))
+		 {
+			 close(lockfd);
+		 }
+		 else
+			 fatal1("Device %s is in use.\n", device);
+	}
+	if((lockfd=creat(lockfn, 0644)) == -1)
+		fatal1("Cannot lock Device %s.\n", device);
+
+	sprintf(pidstring, "%d", getpid());
+	write(lockfd, pidstring, strlen(pidstring));
+	close(lockfd);
+}
+
+short die_signal(s) short s;
+{
+	fflush(stdout);
+	fatal("received signal %d, quitting.\n", s);
+}
+
+rm_lock()
+{
+	short lockfd;	/* pointer to file to read */
+	int chars_read;
+	char gotpid[7];	/* String of the PID that was in the lockfile */
+	
+	/* open the lock file for read, abort on failure */
+	if(-1 == (lockfd = (open(lockfn, 0))))
+		fatal1("Error opening %s\n", argv0, lockfn);
+
+	/* read the contents of the file. Abort if empty */
+	if ( -1 == (chars_read = read(lockfd, gotpid, 6))) {
+		close(lockfd);
+		fatal1("Error reading %s\n", lockfn);
+	}
+
+	gotpid[chars_read] = '\0';	/* NUL terminate the string.  */
+	if (atoi(gotpid) != getpid()){
+		close(lockfd);
+		fatal1("%s is not our lock file\n", lockfn);
+	}else{
+		if ( unlink(lockfn) < 0 ) {
+			close(lockfd);
+			fatal1("Can't unlink: %s\n", lockfn);
+		}
+		close(lockfd);
+		return( 0 );
+	}
+}
+
+/* end of dos0.c */
+
+
+
+
+
+
+
+@
+
+
+1.13
+log
+@michael: fixed bug with handling pipes and setting archive bit on files
+@
+text
+@d25 1
+d69 1
+@
+
+
+1.12
+log
+@Michael:  fixed locking code
+@
+text
+@d59 1
+a59 2
+		if (*argv[1] == '-') {
+			dargs = 1;
+d61 1
+@
+
+
+1.11
+log
+@update by Michael to fix problem with mangling filenames and creating extra
+directories
+@
+text
+@d83 1
+a83 1
+					fatal1("Invalid argument %c", c); 
+d280 1
+a280 1
+char *tran_file(arg) char *arg; 
+d314 13
+a326 3
+	if ( (access(lockfn, AEXISTS) == 0) ||
+	     ((lockfd=creat(lockfn, 0644)) == -1))
+		fatal1("Device %s is in use.\n", device);
+d341 1
+a341 2
+	short chars_read;	/* Number of characters read().  */
+
+d343 1
+a343 1
+
+d345 1
+a345 1
+	if(-1 == (lockfd = (open(lockfn, 0)))) 
+@
+
+
+1.10
+log
+@*** empty log message ***
+@
+text
+@d148 1
+a148 1
+				fatal("Too many arguments for CAT\n");
+d154 1
+a154 1
+				fatal("Must specify a file to display.\n");
+d158 1
+@
+
+
+1.9
+log
+@michael: no longer mucks with SIGCHLD
+@
+text
+@d83 1
+a83 1
+					fatal("Invalid argument %c", c); 
+@
+
+
+1.8
+log
+@update by micheal to correct newline conversion bug
+@
+text
+@d306 1
+a306 1
+	for (i=1; i < MAXSIG; i++)
+@
+
+
+1.7
+log
+@changes by michael to build2/386 bits
+@
+text
+@d15 1
+d188 1
+d199 1
+@
+
+
+1.6
+log
+@*** empty log message ***
+@
+text
+@d80 4
+a83 2
+					default:	break;
+/*	fatal("Invalid argument %c", c); */
+d312 1
+a312 1
+		fatal1("Can't lock: %s\n", lockfn);
+@
+
+
+1.5
+log
+@michael upd.
+@
+text
+@d80 2
+a81 1
+
+d200 1
+@
+
+
+1.4
+log
+@update by micheal
+@
+text
+@d37 1
+@
+
+
+1.3
+log
+@michael update for version 4.0, now understands 32 bit FATS.
+@
+text
+@d36 1
+d204 1
+@
+
+
+1.2
+log
+@update by Michael: pre 4.0
+@
+text
+@d15 2
+a16 2
+int		aflag;			/* ASCII text file		*/
+int		bflag;			/* Binary text file		*/
+d20 4
+a23 4
+int		estat;			/* Exit status			*/
+int		(*fun)();		/* Function to execute		*/
+int		kflag;			/* Use mtime, not current time	*/
+int		nflag;			/* Sort by time, newest first	*/
+d25 1
+a25 1
+int		pflag;			/* Extract/replace is piped	*/
+d27 1
+a27 1
+int		sflag;			/* Suppress subdirectory x/r	*/
+d30 3
+a32 3
+int		xpart;			/* Extended MS-DOS partition	*/
+char *		base;			/* Base for path-including copies */
+char *		dest;			/* Dest for path-including copies */
+d35 1
+a35 1
+int		sext = 0;		/* size of extension list */
+d39 1
+a39 1
+int die_signal();
+d41 1
+a41 1
+main(argc, argv) int argc; char *argv[];
+d43 2
+a44 2
+	register int mode;
+	int tv, c, i = 0, dev = 2, j, k = 0;
+d57 1
+d111 1
+a111 1
+				base = argv[dev+1];
+d116 1
+a116 1
+				dest = tran_file(argv[argc-1]);
+d123 1
+a123 1
+			tv=argc-2;
+d129 1
+a129 1
+			if (argc > 2)
+d136 1
+a136 1
+				fatal("Must spcify a directory to create.\n");
+d141 1
+a141 1
+			if (argc > 2)
+d148 1
+a148 1
+				fatal("Must spcify a file to display.\n");
+d173 1
+a173 1
+			tv=argc-2;
+d216 1
+a216 1
+char dev[80];
+d223 1
+a223 1
+	int found = 0;
+d226 2
+a227 1
+	*strchr(dev, ':') = '\0';
+d229 6
+d240 1
+a240 1
+						int i = 0;
+d274 2
+d285 1
+a285 1
+#define SPOOLDIR	"/usr/spool/uucp"
+d291 1
+a291 1
+	int lockfd, i;
+d295 3
+d299 1
+d311 1
+a311 1
+int die_signal(s) int s;
+d314 1
+a314 1
+	fatal("received signal %d, quiting.\n", s);
+d319 2
+a320 2
+	int lockfd;	/* pointer to file to read */
+	int chars_read;	/* Number of characters read().  */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d16 1
+d29 1
+d31 2
+d34 7
+d44 2
+d48 146
+a193 8
+	usagemsg = USAGE;
+	if (argc < 2)
+		usage();
+	if (argc == 2)
+		++argc;
+	else
+		device = argv[2];
+	mode = key(argv[1]);
+d202 1
+a202 1
+	(*fun)(argc-3, &argv[3]);
+d209 1
+d213 121
+d335 7
+@

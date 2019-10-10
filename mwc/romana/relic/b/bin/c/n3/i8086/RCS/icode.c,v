@@ -1,0 +1,437 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.57.54;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * The routines in this file are
+ * the machine dependent parts of the intermediate
+ * file printer. They handle reading and printing
+ * encoded machine instructions and operands.
+ * Included are tables of opcodes, of register names,
+ * etc.
+ */
+#ifdef	vax
+#include "INC$LIB:cc3.h"
+#else
+#include "cc3.h"
+#endif
+
+/*
+ * Instruction names, sizes, and flags.
+ * This table is ordered according to h/i8086/opcode.h
+ * and thus parallel to n2/i8086/opcode.c;  modifications
+ * to any of these require modifications to all of them.
+ */
+static struct ins {
+	char *i_name;
+	char  i_size;
+	char  i_flag;
+} ins[] = {
+	"aaa",		0,	0,
+	"aad",		0,	0,
+	"aam",		0,	0,
+	"aas",		0,	0,
+	"adc",		2,	0,
+	"adcb",		2,	OP_BYTE,
+	"add",		2,	0,
+	"addb",		2,	OP_BYTE,
+	"and",		2,	0,
+	"andb",		2,	OP_BYTE,
+	"call",		1,	OP_NPTR,
+	"cbw",		0,	0,
+	"clc",		0,	0,
+	"cld",		0,	0,
+	"cli",		0,	0,
+	"cmc",		0,	0,
+	"cmp",		2,	0,
+	"cmpb",		2,	OP_BYTE,
+	"cmpsw",	0,	0,
+	"cmpsb",	0,	0,
+	"cwd",		0,	0,
+	"daa",		0,	0,
+	"das",		0,	0,
+	"dec",		1,	0,
+	"decb",		1,	OP_BYTE,
+	"div",		1,	0,
+	"divb",		1,	OP_BYTE,
+	"hlt",		0,	0,
+#if AS_FORMAT
+	"icall",	1,	0,
+#else
+	"call",		1,	0,
+#endif
+	"idiv",		1,	0,
+	"idivb",	1,	OP_BYTE,
+#if AS_FORMAT
+	"ijmp",		1,	0,
+#else
+	"jmp",		1,	0,
+#endif
+	"imul",		1,	0,
+	"imulb",	1,	OP_BYTE,
+	"in",		1,	0,
+	"inb",		1,	OP_BYTE,
+	"inc",		1,	0,
+	"incb",		1,	OP_BYTE,
+	"int",		1,	OP_NPTR,
+	"into",		0,	0,
+	"iret",		0,	0,
+#if AS_FORMAT
+	"xicall",	1,	OP_DWORD,
+	"xijmp",	1,	OP_NPTR,
+#else
+	"call",		1,	OP_DWORD,
+	"jmp",		1,	OP_NPTR,
+#endif
+	"ja",		1,	OP_JUMP,
+	"jae",		1,	OP_JUMP,
+	"jb",		1,	OP_JUMP,
+	"jbe",		1,	OP_JUMP,
+	"jcxz",		1,	OP_JUMP,
+	"je",		1,	OP_JUMP,
+	"jg",		1,	OP_JUMP,
+	"jge",		1,	OP_JUMP,
+	"jl",		1,	OP_JUMP,
+	"jle",		1,	OP_JUMP,
+	"jmp",		1,	OP_JUMP,
+	"jne",		1,	OP_JUMP,
+	"jno",		1,	OP_JUMP,
+	"jns",		1,	OP_JUMP,
+	"jo",		1,	OP_JUMP,
+	"jpe",		1,	OP_JUMP,
+	"jpo",		1,	OP_JUMP,
+	"js",		1,	OP_JUMP,
+	"lahf",		0,	0,
+	"lds",		2,	OP_DWORD,
+	"lea",		2,	0,
+	"les",		2,	OP_DWORD,
+	"lock",		0,	0,
+	"lodsw",	0,	0,
+	"lodsb",	0,	0,
+	"loop",		1,	OP_JUMP,
+	"loope",	1,	OP_JUMP,
+	"loopne",	1,	OP_JUMP,
+	"mov",		2,	0,
+	"movb",		2,	OP_BYTE,
+	"movsw",	0,	0,
+	"movsb",	0,	0,
+	"mul",		1,	0,
+	"mulb",		1,	OP_BYTE,
+	"neg",		1,	0,
+	"negb",		1,	OP_BYTE,
+	"not",		1,	0,
+	"notb",		1,	OP_BYTE,
+	"ret",		1,	OP_NPTR,
+	"ret",		1,	OP_NPTR,
+	"or",		2,	0,
+	"orb",		2,	OP_BYTE,
+	"out",		1,	0,
+	"outb",		1,	OP_BYTE,
+	"pop",		1,	0,
+	"popf",		0,	0,
+	"push",		1,	0,
+	"pushf",	0,	0,
+	"rcl",		2,	0,
+	"rclb",		2,	OP_BYTE,
+	"rcr",		2,	0,
+	"rcrb",		2,	OP_BYTE,
+	"repe",		0,	0,
+	"repne",	0,	0,
+	"ret",		0,	0,
+	"rol",		2,	0,
+	"rolb",		2,	OP_BYTE,
+	"ror",		2,	0,
+	"rorb",		2,	OP_BYTE,
+	"sahf",		0,	0,
+	"sal",		2,	0,
+	"salb",		2,	OP_BYTE,
+	"sar",		2,	0,
+	"sarb",		2,	OP_BYTE,
+	"sbb",		2,	0,
+	"sbbb",		2,	OP_BYTE,
+	"scasw",	0,	0,
+	"scasb",	0,	0,
+	"shl",		2,	0,
+	"shlb",		2,	OP_BYTE,
+	"shr",		2,	0,
+	"shrb",		2,	OP_BYTE,
+	"stc",		0,	0,
+	"std",		0,	0,
+	"sti",		0,	0,
+	"stosw",	0,	0,
+	"stosb",	0,	0,
+	"sub",		2,	0,
+	"subb",		2,	OP_BYTE,
+	"test",		2,	0,
+	"testb",	2,	OP_BYTE,
+	"wait",		0,	0,
+#if AS_FORMAT
+	"xcall",	1,	OP_NPTR,
+#else
+	"call",		1,	OP_NPTR,
+#endif
+	"xchg",		2,	0,
+	"xchgb",	2,	OP_BYTE,
+#if AS_FORMAT
+	"xjmp",		1,	OP_NPTR,
+#else
+	"jmp",		1,	OP_NPTR,
+#endif
+	"xlat",		0,	0,
+	"xor",		2,	0,
+	"xorb",		2,	OP_BYTE,
+#if AS_FORMAT
+	"xret",		0,	0,
+#else
+	"ret",		0,	0,
+#endif
+
+#if AS_FORMAT
+	".byte",	1,	OP_DD|OP_NPTR,
+	".word",	1,	OP_DD|OP_NPTR,
+	".word",	1,	OP_DD|OP_NPTR,
+	".long",	1,	OP_DD|OP_NPTR,
+#else
+	"db",		1,	OP_DD|OP_NPTR,
+	"dw",		1,	OP_DD|OP_NPTR,
+	"dw",		1,	OP_DD|OP_NPTR,
+	"dd",		1,	OP_DD|OP_NPTR,
+#endif
+
+	"fadd",		0,	0,
+	"faddf",	1,	0,
+	"faddd",	1,	0,
+	"faddi",	1,	0,
+	"faddl",	1,	0,
+	"fsub",		0,	0,
+	"fsubf",	1,	0,
+	"fsubd",	1,	0,
+	"fsubi",	1,	0,
+	"fsubl",	1,	0,
+	"frsub",	0,	0,
+	"frsubf",	1,	0,
+	"frsubd",	1,	0,
+	"frsubi",	1,	0,
+	"frsubl",	1,	0,
+	"fcompp",	0,	0,
+	"fcompf",	1,	0,
+	"fcompd",	1,	0,
+	"fcompi",	1,	0,
+	"fcompl",	1,	0,
+	"fmul",		0,	0,
+	"fmulf",	1,	0,
+	"fmuld",	1,	0,
+	"fmuli",	1,	0,
+	"fmull",	1,	0,
+	"fdiv",		0,	0,
+	"fdivf",	1,	0,
+	"fdivd",	1,	0,
+	"fdivi",	1,	0,
+	"fdivl",	1,	0,
+	"frdiv",	0,	0,
+	"frdivf",	1,	0,
+	"frdivd",	1,	0,
+	"frdivi",	1,	0,
+	"frdivl",	1,	0,
+	"fchs",		0,	0,
+	"ftst",		0,	0,
+	"fldz",		0,	0,
+	"fld1",		0,	0,
+	"fstsw",	1,	0,
+	"fldf",		1,	0,
+	"fldd",		1,	0,
+	"fldi",		1,	0,
+	"fldl",		1,	0,
+	"fldt",		1,	0,
+	"fstf",		1,	0,
+	"fstd",		1,	0,
+	"fsti",		1,	0,
+	"fstl",		1,	0,
+	"fstpf",	1,	0,
+	"fstpd",	1,	0,
+	"fstpi",	1,	0,
+	"fstpl",	1,	0,
+	"fstpt",	1,	0,
+	"fwait",	0,	0,
+	"fdrop",	0,	0,
+	"fsqrt",	0,	0,
+	"fabs",		0,	0,
+	"fprem",	0,	0,
+	"frnd",		0,	0,
+ 	"ldes",		0,	0,
+ 	"imul",		3,	0,
+ 	"enter",	2,	0,
+ 	"leave",	0,	0
+};
+
+/*
+ * Handle code nodes.
+ */
+icode()
+{
+	register int op, i, n;
+	register struct ins *ip;
+
+	bput('\t');
+	op = bget();
+	ip = &ins[op];
+	fprintf(ofp, "%s", ip->i_name);
+	n = ip->i_size;
+	for (i=0; i < n; i += 1) {
+		if (i == 0)
+			bput('\t');
+		else
+			fprintf(ofp, ", ");
+		iafield(ip);
+	}
+	bput('\n');
+}
+
+/*
+ * These tables are indexed by the
+ * regm field of a mode. They contain the ascii
+ * strings used to print things in VASM mode.
+ */
+static	char	*wregs[] = {
+	"ax",	"cx",	"dx",	"bx",	"sp",	"bp",	"si",	"di"
+};
+
+static	char	*bregs[] = {
+	"al",	"cl",	"dl",	"bl",	"ah",	"ch",	"dh",	"bh"
+};
+
+static	char	*sregs[] = {
+	"es",	"cs",	"ss",	"ds"
+};
+
+static	char	*xregs[] = {
+	"bx, si",	"bx, di",	"bp, si",	"bp, di",
+	"si",		"di",		"bp",		"bx"
+};
+
+/*
+ * Read and print an address field. The style
+ * of the address is determined by flag bits that
+ * hide in the address mode. These bits are cleared away
+ * when the mode is actually stored in the afield.
+ */
+iafield(ip)
+register struct ins	*ip;
+{
+	register int	imode;
+	register int	mode;
+	register int	regm;
+	register int	offs;
+	register int	prefix;
+
+	imode = iget();
+	if ((imode&A_OFFS) != 0)
+		offs = iget();
+	else
+		offs = 0;
+	if ((imode&A_LID) != 0)
+		sprintf(id, "L%d", iget());
+	else if ((imode&A_GID) != 0)
+		sget(id, NCSYMB);
+	mode = imode&A_AMOD;
+	regm = imode&A_REGM;
+	switch (mode) {
+
+	case A_IMM:
+#if AS_FORMAT
+		bput('$');
+#else
+		if ((imode&(A_LID|A_GID)) != 0)
+			fprintf(ofp, "offset ");
+#endif
+	case A_DIR:
+	case A_X:
+		if (mode!=A_IMM && (ip->i_flag&OP_NPTR)==0) {
+			if ((imode&A_PREFX) != 0) {
+				prefix = ((imode&A_PREFX)>>8)-1;
+				fprintf(ofp, "%s:", sregs[prefix]);
+			}
+#if !AS_FORMAT
+			if ((ip->i_flag&OP_BYTE)  != 0)
+				fprintf(ofp, "byte");
+			else if ((ip->i_flag&OP_DWORD) != 0)
+				fprintf(ofp, "dword");
+			else
+				fprintf(ofp, "word");
+			fprintf(ofp, " ptr ");
+#endif
+		}
+#if !AS_FORMAT
+		if (mode == A_X)
+			fprintf(ofp, "[%s", xregs[regm]);
+#endif
+		if ((imode&(A_LID|A_GID)) != 0) {
+#if !AS_FORMAT
+			if (mode == A_X)
+				bput('+');
+#endif
+			fprintf(ofp, "%s", id);
+			if ((SIGNEDADDRESS)offs > 0)
+				bput('+');
+		}
+#if !AS_FORMAT
+		else if (mode==A_X && (SIGNEDADDRESS)offs>0)
+			bput('+');
+#endif
+		if (offs!=0 || ((imode&(A_LID|A_GID))==0 && mode!=A_X)) {
+#if !AS_FORMAT
+			if ((SIGNEDADDRESS)offs<0) {
+				bput('-');
+				offs = -(SIGNEDADDRESS)offs;
+			}
+			fprintf(ofp, "0%xh", offs);
+#else
+			fprintf(ofp, "%d", offs);
+#endif
+		}
+		if (mode == A_X)
+#if AS_FORMAT
+			fprintf(ofp, "(%s)", xregs[regm]);
+#else
+			bput(']');
+#endif
+		break;
+
+	case A_WR:
+		fprintf(ofp, wregs[regm]);
+		break;
+
+	case A_BR:
+		fprintf(ofp, bregs[regm]);
+		break;
+
+	case A_SR:
+		fprintf(ofp, sregs[regm]);
+		break;
+
+	default:
+		cbotch("ifield, mode=%d", mode);
+	}
+}
+
+@

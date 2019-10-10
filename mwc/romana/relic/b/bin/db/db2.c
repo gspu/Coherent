@@ -1,0 +1,119 @@
+/*
+ * db/db2.c
+ * A debugger.
+ * Segmentation maps.
+ */
+
+#include "db.h"
+
+/*
+ * Return the segment map in which the address in segment 's' falls.
+ */
+MAP *
+map_addr(s, addr) int s; ADDR_T addr;
+{
+	register MAP *mp;
+
+	for (mp = seg_map[s]; mp != (MAP *)NULL; mp = mp->m_next) {
+		if (mp->m_base <= addr && addr < mp->m_bend)
+			break;
+	}
+#if	0
+	if (mp == NULL)
+		printf("map_addr failed, s=%d addr=%lX\n", s, addr);
+#endif
+	return mp;
+}
+
+/*
+ * Clear the segment map for segment 's' until 'endp'.
+ * 'endp' allows leaving pure data while clearing impure data.
+ */
+void
+map_clear(s, endp) int s; MAP *endp;
+{
+	register MAP *mp, *nmp;
+
+	dbprintf(("map_clear(%d, %X):\n", s, endp));
+	for (mp = seg_map[s]; mp != endp; mp = nmp) {
+		dbprintf((" map_clear clearing %X\n", mp));
+		nmp = mp->m_next;
+		nfree(mp);
+	}
+	seg_map[s] = mp;
+}
+
+/*
+ * Clear all maps.
+ * The maps can share the same information, e.g. after ISPACE = DSPACE,
+ * hence the silly equality check kludge below.
+ */
+void
+map_init()
+{
+	register int n;
+
+	dbprintf(("map_init()\n"));
+	for (n = 0; n < NSEGS; n++) {
+		while (n < NSEGS - 1 && seg_map[n] == seg_map[n+1])
+			seg_map[n++] = (MAP *)NULL;
+		map_clear(n, (MAP *)NULL);
+	}
+}
+
+/*
+ * Print a segmentation map for the :m request.
+ */
+void
+map_print()
+{
+	register MAP *mp;
+	register int n;
+
+	for (n = 0; n < NSEGS; n++) {
+		for (mp = seg_map[n]; mp != (MAP *)NULL; mp = mp->m_next) {
+			if (testint())
+				return;
+			if (mp == seg_map[n]) {
+				printx("%s", seg_name[n]);
+				while (n < NSEGS-1 && seg_map[n+1]==mp)
+					printx(" == %s", seg_name[++n]);
+				printx(":\n");
+			}
+			printx("[");
+			printx(addr_fmt, mp->m_base);
+			printx(", ");
+			printx(addr_fmt, mp->m_bend);
+			printx("] => ");
+			printx(addr_fmt, mp->m_offt);
+			printx(" (%d)", mp->m_segi);
+			if (mp->m_flag == MAP_CHILD)
+				printx(" [child]\n");
+			else
+				printx(" \"%s\"\n", (mp->m_flag == MAP_PROG) ? lfn : cfn);
+		}
+	}
+}
+
+/*
+ * Initialize an element of a segment map.
+ */
+void
+map_set(s, base, size, offt, flag) int s; ADDR_T base, size; off_t offt; int flag;
+{
+	register MAP *mp;
+
+	dbprintf(("map_set(s=%d base=%lX size=%lX offt=%lX flag=%d)\n", s, base, size, offt, flag));
+	if (size == (ADDR_T)0)
+		return;				/* ignore empty segments */
+	mp = (MAP *)nalloc(sizeof(MAP), "segment map");
+	mp->m_next = seg_map[s];
+	seg_map[s] = mp;			/* link into list */
+	mp->m_base = base;
+	mp->m_bend = base + size;
+	mp->m_offt = offt;
+	mp->m_segi = s;
+	mp->m_flag = flag;
+}
+
+/* end of db/db2.c */

@@ -1,0 +1,343 @@
+.TH shmget() "" "" "General Function (libc)"
+.PC "Create or get shared-memory segment"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/shm.h>"
+\fBint shmget(\fImemkey\^\fB, \fIsize\^\fB, \fIflag\^\fB)\fR
+\fBkey_t \fImemkey\^\fB; int \fIsize\^\fB, \fIflag\^\fB;\fR
+.PP
+.II "shared memory^shmget()"
+.B shmget()
+creates a shared-memory identifier, associated data structure,
+and shared-memory segment, links them to the identifier
+.IR memkey ,
+and returns the shared-memory identifier that it has
+associated with
+.IR memkey .
+.PP
+.I memkey
+is an identifier that your application generates to identify
+its shared-memory segments.
+To guarantee that each key is unique, you should use the function call
+.B ftok()
+to generate keys.
+.PP
+.I size
+gives the size, in bytes, of the shared-memory segment that you want
+.B shmget()
+to create.
+.PP
+.I flag
+can be bitwise OR'd to include the following constants:
+.IP \fBIPC_ALLOC\fR 1.0i
+This process already has a shared-memory segment; please fetch it.
+.IP \fBIPC_CREAT\fR
+If this process does not already have a shared-memory segment, please
+create one.
+.IP \fBIPC_EXCL\fR
+Fail if a shared-memory segment already exists for this process.
+.IP \fBIPC_NOWAIT\fR
+Fail if the process must wait to obtain a shared-memory segment.
+.PP
+When it creates a shared-memory segment,
+.B shmget()
+also creates a copy of structure
+.BR shmid_ds ,
+which is defined in header file
+.BR <sys/shm.h> ,
+and which describes the shared-memory segment.
+It is defined as follows:
+.DM
+.ta 0.5i 3.5i
+struct shmid_ds {
+	struct ipc_perm	shm_perm;	/* operation permission struct */
+	int shm_segsz;	/* segment size */
+	char *__unused;	/* for binary compatibility */
+	char __pad [4];	/* for binary compatibility */
+	pid_t shm_lpid;	/* pid of last shmop */
+	pid_t shm_cpid;	/* pid of creator */
+	unsigned short shm_nattch;	/* current # attached */
+	unsigned short shm_cnattach;	/* for binary compatibility */
+	time_t shm_atime;	/* last shmat time */
+	time_t shm_dtime;	/* last shmdt time */
+	time_t shm_ctime;	/* last change time */
+};
+.DE
+.PP
+Field
+.B shm_perm
+is a structure of type
+.BR ipc_perm ,
+which header file
+.B <sys/ipc.h>
+defines as follows:
+.DM
+.ta 0.5i 3.5i
+struct ipc_perm {
+	unsigned short uid;	/* owner's user id */
+	unsigned short gid;	/* owner's group id */
+	unsigned short cuid;	/* creator's user id */
+	unsigned short cgid;	/* creator's group id */
+	unsigned short mode;	/* access modes */
+	unsigned short seq;	/* slot usage sequence number */
+	key_t key;	/* key */
+};
+.DE
+.PP
+.B shmget()
+initializes
+.B shm_id
+as follows:
+.IP \(bu 0.3i
+It sets fields
+.BR shm_perm.guid ,
+.BR shm_perm.uid ,
+.BR shm_perm.cgid ,
+and
+.B shm_perm.gid
+to, respectively, the effective user ID and effective group ID
+of the calling process.
+.IP \(bu
+It sets the low-order nine bits of field
+.B shm_perm.mode
+to the low-order nine bits of
+.IR flag .
+These nine bits define access permissions:
+the top three bits give the owner's
+access permissions (read, write, execute),
+the middle three bits the owning group's access permissions,
+and the low three bits access permissions for others.
+.IP \(bu
+It sets field
+.B shm_segsz
+equal to
+.IR size .
+.IP \(bu
+It sets fields
+.BR shm_atime ,
+.BR shm_dtime ,
+.BR shm_lpid ,
+and
+.B shm_nattch
+to zero, and field
+.B shm_ctime
+to the current time.
+.PP
+.B shmget()
+fails if any of the following is true:
+.IP \(bu 0.3i
+.I size
+is smaller than one byte,
+or larger than 0x10000 (the system-imposed maximum).
+.B shmget()
+sets
+.B errno
+to
+.BR EINVAL .
+.IP \(bu
+A shared-memory identifier exists for
+.I memkey
+but permission, as specified by
+.IR flag 's
+low-order nine bits, is not granted (\fBEACCES\fR).
+.IP \(bu
+A shared-memory identifier exists for
+.IR memkey ,
+but the size of its associated segment is less than
+.IR size ,
+and
+.I size
+does not equal zero (\fBEINVAL\fR).
+.IP \(bu
+A shared-memory identifier does not exist for
+.I memkey
+and (\fIflag\fR & \fBIPC_CREAT\fR) is false (\fBENOENT\fR).
+.IP \(bu
+.B shmget()
+tried to create a shared-memory segment, but could not because
+100 (the \*(CO-defined maximum) already exist (\fBENOSPC\fR).
+.IP \(bu
+.B shmget()
+tried to create a shared-memory identifier, but could not because
+not enough physical memory is available (\fBENOMEM\fR).
+.IP \(bu
+A shared-memory identifier already exists for
+.IR memkey ,
+but
+.I flag
+requests that
+.B shmget()
+create an exclusive segment it \(em i.e.
+.DM
+	( (\fIflag\fP & IPC_CREAT) && (\fIflag\fP & IPC_EXCL) )
+.DE
+.sp \n(pDu
+is true (\fBEEXIST\fR).
+.PP
+If all goes well,
+.B shmget()
+returns a shared-memory identifier, which is always a non-negative integer.
+Otherwise, it returns \-1 and sets \fBerrno\fR to an appropriate value.
+.SH Example
+.II "shared memory^example"
+The following demonstrates how to use \*(CO's shared-memory
+feature.
+Please note that this example will
+.I not
+work with versions of \*(CO prior to release 4.2.
+.PP
+The example consists of two programs:
+.BR writeshm ,
+which captures input from the keyboard and writes it into a shared-memory
+segment; and
+.BR readshm ,
+which reads and displays from the shared-memory segment the text that
+.B writeshm
+put there.
+Each program terminates when you type ``end''.
+.PP
+Note that this example is most effective if you run each program from
+its own virtual console.
+.PP
+The first program gives the source for
+.BR writeshm :
+.DM
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <string.h>
+.DE
+.DM
+main()
+{
+	int iShmId; /* Segment id */
+	char *cpShm; /* Pointer to the segment */
+	key_t key; /* Segment key */
+.DE
+.DM
+	key = ftok("/etc/passwd", 'S');	/* Get a key */
+.DE
+.DM
+	/* if a shared-memory segment exists, get it; otherwise, create one */
+	if ((iShmId = shmget(key, 256, 0644 | IPC_CREAT)) < 0) {
+		perror("get");
+		exit(1);
+	}
+.DE
+.DM
+	/* Attach segment to process. Use an attach address of zero to
+	 * let the system find a correct virtual address to attach.
+	 */
+	if ((cpShm = shmat(iShmId, 0, 0644)) == (char *) -1) {
+		perror("shmat");
+		exit(1);
+	}
+	printf("Server is ready.\en");
+	printf("Any message to continue, 'end' to exit\en");
+.DE
+.DM
+	for (;;) {
+		printf("Enter the message -> ");
+		gets(cpShm);
+		if (!strcmp(cpShm, "end")) {
+			puts("Bye");
+			shmdt(cpShm);	/* Detach segment */
+			break;
+		}
+	}
+}
+.DE
+.PP
+The next program gives the source for
+.BR readshm :
+.DM
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <string.h>
+.DE
+.DM
+main()
+{
+	int iShmId; /* Segment id */
+	char *cpShm; /* Pointer to the segment */
+	key_t key; /* Segment key */
+	char cBuf[16]; /* Read buffer */
+.DE
+.DM
+	/* Get a key */
+	key = ftok("/etc/passwd", 'S');
+.DE
+.DM
+	/* Get shared memory id. If it does not exist, do *not* create it. */
+	if ((iShmId = shmget(key, 256, 0644)) < 0) {
+		perror("get");
+		exit(1);
+	}
+.DE
+.DM
+	/* attach shared-memory segment to the process */
+	if ((cpShm = shmat(iShmId, 0, 0644)) == (char *) -1) {
+		perror("shmat");
+		exit(1);
+	}
+	printf("Client is ready\en");
+.DE
+.DM
+	for (;;) {
+		printf("Press enter to read the message -> ");
+		gets(cBuf);
+		printf("Got: \e"%s\e"\en", cpShm);
+.DE
+.DM
+		/* Exit on the 'end': detach and remove segment */
+		if (!strcmp(cpShm, "end")) {
+			struct shmid_ds	stShmId;
+.DE
+.DM
+			puts("Bye");
+			shmdt(cpShm);
+			if (shmctl(iShmId, IPC_RMID, &stShmId)) {
+				perror("shmctl");
+				exit(1);
+			}
+			break;
+		}
+	}
+}
+.DE
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/shm.h
+.SH "See Also"
+.Xr "ftok()," ftok
+.Xr "ipcrm," ipcrm
+.Xr "ipcs," ipcs
+.Xr "libc," libc
+.Xr "libsocket," libsocket
+.Xr "shmat()," shmat
+.Xr "shmctl()," shmctl
+.Xr "shmdt()" shmdt
+.SH Notes
+Prior to release 4.2, \*(CO implemented shared memory through the driver
+.BR shm .
+In release 4.2, and subsequent releases, \*(CO implements
+shared memory as a set of functions that conform in large part to the \*(UN
+System-V standard.
+.PP
+The kernel variables
+.B SHMMAX
+and
+.B SHMMNI
+set, respectively,
+the maximum size of a shared-memory segment and the number of shared-memory
+segments that can exist at any given time.
+Daredevil system operators who have large amounts of memory at their
+disposal may wish to change
+these variables to increase the system-defined limits.
+For details on how to do so, see the Lexicon entry
+.BR mtune .

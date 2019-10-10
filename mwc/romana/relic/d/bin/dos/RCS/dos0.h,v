@@ -1,0 +1,456 @@
+head     1.11;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.11;
+comment  @ * @;
+
+
+1.11
+date     93.03.11.13.44.26;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     93.01.14.08.26.46;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     92.12.14.10.18.44;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     92.09.18.07.21.38;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.07.09.07.32.26;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.06.25.16.14.58;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.06.12.11.05.48;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.06.03.15.54.53;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.05.27.07.57.50;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.04.30.15.03.40;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.08.15.53.35;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version provided by steve ness
+@
+
+
+1.11
+log
+@*** empty log message ***
+@
+text
+@/* dos0.h */
+
+#include "dos1.h"
+#include <access.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <sys/devices.h>
+#include <sys/dir.h>
+#include <sys/fdisk.h>
+#include <fcntl.h>
+#include <signal.h>
+#undef DIR
+#include <sys/stat.h>
+#include <time.h>
+#include <sys/types.h>
+
+/* Definitions. */
+#define	VERSION	"4.1"			/* Version id			*/
+#define	CTRLZ	'\032'			/* ASCII <Control-Z> character	*/
+#define	NAMEMAX	128			/* Maximum filename length	*/
+
+#define	OUSAGE	\
+"Usage:	dos [-][dFlrtx][acknpsv[1-9]] [ device ] [ file ... ]\n"\
+"Functions:\n"\
+"	d	Delete specified files\n"\
+"	F	Format disk			(optional argument: boot block)\n"\
+"	l	Label disk			(one argument: label)\n"\
+"	r	Replace files			(default: all files in '.')\n"\
+"	t	Table of contents 		(default: all files)\n"\
+"	x	Extract specified files		(default: all files)\n"\
+"Options:\n"\
+"	a	ASCII data extract/replace	(default: binary data)\n"\
+"	c	Check only; do not write changes to MS-DOS filesystem\n"\
+"	k	Keep mtime on extract/replace	(default: current time)\n"\
+"	n	Newest files first in list	(default: alphabetized)\n"\
+"	p	Piped extract/replace\n"\
+"	s	Suppress subdirectory x/r	(default: recursive descent)\n"\
+"	v	Verbose\n"\
+"	[1-9]	Specify desired drive on extended MS-DOS partition\n"\
+"The default device is /dev/dos.\n\n"\
+"See also doscat, doscp, doscpdir, dosdel, dosdir, dosformat, doslabel,\n"\
+"         dosls, dosmkdir, dosrm, dosrmdir.\n\n"
+
+#define	USAGE	\
+"Usage: Copy:        doscp [-abkmrv] src dest\n"\
+"       Copy Tree:   doscpdir [-akmrv] src dest\n"\
+"       Cat Files:   doscat src\n"\
+"       Directory:   dosdir [-vn] src   or   dosls [-vn] src\n"\
+"       Mkdir:       dosmkdir dest\n"\
+"       Rmdir:       dosrmdir dest\n"\
+"       Delete:      dosdel src         or   dosrm src\n"\
+"       Format:      dosformat dest [boot block]\n"\
+"       Label:       doslabel dest \"label\"\n\n"\
+"Options:\n"\
+"	a or m	ASCII copies - always convert CRLF to LF\n"\
+"	b or r	Binary copies - never convert CRLF to LF\n"\
+"	k	Keep mtime on copies		(default: current time)\n"\
+"	n	Newest files first in list	(default: alphabetized)\n"\
+"	f	force removal of readonly files\n"\
+"	v	Verbose\n\n"\
+"       See also /etc/default/msdos\n\n"
+/*
+"       The src and dest arguments have the format \"[device:]name\" where\n"\
+"       device is a COHERENT pathname for the special device file, and name\n"\
+"       is a pathname to a file or directory. Note that all paths must be\n"\
+"       specified with forward slashes. Arguments without a device are assumed\n"\
+"       to be COHERENT files.\n"\
+*/
+
+
+/*
+ * Directories.
+ * A DIR is allocated the root and for each subdirectory on a disk.
+ * Rather than having pointers to multiple children,
+ * a DIR has a linked list of siblings rooted at a child.
+ * The MS-DOS directory is not read into d_dir until required.
+ */
+#ifdef _I386
+#pragma align 1
+#endif
+typedef	struct	dir {
+	struct dir *	d_parent;	/* Parent, NULL if root		*/
+	struct dir *	d_child;	/* Child			*/
+	struct dir *	d_sibling;	/* Sibling			*/
+	unsigned short 	d_cluster;	/* First cluster		*/
+	unsigned short	d_files;	/* Max number of files		*/
+	unsigned short	d_dirblocks;	/* Number of directory blocks	*/
+	MDIR *		d_dir;		/* MS-DOS directory		*/
+	MDIR *		d_edp;		/* Pointer past end of d_dir	*/
+	unsigned char	d_dname[12];	/* NUL-terminated name		*/
+	char		d_dirflag;	/* Directory must be written	*/
+} DIR;
+#ifdef _I386
+#pragma align
+#endif
+
+/* Externals. */
+extern	char *		calloc();
+extern	struct tm *	localtime();
+extern	void		qsort();
+extern	char *		realloc();
+extern	char *		strcat();
+extern	char *		strcpy();
+extern	char *		strncpy();
+extern	time_t		time();
+extern	char *		base, basehold[];
+extern	char *		base1;
+extern	char *		dest;
+/* Globals in dos0.c. */
+/* dos1.c globals are declared in dos1.h, included above. */
+extern	short		oldstyle;
+extern	short		aflag;
+extern	short		bflag;
+extern	short		fflag;
+extern	unsigned char	cohfile[NAMEMAX];
+extern	unsigned char	cmd[6 + NAMEMAX];
+extern	char *		device;
+extern	short		estat;
+extern	short		(*fun)();
+extern	short		kflag;
+extern	short		nflag;
+extern	long		partseek;
+extern	short		pflag;
+extern	DIR *		root;
+extern	short		sflag;
+extern	MDIR *		volume;
+extern	short		xpart;
+extern	char		ext[];
+extern	short		sext;
+extern	short		numargs;
+extern	char 		adev[];
+extern  short		isdir_keep;
+
+/* Functions. */
+/* dos1.c functions are declared in dos1.h, included above. */
+/* dos2.c */
+extern	char *		cohname();
+extern	void		cohtime();
+extern	DIR *		creatdir();
+extern	MDIR *		creatfile();
+extern	void		delete();
+extern	void		deletedir();
+extern	void		deletefile();
+extern	unsigned short	dirclusters();
+extern	char *		dosname();
+extern	void		dostime();
+extern	void		extract();
+extern	void		createdir();
+extern	void		extractdir();
+extern	void		extractfile();
+/* dos3.c */
+extern	MDIR *		find();
+extern	MDIR *		findnext();
+extern  char * 		cohn();
+extern	short		finput();
+extern	void		format();
+extern	short		foutput();
+extern	unsigned short	freecluster();
+extern	short		key();
+extern	void		label();
+extern	void		mdirinit();
+/* dos4.c */
+extern	short		namecmp();
+extern	DIR *		newdir();
+extern	void		nonfatal();
+extern	void		readmdir();
+extern	void		replace();
+extern	void		replacedir();
+extern	void		replacefile();
+extern	void		table();
+extern	void		tabledir();
+extern	void		tablefile();
+extern	char *		uppercase();
+extern	void		writedir();
+extern  char * 		makef();
+
+/* end of dos0.h */
+
+@
+
+
+1.10
+log
+@Michael:  fixed locking code
+@
+text
+@d5 1
+d55 2
+a56 1
+"Options:	a or m	ASCII copies - always convert CRLF to LF\n"\
+d60 1
+d115 1
+@
+
+
+1.9
+log
+@michael: fixed bug with preserving time/date stamps.
+@
+text
+@d1 1
+a1 1
+/* dos0.h */ 
+d10 1
+@
+
+
+1.8
+log
+@update by michael: this came with dos[24].c update that fixed bugs
+related to file transfers
+@
+text
+@d41 1
+a41 1
+"         dosls, dosmkdir, dosrm, dosrmdir.\n"
+d58 1
+a58 1
+"       See also /etc/default/msdos\n"
+@
+
+
+1.7
+log
+@update by micheal to correct newline conversion bug
+@
+text
+@d41 1
+a41 1
+"         dosls, dosmkdir, dosrm, dosrmdir."
+@
+
+
+1.6
+log
+@*** empty log message ***
+@
+text
+@d108 1
+@
+
+
+1.5
+log
+@michael upd.
+@
+text
+@d30 1
+a30 1
+"Flags:\n"\
+d40 2
+a41 1
+"See also doscp, doscpdir, dosdel, dosdir, dosformat, doslabel.\n"
+d53 1
+a53 1
+"Flags:	a or m	ASCII copies - always convert CRLF to LF\n"\
+@
+
+
+1.4
+log
+@update by michael
+@
+text
+@d46 1
+a46 1
+"       Directory:   dosdir [-vn] src   or   dosdir [-vn] src\n"\
+a104 1
+
+d126 1
+@
+
+
+1.3
+log
+@michael update for version 4.0, now understands 32 bit FATS.
+@
+text
+@d125 1
+@
+
+
+1.2
+log
+@update by Michael: pre 4.0
+@
+text
+@d10 1
+d28 1
+a28 1
+"	t	Table of contents listing	(default: all files)\n"\
+d45 7
+a51 6
+"       Cat files:   doscat src\n"\
+"       directory:   dosdir [-vn] src\n"\
+"       mkdir:       dosmkdir dest\n"\
+"       delete:      dosdel src\n"\
+"       format:      dosformat dest [boot block]\n"\
+"       label:       doslabel dest \"label\"\n\n"\
+d54 1
+a54 1
+"	k	Keep mtime on copies		   (default: current time)\n"\
+d57 2
+d64 1
+a64 1
+"       See also /etc/default/msdos\n"
+d74 3
+d81 3
+a83 3
+	unsigned int	d_cluster;	/* First cluster		*/
+	unsigned int	d_files;	/* Max number of files		*/
+	unsigned int	d_dirblocks;	/* Number of directory blocks	*/
+d89 3
+d102 2
+a103 1
+extern	char *		base;
+d108 2
+a109 2
+extern	int		aflag;
+extern	int		bflag;
+d113 4
+a116 4
+extern	int		estat;
+extern	int		(*fun)();
+extern	int		kflag;
+extern	int		nflag;
+d118 1
+a118 1
+extern	int		pflag;
+d120 1
+a120 1
+extern	int		sflag;
+d122 1
+a122 1
+extern	int		xpart;
+d124 2
+a125 1
+extern	int		sext;
+d137 1
+a137 1
+extern	unsigned int	dirclusters();
+d148 1
+a148 1
+extern	int		finput();
+d150 3
+a152 3
+extern	int		foutput();
+extern	unsigned int	freecluster();
+extern	int		key();
+d156 1
+a156 1
+extern	int		namecmp();
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d4 1
+d6 1
+d19 2
+a20 1
+#define	USAGE	\
+d38 2
+a39 1
+"The default device is /dev/dos.\n"
+d41 22
+a84 1
+extern	char *		index();
+a87 1
+extern	char *		rindex();
+d92 2
+d98 1
+d112 2
+d129 1
+d134 2
+d156 1
+d159 1
+@

@@ -1,0 +1,479 @@
+static char _version[]="login version 3.2.1";
+/*		       
+ * Rec'd from Lauren Weinstein, 7-16-84.
+ * Hacked by rec to enable remote kludge on pdp11 10-84.
+ * Hacked extensively by rec 84-11-02.
+ * Added terminal locking and version number October 1991 by piggy.
+ *
+ * login connects a user terminal:
+ *	1) unless executed by /etc/getty, the terminal is set back to
+ *		default modes and characters while preserving the speeds
+ *		and the parity.
+ *	2) The user name supplied or prompted for is located in the
+ *		password file, and the password, if any is specified,
+ *		is prompted for, encrypted, and compared to the specified
+ *		password.
+ *	3) If the user name did not exist, or the password was wrong, the
+ *		login is reported as incorrect and the procedure repeats.
+ *	4) If the tty is identified as 'remote' then:
+ *		a) at most MAXFAIL attempts are permitted before the tty
+ *		is hung up.
+ *		b) at most MAXTIME seconds are permitted for a successful
+ *		login before the tty is hung up.
+ *		c) if the user has no password, and the REMACC user in
+ *		/etc/passwd does have a password, then the REMACC password
+ *		must be supplied.  If this program is compiled with
+ *		"BBS" defined, then a valid serial number must be supplied
+ *		at the remote access password prompt.
+ *	5) An unsuccessful login appends a utmp record to the file
+ *		/usr/adm/failed if it exists.
+ *		It also removes the tty lock from /usr/spool/uucp.
+ *	6) A successful login:
+ *		a-1) Locks the tty in /usr/spool/uucp.
+ *		a) chdir's to the home directory specified by /etc/passwd
+ *		b) writes utmp records to /usr/adm/wtmp and /etc/utmp if.
+ *			possible.
+ *		c) chowns the tty to be owned by the user.
+ *		d) chmods the tty to TTYMODE mode.
+ *		e) sets the user and group id's as specified by /etc/passwd.
+ *		f) sets USER to the user name matched in /etc/passwd.
+ *		g) sets HOME to the home directory specified in /etc/passwd.
+ *		h) sets SHELL to the shell specified in /etc/passwd.
+ *		i) exec's /bin/sh as "-sh" if and only if the shell
+ *		   specified in /etc/passwd is either blank or /bin/sh,
+ *		   otherwise as "+sh"; the "+/-" is for the benefit of /bin/sh.
+ *
+ * All other connect procedures and initializations should be performed by
+ * including them in /etc/profile or $HOME/.profile which the shell will
+ * perform before exec'ing the command interpreter specified by $SHELL.
+ * The shell will exit if any signals are received during /etc/profile.
+ */
+#include <stdio.h>
+#include <pwd.h>
+#include <signal.h>
+#include <utmp.h>
+#include <sys/dir.h>
+#include <sys/stat.h>
+#include <sgtty.h>
+#if NEWTTYS
+#include <sys/tty.h>
+#endif
+#include <sys/deftty.h>
+#ifdef BBS
+#include <sys/types.h>
+#endif
+
+extern long lseek();
+#ifdef BBS
+extern int chk_srlno();
+extern	time_t time();
+#endif
+
+#define FALSE	0
+#define TRUE 	1
+
+#define	TTYMODE	(S_IREAD|S_IWRITE|S_IEXEC)
+#define MAXFAIL	3		/* Maximum permitted failed login attempts */
+#define MAXTIME 60		/* Maximum seconds permitted for login */
+#define PASSLEN 13		/* Length of encrypted passwords */
+#define ACCNAME "remacc"	/* Remote access password dummy username */
+#define	NBUF	128		/* Assorted buffers */
+#define	LOGMSG	"/etc/logmsg"	/* Login message file */
+#define	DEFMSG	"Login: "	/* Default login message */
+
+/*
+ * Default sgtty and tchars settings.
+ */
+
+struct	sgttyb	defsgt = {		/* Initial sgtty */
+	DEF_SG_ISPEED,
+	DEF_SG_OSPEED,
+	DEF_SG_ERASE,
+	DEF_SG_KILL,
+	DEF_SG_FLAGS
+};
+	
+struct	tchars	deftch = {		/* Initial tchars */
+	DEF_T_INTRC,
+	DEF_T_QUITC,
+	DEF_T_STARTC,
+	DEF_T_STOPC,
+	DEF_T_EOFC,
+	DEF_T_BRKC
+};
+
+/*
+ * Default environment list for shell.
+ */
+#define NDENV	64
+char	euser[NDENV]	= "USER=root";
+char	ehome[NDENV]	= "HOME=/etc";
+char	eshell[NDENV]	= "SHELL=";
+char *defenv0[] = {		/* Default environment for super user */
+	euser, ehome, "PATH=/bin:/usr/bin:/etc:", "PS1=# ", eshell, NULL
+};
+char *defenvn[] = {		/* Default environment for other user */
+	euser, ehome, "PATH=:/bin:/usr/bin", "PS1=$ ", eshell, NULL
+};
+
+/*
+ * Assorted data.
+ */
+char 	faillog[] = "/usr/adm/failed";  /* failed login attempt log */
+char	wholog[] = "/etc/utmp";		/* current login log */
+char	motd[] = "/etc/motd";		/* message of the day */
+char    goodlog[] = "/usr/adm/wtmp";    /* successful login log */       
+#ifdef BBS
+char    goodsrl[] = "/usr/adm/wsrl";    /* successful login log */       
+#endif
+char	*prompt[] = {
+	"Password: ",			/* password msg 1 */
+#ifdef BBS
+	"BBS access password: "		/* password msg 2 */
+#else
+	"Remote access password: "	/* password msg 2 */
+#endif
+};
+char	buff[NBUF];			/* I/O buffer */
+char	*argv0 = "login";		/* Command name */
+
+#ifdef BBS
+static	int	good_serialno;
+FILE * fp_srl;
+time_t tnum;
+#endif
+
+main(argc, argv) int argc; char *argv[];
+{
+	register char *cp;		/* Password pointer */
+	register struct passwd *pwp;
+	int i, fd;
+	int oldtime;			/* Alarm temporary */
+	int failed = TRUE;		/* Assume cracker */
+	int remote = FALSE;		/* Assume not remote tty line */
+	int passcount = 0;		/* Password pass */
+	int logcount = 0;		/* Login attempt count */
+	char *s_tty;			/* tty name */
+	char *s_user;			/* user name, saved in euser[] */
+	char *s_dir;			/* user directory, saved in ehome[] */
+	char *s_shell;			/* user shell, saved in eshell[] */
+	int s_uid;			/* user id */
+	int s_gid;			/* group id */
+	extern int timeout();		/* Login attempt alarm function */
+	extern char *crypt();
+	extern char *getpass();
+	extern char *ttyname();
+	extern char *strcpy();
+	extern char *index();
+
+	if (argc > 0)
+		argv0 = argv[0];
+
+	/* Usage check */
+	if (argc < 1 || argc > 2) {
+		fprintf(stderr, "Usage: %s [username]\n", argv0);
+		slowexit(1);
+	}
+
+	/* Login no args, let getty start us from scratch */
+	if (argc == 1 && argv0[0] != '-')
+		exit(0);
+
+	/* Default signals */
+	for (i=1; i<=NSIG; i++)
+		signal(i, SIG_DFL);
+
+	/* Default file descriptors */
+	for (i=3; close(i)>=0; i++)
+		;
+
+	/* Locate buffers */
+	s_dir = index(ehome, '=') + 1;
+	s_user = index(euser, '=') + 1;
+	s_shell = index(eshell, '=') + 1;
+
+	/* Find out tty, and reset if necessary */
+	if ((s_tty = ttyname(2)) == NULL) {
+		fprintf(stderr, "%s: cannot find terminal.\n", argv0);
+		slowexit(1);
+	}
+
+	/*
+	 * If login has been exec()'d by a login shell, there will
+	 * already be a lock file.  Fortunately, this lock file belongs
+	 * to us, so we can remove it.  If there is a lock file that
+	 * doesn't belong to us, unlocktty() won't remove it, and the
+	 * subsequent locktty() will fail, as it should.  We are
+	 * explicitly ignoring the return value of unlocktty().
+	 */
+	(void) unlocktty(strrchr(s_tty, '/') + 1);
+
+	/* Let's lock this tty, so nobody else grabs it until we log out.  */
+	if (-1 == locktty(strrchr(s_tty, '/') + 1) ){
+		fprintf(stderr, "%s: cannot lock terminal.\n", argv0);
+		slowexit(1);
+	}
+
+	if (argv0[0] != '-'		/* Not called from /etc/getty */
+	 && settty(2) != 0) {		/* Reset terminal failed */
+		perror(s_tty);
+		slowexit(1);
+	}
+
+	if (argv0[0] == '-' && argv0[1] == 'r')	/* Isolate remote determination */
+	{  remote = TRUE;
+	   signal(SIGALRM, &timeout);   /* catch login timeout */
+	   alarm(MAXTIME);  		/* set timeout alarm */
+	}
+
+again:	failed = TRUE;	/* assume attempt will fail */
+	setpwent();	/* rewind password file */
+	if (remote && (++logcount > MAXFAIL))  /* count remote attempts */
+	   slowexit(1);  /* exit (and try force hangup) if too many attempts */
+
+	if (passcount == 0)	/* first pass?, user name and password */
+	{  if (argc > 1)
+           {  strcpy(buff, argv[1]);	/* Use argument once */
+	      argc  = 0;
+    	   } 
+	   else 
+  	   {
+	      do {
+		 printprompt();
+	         if (fgets(buff, NBUF-1, stdin) == NULL)
+		 {  putchar('\n');
+		    slowexit(1);
+	         }
+	      } while (buff[0] == '\n' && buff[1] == 0);
+	      buff[strlen(buff)-1] = 0;  /* null terminate over newline */
+ 	   }
+	   pwp = getpwnam(buff);	/* get name entry */
+	   if (pwp != NULL)		/* if entry found */
+	   {
+	      if (strcmp(pwp->pw_name, ACCNAME) == 0) {
+		printf("Login incorrect\n");	/* disallow remacc logins */
+		goto again;
+	      }
+	      strcpy(s_user, pwp->pw_name);	/* save name */
+	      s_uid = pwp->pw_uid;		/* save uid */
+	      s_gid = pwp->pw_gid;		/* save gid */	
+	      strcpy(s_dir, pwp->pw_dir);	/* save directory */
+	      strcpy(s_shell, (*pwp->pw_shell == '\0') ? "/bin/sh"
+						       : pwp->pw_shell);
+	   }
+	}
+ 	else			/* second pass, remote access password */
+	{
+#ifdef BBS
+	  pwp = NULL;
+#else
+	   pwp = getpwnam(ACCNAME);  /* check for remote access entry */
+	   if (pwp == NULL || pwp->pw_passwd[0] == 0)  /* no access pass? */
+	      goto ok;	/* all done */
+#endif
+	}
+
+	if (pwp == NULL			/* Not a user name */
+	 || pwp->pw_passwd[0] != 0) 	/* Password present */
+	{   if ((cp = getpass(prompt[passcount])) != NULL && cp[0] != '\0') {
+#ifdef BBS
+	    if (passcount == 0) {
+#endif
+	       cp = crypt(cp, pwp==NULL ? "xx" : pwp->pw_passwd);
+	       if (pwp != NULL
+		  && strcmp(cp, pwp->pw_passwd) == 0
+ 	  	  && strcmp(s_user, ACCNAME) != 0
+		  && strlen(pwp->pw_passwd) == PASSLEN)
+			failed = FALSE;  /* success */
+#ifdef BBS
+	    } else { /* for BBS, second password is a serial # */
+		if (chk_srlno(cp)) {
+			failed = FALSE;  /* success */
+			good_serialno = TRUE;
+		}
+	    }
+#endif
+	    }
+
+	    if (failed)  /* failed attempt? */
+	    {  oldtime = alarm(0);  /* turn off alarm */
+	       passcount = 0;       /* reset pass count */
+	       setutmp(s_tty, buff, faillog, FALSE);  /* failed attempt */
+	       alarm(oldtime);	     /* continue timeout */
+	       printf("Login incorrect\n");  /* incorrect */
+	       goto again;
+	    }
+	}
+
+	if (remote && passcount++ == 0)  /* need another pass? */
+	{  logcount--;       /* don't count as login attempt */
+	   goto again;	     /* yes */	
+	}
+
+ok:	alarm(0);	/* turn off login alarm timeout */
+	endpwent();	/* close password file */
+	if (chdir(s_dir) < 0) {	/* cd to $HOME */
+		perror(s_dir);
+		slowexit(1);
+	}
+	setutmp(s_tty, buff, goodlog, TRUE);	/* successful login */
+#ifdef BBS
+/*
+ * for BBS users, write "xxxxxxxxx time tty" to /usr/adm/wsrl
+ * where	xxxxxxxxx is the serial number
+ *		time is decimal long value of clock time at login
+ *		tty is login device minus "/dev/"
+ */
+	if (good_serialno) {
+		good_serialno = FALSE;
+		if (fp_srl = fopen(goodsrl, "a")) {
+			time(&tnum);
+			fprintf(fp_srl, "%s %10ld %s\n", cp, tnum, s_tty+5);
+			fclose(fp_srl);
+		}
+	}
+#endif
+	chown(s_tty, s_uid, s_gid);		/* grab the terminal */
+	chmod(s_tty, TTYMODE);			/* initialize its modes */
+	setgid(s_gid);				/* set group */
+	setuid(s_uid);				/* set user */
+	if ((fd = open(motd, 0)) >= 0) {	/* list message of day */
+		while ((i = read(fd, buff, NBUF)) > 0)
+			write(2, buff, i);
+		close(fd);
+	}
+	execle("/bin/sh",
+	        strcmp(s_shell, "/bin/sh") ? "+sh" : "-sh",
+		NULL,
+		s_uid == 0 ? defenv0 : defenvn);
+	fprintf(stderr, "No /bin/sh.\n");
+	slowexit(1);
+}
+
+/*
+ * Write out an accounting entry for
+ * 'tty' and 'username' into filename pointed to by "filep".
+ * If "success" is TRUE (indicating a good login) also write 'utmp' entry.
+ */
+setutmp(tty, username, filep, success)
+char *tty, *username, *filep;
+{
+	time_t time();
+	struct utmp utmp;
+	struct utmp spare;
+	fsize_t freeslot = -1, slot = 0;
+	register ufd;
+
+	utmp.ut_time = time(NULL);
+	strncpy(utmp.ut_line, tty+5, 8);
+	strncpy(utmp.ut_name, username, DIRSIZ);
+	if ((ufd = open(filep, 1)) >= 0) {
+		lseek(ufd, 0L, 2);
+		write(ufd, &utmp, sizeof (utmp));
+		close(ufd);
+	}
+	if (!success)  /* failed login attempt? */
+	   return;     /* all done */
+
+	if ((ufd = open("/etc/utmp", 2)) >= 0) {
+		while (read(ufd, &spare, sizeof (spare)) == sizeof (spare)) {
+			if (spare.ut_line[0] == '\0')
+				freeslot = slot;
+			else if (strncmp(spare.ut_line, utmp.ut_line, 8) == 0) {
+				freeslot = slot;
+				break;
+			}
+			slot += sizeof (utmp);
+		}
+		if (freeslot >= 0)
+			lseek(ufd, freeslot, 0);
+		write(ufd, &utmp, sizeof (utmp));
+		close (ufd);
+	}
+}
+
+/* login alarm timeout routine */
+timeout()
+{	
+	printf("\n");  /* neatness */
+	slowexit(1);  /* exit (and try force hangup for remote line) */
+}
+
+/*
+ * Set the characters for the terminal to the defaults.
+ * Return non-zero on error.
+ */
+settty(fd)
+{
+	struct sgttyb sgp;
+
+	if (ioctl(fd, TIOCGETP, &sgp) < 0)
+		return (1);
+	defsgt.sg_ispeed = sgp.sg_ispeed;
+	defsgt.sg_ospeed = sgp.sg_ospeed;
+	defsgt.sg_flags &= ~(EVENP|ODDP);
+	defsgt.sg_flags |= sgp.sg_flags&(EVENP|ODDP);
+	if (ioctl(fd, TIOCSETN, &defsgt) < 0)
+		return(1);
+	if (ioctl(fd, TIOCSETC, &deftch) < 0)
+		return(1);
+	return(0);
+}
+
+/* sleep for 2 seconds to make sure output has flushed, then exit */
+slowexit(status)
+{
+    char *s_tty;
+
+    if ((s_tty = ttyname(2)) != NULL) {
+	if (-1 == unlocktty(strrchr(s_tty, '/') + 1)) {
+		fprintf(stderr, "Trouble unlocking tty %s.\n", s_tty);
+	}
+    }
+
+    sleep(2);
+    exit(status);
+}
+
+/*
+ * Initial attempt failed, print a new prompt.
+ * The prompt is the last line of file LOGMSG or DEFMSG.
+ */
+printprompt()
+{
+#define	BSIZE	128
+	static char	*msg;
+	int		msgfd, count;
+	long		n;
+	static char	msgbuf[BSIZE+1];    /* login msg buffer */
+
+	if (msg != NULL) {			/* Prompt already known. */
+		printf("\r\n%s", msg);
+		return;
+	}
+	if ((msgfd = open(LOGMSG, 0)) < 0) {    /* try for login msg file */
+		printf(DEFMSG);
+		msg = DEFMSG;
+		return;
+	}
+	n = lseek(msgfd, 0L, 2);
+	if (n > BSIZE)
+		lseek(msgfd, -(long)BSIZE, 2);
+	else
+		lseek(msgfd, 0L, 0);
+	count = read(msgfd, msgbuf, BSIZE);	/* read from file */
+	close(msgfd);
+	while (count > 0 && msgbuf[count-1] == '\n')
+	         --count;			/* skip trailing newlines */
+	msgbuf[count] = '\0';
+	if (count == 0) {
+		printf(DEFMSG);
+		msg = DEFMSG;
+		return;
+	}
+	/* Reprint only the last line of the message file. */
+	for (msg = &msgbuf[count]; msg >= msgbuf && *msg != '\n'; msg--)
+		;
+	++msg;
+	printf("\r\n%s", msg);
+}

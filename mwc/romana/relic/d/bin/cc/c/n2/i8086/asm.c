@@ -1,0 +1,917 @@
+/*
+ * The routines in this file assemble buffered code
+ * and write the code to the output file.
+ * This version is for the SMALL and LARGE models of segmentation.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+#define	W	0x01			/* W (word) bit */
+#define	D	0x02			/* D (direction) bit */
+#define	ESC	0xD8			/* Escape */
+#define	WAIT	0x9B			/* Wait */
+
+static	ADDRESS	pc;			/* Current assembly pc */
+static	ADDRESS	pcdot[NSEG];		/* Working copy of seg '.' fields */
+static	int	pcseg;			/* Current segment */
+static	int	pass;			/* Pass flag; only 1 emits code */
+
+extern	int	hasfloat;		/* function uses floating point */
+
+/*
+ * Driving routine.
+ * Run pass 0 of the assembly to get sizes.
+ * All jumps are assumed to be short.
+ * Fix up any that don't reach.
+ * Run the second assembly pass to generate the final code.
+ */
+genfunc()
+{
+	register INS	*ip1, *ip2;
+	register int	i;
+
+	pc = dot;
+	pass = 0;
+	pcseg = dotseg;
+	for (i=0; i<NSEG; ++i)
+		pcdot[i] = seg[i].s_dot;
+	ip1 = ins.i_fp;
+	while (ip1 != &ins) {
+		assemble(ip1);
+		ip1 = ip1->i_fp;
+	}
+	sdi();
+	pc = dot;
+	pass = 1;
+	pcseg = dotseg;
+	for (i=0; i<NSEG; ++i)
+		pcdot[i] = seg[i].s_dot;
+	ip1 = ins.i_fp;
+	while (ip1 != &ins) {
+		asmdbgt(ip1);
+		if (isvariant(VASM))
+			unassemble(ip1);
+		else
+			assemble(ip1);
+		ip2 = ip1->i_fp;
+		free((char *) ip1);
+		ip1 = ip2;
+	}
+	asmdbgt(&ins);
+}
+
+/*
+ * Generate code for a single instruction.
+ * Used to compile external data definitions, etc.
+ */
+genins(ip)
+register INS	*ip;
+{
+	register int	i;
+
+	for (pass=0; pass!=2; ++pass) {
+		pc = dot;
+		pcseg = dotseg;
+		for (i=0; i<NSEG; ++i)
+			pcdot[i] = seg[i].s_dot;
+		if (isvariant(VASM) && pass != 0) {
+			if (ip->i_type != LINE
+			|| isvariant(VLINES))
+				unassemble(ip);
+		} else
+			assemble(ip);
+	}
+}
+
+/*
+ * This function fixes up the span dependent instructions.
+ * The only case on the iAPX-86 is the jump, which has limited range.
+ * There is nothing to be done with the adjustable displacements,
+ * bacause these are always absolute and do not change.
+ */
+sdi()
+{
+	register INS	*ip1, *ip2;
+	register SYM	*sp;
+	register int	bump, changes;
+	SIGNEDADDRESS	disp;
+
+	do {
+		changes = 0;
+		ip1 = ins.i_fp;
+		while (ip1 != &ins) {
+			if (isoptjump(ip1)) {
+				if ((sp=ip1->i_sp) == NULL)
+					cbotch("sdi");
+				if (ip1->i_pcseg != sp->s_seg)
+					cbotch("x seg #1");
+				disp = sp->s_value-ip1->i_pc-2;
+				if (disp<-128 || disp>127) {
+					ip1->i_long = 1;
+					changes = 1;
+					bump = 1;
+					if (ip1->i_rel != ZJMP)
+						bump = 3;
+					ip2 = ip1->i_fp;
+					while (ip2 != &ins) {
+						sdibump(ip1, ip2, bump);
+						ip2 = ip2->i_fp;
+					}
+				}
+			}
+			ip1 = ip1->i_fp;
+		}
+	} while (changes);
+}
+
+/*
+ * This routine performs the nitty gritty
+ * of bumping an instruction to a higher address because
+ * an sdi changed from short to long.
+ * The 'ip1' argument is a pointer to the INS of the jump.
+ * The 'ip2' argument is the node to be bumped by 'bump' bytes.
+ * Only labels and code in the same segment as the 'ip1' node are adjusted.
+ */
+sdibump(ip1, ip2, bump)
+register INS	*ip1;
+register INS	*ip2;
+{
+	register int	type;
+	register SYM	*sp;
+
+	if ((type=ip2->i_type) == LLABEL) {
+		if ((sp=ip2->i_sp) == NULL)
+			cbotch("sdibump");
+		if (sp->s_seg == ip1->i_pcseg)
+			sp->s_value += bump;
+	} else if (type==JUMP || type==CODE) {
+		if (ip2->i_pcseg == ip1->i_pcseg)
+			ip2->i_pc += bump;
+	}
+}
+
+/*
+ * This routine checks if a node is an optimizable short jump.
+ * The node must be a jump,
+ * it must be short and it must either be the unconditional
+ * jump or one of the jumps that has a reverse.
+ */
+isoptjump(ip1)
+register INS	*ip1;
+{
+	register int	rel;
+
+	if (ip1->i_type==JUMP && ip1->i_long==0) {
+		rel = ip1->i_rel;
+		if (rel!=ZJCXZ && rel!=ZLOOP && rel!=ZLOOPE && rel!=ZLOOPNE)
+			return (1);
+	}
+	return (0);
+}
+
+/*
+ * Assemble a line.
+ * If pass 1 the binary goes straight out.
+ * The ip1 argument points to the INS node that is to be assembled. 
+ */
+assemble(ip1)
+register INS	*ip1;
+{
+	SIGNEDADDRESS	disp;
+	int	opbits;
+	int	escape;
+	OPINFO	*opinfop;
+	int	opcode;
+	SYM	*sp;
+	int	ostyle;
+	AFIELD	a1;
+	int	prefix;
+	int	m1, m2, regm, rn;
+	int	shortflag;
+	sizeof_t length;
+	int	segreg;
+	int	m3;
+
+	switch (ip1->i_type) {
+
+	case ENTER:
+		pcdot[pcseg] =  pc;
+		pcseg = ip1->i_seg;
+		pc =  pcdot[pcseg];
+		if (pass != 0)
+			genseg(pcseg);
+		break;
+
+	case BLOCK:
+		if ((length=ip1->i_len) != 0) {
+			if (pcseg == SBSS) {
+				pc += length;
+				if (pass != 0)
+					dot += length;
+			} else {
+#if	0			/* i8086 outnzb() not implemented yet */
+				outnzb(length);
+#else
+				do {
+					asmab(0);
+				} while (--length);
+#endif
+			}
+		}
+		break;
+
+	case ALIGN:
+		if ((pc&01) != 0) {
+			if (pcseg == SBSS) {
+				++pc;
+				if (pass != 0)
+					++dot;
+			} else
+				asmab(0);
+		}
+		break;
+
+	case JUMP:
+		ip1->i_pc = pc;
+		ip1->i_pcseg = pcseg;
+		if ((sp=ip1->i_sp) == NULL) {
+			sp = llookup(ip1->i_labno, 0);
+			ip1->i_sp = sp;
+		}
+		if (pass != 0) {
+			if (sp==NULL || (sp->s_flag&S_DEF)==0)
+				cbotch("undef");
+			if (ip1->i_long == 0) {	
+				if (sp->s_seg != ip1->i_pcseg)
+					cbotch("x seg #2");
+				disp = sp->s_value - pc - 2;
+				if (disp<-128 || disp>127)
+					cbotch("reach, disp=%d", disp);
+			}
+		}
+		opbits = opinfo[ip1->i_rel].op_opcode;
+		if (ip1->i_long == 0) {
+			asmab(opbits);
+			asmab(disp);
+		} else {
+			if (ip1->i_rel != ZJMP) {
+				asmab(opbits ^ 01);
+				asmab(03);
+			}
+			asmab(0xE9);	/* Jump */
+			a1.a_mode = A_DIR;
+			a1.a_sp = sp;
+			a1.a_value = 0;
+			asmxw(&a1, 1);
+		}
+		break;
+
+	case LLABEL:
+		if ((sp=ip1->i_sp) == NULL) {
+			sp = llookup(ip1->i_labno, 1);
+			ip1->i_sp = sp;
+		}
+		sp->s_seg = pcseg;
+		sp->s_value = pc;
+		break;
+
+	case LLLINK:
+		if ((sp=ip1->i_sp) == NULL) {
+			sp = llookup(ip1->i_labno, 0);
+			ip1->i_sp = sp;
+		}
+		if (pass!=0 && (sp==NULL || (sp->s_flag&S_DEF)==0))
+			cbotch("undef");
+		a1.a_mode = A_DIR;
+		a1.a_sp = sp;
+		a1.a_value = 0;
+		asmxw(&a1, 0);
+		break;
+
+	case CODE:
+		ip1->i_pc = pc;
+		ip1->i_pcseg = pcseg;
+		opcode = ip1->i_op;
+		opinfop = &opinfo[opcode];
+		opbits = opinfop->op_opcode;
+		switch (ostyle = opinfop->op_style) {
+	
+		case OF_INH2:
+			asmab(opbits);
+			asmab(0x0A);
+			break;
+
+		case OF_INH:
+			asmab(opbits);
+			break;
+	
+		case OF_PUSH:
+		case OF_POP:
+			m1 = ip1->i_af[0].a_mode&(A_AMOD|A_PREFX);
+			rn = ip1->i_af[0].a_mode&A_REGM;
+			if (isvariant(V80186)) {
+				if ((ostyle == OF_PUSH) && (m1 == A_IMM)) {
+					if (isshort(&ip1->i_af[0])) {
+						asmab(0x6A);
+						asmxb(&ip1->i_af[0], 0);
+					}
+					else {
+						asmab(0x68);
+						asmxw(&ip1->i_af[0], 0);
+					}
+					break;
+				}
+			}
+			if (m1 == A_SR) {
+				if (ostyle == OF_PUSH)
+					asmab(0x06 | (rn<<3));
+				else
+					asmab(0x07 | (rn<<3));
+				break;
+			}
+			if (m1 == A_WR) {
+				if (ostyle == OF_PUSH)
+					asmab(0x50 | rn);
+				else
+					asmab(0x58 | rn);
+				break;
+			}
+			if (ostyle == OF_PUSH)
+				asmgen(0xFF, 0x30, &ip1->i_af[0]);
+			else
+				asmgen(0x8F, 0x00, &ip1->i_af[0]);
+			break;
+	
+		case OF_SHR:
+			prefix = 0xD0 | (opbits&W);
+			opbits &= ~W;
+			if (ip1->i_af[1].a_mode == A_RCL)
+				prefix |= 0x02;
+			else if ((ip1->i_af[1].a_mode&A_AMOD) != A_IMM
+			     ||   (notvariant(V80186) && ip1->i_af[1].a_value != 1)
+			     ||   ip1->i_af[1].a_sp != NULL)
+				aerr(ip1);
+			if (isvariant(V80186)) {
+				disp = ip1->i_af[1].a_value;
+				if ((ip1->i_af[1].a_mode != A_RCL) && (disp != 1)) {
+					/* 286 shift immediate */
+				     	prefix &= 0xEF;	/* Change 0xD0|W to 0xC0|W */
+					asmgen(prefix, opbits, &ip1->i_af[0]);
+					/* Be wary of shift counts > 16 */
+					asmab((disp <= 16) ? disp : 16);
+					break;
+				}
+			}
+			asmgen(prefix, opbits, &ip1->i_af[0]);
+			break;
+	
+		case OF_ICALL:
+			asmgen(0xFF, opbits, &ip1->i_af[0]);
+			break;
+	
+		case OF_CALL:
+			if ((ip1->i_af[0].a_mode&(A_AMOD|A_PREFX)) != A_DIR)
+				aerr(ip1);
+			asmab(0xE8);
+			asmxw(&ip1->i_af[0], 1);
+			break;
+
+		case OF_XCALL:
+			if ((ip1->i_af[0].a_mode&(A_AMOD|A_PREFX)) != A_DIR)
+				aerr(ip1);
+			asmab(0x9A);
+			asmxw(&ip1->i_af[0], 0);
+			asmsb(&ip1->i_af[0]);
+			break;
+
+		case OF_DOPS:
+		case OF_DOP:
+			m1 = ip1->i_af[0].a_mode&(A_AMOD|A_PREFX);
+			m2 = ip1->i_af[1].a_mode&(A_AMOD|A_PREFX);
+			if (m2 == A_IMM) {
+				shortflag = 0;
+				if (isalax(&ip1->i_af[0])) {
+					/* Test[b] */
+					if (opbits == 0x85)
+						opbits = 0xA9;
+					else if (opbits == 0x84)
+						opbits = 0xA8;
+					else
+						opbits |= 0x04;
+					asmab(opbits);
+				} else {
+					/* Test[b] */
+					if (opbits==0x84 || opbits==0x85) {
+						regm = 0;
+						if (opbits == 0x84)
+							opbits = 0xF6;
+						else
+							opbits = 0xF7;
+					} else {
+						regm = opbits & 0x38;
+						opbits = (opbits&W)|0x80;
+						if (ostyle == OF_DOPS
+						&&  isshort(&ip1->i_af[1])) {
+							shortflag = 1;
+							opbits |= 0x02;
+						}
+					}
+					asmgen(opbits, regm, &ip1->i_af[0]);
+				}
+				if (shortflag || (opbits&W)==0)
+					asmxb(&ip1->i_af[1], 0);
+				else
+					asmxw(&ip1->i_af[1], 0);
+				break;
+			}
+			/* To reg */
+			if (m1==A_BR || m1==A_WR) {
+				/* Test[b] */
+				if (opbits!=0x84 && opbits!=0x85)
+					opbits |= 0x02; /* D */
+				asmgen(opbits, (ip1->i_af[0].a_mode&A_REGM)<<3,
+					&ip1->i_af[1]);
+				break;
+			}
+			/* To mem */
+			asmgen(opbits, (ip1->i_af[1].a_mode&A_REGM)<<3,
+				&ip1->i_af[0]);
+			break;
+
+		case OF_MUL3:
+			if (notvariant(V80186))
+				aerr(ip1);
+			m1 = ip1->i_af[0].a_mode&(A_AMOD|A_PREFX);
+			m2 = ip1->i_af[1].a_mode&(A_AMOD|A_PREFX);
+			m3 = ip1->i_af[2].a_mode&(A_AMOD|A_PREFX);
+			if (m1 != A_WR || m3 != A_IMM)
+				aerr(ip1);
+			shortflag = 0;
+			if (isshort(&ip1->i_af[2])) {
+				shortflag = 1;
+				opbits |= 0x02;	/* Change 0x69 to 0x6B */
+			}
+			asmgen(opbits, (ip1->i_af[0].a_mode&A_REGM)<<3, &ip1->i_af[1]);
+			if (shortflag)
+				asmxb(&ip1->i_af[2], 0);
+			else
+				asmxw(&ip1->i_af[2], 0);
+			break;
+
+		case OF_SOP:
+			m1 = ip1->i_af[0].a_mode&(A_AMOD|A_PREFX);
+			prefix = ((opbits<0x10)?0xFE:0xF6) | (opbits&W);
+			opbits &= ~W;
+			if (prefix==0xFF && m1==A_WR) {
+				asmab(0x40 | opbits |
+					(ip1->i_af[0].a_mode&A_REGM));
+				break;
+			}
+			asmgen(prefix, opbits, &ip1->i_af[0]);
+			break;
+	
+		case OF_LEA:
+			m1 = ip1->i_af[0].a_mode&(A_AMOD|A_PREFX);
+			m2 = ip1->i_af[1].a_mode&A_AMOD;
+			if (m1!=A_WR || (m2!=A_DIR && m2!=A_X))
+				aerr(ip1);
+			asmgen(opbits, (ip1->i_af[0].a_mode&A_REGM)<<3,
+				&ip1->i_af[1]);
+			break;
+	
+		case OF_MOV:
+			m1 = ip1->i_af[0].a_mode&(A_AMOD|A_PREFX);
+			m2 = ip1->i_af[1].a_mode&(A_AMOD|A_PREFX);
+			if (m2 == A_IMM) {
+				if (m1 == A_BR) {
+					asmab(0xB0 |
+						(ip1->i_af[0].a_mode&A_REGM));
+					asmxb(&ip1->i_af[1], 0);
+					break;
+				}
+				if (m1 == A_WR) {
+					asmab(0xB8 |
+						(ip1->i_af[0].a_mode&A_REGM));
+					asmxw(&ip1->i_af[1], 0);
+					break;
+				}
+				/* To mem */
+				asmgen((0xC6 | (opbits&W)), 0, &ip1->i_af[0]);
+				if ((opbits&W) == 0)
+					asmxb(&ip1->i_af[1], 0);
+				else
+					asmxw(&ip1->i_af[1], 0);
+				break;
+			}
+			if (isalax(&ip1->i_af[0]) && m2==A_DIR) {
+				asmprefix(&ip1->i_af[1]);
+				asmab(0xA0 | (opbits&W));
+				asmxw(&ip1->i_af[1], 0);
+				break;
+			}
+			if (m1==A_DIR && isalax(&ip1->i_af[1])) {
+				asmprefix(&ip1->i_af[0]);
+				asmab(0xA2 | (opbits&W));
+				asmxw(&ip1->i_af[0], 0);
+				break;
+			}
+			if (m1 == A_SR) {
+				if (m2 != A_SR) {
+					asmgen(0x8E, (ip1->i_af[0].a_mode&A_REGM)<<3,
+						&ip1->i_af[1]);
+				}
+				else {	/* Kludge MOV SR1, SR2
+					 * into PUSH SR2, POP SR1.
+					 * This should not happen but
+					 * better safe than sorry...
+					 */
+					asmab(0x06 | ((ip1->i_af[1].a_mode&A_REGM)<<3));
+					asmab(0x07 | ((ip1->i_af[0].a_mode&A_REGM)<<3));
+				}
+			}
+			else if (m2 == A_SR)
+				asmgen(0x8C, (ip1->i_af[1].a_mode&A_REGM)<<3,
+					&ip1->i_af[0]);
+			else if (m1==A_WR || m1==A_BR)
+				asmgen(opbits|D,
+					(ip1->i_af[0].a_mode&A_REGM)<<3,
+					&ip1->i_af[1]);
+			else
+				asmgen(opbits,
+					(ip1->i_af[1].a_mode&A_REGM)<<3,
+					&ip1->i_af[0]);
+			break;
+	
+		case OF_MUL:
+			prefix = 0xF6 | (opbits&W);
+			opbits &= ~W;
+			asmgen(prefix, opbits, &ip1->i_af[0]);
+			break;
+	
+		case OF_WORD:
+		case OF_BYTE:
+		case OF_LPTR:
+		case OF_GPTR:
+			if ((ip1->i_af[0].a_mode&(A_AMOD|A_PREFX)) != A_DIR)
+				aerr(ip1);
+			if (ostyle == OF_BYTE)
+				asmxb(&ip1->i_af[0], 0);
+			else {
+				asmxw(&ip1->i_af[0], 0);
+				if (ostyle == OF_GPTR)
+					asmsb(&ip1->i_af[0]);
+			}
+			break;
+
+		/*
+		 * 8087 or 80287 floating point operations.
+		 * See comments preceding "asmfwait()" below.
+		 */
+		case OF_FWAIT:
+			asmfwait();
+			break;
+
+		case OF_FD9:
+			asmfop(0xD9, 0);
+			asmab(opbits);
+			break;
+
+		case OF_FDD:
+			asmfop(0xDD, 0);
+			asmab(opbits);
+			break;
+
+		case OF_FDE:
+			asmfop(0xDE, 0);
+			asmab(opbits);
+			break;
+
+		case OF_FRM:
+			escape = ESC | (opbits&0x07);
+			if ((ip1->i_af[0].a_mode&A_PREFX) != 0) {
+				prefix = ip1->i_af[0].a_mode&A_PREFX;
+				segreg = (prefix>>8) - 1;
+				asmfop(0x26|(segreg<<3), prefix);
+				asmab(escape);
+			} else
+				asmfop(escape, 0);
+			asmgen(-1, opbits&0x38, &ip1->i_af[0]);
+			break;
+
+		default:
+			cbotch("cannot assemble %d", opcode);
+		}
+	}
+}
+
+/*
+ * General output.
+ * Understands MOD/R/M bytes and all that.
+ * An opcode of -1 is a flag that says don't put
+ * out the opcode and treat a register address field as an error.
+ * It is used for the 8087.
+ * The r field is preshifted left by 3 bits.
+ */
+asmgen(op, r, afp)
+register AFIELD	 *afp;
+{
+	SIGNEDADDRESS	disp;
+	int 	mode, regm;
+
+	if (op >= 0) {
+		asmprefix(afp);
+		asmab(op);
+	}
+	mode = afp->a_mode & A_AMOD;
+	regm = afp->a_mode & A_REGM;
+	if (mode==A_IMM || mode==A_SR)
+		cbotch("asmgen op=%d r=%d mode=%d regm=%d",
+			op, r, mode, regm);
+	if (mode==A_BR || mode==A_WR) {
+		if (op < 0)
+			cbotch("asmgen");
+		asmab(0xC0 | r | regm);
+		return;
+	}
+	if (mode == A_DIR) {
+		asmab(0x06 | r);
+		asmxw(afp, 0);
+		return;
+	}
+	if (afp->a_sp == NULL) {
+		disp = afp->a_value;
+		if (regm!=6 && disp==0) {
+			asmab(r | regm);
+			return;
+		}
+		if (disp>=-128 && disp<=127) {
+			asmab(0x40 | r | regm);
+			asmab(disp);
+			return;
+		}
+	}
+	asmab(0x80 | r | regm);
+	asmxw(afp, 0);
+}
+
+/*
+ * Given an address field description,
+ * look at the A_PREFX field of the mode and
+ * output an escape prefix byte, if one is required.
+ * The codes assigned to the segment registers have been cleverly chosen
+ * so that code-1 is the right number to put in the prefix byte.
+ */
+asmprefix(afp)
+register AFIELD	*afp;
+{
+	register int	segreg;
+
+	if ((afp->a_mode&A_PREFX) != 0) {
+		segreg = ((afp->a_mode&A_PREFX)>>8) - 1;
+		asmab(0x26 | (segreg<<3));
+	}
+}
+
+/*
+ * Output an absolute byte.
+ * Toss the byte away if this is not the second pass.
+ * Check for compiling code into the bss segment.
+ */
+asmab(b)
+{
+	if (pass != 0) {
+		berr();
+		outab(b);
+	}
+	++pc;
+}
+
+/*
+ * Output an absolute word.
+ * Toss the word away if this is not the second pass.
+ * Check for compiling code into the bss segment.
+ */
+asmaw(w)
+{
+	if (pass != 0) {
+		berr();
+		outaw(w);
+	}
+	pc += 2;
+}
+
+/*
+ * Output a general byte.
+ * The 'afp' argument is a pointer to an 'afield'.
+ * The 'flag' is true for pc relative addressing.
+ */
+asmxb(afp, flag)
+register AFIELD	*afp;
+{
+	if (pass != 0) {
+		berr();
+		outxb(afp->a_sp, afp->a_value, flag);
+	}
+	++pc;
+}
+
+/*
+ * Output a general word.
+ * The 'afp' parameter is a pointer to an 'afield'.
+ * The 'flag' is true for pc relative addressing.
+ */
+asmxw(afp, flag)
+register AFIELD	*afp;
+{
+	if (pass != 0) {
+		berr();
+		outxw(afp->a_sp, afp->a_value, flag);
+	}
+	pc += 2;
+}
+
+/*
+ * Output a segment base.
+ */
+asmsb(afp)
+register AFIELD *afp;
+{
+	register SYM	*sp;
+
+	if (pass != 0) {
+		berr();
+		if ((sp=afp->a_sp) == NULL)
+			outaw(0);
+		else
+			outsb(sp);
+	}
+	pc += 2;
+}
+
+/*
+ * Notes on 8087 and 80287 opcode generation:
+ * The 8086 does not check the coprocessor BUSY line when it encounters
+ * a coprocessor escape (an 8087 opcode).
+ * Therefore, an FWAIT must precede every 8087 opcode.
+ * Sequences which require coprocessor synchronization
+ * (e.g., awaiting completion of store from 8087 to 8086 memory)
+ * can include explicit FWAITs which do not precede 8087 ops.
+ * The 80286 checks its coprocessor BUSY line when it sees an 80287 opcode.
+ * Therefore, the 80287 does not require an FWAIT before each 80287 opcode,
+ * but explicit FWAITs are still required for synchronization.
+ *
+ * If EMUFIXUPS is true when the compiler is built,
+ * the OMF output writer targets the FWAIT which precedes an 8087 opcode
+ * with a magic "M:..." fixup;
+ * this happens only in the OMF output writer n1/i8086/outomf.c.
+ * The linker can then create objects which use either 8087 hardware
+ * or software floating point emulation.  In the latter case, the
+ * linker changes the 8087 instructions into traps to the emulator.
+ *
+ * If the compile-time variant VEMU87 is set,
+ * the compiler writes "call emu87" before each 8087 opcode
+ * and suppresses the leading FWAIT.
+ * The emulator "emu87" can execute "fwait; ret" or replace "call emu87" with
+ * "nop; nop; fwait" if an 8087 is actually present at runtime.
+ */
+
+/*
+ * Output an explicit FWAIT opcode for the 8087.
+ * The byte will be fiddled by an M:_WT fixup #if EMUFIXUPS.
+ */
+asmfwait()
+{
+	hasfloat = 1;
+	if (isvariant(VEMU87)) {
+		asmemucall();		/* call emu87 */
+		return;			/* and suppress the FWAIT */
+	}
+	if (pass != 0) {
+		berr();
+		outfb(WAIT);
+	}
+	++pc;
+}
+
+/*
+ * Output an 8087 opcode for the 8087.
+ * The "prefix" argument is just the A_PREFX code from the address.
+ * The opcode will be preceded by an FWAIT if necessary,
+ * and the FWAIT will be fiddled by an M:_W?S fixup #if EMUFIXUPS.
+ */
+asmfop(op, prefix)
+{
+	hasfloat = 1;
+	if (isvariant(VEMU87)) {
+		asmemucall();		/* call emu87 */
+		if (pass != 0)
+			outfb(op);	/* and suppress FWAIT */
+		pc++;
+		return;
+	}
+#if	!EMUFIXUPS
+	if (isvariant(V80287)) {
+		if (pass != 0) {
+			berr();
+			outfb(op);	/* also suppress FWAIT for 80287 */
+		}
+		pc++;
+		return;
+	}
+#endif
+	if (pass != 0) {
+		berr();
+		outfw(op<<8|WAIT, prefix);
+	}
+	pc += 2;
+}
+
+/*
+ * Assemble a call to the IEEE software floating point 8087 emulator.
+ */
+asmemucall(){
+	if (pass != 0) {
+		berr();
+		outemucall();
+	}
+	pc += (isvariant(VSMALL)) ? 3 : 5;
+}
+
+/*
+ * Output a call to the 8087 emulator.
+ * Called from above and from genepilog (for FWAIT in epilog).
+ */
+outemucall(){
+	static SYM *emu87p;
+
+	if (emu87p == NULL)
+		emu87p = glookup("emu87", 0);
+	if (isvariant(VSMALL)) {	/* SMALL model */
+		outab(0xE8);		/* near call */
+		outxw(emu87p, 0, 1);	/* emu87, pc-relative */
+	} else {			/* LARGE model */
+		outab(0x9A);		/* far call */
+		outxw(emu87p, 0, 0);	/* offset, absolute */
+		outsb(emu87p);		/* segment */
+	}
+}
+
+aerr(ip1)
+register INS *ip1;
+{
+	register SYM	*sp;
+	register int	i;
+
+	printf("aerr: op=%d\n", ip1->i_op);
+	for (i=0; i<ip1->i_naddr; ++i) {
+		printf("Operand %d:", i);
+		printf(" mode=%04x", ip1->i_af[i].a_mode);
+		printf(" offs=%d",  ip1->i_af[i].a_value);
+		if ((sp=ip1->i_af[i].a_sp) != NULL) {
+			if ((sp->s_flag&S_LABNO) != 0)
+				printf(" off L%d", sp->s_labno);
+			else
+				printf(" off %s", sp->s_id);
+		}
+		printf("\n");
+	}
+	cbotch("aerr");
+}
+
+berr()
+{
+	if (pcseg == SBSS)
+		cbotch("bss");
+}
+
+isalax(afp)
+register AFIELD *afp;
+{
+	if (afp->a_mode==A_RAX || afp->a_mode==A_RAL)
+		return (1);
+	return (0);
+}
+
+/*
+ * This routine checks if the argument AFIELD is a valid short word immediate,
+ * as used by the special s:w encoding on some instructions.
+ * True return if so.
+ * The legality of the mode and the fact that
+ * the AFIELD is an immediate have already been checked.
+ */
+isshort(afp)
+register AFIELD *afp;
+{
+	register ADDRESS value;
+
+	if (afp->a_sp == NULL) {
+		value = afp->a_value & 0xFF80;		/* Top 9 */
+		if (value==0xFF80 || value==0x0000)
+			return (1);
+	}
+	return (0);
+}

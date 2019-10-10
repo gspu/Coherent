@@ -1,0 +1,301 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.14.49.17;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init version. provided by stevesf.
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Rec'd from Lauren Weinstein, 7-16-84.
+ * Passwd - set login password
+ * for a user.
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <signal.h>
+#include <errno.h>
+
+#define	NSALT	64		/* Size of salt character set */
+#define	NSALTC	2		/* Number of characters in salt */
+#define	NPASSC	32		/* Maximum characters copied into pass. buf */
+#define	AWRITE	2		/* Access for write */
+#define	NLOKOUT	7		/* Maximum number of lockout attempts */
+#define	NPWCHAR	256		/* Number of characters in passwd file line */
+
+char	notrich[] = "\
+Password is too easily broken\n\
+Try again: \
+";
+char	pfile[] = "/etc/passwd";
+char	tmpfile[] = "/tmp/passwd";
+
+char	salttab[NSALT] =
+	"./abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+char	pwline[NPWCHAR];
+
+FILE	*lockopen();
+char	*crypt();
+int	cleanup();
+time_t	time();
+
+int	tmpflag;		/* Says tempfile is open */
+
+main(argc, argv)
+char *argv[];
+{
+	register struct passwd *pwp;
+	register char *pass, *name;
+	char passbuf[NPASSC+1];
+	int myuid;
+	char *myname;
+	extern char *getpass();
+	extern char *getlogin();
+
+	if (signal(SIGINT, SIG_IGN) != SIG_IGN)
+		signal(SIGINT, cleanup);
+	if (signal(SIGHUP, SIG_IGN) != SIG_IGN)
+		signal(SIGHUP, cleanup);
+	myuid = getuid();
+
+	umask(077);  /* mask out file access by other users */
+
+	if (argc > 1) {	/* By supplied argument */
+		if (argc != 2)
+			usage();
+		if ((pwp = getpwnam(argv[1])) == NULL)
+			perr("%s: bad user name\n", argv[1]);
+		if (myuid!=0 && pwp->pw_uid!=myuid)
+			perr("%s: not allowed to change password\n", argv[1]);
+		name = argv[1];  /* get name for change */
+	} else		/* By getlogin from /etc/utmp */
+	if ((myname = getlogin()) != NULL) {
+		if ((pwp = getpwnam(myname)) == NULL)
+			perr("%s: bad login name\n", argv[1]);
+		if (myuid != 0 && pwp->pw_uid != myuid)
+			perr("%s: not allowed to change password\n", argv[1]);
+		name = myname;  /* get name for change */
+	} else {	/* By user id */
+	        if ((pwp = getpwuid(myuid)) == NULL)
+			perr("Error on /etc/passwd\n");
+		while ((pwp = getpwent()) != NULL)
+			if (pwp->pw_uid == myuid)
+				perr("user id is not unique\n");
+		pwp = getpwuid(myuid);
+		name = pwp->pw_name;  /* changing our own name */
+	}
+	if (myuid!=0 && pwp->pw_passwd[0]!='\0') {
+		if ((pass = getpass("Old password: ")) == NULL)
+			exit(1);
+		if (!checkpass(pwp->pw_passwd, pass))
+			perr("Sorry\n");
+	}
+	if ((pass = getpass("New password: ")) == NULL)
+	   exit(1);
+	if (pass[0] != 0 || (pass[0] == 0 && getuid() != 0))
+	   while (!richenough(pass) || !strcmp(pass, pwp->pw_name))
+	      if ((pass = getpass(notrich)) == NULL)
+		 exit(1);
+	strncpy(passbuf, pass, NPASSC);
+	if ((pass = getpass("Verification: ")) == NULL) 
+	   exit(1);
+	if (strncmp(pass, passbuf, NPASSC) != 0)
+	   perr("No match: password not changed\n");
+	setpass(name, pass);
+}
+
+/*
+ * Tests to see if a password is rich enough
+ * (i.e. not too easy to break by exhaustion).
+ * A password must be 4 characters if the alphabet
+ * is rich enough and 6 characters if it is in a
+ * single case.  Perhaps the dictionary should
+ * be searched as well for more security-conscious
+ * systems.  We also check (above) to make sure
+ * that the selected password is not the same as the username!
+ */
+richenough(passwd)
+char *passwd;
+{
+	register char *cp;
+	register int uflag=0, lflag=0, oflag=0;
+	register int l;
+
+	for (cp = passwd; *cp != '\0'; cp++) {
+		if (islower(*cp))
+			lflag = 1;
+		else if (isupper(*cp))
+			uflag = 1;
+		else
+			oflag = 1;
+	}
+	l = cp-passwd;
+	if (l < 4)
+		return (0);
+	if (oflag==0 && lflag^uflag && l<6)
+		return (0);
+	return (1);
+}
+
+/*
+ * Check the passwd in the password file (`rpass')
+ * against the typed-in (`tpass') password.
+ */
+checkpass(rpass, tpass)
+register char *rpass, *tpass;
+{
+	char salt[3];
+
+	salt[0] = rpass[0];
+	salt[1] = rpass[1];
+	return (strcmp(crypt(tpass, salt), rpass) == 0);
+}
+
+/*
+ * Set password for specified name.
+ */
+setpass(name, passwd)
+char *name, *passwd;
+{
+	char salt[NSALTC+1];
+	char namebuff[NPWCHAR];  /* name buffer */
+	time_t xtime;
+	register char *p1, *p2;
+	register int c;
+	register FILE *pwf;
+	register FILE *tf;
+
+	/*
+	 * Generate the salt for crypt.
+	 */
+	time(&xtime);
+	srand((int)xtime);
+	salt[0] = salttab[rand()%NSALT];
+	salt[1] = salttab[rand()%NSALT];
+	salt[2] = '\0';
+	if (*passwd != '\0')
+		passwd = crypt(passwd, salt);
+	/*
+	 * Copy password file to tempfile
+	 * looking for slot to change.
+	 * The format of a passwd entry is:
+	 * name:password:uid:...
+	 */
+	if ((pwf = fopen(pfile, "r")) == NULL)
+		perr("Cannot open %s\n", pfile);
+	tf = lockopen(tmpfile);
+	while (fgets(pwline, NPWCHAR, pwf) != NULL) {
+		strcpy(namebuff, pwline);  /* copy line */
+		p1 = namebuff;		
+		while (*p1 != '\0')
+			if (*p1++ == ':')
+				break;	
+		*--p1 = '\0';  /* null terminate user name */
+					
+		p1 = pwline;
+		while (*p1 != '\0')
+			if (*p1++ == ':')
+				break;
+		p2 = p1;
+		while (*p2 != '\0')
+	 	        if (*p2++ == ':')
+			        break;
+
+		if (!strcmp(namebuff, name)) {  /* check for name match */
+			*p1 = '\0';
+			fputs(pwline, tf);
+			fputs(passwd, tf);
+			putc(':', tf);
+			fputs(p2, tf);
+			break;
+		}
+		fputs(pwline, tf);
+	}
+	while ((c = getc(pwf)) != EOF)  /* copy rest of file */
+		putc(c, tf);
+	fclose(pwf);
+	/*
+	 * Copy tempfile back to password
+	 * file -- this runs protected
+	 * from interrupts.
+	 */
+	signal(SIGINT, SIG_IGN);
+	signal(SIGHUP, SIG_IGN);
+	signal(SIGQUIT, SIG_IGN);
+	if ((pwf = fopen(pfile, "w")) == NULL)
+		perr("Cannot create %s\n", pfile);
+	fflush(tf);
+	rewind(tf);
+	while ((c = getc(tf)) != EOF)
+		putc(c, pwf);
+	fflush(pwf);
+	unlink(tmpfile);  
+}
+
+/*
+ * Open the tempfile waiting
+ * for the tempfile to come free.
+ */
+FILE *
+lockopen(file)
+char *file;
+{
+	register int n;
+	register FILE *fp;
+	extern int errno;
+
+	for (n=NLOKOUT; n>0; n--)
+		if (access(file, AWRITE)<0 && errno==ENOENT) {
+			if ((fp=fopen(file, "w")) == NULL
+			||  (fp=freopen(file, "r+w", fp)) == NULL)
+				perr("Cannot create tempfile\n");
+			tmpflag = 1;
+			return (fp);
+		}
+	perr("Tempfile busy, try again later\n");
+}
+
+/*
+ * Cleanup the tempfile.
+ */
+cleanup()
+{
+	if (tmpflag)
+		unlink(tmpfile);
+	exit (1);
+}
+
+/*
+ * Error routines
+ */
+usage()
+{
+	perr("Usage: passwd [name]\n");
+}
+
+perr(x)
+{
+	fprintf(stderr, "%r", &x);
+	exit(1);
+}
+@

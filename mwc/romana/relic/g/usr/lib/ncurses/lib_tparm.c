@@ -1,0 +1,448 @@
+/*********************************************************************
+*                         COPYRIGHT NOTICE                           *
+**********************************************************************
+*        This software is copyright (C) 1982 by Pavel Curtis         *
+*                                                                    *
+*        Permission is granted to reproduce and distribute           *
+*        this file by any means so long as no fee is charged         *
+*        above a nominal handling fee and so long as this            *
+*        notice is always included in the copies.                    *
+*                                                                    *
+*        Other rights are reserved except as explicitly granted      *
+*        by written permission of the author.                        *
+*                Pavel Curtis                                        *
+*                Computer Science Dept.                              *
+*                405 Upson Hall                                      *
+*                Cornell University                                  *
+*                Ithaca, NY 14853                                    *
+*                                                                    *
+*                Ph- (607) 256-4934                                  *
+*                                                                    *
+*                Pavel.Cornell@Udel-Relay   (ARPAnet)                *
+*                decvax!cornell!pavel       (UUCPnet)                *
+*********************************************************************/
+
+/*
+ *	tparm.c
+ *
+ *  $Log:	lib_tparm.c,v $
+ * Revision 1.8  93/04/12  14:14:30  bin
+ * Udo: third color update
+ * 
+ * Revision 2.4  92/10/23  00:31:38  munk
+ * npush(npop()...) does not work with COHERENT's cc
+ * because of side effects, use x = npop(); npush(x...) instead.
+ * Now hold x and y in register, not level.
+ * 
+ * Revision 1.2  92/04/13  14:38:35  bin
+ * update by vlad
+ * 
+ * Revision 2.2  91/04/20  21:54:27  munk
+ * Usage of register variables
+ *
+ * Revision 2.1  82/10/25  14:49:19  pavel
+ * Added Copyright Notice
+ * 
+ * Revision 2.0  82/10/24  15:17:53  pavel
+ * Beta-one Test Release
+ * 
+ * Revision 1.3  82/08/23  22:30:38  pavel
+ * The REAL Alpha-one Release Version
+ * 
+ * Revision 1.2  82/08/19  19:11:33  pavel
+ * Alpha Test Release One
+ * 
+ * Revision 1.1  82/08/12  18:45:33  pavel
+ * Initial revision
+ * 
+ *
+ */
+
+#ifdef RCSHDR
+static char RCSid[] =
+	"$Header: /src386/usr/lib/ncurses/RCS/lib_tparm.c,v 1.8 93/04/12 14:14:30 bin Exp Locker: bin $";
+#endif
+
+#include "curses.h"
+#include "curses.priv.h"
+#include "term.h"
+
+
+/*
+ *	char *
+ *	tparm(string, parms)
+ *
+ *	Substitute the given parameters into the given string by the following
+ *	rules (taken from terminfo(5)):
+ *
+ *	     Cursor addressing and other strings  requiring  parame-
+ *	ters in the terminal are described by a parameterized string
+ *	capability, with like escapes %x in  it.   For  example,  to
+ *	address  the  cursor, the cup capability is given, using two
+ *	parameters: the row and column to  address  to.   (Rows  and
+ *	columns  are  numbered  from  zero and refer to the physical
+ *	screen visible to the user, not to any  unseen  memory.)  If
+ *	the terminal has memory relative cursor addressing, that can
+ *	be indicated by
+ *	
+ *	     The parameter mechanism uses  a  stack  and  special  %
+ *	codes  to manipulate it.  Typically a sequence will push one
+ *	of the parameters onto the stack and then print it  in  some
+ *	format.  Often more complex operations are necessary.
+ *	
+ *	     The % encodings have the following meanings:
+ *	
+ *	     %%        outputs `%'
+ *	     %d        print pop() like %d in printf()
+ *	     %2d       print pop() like %2d in printf()
+ *	     %02d      print pop() like %02d in printf()
+ *	     %3d       print pop() like %3d in printf()
+ *	     %03d      print pop() like %03d in printf()
+ *	     %c        print pop() like %c in printf()
+ *	     %s        print pop() like %s in printf()
+ *	
+ *	     %p[1-9]   push ith parm
+ *	     %P[a-z]   set variable [a-z] to pop()
+ *	     %g[a-z]   get variable [a-z] and push it
+ *	     %'c'      push char constant c
+ *	     %{nn}     push integer constant nn
+ *	
+ *	     %+ %- %* %/ %m
+ *	               arithmetic (%m is mod): push(pop() op pop())
+ *	     %& %| %^  bit operations: push(pop() op pop())
+ *	     %= %> %<  logical operations: push(pop() op pop())
+ *	     %! %~     unary operations push(op pop())
+ *	     %i        add 1 to first two parms (for ANSI terminals)
+ *	
+ *	     %? expr %t thenpart %e elsepart %;
+ *	               if-then-else, %e elsepart is optional.
+ *	               else-if's are possible ala Algol 68:
+ *	               %? c1 %t b1 %e c2 %t b2 %e c3 %t b3 %e c4 %t b4 %e b5 %;
+ *	
+ *	For those of the above operators which are binary and not commutative,
+ *	the stack works in the usual way, with
+ *			%gx %gy %m
+ *	resulting in x mod y, not the reverse.
+ */
+
+#define STACKSIZE	20
+
+#define npush(x)    if (stack_ptr < STACKSIZE) {stack[stack_ptr].num = x;\
+                                                stack_ptr++;\
+                                               }
+#define npop()	    (stack_ptr > 0  ?  stack[--stack_ptr].num  :  0)
+#define spop()	    (stack_ptr > 0  ?  stack[--stack_ptr].str  :  (char *) 0)
+
+typedef union
+{
+	unsigned int	num;
+	char		*str;
+}		stack_frame;
+
+stack_frame	stack[STACKSIZE];
+static	int	stack_ptr;
+static	char	buffer[256];
+static	int	*param;
+static	char	*bufptr;
+static	int	variable[26];
+
+static	char	*do_tparm();
+
+
+char *
+tparm(string, parms)
+register char	*string;
+int		parms;
+{
+	char		*strcpy();
+	char		len;
+	int		number;
+	int		level;
+	register int	x, y;
+
+	param = &parms;
+
+#ifdef TRACE
+	if (_tracing)
+	    _tracef("tparm(%s,%d,%d,%d,%d,%d,%d,%d,%d,%d) called",
+			string, param[0], param[1], param[2], param[3],
+			param[4], param[5], param[6], param[7], param[8]);
+#endif
+
+	stack_ptr = 0;
+	bufptr = buffer;
+
+	while (*string)
+	{
+	    if (*string != '%')
+		*(bufptr++) = *string;
+	    else
+	    {
+		string++;
+		switch (*string)
+		{
+		    default:
+			break;
+
+		    case '%':
+			*(bufptr++) = '%';
+			break;
+
+		    case 'd':
+			sprintf(bufptr, "%d", npop());
+			bufptr += strlen(bufptr);
+			break;
+
+		    case '0':
+			string++;
+			len = *string;
+			if ((len == '2'  ||  len == '3')  &&  *++string == 'd')
+			{
+			    if (len == '2')
+				sprintf(bufptr, "%02d", npop());
+			    else
+				sprintf(bufptr, "%03d", npop());
+			    
+			    bufptr += strlen(bufptr);
+			}
+			break;
+
+		    case '2':
+			string++;
+			if (*string == 'd')
+			{
+			    sprintf(bufptr, "%2d", npop());
+			    bufptr += strlen(bufptr);
+			}
+			break;
+
+		    case '3':
+			string++;
+			if (*string == 'd')
+			{
+			    sprintf(bufptr, "%3d", npop());
+			    bufptr += strlen(bufptr);
+			}
+			break;
+
+		    case 'c':
+			*(bufptr++) = (char) npop();
+			break;
+
+		    case 's':
+			strcpy(bufptr, spop());
+			bufptr += strlen(bufptr);
+			break;
+
+		    case 'p':
+			string++;
+			if (*string >= '1'  &&  *string <= '9')
+			    npush(param[*string - '1']);
+			break;
+
+		    case 'P':
+			string++;
+			if (*string >= 'a'  &&  *string <= 'z')
+			    variable[*string - 'a'] = npop();
+			break;
+
+		    case 'g':
+			string++;
+			if (*string >= 'a'  &&  *string <= 'z')
+			    npush(variable[*string - 'a']);
+			break;
+
+		    case '\'':
+			string++;
+			npush(*string);
+			string++;
+			break;
+
+		    case '{':
+			number = 0;
+			string++;
+			while (*string >= '0'  &&  *string <= '9')
+			{
+			    number = number * 10 + *string - '0';
+			    string++;
+			}
+			npush(number);
+			break;
+
+		    case '+':
+			y = npop();
+			x = npop();
+			npush(x + y);
+			break;
+
+		    case '-':
+			y = npop();
+			x = npop();
+			npush(x - y);
+			break;
+
+		    case '*':
+			y = npop();
+			x = npop();
+			npush(x * y);
+			break;
+
+		    case '/':
+			y = npop();
+			x = npop();
+			npush(x / y);
+			break;
+
+		    case 'm':
+			y = npop();
+			x = npop();
+			npush(x % y);
+			break;
+
+		    case '&':
+			y = npop();
+			x = npop();
+			npush(x & y);
+			break;
+
+		    case '|':
+			y = npop();
+			x = npop();
+			npush(x | y);
+			break;
+
+		    case '^':
+			y = npop();
+			x = npop();
+			npush(x ^ y);
+			break;
+
+		    case '=':
+			y = npop();
+			x = npop();
+			npush(x == y);
+			break;
+
+		    case '<':
+			y = npop();
+			x = npop();
+			npush(x < y);
+			break;
+
+		    case '>':
+			y = npop();
+			x = npop();
+			npush(x > y);
+			break;
+
+		    case '!':
+			x = ! npop();
+			npush(x);
+			break;
+
+		    case '~':
+			x = ~ npop();
+			npush(x);
+			break;
+
+		    case 'i':
+			param[0]++;
+			param[1]++;
+			break;
+
+		    case '?':
+			break;
+
+		    case 't':
+			x = npop();
+			if (x)
+			{
+			    /* do nothing; keep executing */
+			}
+			else
+			{
+			    /* scan forward for %e or %; at level zero */
+				string++;
+				level = 0;
+				while (*string)
+				{
+				    if (*string == '%')
+				    {
+					string++;
+					if (*string == '?')
+					    level++;
+					else if (*string == ';')
+					{
+					    if (level > 0)
+						level--;
+					    else
+						break;
+					}
+					else if (*string == 'e'  && level == 0)
+					    break;
+				    }
+
+				    if (*string)
+					string++;
+				}
+			}
+			break;
+
+		    case 'e':
+			/* scan forward for a %; at level zero */
+			    string++;
+			    level = 0;
+			    while (*string)
+			    {
+				if (*string == '%')
+				{
+				    string++;
+				    if (*string == '?')
+					level++;
+				    else if (*string == ';')
+				    {
+					if (level > 0)
+					    level--;
+					else
+					    break;
+				    }
+				}
+
+				if (*string)
+				    string++;
+			    }
+			break;
+
+		    case ';':
+			break;
+
+		} /* endswitch (*string) */
+	    } /* endelse (*string == '%') */
+
+	    if (*string == '\0')
+		break;
+	    
+	    string++;
+	} /* endwhile (*string) */
+
+	*bufptr = '\0';
+	return(buffer);
+}
+
+
+/*
+ *	char *
+ *	tgoto(string, x, y)
+ *
+ *	Retained solely for upward compatibility.  Note the intentional
+ *	reversing of the last two arguments.
+ *
+ */
+
+char *
+tgoto(string, x, y)
+char	*string;
+int	x, y;
+{
+	return(tparm(string, y, x));
+}

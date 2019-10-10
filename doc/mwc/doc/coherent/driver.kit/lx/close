@@ -1,0 +1,236 @@
+.TH close "" "" "Entry-Point Routine"
+.PC "Close a device"
+.sp \n(pDu
+Internal-Kernel Interface:
+.B "#include <sys/cred.h>"
+.B "#include <sys/ddi.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/open.h>"
+.B "#include <sys/types.h>"
+\fBint \fIprefix\fBclose(\fIdevice\^\fB, \fImode\^\fB, \fIflags\^\fB, \fIcredptr\fB, \fIprivate\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; int \fImode\^\fB, \fIflags\^\fB; cred_t *\fIcredptr\^\fB; void *\fIprivate\fR
+.sp \n(pDu
+DDI/DKI:
+.B "#include <sys/cred.h>"
+.B "#include <sys/ddi.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/open.h>"
+.B "#include <sys/types.h>"
+\fBint \fIprefix\fBclose(\fIdevice\^\fB, \fIflag\^\fB, \fItype\^\fB, \fIcredptr\fB)\fR
+\fBdev_t \fIdevice\^\fB; int \fIflag\^\fB, \fItype\^\fB; cred_t *\fIcredptr\^\fB;\fR
+.sp \n(pDu
+\*(ST:
+.B "#include <sys/types.h>"
+.B "#include <sys/stream.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/cred.h>"
+.B "#include <sys/ddi.h>"
+\fBint \fIprefix\fBclose(\fIqueue\^\fB, \fIflag\^\fB, \fIcredptr\fB)\fR
+\fBqueue_t \fIqueue\^\fB; int \fIflag\^\fB; cred_t *\fIcredptr\^\fB;\fR
+.PP
+A driver's
+.B close
+routine closes the connection between the user process and the device,
+and prepares the device to be opened again.
+Every driver must have this entry point.
+An application invokes it via the \*(CO system call
+.BR close() .
+For details on this system call, see its entry in the \*(CO Lexicon.
+.PP
+The
+.B close
+routine should return zero if it succeeds in its tasks.
+If something goes wrong, it should return an appropriate error number.
+See the entry for
+.B errno
+in this manual for a list of error numbers.
+The driver determines how to react to an error.
+.PP
+The following describes the
+.B close
+routine for each flavor of driver-kernel interface.
+.SH "Internal-Kernel Interface"
+Under the internal-kernel interface to a driver, field
+.B c_close
+in the driver's
+.B CON
+structure holds the address of this routine.
+It is customary to name the
+.B close
+routine with the word
+.B close
+prefixed by a unique identifier for your driver; but this is not required.
+.PP
+.I device
+is a
+.B dev_t
+that identifies the device to be closed.
+.PP
+.I mode
+and
+.I flags
+give, respectively, the mode into which
+.I device
+had been opened, and additional information about how it had been opened.
+See the article for the system call
+.B open()
+in the \*(CO Lexicon for a table of the legal values of these arguments.
+.PP
+.I credentials
+points to the credentials of the current user.
+If it wishes, your driver can read this structure to check the user's
+permissions before it closes
+.IR device .
+Note that many drivers do not use this argument.
+.PP
+Finally,
+.I private
+points to a data element that is private to your driver.
+Note that many drivers do not use this argument.
+.SH "DDI/DKI Interface"
+To invoke the
+.B close
+routine under the DDI/DKI interface, the kernel
+calls the function \fIprefix\fBclose()\fR, where
+.I prefix
+is the unique prefix for this driver.
+The calling conventions are given in the second example, above.
+.PP
+.I device
+identifies the device to close.
+.PP
+.I flag
+gives the file-status flag.
+If the bits
+.B FNDELAY
+or
+.B FNONBLOCK
+are set,
+the driver should not sleep as it performs its close-related tasks.
+.PP
+.I type
+gives the type of the device.
+Your driver should use this field to determine how many times
+.I device
+was opened.
+At present, only one type is recognized:
+.\"The types are mutually exclusive:
+.\".IP \fBOTYP_BLK\fR
+.\".IS \fBOTYP_CHR\fR
+.\"These values indicate, respectively, block and character (raw) interfaces.
+.\"Devices of either type can be opened simultaneously by multiple processes.
+.\"For devices of these types, the kernel invokes a driver's
+.\".B open
+.\"routine each time
+.\".I device
+.\"is opened;
+.\"however, it invokes the
+.\".B close
+.\"routine only after every process that has opened
+.\".I device
+.\"has invoked the system call
+.\".B close()
+.\"to close it.
+.\"For example, if
+.\".I device
+.\"has been opened twice through its block interface
+.\"and three times through its character interface, then the kernel will
+.\"call the driver's
+.\".B close
+.\"routine twice:
+.\"once after both processes that opened the block interface have
+.\"called
+.\".BR close() ,
+.\"and once after all three processes that opened the
+.\"character interface have called
+.\".BR close() .
+.IP \fBOTYP_LYR\fR
+A ``layered'' device.
+The kernel invokes the
+.B close
+routine for every corresponding call to the driver's
+.B open
+routine.
+With devices of this type, the driver must count each invocation of its
+.B open
+and
+.B close
+routines to determine when it should really close the device.
+.PP
+.I credptr
+points to the user's credential structure.
+.SH "STREAMS Interface"
+The calling conventions for the
+.B close
+routine of a \*(ST driver are given in the third example at the beginning
+of this article.
+.PP
+.I queue
+points to the queue to be closed.
+.PP
+.I flag
+gives the file-status flag.
+For details, see the entry for
+.B open
+in this manual.
+.PP
+.I credptr
+points to the user's credential structure.
+.PP
+When a last reference to a stream is closed, the following steps are
+repeated in turn for every entity on the stream, from the stream head to the
+stream driver:
+.IP \(bu 0.3i
+If data are present on the write queue of the module or driver,
+the calling process waits up to 15 seconds for the data to drain normally.
+Once the queue is drained or the timeout expires, continue.
+.IP \(bu
+The
+.B close
+routine of the module or driver is called.
+.IP \(bu
+When the
+.B close
+routine returns, the queue and all the messages that
+were on it are deallocated automatically.
+.PP
+The 15-second timeout is to help prevent loss of data.
+In general, while the system can force data to be lost, it should try to
+avoid it.
+If an interactive process wants to hide these delays from the user,
+it can hand the final close-off to a child process.
+.SH "See Also"
+.B
+CON,
+drv_priv(),
+entry-point routines,
+errno,
+open,
+qprocsoff(),
+queue,
+unbufcall(),
+untimeout()
+.R
+.br
+COHERENT Lexicon:
+.B
+close(),
+open()
+.R
+.SH Notes
+The
+.B close
+routine has user context and can sleep.
+.PP
+A \*(ST driver or module must call
+.B qprocsoff()
+to disable its
+.B put
+and
+.B srv
+routine before it returns from its
+.B close
+routine.

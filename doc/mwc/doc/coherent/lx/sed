@@ -1,0 +1,292 @@
+.TH sed "" "" Command
+.PC "Stream editor"
+\fBsed [ \-n ] [\-e \fIcommand\^\fB] [\-f \fIscript\^\fB] \fI... file ...\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-e\fR
+Direct command follows
+.IC \fB\-f\fR
+File name of command script follows
+.IC \fB\-n\fR
+No implicit output
+.HE
+.B sed
+is a non-interactive text editor.
+It reads input from each
+.IR file ,
+or from the standard input if no file is named.
+It edits the input according to commands given in the
+.I commands
+argument and the
+.I script
+files.
+It then
+writes the edited text onto the standard output.
+.PP
+.B sed
+resembles the interactive editor
+.BR ed ,
+but its operation is fundamentally different.
+.B sed
+normally edits one line at a time,
+so it may be used to edit very large files.
+After it constructs a list of commands from its
+.I commands
+and
+.I script
+arguments,
+.B sed
+reads the input one line at a time into a
+.IR "work area" .
+Then
+.B sed
+executes each command that applies to the line, as explained below.
+Finally, it copies the work area to the standard output (unless the
+.B \-n
+option is specified),
+erases the work area,
+and reads the next input line.
+.SH "Line Identifiers"
+.B sed
+identifies input lines by integer line numbers, beginning with one for
+the first line of the first
+.I file
+and continuing through each successive
+.I file.
+The following special forms identify lines:
+.IP \fIn\fR 0.75i
+A decimal number
+.I n
+addresses the
+.IR n th
+line of the input.
+.IP \fB.\fR
+A period `.' addresses the current input line.
+.IP \fB$\fR
+A dollar sign `$' addresses the last line of input.
+.IP \fB/\fIpattern\fB/\fR
+A
+.I pattern
+enclosed within slashes addresses the next input line that contains
+.IR pattern .
+Patterns, also called
+.IR "regular expressions" ,
+are described in detail below.
+.SH Commands
+Each command must be on a separate line.
+Most commands may be optionally preceded by a line identifier
+(abbreviated as
+.I [n]
+in the command summary below)
+or by two-line identifiers separated by a comma (abbreviated as
+.IR "[n[,m]]" ).
+If no line identifier precedes a command,
+.B sed
+applies the command to every input line.
+If one line identifier precedes a command,
+.B sed
+applies the command to each input line selected by the identifier.
+If two-line identifiers precede a command,
+.B sed
+begins to apply the command when an input line is selected by the first,
+and continues applying it through an input line selected by the second.
+.PP
+.B sed
+recognizes the following commands:
+.IP "\fI[n]\^\fB=\fR" 0.75i
+Output the current input line number.
+.IP "\fI[n[,m]]\^\fB!\fIcommand\fR"
+Apply
+.I command
+to each line
+.I not
+identified by
+.IB "[n[,m]]" .
+.IP "\fI[n[,m]]\fB{\fIcommand...\fB}\fR"
+Execute each enclosed
+.I command
+on the given lines.
+.IP "\fB:\fIlabel\fR"
+Define
+.I label
+for use in branch or test command.
+.IP \fI[n]\fBa\fR\e
+Append new text after given line.
+New text is terminated by any line not ending in `\e'.
+.IP "\fBb \fI[label]\fR"
+Branch to
+.I label,
+which must be defined in a `:'
+command.
+If
+.I label
+is omitted, branch to end of command script.
+.IP "\fI[n[,m]]\fBc\fR\e"
+Change specified lines to new text and proceed with next input line.
+New text is terminated by any line not ending in `\e'.
+.IP \fI[n[,m]]\fBd\fR
+Delete specified lines and proceed with next input line.
+.IP \fI[n[,m]]\fBD\fR
+Delete first line in work area and proceed with next input line.
+.IP "\fI[n[,m]]\fBg\fR
+Copy secondary work area to work area, destroying previous contents.
+.IP \fI[n[,m]]\fBG\fR
+Append secondary work area to work area.
+.IP \fI[n[,m]]\fBh\fR
+Copy work area to secondary work area,  destroying previous contents.
+.IP \fI[n[,m]]\fBH\fR
+Append work area to secondary work area.
+.IP \fI[n]\fBi\e\fR
+Insert new text before given line.
+New text is terminated by any line not ending in `\e'.
+.IP \fI[n[,m]]\fBl\fR
+Print selected lines, interpreting non-graphic characters.
+.IP "\fI[n[,m]]\fBn\fR
+Print the work area and replace it with the next input line.
+.IP "\fI[n[,m]]\fBN\fR
+Append next input line preceded by a newline to work area.
+.IP \fI[n[,m]]\fBp\fR
+Print work area.
+.IP \fI[n[,m]]\fBP\fR
+Print first line of work area.
+.IP \fI[n]\fBq\fR
+Quit without reading any more input.
+.IP "\fI[n]\fBr\fI file\fR"
+Copy
+.I file
+to output.
+.IP "\fI[n[,m]]\fBs\fP[k]/pattern1/pattern2/\fB[g][p][w\fP file]\fR"
+Search for
+.I pattern1
+and substitute
+.I pattern2
+for
+.IR k th
+occurrence (default, first).
+If optional
+.B g
+is given, substitute all occurrences.
+If optional
+.B p
+is given, print the resulting line.
+If optional
+.B w
+is given, append the resulting line to
+.IR file .
+Patterns are described in detail below.
+.IP \fI[n[,m]]\fBt\fI[label]\fR
+Test if substitutions have been made.
+If so, branch to
+.I label,
+which must be defined in a `:'
+command.
+If
+.I label
+is omitted, branch to end of command script.
+.IP "\fI[n[,m]]\fBw\fI file\fR"
+Append lines to
+.I file.
+.IP "\fI[n[,m]]\fB x\fR"
+Exchange the work area and the secondary work area.
+.IP "\fI[n[,m]]\fBy\fI/chars/replacements/\fR"
+Translate characters in
+.I chars
+to the corresponding characters in
+.I replacements.
+.SH "Patterns"
+Substitution commands and search specifications may include
+.IR patterns ,
+also called
+.IR "regular expressions" .
+Pattern specifications are identical to those of
+.BR ed ,
+except that the special characters `\e\fBn\fP'
+match a newline character in the input.
+.PP
+A non-special character in a pattern matches itself.
+Special characters include the following:
+.IP \fB^\fR 0.75i
+Match beginning of line, unless it appears immediately after `['
+(see below).
+.IP \fB$\fR
+Match end of line.
+.IP "\fB\en\fR"
+Match the newline character.
+.IP "\fB.\fR"
+Match any character except newline.
+.IP "\fB*\fR"
+Match zero or more repetitions of preceding character.
+.IP "\fB[\fIchars\^\fB]\fR"
+Match any one of the enclosed
+.IR chars .
+Ranges of letters or digits may be indicated using `\-'.
+.IP \fB[^\fIchars\^\fB]\fR
+Match any character
+.I except
+one of the enclosed
+.IR chars .
+Ranges
+of letters or digits may be indicated using `\-'.
+.IP \fB\e\fIc\fR
+Disregard special meaning of character
+.IR c .
+.IP \fB\e(\fIpattern\^\fB\e)\fR
+Delimit substring
+.IR pattern ;
+for use with \fB\e\fId\fR,
+described below.
+.PP
+In addition, the replacement part
+.I pattern2
+of the substitute command may also use the following:
+.IP \fB&\fR 0.3i
+Insert characters matched by
+.IR pattern1 .
+.IP \fB\e\fId\fR
+Insert substring delimited by
+.IR d th
+occurrence of delimiters `\e(' and `\e)',
+where
+.I d
+is a digit.
+.SH Options
+.B sed
+recognizes the following options:
+.RS 
+.IP \fB\-e\fR
+Next argument gives a
+.B sed
+command.
+.BR sed 's
+command line can have more than one
+.B \-e
+option.
+.IP \fB\-f\fR
+Next argument gives file name of command script.
+.IP \fB\-n\fR
+Output lines only when explicit
+.B p
+or
+.B P
+commands are given.
+.SH Limits
+The \*(CO implementation of
+.B sed
+sets the following limits on input and output:
+.DS
+.ta 0.5i 3.0i
+	Characters per input record	512
+	Characters per output record	512
+	Characters per field	512
+.DE
+.SH "See Also"
+.Xr "commands," commands
+.Xr "ed," ed
+.Xr "elvis," elvis
+.Xr "ex," ex
+.Xr "me," me
+.Xr "vi" vi
+.br
+\fIIntroduction to the sed Stream Editor\fR
+.R

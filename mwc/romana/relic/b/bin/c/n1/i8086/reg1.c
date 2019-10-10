@@ -1,0 +1,120 @@
+/*
+ * Machine specific parts of the register allocator.
+ * Intel iAPX-86, SMALL and LARGE models.
+ */
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+/*
+ * Select a register.
+ * The argument 'tp' is the tree.
+ * The argument 'c' is a context,
+ * which will be either 'PAIR' or 'ANY'.
+ * The 'flag' is true if ANY should be resolved.
+ */
+regselect(tp, c, flag)
+TREE	*tp;
+{
+	register REGDESC	*rp;
+	register KIND		kind;
+	register PREGSET	busy;
+	register int		byte;
+	register PERTYPE	*ptp;
+
+	ptp = &pertype[tp->t_type];
+	kind = ptp->p_pair;
+	byte = bytereg(tp);
+	if (c != PAIR) {
+		if (flag==0 && byte==0)
+			return (c);
+		kind = ptp->p_kind;
+	}
+	busy = curbusy;
+	for (rp = &reg[FRREG]; rp<&reg[NRREG]; ++rp) {
+		if ((rp->r_phys&busy) != 0)
+			continue;
+		if (c == ANYL) {
+			if ((rp->r_lvalue&kind) == 0)
+				continue;
+		} else {
+			if ((rp->r_rvalue&kind) == 0)
+				continue;
+		}
+		if (byte && (rp->r_phys&~(BAX|BBX|BCX|BDX))!=0)
+			continue;
+		return (rp - &reg[0]);
+	}
+	return (-1);
+}
+
+/*
+ * This routine returns true if register 'r'
+ * is a usable temporary for tree 'tp'.
+ */
+isusable(tp, c, r)
+register TREE	*tp;
+register int	r;
+{
+	register int		op;
+	register PERTYPE	*ptp;
+	register KIND		kind;
+	register int		byte;
+
+#if !TINY
+	if (sflag > 2)
+		snapf("Isusable(%P, %C, %R)? ", tp, c, r);
+#endif
+	op = tp->t_op;
+	if ((op==SHR || op==SHL || op==ASHR || op==ASHL)
+	&& (reg[r].r_phys&BCX) != 0)
+		goto no;
+	ptp = &pertype[tp->t_type];
+	if ((op>=MUL && op<=REM) || (op>=AMUL && op<=AREM))
+		kind = ptp->p_pair;
+	else
+		kind = ptp->p_kind;
+	byte = bytereg(tp);
+	if (c == MLVALUE) {
+		if ((reg[r].r_lvalue&kind) == 0)
+			goto no;
+	} else {
+		if ((reg[r].r_rvalue&kind) == 0)
+			goto no;
+	}
+	if (byte && (reg[r].r_phys&~(BAX|BBX|BCX|BDX))!=0)
+		goto no;
+#if !TINY
+	if (sflag > 2)
+		snapf("yes\n");
+#endif
+	return (1);
+no:
+#if !TINY
+	if (sflag > 2)
+		snapf("no\n");
+#endif
+	return (0);
+}
+
+/*
+ * Test if a byte register is
+ * needed.
+ */
+bytereg(tp)
+register TREE *tp;
+{
+	register op;
+
+	if (isbyte(tp->t_type))
+		return (1);
+	if ((op = tp->t_op)==LEAF || op==CONVERT || op==CAST)
+		tp = tp->t_lp;
+	if (isbyte(tp->t_type))
+		return (1);
+	if ((op==ASSIGN || (op>=AADD && op<=ASHR)) && isbyte(tp->t_lp->t_type))
+		return (1);
+	return (0);
+}

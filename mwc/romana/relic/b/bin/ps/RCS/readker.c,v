@@ -1,0 +1,198 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     92.04.15.16.20.47;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@#include <sys/param.h>
+#include <sys/proc.h>
+#include <sys/sched.h>
+#include <sys/dir.h>
+#include <sys/seg.h>
+#include <sys/stat.h>
+#include <sys/uproc.h>
+#include <sys/signal.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <a.out.h>
+#include <pwd.h>
+
+/*
+ * This is a kludge for the i8086 only and will be
+ * made to disappear when the segmentation (jproto)
+ * is thrown away.
+ */
+#undef	SISTACK
+#define	SISTACK	SIPDATA
+
+/*
+ * Maximum sizes.
+ */
+#define ARGSIZE	512
+
+/*
+ * For easy referencing.
+ */
+#define NUM_SYMS	5	/* Number of symbols to look up.  */
+#define	aprocq		nl[0].n_value
+#define	autimer		nl[1].n_value
+#define astimer		nl[2].n_value
+#define	aend		nl[4].n_value
+
+/*
+ * Variables.
+ */
+int	aflag;				/* All processes */
+int	dflag;				/* Driver flag */
+int	dbflag;				/* Debug flag */
+int	fflag;				/* Print out all fields */
+int	gflag;				/* Print out process groups */
+int	lflag;				/* Long format */
+int	mflag;				/* Print scheduling values */
+int	nflag;				/* No header */
+int	rflag;				/* Print out real sizes */
+int	tflag;				/* Print times */
+int	wflag;				/* Wide format */
+int	xflag;				/* Get special processes */
+dev_t	ttdev;				/* Terminal device */
+
+/*
+ * Table for namelist.
+ */
+SYMENT nl[NUM_SYMS];
+
+/*
+ * Symbols.
+ */
+char	 *allp;				/* Pointer to alloc space */
+char	 *nfile;			/* Namelist file */
+char	 *mfile;			/* Memory file */
+char	 *dfile;			/* Swap file */
+char	 argp[ARGSIZE];			/* Arguments */
+int	 kfd;				/* Kernel memory file descriptor */
+int	 mfd;				/* Memory file descriptor */
+int	 dfd;				/* Swap file descriptor */
+struct	 uproc u;	 		/* User process area */
+unsigned cutimer;			/* Unsigned time */
+PROC	 cprocq;			/* Process queue header */
+PROC	w;
+
+unsigned casize;			/* Size of alloc area */
+
+char *malloc();
+char *uname();
+
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	initialise();
+	execute();
+	exit(0);
+}
+
+/*
+ * Initialise.
+ */
+initialise()
+{
+	register char *cp;
+
+	/* Initialise the request for coffnlist().  */
+	/* The values are a STUB, taken from the kernel at386.11.  */
+	strcpy(nl[0]._n._n_name, "procq");
+	nl[0].n_type = 0;
+	nl[0].n_value = 0xFFC170A0;
+	strcpy(nl[1]._n._n_name, "utimer");
+	nl[1].n_type = 0;
+	nl[1].n_value = 0xFFC17FB8;
+	strcpy(nl[2]._n._n_name, "stimer");
+	nl[2].n_type = 0;
+	nl[2].n_value = 0xFFC183C4;
+	strcpy(nl[3]._n._n_name, "asize");
+	nl[3].n_type = 0;
+	nl[3].n_value = 0xFFC1858C;
+	strcpy(nl[4]._n._n_name, "end");
+	nl[4].n_type = 0;
+	nl[4].n_value = 0xFFC1866C;
+}
+
+/*
+ * Print out usage.
+ */
+usage()
+{
+	panic("Usage: ps [-][acdfgklmnrtwx]");
+}
+
+/*
+ * Print out information about processes.
+ */
+execute()
+{
+	int c, l;
+
+	if ((kfd = open("/dev/kmem", 0)) < 0)
+		panic("Cannot open /dev/kmem");
+
+	kread((long)autimer, &cutimer, sizeof (cprocq));
+	fprintf(stderr, "DEBUG: cutimer: %d\n", cutimer);
+	sleep(1);
+	kread((long)autimer, &cutimer, sizeof (cprocq));
+	fprintf(stderr, "DEBUG: cutimer: %d\n", cutimer);
+
+	kread((long)aprocq, &cprocq, sizeof (cprocq));
+	fprintf(stderr, "DEBUG: cprocq.p_pid: %d\n", cprocq.p_pid);
+	fprintf(stderr, "DEBUG: cprocq.p_nforw: %x\n", cprocq.p_nforw);
+	fprintf(stderr, "DEBUG: cprocq.p_nback: %x\n", cprocq.p_nback);
+
+	kread((long)cprocq.p_nforw, &w, sizeof (w));
+	while (w.p_nforw != cprocq.p_nforw) {
+		printf("DEBUG: w.p_pid: %d\n", w.p_pid);
+		printf("DEBUG: w.p_nforw: %x\n", w.p_nforw);
+		printf("DEBUG: w.p_nback: %x\n", w.p_nback);
+		kread((long)w.p_nforw, &w, sizeof (w));
+	}
+}
+/*
+ * Read `n' bytes into the buffer `bp' from kernel memory
+ * starting at seek position `s'.
+ */
+kread(s, bp, n)
+long s;
+{
+	lseek(kfd, (long)s, 0);
+	if (read(kfd, bp, n) != n)
+		panic("Kernel memory read error");
+}
+
+/*
+ * Print out an error message and exit.
+ */
+panic(a1)
+char *a1;
+{
+	fflush(stdout);
+	fprintf(stderr, "%s", a1);
+	fprintf(stderr, "\n");
+	exit(1);
+}
+@

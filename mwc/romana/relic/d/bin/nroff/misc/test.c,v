@@ -1,0 +1,144 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.49.09;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+/*
+ * Test reads in a font width table and produces a file which will test
+ * the accuracy of this table.
+ * The usage is
+ *	test font_select_string
+ * where the argument is the string to select the font, with escapes
+ * represented by `~'.
+ */
+#include "hlib.h"
+
+#define	LOW	(' ')		/* lowest input character */
+#define	HIGH	('\177')	/* highest input character */
+#define	QUANTA	300		/* resolution (per inch) */
+#define	EQUANTA	720		/* external resolution (per inch) */
+#define	RIGHT	(7*QUANTA)	/* right margin */
+#define	LEFT	(1*QUANTA)	/* left margin */
+
+main(argc, argv)
+int	argc;
+char	*argv[];
+{
+	register int	i;
+
+	if (argc != 2 || **++argv == '-')
+		die("Usage: test font_select_string");
+	init(*argv);
+	for (i=LOW; i <= HIGH; ++i) {
+		if (not skip())
+			die("Unexpected end of file");
+		doit(i, getint());
+	}
+	if (skip())
+		die("Extra input");
+	return (0);
+}
+
+init(str)
+register char	*str;
+{
+	printf("\033E");
+	loop
+		switch (*str) {
+		case '~':
+			putchar('\033');
+			++str;
+			break;
+		case EOS:
+			return;
+		default:
+			putchar(*str);
+			++str;
+		}
+}
+
+/*
+ * Doit tests to see if ch has width w.
+ */
+doit(ch, w)
+int	ch,
+	w;
+{
+	register int	n;
+
+	n = (RIGHT-LEFT) / w;
+	pos(RIGHT - n*w);
+	while (n-- != 0)
+		putchar(ch);
+	printf("|\n");
+}
+
+pos(n)
+int	n;
+{
+	n = ((long)EQUANTA*n + EQUANTA-1) / QUANTA;
+	printf("\033&a%dH", n);
+}
+
+skip()
+{
+	register int	ch;
+
+	do {
+		ch = getchar();
+	} while (ch == ' ' || ch == '\t' || ch == '\n');
+	ungetc(ch, stdin);
+	return (ch != EOF);
+}
+
+getint()
+{
+	register int	res,
+			ch;
+
+	ch = getchar();
+	if (ch < '0' || ch > '9')
+		die("Bad number");
+	res = ch - '0';
+	loop {
+		ch = getchar();
+		if (ch < '0' || ch > '9')
+			break;
+		res = 10*res + ch-'0';
+	}
+	ungetc(ch, stdin);
+	return (res);
+}
+@

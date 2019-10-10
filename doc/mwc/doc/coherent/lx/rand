@@ -1,0 +1,122 @@
+.TH rand() "" "" "Random-Number Function (libc)"
+.PC "Generate pseudo-random numbers"
+.B "#include <stdlib.h>"
+.B "int rand(\|)"
+.PP
+.B rand()
+generates a set of pseudo-random numbers.
+It returns integers in the range 0 to 32,767, and purportedly has a
+period of 2^32.
+.B rand()
+will always return the same series of random numbers unless you
+first call the function
+.B srand()
+to change
+.BR rand() 's
+.IR seed ,
+or beginning-point.
+.SH Example
+.II "Lets Make a Deal"
+.II "Piattelli-Palmarini, Massimo"
+The following example uses
+.B rand()
+to implement the ``Let's Make a Deal'' game of probability described by
+Massimo Piattelli-Palmarini in the March/April 1991 issue of
+.I Bostonia
+magazine.
+In brief, an
+investigator places a dollar bill into one of three boxes.
+A subject enters the room and guesses which box holds the bill.
+The investigator then opens one of the two unselected boxes (one that
+is always empty), shows it to the subject, then offers the subject a choice:
+either stand pat with the box he has selected, or switch
+to the other non-selected box.
+The laws of probability state that the subject should always switch from
+the box he has selected;
+this example program tests that hypothesis.
+.DM
+#include <stdio.h>
+#include <time.h>
+.DE
+.DM
+main()
+{
+	int box[3], win, i, j;
+.DE
+.DM
+	srand(time(NULL));
+.DE
+.DM	
+	/* Test 1:  the subject always stands pat.  For the sake of simplicity,
+	 * the subject always chooses box 0. */
+	for (i = 0, win = 0; i < 1500; i++) {
+		for (j = 0; j < 3; j++)
+			box[j] = 0;
+.DE
+.DM
+		box[rand()%3]++;
+
+		if (box[0])
+			win++;
+	}
+	printf("Test 1, always stand pat:  1500 iterations, %d winners\en", win);
+.DE
+.DM
+	/* Test 2:  the subject always switches boxes. */
+	for (i = 0, win = 0; i < 1500; i++) {
+		for (j = 0; j < 3; j++)
+			box[j] = 0;
+.DE
+.DM
+		box[rand()%3]++;
+.DE
+.DM
+		/* if box 2 is empty, pick box 1 */
+		if (!box[2])
+			win += box[1];
+		else
+			win += box[2];
+	}
+	printf("Test 2, always switch:  1500 iterations, %d winners\en", win);
+.DE
+.DM
+	/* Test 3:  the subject switches boxes randomly. */
+	for (i = 0, win = 0; i < 1500; i++) {
+		for (j = 0; j < 3; j++)
+			box[j] = 0;
+.DE
+.DM
+		box[rand()%3]++;
+.DE
+.DM
+		/* if box 2 is empty, pick box 1 */
+		if (!box[2]) {
+			if (rand()%2)
+				win += box[1];
+			else
+				win += box[0];
+		} else {
+			if (rand()%2)
+				win += box[2];
+			else
+				win += box[0];
+		}
+	}
+	printf("Test 3, randomly switch:  1500 iterations, %d winners\en", win);
+}
+.DE
+.SH "See Also"
+.Xr "libc," libc
+.Xr "RAND_MAX," rand_max
+.Xr "srand()," srand
+.Xr "stdlib.h" stdlib.h
+.br
+\fIThe Art of Computer Programming,\fR vol. 2
+.br
+\*(AS, \(sc7.10.2.1
+.br
+\*(PX Standard, \(sc8.1
+.SH Notes
+This function cannot be used with any of the ``rand48'' functions.
+For an overview of these functions, see the entry for
+.BR srand48() .

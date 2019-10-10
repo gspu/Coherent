@@ -1,0 +1,154 @@
+/*
+ * C compiler intermediate file printer.
+ * Tree handler.
+ */
+#ifdef	vax
+#include "INC$LIB:cc3.h"
+#else
+#include "cc3.h"
+#endif
+
+/*
+ * Print a tree.
+ * The 'op' is the temp. file opcode that introduced the tree.
+ * The conditional trees must read in the label.
+ * The tree is printed between walls, with a title in the first wall.
+ */
+itree(op)
+{
+	strcpy(id, ilonames[op]);
+	if (op==TEXPR || op==FEXPR)
+		sprintf(id, "%s to L%d", ilonames[op], iget());
+	iwall(id);
+	itree1(0);
+	fputc('\t', ofp);
+	iwall(NULL);
+}
+
+/*
+ * Read and print a tree node and its subtrees.
+ */
+itree1(n)
+int	n;
+{
+	register int	i;
+	register int	op;
+	register int	type;
+	char		*opid;
+	int		seg;
+	dval_t		dval;
+	sizeof_t	offs;
+	int		width, base;
+	extern char	*milnames[];
+	extern char	*mionames[];
+	extern char	*mdlnames[];
+	extern char	*mdonames[];
+
+	if ((op=iget()) == NIL)
+		return;
+	fputc('\t', ofp);
+	i = n;
+	while (i--)
+		fputc(' ', ofp);
+	if (op < MDLBASE)
+		opid = milnames[op];
+	else if (op < MIOBASE)
+		opid = mdlnames[op-MDLBASE];
+	else if (op < MDOBASE)
+		opid = mionames[op-MIOBASE];
+	else if (op < ETCBASE)
+		opid = mdonames[op-MDOBASE];
+	else
+		sprintf(opid, "Bad == %d", op);
+	type = bget();
+	fprintf(ofp, "%s %s ", opid, tynames[type]);
+	if (type == BLK)
+		fprintf(ofp, "(%d bytes) ", iget());
+	switch (op) {
+
+	case ICON:
+		fprintf(ofp, "%d", iget());
+		break;
+
+	case LCON:
+		fprintf(ofp, "%ld", lget());
+		break;
+
+	case ZCON:
+		fprintf(ofp, "%ld", (long)zget());
+		break;
+
+	case DCON:
+		dget(dval);
+		gendval(dval);
+		break;
+
+	case REG:
+		fprintf(ofp, "%s", regnames[iget()]);
+		break;
+
+	case AID:
+	case PID:
+		fprintf(ofp, "at %ld", (long)zget());
+		break;
+
+	case LID:
+	case GID:
+		offs = zget();
+		seg = bget();
+		fprintf(ofp, "%s.", segnames[seg]);
+		if (op == LID)
+			fprintf(ofp, "L%d", iget());
+		else {
+			sget(id, NCSYMB);
+			fprintf(ofp, "%s", id);
+		}
+		if (offs != 0) {
+			if (offs > 0)
+				fputc('+', ofp);
+			fprintf(ofp, "%ld", (long)offs);
+		}
+		break;
+
+	case FIELD:
+		width = bget();
+		base  = bget();
+		fprintf(ofp, "base=%d width=%d\n", base, width);
+		itree1(n+2);
+		return;
+
+	default:
+		if (op < MIOBASE) {
+			genmdl(op);
+			break;
+		} else if (op < MDOBASE) {
+			fputc('\n', ofp);
+			itree1(n+2);	/* Left */
+			itree1(n+2);	/* Right */
+			return;
+		} else {
+			genmdo(op);
+			return;
+		}
+	}
+	fputc('\n', ofp);
+}
+
+/*
+ * Print a wall with the title string 's' in it.
+ * The wall is always WIDTH long.
+ */
+iwall(s)
+register char	*s;
+{
+	register int n;
+	n = WIDTH;
+	if (s != NULL) {
+		fprintf(ofp, "%s ", s);
+		n -= strlen(s) + 1;
+	}
+	while (--n >= 0)
+		fputc('-', ofp);
+	fputc('\n', ofp);
+}
+

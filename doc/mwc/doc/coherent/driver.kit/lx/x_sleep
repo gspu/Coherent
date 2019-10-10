@@ -1,0 +1,195 @@
+.TH x_sleep() "" "" "Internal Kernel Routine"
+.PC "Wait for event or signal"
+.B "#include <sys/sched.h>"
+\fBint x_sleep(\fIevent\^\fB, \fIschedPri\^\fB, \fIisleepPri\^\fB, \fIreason\^\fB);\fR
+\fBchar *\fIevent\^\fB, *\fIreason\^\fB; int \fIschedPri\^\fB, \fIsleepPri\^\fB;\fR
+.PP
+.B x_sleep()
+surrenders control of the processor while this process
+awaits some event or resource.
+In effect, the process ``sleeps'' until a particular event occurs.
+.PP
+.I event
+gives the address of a data item in the kernel's static-data space.
+To awaken the sleeping process, call the function
+.B wakeup()
+with the same
+.IR event .
+.PP
+.I schedPri
+gives a value used to the hint the scheduler once the process is asleep.
+It is one of the following:
+.BR prilo ,
+.BR primed ,
+.BR prihi ,
+.BR pritape ,
+.BR pritty ,
+.BR pridisk ,
+or
+.BR prinet .
+.PP
+.I sleepPri
+is a flag that indicates what should happen if a signal is sent to the
+process while it sleeps (or is about to sleep).
+Values are one of the following:
+.IP \fBslpriNoSig\fR
+Signals cannot interrupt sleep.
+Use
+.B slpriNoSig
+if you want the driver never to be awakened by the arrival of a signal.
+The risk is, that if you lose the wakeup, the driver hangs forever.
+.IP \fBslpriSigLjmp\fR
+Signals cause whatever system call was in progress to end
+immediately with an error value of
+.BR EINTR .
+Use
+.B slpriSigLjmp
+if you can afford to throw away the entire system call and
+return to the user with an
+.BR EINTR .
+This is
+.I not
+valid from within
+.B open()
+or
+.BR close() ,
+as it causes a fatal imbalance in internal reference counts.
+.IP \fBslpriSigCatch\fR
+Signals cause a return from the call to
+.BR x_sleep() .
+Use
+.B slpriSigCatch
+if you want to detect a non-ignored, non-delayed
+signal and do something about it.
+.PP
+.I reason
+points to text that explains why the process is sleeping.
+This text appears in output of the command
+.BR ps .
+This text can be no more than
+.B U_SLEEP_LEN
+bytes long.
+If text contains fewer than
+.B U_SLEEP_LEN
+bytes, it must be terminated by a NUL character.
+.PP
+.B x_sleep()
+must obey the following rules:
+.PP
+First, a driver can
+.B x_sleep()
+while it waits for some condition to be satisfied.
+However,
+.B x_sleep()
+may return prematurely; therefore, the driver must place the call to
+.B x_sleep()
+within a loop and check for the initial condition to still be valid.
+Normally, a sleep is performed in the following manner:
+.DS
+	set interrupt priority to keep out the gremlins
+	while (work is not yet completed)
+		x_sleep( &some_variable_in_the_kernel_data_area, ... )
+	restore interrupt mask
+.DE
+.PP
+The interrupt routine, in turn, calls
+.B wakeup()
+or defers wakeup for later background processing if time is not an issue.
+This causes the aforementioned code to return from the call to
+.BR x_sleep() .
+.PP
+As you can see, there is an inherent race condition between the
+.B while
+and
+.BR x_sleep() .
+If the work is serviced while the driver is
+.BR x_sleep() ing,
+the
+.B while
+loop works correctly.
+However, should the last interrupt happen after the
+.B while
+but before the call to
+.BR x_sleep() ,
+the driver deadlocks \(em in effect,
+it awaits an event that will never occur.
+.PP
+.B x_sleep()
+returns for various reasons, but a driver cannot depend upon it
+to return for reasons other than a process calling
+.B wakeup()
+with the variable upon which the driver fell asleep.
+If the driver awaits an event based upon an interrupt,
+a driver must bracket the call to
+.B x_sleep()
+with calls to the kernel routines
+.B sphi()
+and
+.BR spl() .
+.PP
+.B x_sleep()
+returns
+.B PROCESS_NORMAL_WAKE
+if it has received a wakeup call.
+It returns
+.B PROCESS_SIGNALLED
+it has received a signal (other than
+.B SIGSTOP
+or
+.BR SIGCONT ).
+Both constants are defined in the header file
+.BR <kernel/_sleep.h> .
+.SH "See Also"
+.B
+internal kernel routines,
+sphi(),
+spl(),
+wakeup()
+.R
+.SH Notes
+.II v_sleep()
+.B x_sleep()
+replaces the function
+.BR v_sleep() .
+.PP
+Because a driver that is ``asleep at the wheel'' can cause a great deal of
+trouble, you must use
+.B x_sleep()
+only during situations when the kernel can awaken it again.
+Observe the following rules when you use
+.BR x_sleep() :
+.IP \(bu 0.3i
+Never call
+.BR x_sleep()
+from within a driver's block routine, either directly or indirectly.
+.IP \(bu
+Never call
+.BR x_sleep()
+from within an interrupt handler,
+either directly or indirectly.
+Doing so can cause a deadlock, as described above.
+.IP \(bu
+Never call
+.B x_sleep()
+from the load routine of a driver;
+doing so will cause a panic.
+.IP \(bu
+Your driver must always check for signals while sleeping.
+Failure to do so will create ``zombies'' \(em that is,
+user processes that cannot be terminated.
+For example,
+the following code fragment shows how a blocking driver's
+.B open
+routine can let the user break out of a sleep by
+pressing the interrupt character on the keyboard:
+.DM
+	if (nondsig()) {  /* received a signal? */
+		set_user_error(EINTR);	  /* indicate that we were interrupted */
+		return;			  /* return to user process */
+	}
+.DE
+.IP \(bu
+If
+.B longjmp()
+occurs, there is no return from
+.BR x_sleep() .

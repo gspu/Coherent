@@ -1,0 +1,101 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.05.09.15.13.07;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Error recovery pseudocode.
+@
+
+
+
+1.1
+log
+@initial incomplete draft
+@
+text
+@/*
+ * ss.recover - list of ST01/ST02 i/o failures and what to do when they happen.
+ * 
+ *
+ * $Log$
+ */
+Here are the inputs to the recovery state machine:
+
+A_TIMEOUT (arbitration timeout)
+Host adapter takes too long to respond with arbitration complete.
+
+P_TIMEOUT (protocol timeout)
+Timeout waiting for desired SCSI bus status while connected to a target.
+
+R_TIMEOUT (reconnect timeout)
+Timeout after target disconnects, waiting for reconnect.
+
+TGT_BUSY (target device busy)
+Command status returned was BUSY.
+
+TGT_CHECK (target device check)
+Command status returned was CHECK.
+
+For each device there are values for the current block I/O request.  These
+include
+	arb_count
+	Number of times we have polled the host adapter while waiting for
+	arbitration complete.
+
+	bdr_count
+	Number of times we have tried Bus Device Reset while attempting the
+	current request.
+
+	bsy_count
+	Number of times we have received Device Busy status while attempting
+	the current request.
+
+	try_count
+	Total number of times the current request has been attempted.
+All of these are initialized to zero when a new block request is taken from
+the queue.
+
+Whenever an error occurs, one of the above inputs, together with the SCSI id
+of the target, is sent to the recovery process.  The recovery process in turn
+places commands on the state machine stack and invokes the state machine.
+Here is the pseudocode for the recovery process:
+
+add 1 to try_count
+if try_count < MAX_TRY_COUNT (6)
+	push SST_BLOCKIO
+	switch error_type
+	case TGT_BUSY
+		add 1 to bsy_count
+		if bsy_count < MAX_BSY_COUNT (2)
+			push SST_WAIT BSY_DELAY
+		else
+			push SST_BUS_DEV_RST
+		endif
+	case TGT_CHECK
+		push SST_REQ_SENSE
+	case P_TIMEOUT, R_TIMEOUT
+		add 1 to bdr_count
+		if bdr_count < MAX_BDR_COUNT (2)
+			push SST_BUS_DEV_RST
+		else
+			push SST_LOPRI_RESET
+		endif
+	case A_TIMEOUT
+		push SST_HIPRI_RESET
+	endswitch
+else // try_count >= MAX_TRY_COUNT
+	set BFERR in buffer from kernel
+	target is IDLE
+	cleanup - bdone(), etc.
+endif
+invoke target stack machine (defer)
+@

@@ -1,0 +1,34 @@
+////////
+/
+/ Intel 8086 floating point.
+/ Test accumulator.
+/ SMALL model.
+/
+////////
+
+	.globl	ddtest
+	.globl	_fpac_
+
+////////
+/
+/ ** ddtest -- push double accumulator.
+/
+/ This utility routine is called by the compiler to test
+/ the double accumulator (a quad word called _fpac_).
+/ This "test" instruction used to be generated directly
+/ in the leaves.t code table, but in LARGE model _fpac_
+/ is not directly addressible and a "call ddtest()" is
+/ required instead.
+/
+/ compiler calling sequence:
+/	call	ddtest
+/
+/ outputs:
+/	flags to indicate whether _fpac_ is zero
+/
+////////
+
+EXPON	=	0x7F80			/ DECVAX format exponent bits
+
+ddtest:	test	_fpac_+6,$EXPON		/ test high word
+	ret				/ and return

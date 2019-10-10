@@ -1,0 +1,93 @@
+aatt -- Device Driver
+
+
+/ddeevv/aatt*  are  the   COHERENT  system's  AT  devices  for  the  hard-disk's
+partitions.  Each  device is  assigned major-device  number 11, and  may be
+accessed as a block- or character-special device.
+
+aatt handles  two drives with  up to four  partitions each.  Minor  devices 0
+through 3  identify the partitions on  drive 0.  Minor devices  4 through 7
+identify the partitions on drive 1.   Minor device 128 allows access to all
+of drive 0.   Minor device 129 allows access to  all of drive 1.  To modify
+the  offsets and  sizes of  the partitions,  use the  command ffddiisskk  on the
+special device for each drive (minor devices 128 and 129).
+
+To access a disk partition  through COHERENT, directory /ddeevv must contain a
+device file that has the  appropriate type, major and minor device numbers,
+and  permissions.  To  create a  special file for  this device,  invoke the
+command mmkknnoodd as follows:
+
+/etc/mknod /dev/at0a b 11   0 ; : drive 0, partition 0
+/etc/mknod /dev/at0b b 11   1 ; : drive 0, partition 1
+/etc/mknod /dev/at0c b 11   2 ; : drive 0, partition 2
+/etc/mknod /dev/at0d b 11   3 ; : drive 0, partition 3
+/etc/mknod /dev/at0x b 11 128 ; : drive 0, partition table
+
+_K_e_r_n_e_l _V_a_r_i_a_b_l_e_s
+Please  note  that the  COHERENT  286 kernel  references  variables with  a
+trailing  underscore character;  for  example, aattppaarrmm_.   The COHERENT  386
+kernel, however, does _n_o_t use a trailing underscore; for example, aattppaarrmm.
+
+The following descriptions apply to both COHERENT 286 and COHERENT 386, but
+the notation will be in the COHERENT-386 form.
+
+_D_r_i_v_e _C_h_a_r_a_c_t_e_r_i_s_t_i_c_s
+When  processing BIOS  I/O  requests prior  to booting  COHERENT, many  IDE
+drives  use   ``translation-mode''  drive  parameters:   number  of  heads,
+cylinders, and  sectors per track.   These numbers are  called translation-
+mode parameters  because they do not reflect  true physical drive geometry.
+The translation-mode parameters used by  the BIOS code present on your host
+adapter can  be obtained  using the  iinnffoo command from  ttbboooott. It  is often
+necessary  to patch  the  aatt driver  with BIOS  values of  translation-mode
+parameters  in order  to boot  COHERENT  on IDE  hard drives.   In COHERENT
+versions 3.1.0  and later, drive  parameters are stored in  table aattppaarrmm in
+the driver.  For the first hard drive, number of cylinders is a short (two-
+byte) value at aattppaarrmm+00, number of  heads is a single byte at aattppaarrmm+22, and
+number of sectors  per track is a single byte  at aattppaarrmm+1144. For the second
+hard drive,  number of cylinders is  a short value at  aattppaarrmm+1166, number of
+heads is a  single byte at aattppaarrmm+1188, and number  of sectors per track is a
+single byte at  aattppaarrmm+3300. For example, if tteessttccoohh is  a kernel linked with
+the aatt  driver and you  want to patch it  for a second hard  drive with 829
+cylinders, 10 heads, and 26 sectors per track, you can do:
+
+    /conf/patch testcoh atparm+16=829:s atparm+18=10:c atparm+30=26:c
+
+To read the  characteristics of a hard disk once  the aatt driver is running,
+use the call to iiooccttll of the following form:
+
+    #include <sys/hdioctl.h>
+    hdparm_t hdparms;
+        . . .
+    ioctl(fd, HDGETA, (char *)&hdparms);
+
+where _f_d is a file descriptor for the hard disk device and _h_d_p_a_r_m_s receives
+the disk characteristics.
+
+_N_o_n-_S_t_a_n_d_a_r_d _a_n_d _U_n_s_u_p_p_o_r_t_e_d _T_y_p_e_s _o_f _D_r_i_v_e_s
+Prior releases  of the the  COHERENT aatt hard-disk driver  would not support
+disk drives  whose geometry  was not supported  by the BIOS  disk parameter
+tables.   COHERENT adds  support for  these  drives during  installation by
+``patching'' the disk parameters into the bootstrap and the /ccoohheerreenntt image
+on the hard disk.
+
+_F_i_l_e_s
+/ddeevv/aatt* -- Block-special files
+/ddeevv/rraatt* -- Character-special files
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, ffddiisskk
+
+_N_o_t_e_s
+You  can  patch integer  variable  AATTSSRREEGG to  specify  normal or  alternate
+polling.   Use addresss  0x3F6 for  normal polling,  which works  with most
+newer drives.  Use address  0x1F7 for alternate polling, which is necessary
+for  Perstor controllers  and some  other older  equipment.  The  driver is
+shipped  with a  default value  of 0x3F6; patching  is usually  done during
+installation as  needed.  Setting this variable  improperly causes frequent
+controller timeouts and bad-track messages.
+
+Integer  variable AATTSSEECCSS  specifies the  number  of seconds  to wait  for a
+response from  the drive after an  I/O request.  The default  value is six.
+Some  IDE  drives  occasionally  become  unresponsive  for  long  intervals
+(several  seconds)  while  control  firmware  makes  adjustments  to  drive
+operation.

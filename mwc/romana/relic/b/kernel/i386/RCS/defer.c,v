@@ -1,0 +1,280 @@
+head     1.9;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.9; strict;
+comment  @ * @;
+
+
+1.9
+date     93.06.14.13.42.38;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.04.16.06.52.29;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.11.13.11.09.52;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.09.29.09.51.51;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.09.09.08.43.43;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.08.28.08.58.58;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.08.20.12.54.52;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.04.12.41.36;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.22.26;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.9
+log
+@Hal: kernel 78 update
+@
+text
+@/*
+ * File:	defer.c
+ *
+ * Purpose:	Handle deferring of functions and subsequent execution.
+ *
+ * $Log:	defer.c,v $
+ * Revision 1.1  92/11/09  17:08:40  root
+ * Just before adding vio segs.
+ * 
+ */
+
+/*
+ * ----------------------------------------------------------------------
+ * Includes.
+ */
+
+/*
+ * ----------------------------------------------------------------------
+ * Definitions.
+ *	Constants.
+ *	Macros with argument lists.
+ *	Typedefs.
+ *	Enums.
+ */
+#define	DEFLIM	128	/* maximum number of deferred functions */
+
+/*
+ * ----------------------------------------------------------------------
+ * Functions.
+ *	Import Functions.
+ *	Export Functions.
+ *	Local Functions.
+ */
+void defer();
+void defend();
+
+/*
+ * ----------------------------------------------------------------------
+ * Global Data.
+ *	Import Variables.
+ *	Export Variables.
+ *	Local Variables.
+ */
+static void (*defunc[DEFLIM])();
+static int defarg[DEFLIM];
+static int defqix, defqox, defcnt;
+
+/*
+ * ----------------------------------------------------------------------
+ * Code.
+ */
+
+/*
+ * defer()
+ *
+ *	Defer a function [usually from interrupt level].
+ *	The deferred function takes a single int-sized arg.
+ */
+#define DEFDBG 1
+#if DEFDBG
+static int deftag[DEFLIM];
+
+void
+defer0(f,a,t)
+void (*f)();
+int a;
+int t;
+{
+	int s=sphi();
+
+	if (defcnt < DEFLIM) {		/* is there room in defer queue? */
+		defunc[defqix] = f;
+		defarg[defqix] = a;
+		deftag[defqix] = t;
+		if (++defqix >= DEFLIM)
+			defqix = 0;
+		defcnt++;
+	} else {
+		static foo;
+		int *r=(int *)(&f);
+		int tmpqox = defqox+DEFLIM-16;
+
+		if (foo++ == 0) {
+			printf("\nDefer overflow r=%x t =%x f=%x a=%x ",
+			  *(r-1), t, f, a);
+			do {
+				tmpqox = (tmpqox+1) % DEFLIM;
+				printf("\nt=%x f=%x a=%x ox=%d ",
+				  deftag[tmpqox], defunc[tmpqox],
+				  defarg[tmpqox], tmpqox);
+			} while (tmpqox != defqox);
+		}
+	}
+	spl(s);
+}
+
+void
+defer(f,a)
+void (*f)();
+int a;
+{
+	defer0(f, a, 0);
+}
+#else
+void
+defer(f,a)
+void (*f)();
+int a;
+{
+	int s=sphi();
+
+	if (defcnt < DEFLIM) {		/* is there room in defer queue? */
+		defunc[defqix] = f;
+		defarg[defqix] = a;
+		if (++defqix >= DEFLIM)
+			defqix = 0;
+		defcnt++;
+	} else {
+		static foo;
+		int *r=(int *)(&f);
+		if (foo++ < 4)
+			printf("\nDefer overflow r=%x f=%x a=%x ", *(r-1), f, a);
+	}
+	spl(s);
+}
+#endif
+
+/*
+ * defend()
+ *
+ *	Evaluate all deferred functions.
+ *	Should be called periodically by busy-wait device drivers.
+ */
+void
+defend()
+{
+	while (defcnt) {
+		(*defunc[defqox])(defarg[defqox]); 
+		if (++defqox >= DEFLIM)
+			defqox = 0;
+		defcnt--;
+	}
+}
+@
+
+
+1.8
+log
+@Hal: kernel 76 update
+@
+text
+@d63 2
+a64 1
+void defer0(f,a,t)
+@
+
+
+1.7
+log
+@hal: kernel 68: added window support, untested 287 support
+@
+text
+@@
+
+
+1.6
+log
+@*** empty log message ***
+@
+text
+@d6 4
+a9 1
+ * $Log$
+d25 1
+a25 1
+#define	DEFLIM	100	/* maximum number of deferred functions */
+@
+
+
+1.5
+log
+@update by hal for kernel 62 (60 files)
+@
+text
+@@
+
+
+1.4
+log
+@update by hal for kernel 61
+@
+text
+@@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@@
+
+
+1.2
+log
+@update for kernel 59
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

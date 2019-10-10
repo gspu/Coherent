@@ -1,0 +1,567 @@
+////////
+/
+/ Patched bootstrap block for the IBM PC.
+/ This code, which lives in sector 1,
+/ track 0 of the floppy (or sector 1 of a hard disk partition)
+/ gets read into location 0x7C00 by the ROM.
+/ The code relocates itself to location 0x2060:0x0000
+/ (128K above the fixed memory used by the ROM). The system image is read
+/ in beginning at paragraph 0x0060.
+/
+/ $Log:	/newbits/conf/boot/RCS/pboot.m,v $
+ * Revision 1.2	91/05/29  09:42:16 	bin
+ * bob h modified due to commented lines screwing the makefile
+ * 
+/ * Revision 1.1	91/05/29  08:30:45 	bin
+/ * Initial revision
+/ * 
+/ Revision 1.1	88/03/24  16:44:09	src
+/ Initial revision
+/ 
+/ 87/10/04	Allan Cornish		/usr/src/sys/i8086/boot/boot.s
+/ Number of heads now defined by NHD macro.  Should be 1 for f*d*, 2 for f*a*.
+/
+/ 85/10/04	Allan Cornish		/usr/src/sys/i8086/boot/boot.s
+/ Bootstrap extended to increase max file size from 64 Kbytes to 128 Kbytes.
+/ The private code segment is now loaded, where previously it had to be empty.
+/ File name editing enhanced to help cursor stay in the 14 char entry field,
+/ and to provide a destructive backspace.
+/
+/ 85/01/04	Allan Cornish
+/ Added backspace editing of file name.
+/
+////////
+
+////////
+/ This is a patched version for machines with incorrect CMOS disk parameters.
+/ The values in traks, sects, heads, cntrl and wpcc are assumed correct.
+/ This BIOS is not interrogated to find the disk parameters.
+/ The controller is reset with the appropriate values.
+////////
+
+#ifndef	NHD
+#define	NHD	1			/ heads per drive [1 for f9d0].
+#endif
+
+#ifndef	NSPT
+#define	NSPT	9			/ sectors per track on floppy.
+#define	NTRK	40			/ tracks on floppy.
+#endif
+
+#ifndef	CNTRL
+#define	CNTRL	8
+#endif
+
+#ifndef	WPCC
+#define	WPCC	0xFFFF
+#endif
+
+NSTK	=	256			/ bytes of stack.
+BS	=	0x08			/ BS character.
+CR	=	0x0D			/ CR character.
+LF	=	0x0A			/ LF character.
+SP	=	0x20			/ Backspace character.
+BOOTLC	=	0x7C00			/ Boot location (ROM).
+BOOTS	=	0			/ boot segment (ROM).
+RBOOTS	=	0x2060			/ Relocated boot segment.
+BSHIFT	=	9			/ Shift, bytes to blocks.
+ROOTINO =	2			/ Root inode #
+INOORG	=	2			/ First inode block.
+IBSHIFT =	3			/ Shift, inode to blocks
+IOSHIFT =	6			/ Shift, inode to bytes
+INOMASK =	0x0007			/ Mask, inode to offset
+DIRSIZE =	14			/ Directory size.
+DIRSIZ2 =	7			/ Directory size / 2.
+BUFSIZE =	512			/ Block size.
+HDRSIZE =	44			/ L.out header size.
+HDRSIZ2 =	22			/ L.out header size / 2.
+BUFMSK2 =	0x00FF			/ Block [word] mask, for reads.
+DISK	=	0x13			/ Disk Interrupt
+KEYBD	=	0x16			/ Keyboard Interrupt
+READ1	=	0x0201			/ read one sector
+ND	=	10			/ # of direct blocks.
+NIND	=	128			/ # of blocks in indirect block.
+ISIZE	=	8			/ Offset of "di_size".
+IADDR	=	12			/ Offset of "di_addr".
+JMPF	=	0xEA			/ Jump far, direct.
+LMAGIC	=	0			/ Offset of "l_magic"
+LFLAG	=	2			/ Offset of "l_flag"
+LSHRI	=	10			/ Offset of "l_ssize[SHRI]"
+LPRVI	=	14			/ Offset of "l_ssize[PRVI]"
+LSHRD	=	22			/ Offset of "l_ssize[SHRD]"
+LPRVD	=	26			/ Offset of "l_ssize[PRVD]"
+LBSSD	=	30			/ Offset of "l_ssize[BSSD]"
+LFMAG	=	0x0107			/ Magic number.
+LFSEP	=	0x02			/ Sep I/D flag bit.
+SYSBASE =	0x0060			/ System load base paragraph.
+FIRST	=	8			/ relative start of partition
+
+/ Hard disk controller port addresses.
+HF_REG	=	0x3F6
+NSEC_REG=	0x1F2
+SEC_REG	=	0x1F3
+HDRV_REG=	0x1F6
+CSR_REG	=	0x1F7
+BSY_ST	=	0x80
+SETPARM_CMD=	0x91
+
+////////
+/
+/ Bootstrap mainline. Relocate the
+/ boot to high memory, so it wont be written
+/ over by the system. Read in a file name. Look up
+/ the file name by following out the directory
+/ structure. Read in the image and jump to it.
+/
+////////
+
+boot:	xor	di, di
+	mov	ds, di
+	mov	si, $BOOTLC		/ Make DS:SI point at the code
+	mov	es, 1f(si)		/ Make ES:DI point at where it goes
+	mov	cx, $512		/ cx = # of bytes to move
+	cld
+	rep				/ Move the bootstrap
+	movsb				/ to high memory.
+
+	mov	si, bp			/ set si to partition
+	mov	di, $drive		/ point to drive
+	movsb				/ set drive
+	add	si, $FIRST-1		/ point to first block
+	movsw
+	movsw				/ fetch first block
+
+/ Bang on disk controller.
+/ See at.c/atreset().
+#if	1
+	movb	al, $4
+	mov	dx, $HF_REG
+	outb	dx, al			/ outb (HF_REG, 4);
+	mov	cx, $-1
+0:	loop	0b			/ delay
+	movb	al, cntrl
+	andb	al, $0x0F
+	outb	dx, al			/ outb (HF_REG, ctrl & 0xF);	
+/	call	atbsyw
+
+/ Wait for AT controller to become not busy.
+/ From atas.s.
+/ atbsyw:
+	mov	cx, $-1
+	mov	dx, $CSR_REG
+0:	inb	al, dx
+	testb	al, $BSY_ST
+	loopne	0b
+	mov	ax, cx
+/	ret
+#endif
+	movb	al, cntrl
+	mov	dx, $HF_REG
+	outb	dx, al			/ outb(HF_REG, cntrl);
+	movb	al, sects
+	mov	dx, $NSEC_REG
+	outb	dx, al			/ outb(NSEC_REG, sects);
+/ The following should have drive << 4 added in, this assumes drive 0.
+/ Out of space to do it right now.
+	movb	al, drive
+	sal	ax, $4
+	addb	al, $0x9F
+	addb	al, heads
+	mov	dx, $HDRV_REG
+	outb	dx, al			/ outb(HDRV_REG, 0xA0+(drive<<4)+heads-1);
+	movb	al, $SETPARM_CMD
+	mov	dx, $CSR_REG
+	outb	dx, al			/ outb(CSR_REG, SETPARM_CMD)
+	nop
+	nop				/ filler to make 512 byte bootstrap
+
+/ Set registers.
+
+0:	mov	bp, $stack+NSTK 	/ stack pointer value
+	mov	ax, es
+	mov	ds, ax
+	mov	ss, ax
+	mov	sp, bp
+
+/	call	login			/ print signon message
+
+/ Jump to (relocated) boot.
+
+	.byte	JMPF
+	.word	entry
+1:	.word	RBOOTS
+
+////////
+/
+/ Read the inode specified by "ax"
+/ into the external variable "iaddr".
+/ No checking is done to make sure that
+/ the inumber is in range on the filesystem.
+/ Sets dx and cx to 0.
+/ Mungs si, di, ax.
+/
+////////
+
+igrab:	dec	ax			/ Make origin 0 and
+	push	ax			/ remember for later use.
+
+	movb	cl, $IBSHIFT		/ Convert to
+	shr	ax, cl			/ inode block number,
+	inc	ax			/ then to physical block number,
+	inc	ax
+	call	bread			/ and read in the data.
+
+	pop	ax			/ Get i-number back.
+	and	ax, $INOMASK		/ Get inode within block
+	movb	cl, $IOSHIFT		/ and convert to
+	shl	ax, cl			/ a byte offset in the block.
+	add	si, ax			/ si = inode pointer.
+
+	add	si, $IADDR		/ Point at address field.
+	mov	di, $iaddr		/ Copy out area.
+
+	movb	cl, $ND 		/ cx = # of direct blocks.
+0:	inc	si			/ Skip 0th byte.
+	movsw				/ Move 1st (lsb) and 2nd (msb)
+	loop	0b			/ Do them all.
+
+	inc	si			/ Skip 0th byte and
+	lodsw				/ grab block # of (first) indirect.
+
+	inc	si			/ Skip 0th byte and
+	push	(si)			/ remember block # of double indirect.
+
+	call	bread			/ Read (first) indirect block.
+
+	movb	cl, $NIND		/ cx = # of indirect maps (ch=0)
+1:	lodsw				/ Skip hi half (canon long)
+	movsw				/ and move low half.
+	loop	1b			/ Do them all.
+
+	pop	ax
+	call	bread			/ Read double indirect block.
+	lodsw
+	lodsw
+	call	bread			/ Read (second) indirect block.
+
+	movb	cl, $NIND		/ cx = # of indirect maps (ch=0)
+2:	lodsw				/ Skip hi half (canon long)
+	movsw				/ and move low half.
+	loop	2b			/ Do them all.
+
+	sub	dx, dx			/ sets dx to first word
+/	jmp	iread			/ Done return through iread.
+
+////////
+/
+/ This routine reads the virtual
+/ block described by the ofs in "dx" into the
+/ buffer "bbuf". It uses the mapping data that
+/ has been provided by a previous call to igrab
+/ On return "si" points at "bbuf".
+/ Holes in files are correctly done.
+/ mungs ax, bx, si.
+/ clears cx.
+/
+///////
+
+iread:
+	sub	bx, bx			/ Convert from words to blocks.
+	movb	bl, dh			/
+	shl	bx, $1			/ Get 2 * block number into
+	mov	ax, iaddr(bx)		/ physical block from the table.
+/	jmp	bread			/ Yes, return through "bread".
+
+////////
+/
+/ Read a block from the floppy disk,
+/ drive A:, using the code in the IBM firmware.
+/ The physical block # is in "ax".
+/
+////////
+
+bread:	push	es			/ Save registers
+	push	di
+	push	dx
+
+	push	ds
+	pop	es			/ set ES to the address of the buffer
+
+	mov	di, bp			/ if block 0, clear buffer
+	mov	cx, $BUFSIZE
+	rep
+	stosb
+
+	test	ax, ax			/ if block 0, return zeroed buffer
+	jz	2f
+
+	xor	dx, dx			/ extend block number
+	add	ax, first		/ add first block
+	adc	dx, first+2		/ add rest
+
+	mov	bx, ax			/ save block number
+	movb	al, heads		/ get number of heads
+	movb	cl, sects		/ get number of sectors
+	mulb	cl			/ calculate sectors per cylinder
+	xchg	bx,ax			/ swap block/sectors
+	div	bx			/ calculate track
+	xchg	dx, ax			/ put track in DX
+	divb	cl			/ calculate head/sector
+
+	movb	cl, ah			/ set sector
+	inc	cx			/ sectors start at 1 [incb cl]
+	
+	cmp	dx, traks		/ check for second side
+	jb	0f
+	sub	dx, traks		/ fold track
+	inc	ax			/ next head [incb al]
+
+0:	rorb	dh, $1			/ rotate track(low) into
+	rorb	dh, $1			/  msbits of DX
+	orb	cl, dh			/ set track(high)
+	movb	ch, dl			/ set track(low)
+	movb	dh, al			/ set head
+	movb	dl, drive		/ set drive
+	mov	bx, bp			/ set offset [bbuf]
+
+	mov	ax, $READ1		/ Read, 1 sector.
+	int	DISK			/ Disk I/O.
+	jnc	2f			/ Jump if no error.
+	mov	ax, $READ1		/ try again
+	int	DISK
+	jc	error
+
+2:	mov	si, bp			/ set SI to point to buffer for return
+	sub	cx, cx			/ clear CX here to save space
+	pop	dx			/ restore registers.
+	pop	di
+	pop	es
+	ret				/ return.
+
+////////
+/
+/ Print signon message
+/
+////////
+
+/ login:	mov	si, $msg00		/ point si to message
+
+print:	lodsb				/ al=byte
+	cmpb	al, $LF			/ check for end of message
+	call	putc			/ Type it and
+	jne	print			/ go back for more.
+	ret
+
+/ Prompt with a "?" and read the file name
+/ into the "nbuf". No character editing facilities
+/ are provided.
+
+error:	mov	sp, bp			/ Reset stack
+/	call	login			/ print boot message
+
+input:	mov	di, $nbuf		/ di=name buffer pointer
+	mov	cx, $DIRSIZE		/ cx=size of
+	movb	al, $0x3F		/ set prompt to ?
+0:	call	putc
+
+1:	movb	ah, $0			/ Get ASCII opcode.
+	int	KEYBD			/ Read keyboard ROM call.
+
+#if	0
+/ Conditionalized out to make more space
+	cmpb	al, $BS			/ BS ?
+	jne	2f			/
+	cmpb	cl, $DIRSIZE		/ At start of buffer?
+	je	1b			/ Yup, ignore BS
+	call	putc			/ Output destructive backspace
+	movb	al, $SP
+	call	putc
+	movb	al, $BS
+	dec	di			/ Adjust pointer
+	inc	cx			/ and char count
+	jmp	0b			/ and continue.
+#endif
+
+2:	cmpb	al, $CR 		/ CR ?
+	je	3f			/ Yup, do next thing
+
+	jcxz	1b			/ skip over too big name
+	stosb				/ put it into the buffer,
+	dec	cx			/ adjust char count
+	jmp	0b			/ and continue.
+
+3:	mov	si, $crlf		/ Echo LF followed by CR.
+	call	print
+
+	movb	al, $0			/ zero out
+	rep
+	stosb				/ rest of name
+
+entry:	mov	ax, $ROOTINO		/ ax = current inode
+	call	igrab			/ Read in inode and set dx
+
+/ Search directory.
+/ Assume directory size < 64 Kbytes.
+
+search: orb	dl, dl			/ On block boundry ?
+	jnz	0f			/ Nope.
+	call	iread			/ Read block, set si.
+
+0:	movb	cl, $DIRSIZE		/ cx = count left
+	mov	di, $nbuf		/ Point at name buffer and
+	lodsw				/ ax = inumber, this entry.
+	or	ax, ax			/ Empty directory slot ?
+	je	1f			/ Yes, skip.
+	repe				/ compare the
+	cmpsb				/ two file names.
+	je	found			/ If eq, go and get inode.
+
+1:	add	si, cx			/ Advance by count remaining.
+	add	dx, $DIRSIZ2+1		/ Bump [word] seek pointer
+	jg	search			/ Scan up to 64 Kbytes of directory.
+
+	jmp	input			/ File not found.
+
+////////
+/
+/ Found the file so read it in.
+/ ax = inode number of file
+/
+////////
+
+found:	call	igrab			/ read in inode and first block
+	cmp	LMAGIC(si),$LFMAG	/ Check the magic number.
+	jne	error			/ not Ok.
+
+/	push	LBSSD(si)		/ Push the uninitialized data size.
+	mov	ax, LSHRD(si)		/ Push the sum
+	add	ax, LPRVD(si)		/ of the shared and private
+	push	ax			/ [initialized] data sizes.
+	andb	LFLAG(si), $LFSEP	/ check image flags.
+	pushf				/ Push result of test.
+	mov	ax, LSHRI(si)		/ Get the sum of the
+	add	ax, LPRVI(si)		/ shared and private code sizes.
+
+	mov	dx, $HDRSIZ2		/ Seek after header and
+	add	si, $HDRSIZE		/ set buffer pointer appropriately.
+	mov	es, 1f			/ Set ES:DI to point to the load
+	sub	di, di			/ base of the new system.
+
+	call	load			/ Load code.
+
+	popf				/ Pop sep I/D flag test
+	jz	0f			/ Not sep.
+
+	add	di, $15 		/ Round up the system code
+	movb	cl, $4			/ size to 16 byte
+	shr	di, cl			/ paragraphs.
+	mov	ax, es			/ fetch program base
+	add	ax, di			/ Compute the data base and
+	mov	es, ax			/ set up ES:DI to point
+	sub	di, di			/ at it.
+
+0:	pop	ax			/ Pop off initialized data size and
+	call	load			/ load the image.
+
+/	pop	cx			/ Pop off uninitialized data size and
+/	rep				/ clear it.
+/	stosb
+
+	.byte	JMPF			/ Jump to offset
+	.word	0x0100			/ 0x0100 (after base) in system
+1:	.word	SYSBASE 		/ code segment.
+
+////////
+/
+/ Load a segment. The "dx" holds the
+/ seek pointer into the file. The "si" holds
+/ a pointer into the "bbuf". The "es:di" pair
+/ holds the target address. The "ax" holds
+/ the number of bytes to load. On return the
+/ "ax" must equal 0 (the caller assumes this
+/ and uses "al" to clear the BSS).
+/
+////////
+
+load:	or	ax, ax			/ Any left ?
+	jz	return			/ Jump if all loaded.
+
+	mov	cx, $bbuf+BUFSIZE	/ Compute the number of bytes
+	sub	cx, si			/ remaining in the block.
+	jnz	0f			/ Jump if some.
+
+	push	ax			/ Save count registers, then
+	call	iread			/ read the next block
+	pop	ax			/ of the file.
+	mov	cx, $BUFSIZE		/ We now have a full block.
+
+0:	cmp	cx, ax			/ More than we need ?
+	jbe	1f			/ Nope.
+	mov	cx, ax			/ Only take what we need.
+
+1:	sub	ax, cx			/ Fix up the count
+	shr	cx, $1			/
+	add	dx, cx			/ Fix up the seek [word] address, then
+	rep				/ copy the words from the block
+	movsw				/ buffer to the load point and
+	jmp	load			/ loop until done.
+
+////////
+/
+/ Write the character in "al" out to
+/ the display, using routines in the ROM.
+/ Like most calls to the ROM, this routine spends
+/ most of its time saving and restoring the
+/ registers.
+/
+/ Note: The ZF in the PSW word must be preserved.
+/
+////////
+
+putc:	push	si			/ Save registers.
+	push	di
+	push	bp
+
+	mov	bx, $0x0007		/ Page 0, white on black
+	movb	ah, $0x0E		/ Write TTY.
+	int	0x10			/ Call video I/O in ROM.
+
+	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+return: ret				/ Return
+
+////////
+/
+/ Data. There is some pure data in
+/ the "prvd" segment. This data is moved to the
+/ new memory when the boot is relocated. All buffers
+/ are in the BSS, and are not actually moved, or even
+/ saved in the boot block.
+/
+////////
+
+	.prvd
+nbuf:	.ascii	"autoboot"		/ Name buffer.
+	.blkb	DIRSIZE-8		/ rest of buffer
+
+traks:	.word	NTRK
+sects:	.byte	NSPT
+heads:	.byte	NHD
+cntrl:	.byte	CNTRL
+wpcc:	.word	WPCC			/ not used currently
+drive:	.byte	0
+first:	.word	0
+	.word	0
+
+/ msg00:	.ascii	"Boot"
+crlf:	.byte	CR, LF
+
+	.byte	0x55,0xAA
+
+	.bssd
+stack:	.blkb	NSTK			/ Local Stack and name buffer
+bbuf:	.blkb	BUFSIZE 		/ Block buffer [must follow stack].
+iaddr:	.blkw	ND+NIND+NIND 		/ Inode map words.
+
+

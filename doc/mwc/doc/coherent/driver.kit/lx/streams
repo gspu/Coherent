@@ -1,0 +1,97 @@
+.TH STREAMS "" "" "Overview"
+.PC
+.PP
+This article introduces \*(ST.
+.PP
+\*(ST is a programmer's interface for performing modular, character-level
+I/O at the kernel level, but without modifying the kernel itself.
+You can write a program that invokes \*(ST facilities within the kernel,
+but your code does not need to be linked into the kernel itself.
+.\" Add Hal's diagram when xfig is working.
+.PP
+The ``metaphor'' of \*(ST is, as its name suggests, that of streams of
+information being passed between the user's process and the device being
+manipulated.
+At the top of the stream, closest to the user's process, stands the
+.IR "stream head" .
+At the bottom, closest to the hardware, stands the
+.IR "stream driver" .
+In between can stand an indefinite number of modules.
+Two streams run from the stream head, through the modules, to the stream
+driver:
+one stream goes from the head to the driver (``downstream''), while the
+other stream goes from the driver to the head (``upstream'').
+Each stream can consist of one or more queues; each queue has a different
+priority, and a message is read or written in with the priority dictated by
+its queue.
+.PP
+When a user's process wishes to perform I/O with a device, the kernel
+joins it to a stream head.
+The process passes its request to the head via normal system calls, plus
+the additional \*(ST calls
+.B getmsg()
+and
+.BR putmsg() .
+The stream head translates the request into one or more
+.IR messages ,
+which it passes downstream to the first module that stands between it and
+the stream driver.
+A message can convey a request to the stream driver, convey a packet of
+data, or both.
+That module can perform some transformation upon the messages or the data
+they contain, then pass them on to the next module; and so on, until the
+message reaches the stream driver.
+.PP
+The stream driver translates the message into a task to perform with the
+hardware, and executes that task.
+The stream driver, in turn, generates messages.
+The message can consist of a terse reaction,
+such as an error message; it can convey a packet of data; or both.
+The stream driver passes it message or messages
+upstream to the penultimate module; the module performs the same
+transformation it did on
+the message going downstream, only in reverse, and passes the modified message
+upstream.
+This continues until the message reaches the stream head, which translates
+the message into a form that can be understood by the user process.
+.PP
+As you can see, a stream can consist of an indefinite number of modules, each
+of which can modify the messages that pass through it.
+The functions that establish a stream and manipulate it are built into the
+kernel; however, the \*(ST code that comprises the stream head, the stream
+driver, and the modules lies outside of the kernel.
+This modularity and independence of the kernel means that, among other things,
+\*(ST drivers are independent of the operating system \(em in theory, at any
+rate.
+As long as they adhere to the published descriptions of \*(ST, they should run
+on any operating system that has a conforming implementation of \*(ST.
+\*(ST, in effect, separates hardware and software aspects of device drivers.
+.PP
+A full description of \*(ST lies outside the scope of this manual.
+As the \*(CO implementations of \*(ST was performed with the DDI/DKI
+in mind, there is a significant degree of overlap between the structures
+and functions used by both.
+If a function is described as being part of the DDI/DKI, you should assume
+that it is available under \*(ST as well, unless the Lexicon entry explicitly
+says that it is not.
+To begin to explore \*(ST, read the articles
+.B "DDI/DKI data structures"
+and
+.BR "DDI/DKI kernel routines" .
+.\"The \*(CO Device Driver Kit also comes with some example \*(ST drivers.
+.\"For an introduction, look at the files in directory
+.\".BR /etc/conf/echo/src ,
+.\"which gives the sources for a \*(ST version of the command
+.\".BR echo .
+.SH "See Also"
+.B
+device driver,
+DDI/DKI kernel routines,
+internal kernel routines
+.R
+.br
+\*(CO Lexicon:
+.B
+getmsg(),
+putmsg()
+.R

@@ -1,0 +1,215 @@
+.TH "calling conventions" "" "" "Definition"
+.PC
+.PP
+The following presents the calling conventions for \*(CO.
+.PP
+The calling conventions of C take into account machine architecture and
+the fact that the number of arguments passed to a function may vary, as in
+the functions
+.B printf()
+and
+.BR scanf() .
+.PP
+For example, consider the following C program, called
+.BR foo.c :
+.DM
+	short a;
+	long b;
+	char c;
+.DE
+.DM
+	foo()
+	{
+		example(a, b, c);
+	}
+.DE
+.PP
+Compiling this program with the command
+.DM
+	cc -S foo.c
+.DE
+.PP	
+generates the assembly-language code (with added comments):
+.DM	
+.ta 0.5i 1.2i 2.0i 2.5i
+	.alignoff
+	.comm	a,	2	/ a, b, and c are commons in the .bss
+	.comm	b,	4
+	.comm	c,	1
+.DE
+.DM
+.ta 0.5i 1.2i 2.5i
+foo:
+	.text
+	.globl foo
+.DE
+.DM
+.ta 0.5i 1.2i 2.5i
+foo:
+	push	%ebp
+	movl	%ebp, %esp
+	movsxb	%eax, c	/ move c to %eax with sign extend
+	push	%eax	/ pass c
+	push	b	/ pass b
+	movsxw	%eax, a	/ move a to %eax with sign extend
+	push	%eax	/ pass a
+	call	example
+.DE
+.DM
+.ta 0.5i 1.2i 2.5i
+	leave		/ epilog code for foo
+	ret
+	.align	4
+.DE
+.PP
+Note the following points:
+.IP \(bu 0.3i
+Parameters are pushed in reverse order.
+You should not depend on this feature, as the ANSI standard
+says that parameters may be calculated and pushed in any order.
+.IP \(bu
+The stack is reset by the caller, not the callee.
+Only the caller knows the number of parameters pushed.
+.IP \(bu
+All parameters become
+.B int
+or
+.B double
+when passed under Kernighan & Ritchie C.
+This changes under ANSI C.
+.PP
+Now consider the module
+.BR example.c ,
+which gives the receiving end:
+.DM
+	double
+	example(x, y, z)
+	short x;
+	long y;
+	char z;
+	{
+		int tmp;
+.DE
+.DM
+		tmp = x * y;
+		return (tmp + z);
+	}
+.DE
+.PP
+The command
+.DM
+	cc -S example.c
+.DE
+generates the code:
+.DM
+.ta 0.5i 1.2i 2.5i
+	.alignoff
+.sp \n(pDu
+	.text
+	.globl example
+.DE
+.DM
+.ta 0.5i 1.2i 2.5i
+example:
+	enter	$4, $0	/ 4 bytes of local variables
+	push	%edi
+	movl	%eax, 12(%ebp)	/ x * y
+	imull	8(%ebp)	/ 8 == 4 + sizeof(int)
+	movl	-4(%ebp), %eax	/ save into tmp
+	movl	%edi, 16(%ebp)	/ tmp + z
+	addl	%edi, %eax	/ return double in EDX:EAX
+	movl	%eax, %edi
+	call	_dicvt
+	pop	%edi
+.DE
+.DM
+.ta 0.5i 1.2i 2.5i
+	leave		/ leave with result in %eax:%edx
+	ret
+	.align	4
+.DE
+.PP
+After the prologue code, the stack always looks like
+.ie p .PH 1 1 \*(XD/callingcon.eps
+.el \{\
+.ie \n(HT .PH callingcon.xbm
+.el \{\
+.DM
+	=========================	\(<- High addresses
+	| passed parameters     |
+	=========================	4(%ebp)
+	| return address        |
+	=========================	\(<- %ebp
+	| saved %ebp            |
+	=========================	-4(%ebp)
+	| local variables       |
+	=========================
+	| other saved registers |
+	| may include %esi,     |
+	| %edi and %ebx         |
+	=========================	\(<- %esp
+.DE\}
+\}
+.PP
+Notice that parameters start at
+.DM
+	[4 + \fIfirst parm size\fP](%ebp)
+.DE
+.PP
+and go to
+higher addresses, whereas local variables start at
+.DM
+	\-4(%ebp)
+.DE
+.PP
+and go to lower addresses.
+Therefore, if you have a local array and overwrite it in the
+forward direction, you clobber your caller's \fB%ebp\fR;
+if you overwrite it in the
+backward direction, you clobber your caller's register variables
+(although if the caller has no register variable, it's harmless).
+.PP
+On the 80386, the stack starts at 0x80000000 and grows down being expanded
+by the system as it is needed.
+Reasonable programs should never
+have stack-overflow problems, as they did under \*(CO 286.
+.PP
+Note that the convention for returning floating-point numbers
+differ depending upon whether a program uses software floating-point
+emulation, or hardware floating-point code as invoked by the
+.B cc
+option
+.BR \-VNDP .
+Programs that use hardware floating point return
+.B double
+in the NDP stack top
+.BR $st0 .
+.\"If you compile the above example program with the command
+.\".DM
+.\"	cc -S -VNDP example.c
+.\".DE
+.\".PP
+.\"you see the following:
+.\".DM
+.\"	.alignoff
+.\".sp \n(pDu
+.\"	.text
+.\"	.globl example
+.\".DE
+.\".DM
+.\"example:
+.\"	enter	$4, $0
+.\"	movl	%eax, 12(%ebp)
+.\"	imull	8(%ebp)
+.\"	movl	-4(%ebp), %eax
+.\"	movl	%eax, 16(%ebp)
+.\"	addl	%eax, -4(%ebp)
+.\"	push	%eax
+.\"	call	_dicvt
+.\"	leave
+.\"	ret
+.\"	.align	4
+.\".DE
+.SH "See Also"
+.Xr "C language," c_languag
+.Xr "Programming COHERENT," programmi

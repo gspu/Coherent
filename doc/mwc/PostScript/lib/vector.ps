@@ -1,0 +1,120 @@
+% vector.ps 11/27/90
+% Elementary vector operations.
+% No dimension checking.
+% The cross product here assumes 3 dimensions, others are general.
+
+/vectordict 10 dict def		% /v /s /len /v0 /v[12][xyz]
+
+% Magnitude (absolute value): s = |v|.
+% Could use dot product of v with itself, but more efficient this way.
+% v vabs s
+/vabs
+{
+	0 exch
+	{ dup mul add } forall
+	sqrt
+} bind def
+
+% Reduce to unit vector: v = v / |v|.
+% v vcarat
+/vcarat
+{
+	dup vabs 1 exch div vsmul
+} bind def
+
+% Negate vector: v = -v.
+% v vneg
+/vneg
+{
+	vectordict begin
+	/v exch def
+	v { neg } forall		% -v1 ... -vn
+	v astore pop
+	end
+} bind def
+
+% Multiply vector by scalar: v = v*s.
+% v s vsmul
+/vsmul
+{
+	vectordict begin
+	/s exch def
+	/v exch def
+	v { s mul } forall	% v1*s ... vn*s
+	v astore pop
+	end
+} bind def
+
+% Add two vectors: v0 = v1 + v2.
+% v0 v1 v2 vvadd
+/vvadd
+{
+	vectordict begin
+	aload				% v0 v1 v21 ... v2n v2
+	/len exch length 1 add def	% length of v2 + 1
+	len -1 roll			% v0 v21 ... v2n v1
+	{				% v0    ...      v1i
+		len -1 roll		% v0    ...  v1i v2i
+		add			% v0    ...  v1i+v2i
+	} forall			% v0 v11+v21 ... v1n+v2n
+	len -1 roll			% v11+v21 ... v1n+v2n v0
+	astore pop
+	end
+} bind def
+
+% Scalar (dot) product of two vectors: s = v1 dot v2.
+% v1 v2 vvdot s
+/vvdot
+{
+	vectordict begin
+	aload				% v1 v21 ... v2n v2
+	/len exch length 2 add def	% length of v2 + 2
+	0				% v1 v21 ... v2n 0
+	len -1 roll			% v21 ... v2n 0 v1
+	{				% forall v1i
+		len -1 roll		% ... sum v1i v2i
+		mul add			% ... sum+v1i*v2i
+		len 1 sub /len exch def
+	} forall			% sum
+	end
+} bind def
+
+% Subtract two vectors: v0 = v1 - v2.
+% v0 v1 v2 vvsub
+/vvsub
+{
+	vectordict begin
+	aload				% v0 v1 v21 ... v2n v2
+	/len exch length 1 add def	% length of v2 + 1
+	len -1 roll			% v0 v21 ... v2n v1
+	{
+		len -1 roll		% v0 ... v1i v2i
+		sub			% v0 ... v1i+v2i
+	} forall			% v0 v11+v21 ... v1n+v2n
+	len -1 roll			% v11+v21 ... v1n+v2n v0
+	astore pop
+	end
+} bind def
+
+% Cross product of two vectors: v0 = v1 x v2.
+% v0 v1 v2 vvcross
+/vvcross
+{
+	vectordict begin
+	aload pop		% v0 v1 v2x v2y v2z
+	/v2z exch def
+	/v2y exch def
+	/v2x exch def
+	aload pop		% v0 v1x v1y v1z
+	/v1z exch def
+	/v1y exch def
+	/v1x exch def
+	/v0 exch def
+	v1y v2z mul v1z v2y mul sub
+	v1z v2x mul v1x v2z mul sub
+	v1x v2y mul v1y v2x mul sub
+	v0 astore pop
+	end
+} bind def
+
+% end of vector.ps

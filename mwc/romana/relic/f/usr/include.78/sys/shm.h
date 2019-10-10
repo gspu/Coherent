@@ -1,0 +1,72 @@
+/* (-lgl
+ * 	COHERENT Version 3.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+#ifndef __SYS_SHM_H__
+#define	__SYS_SHM_H__
+/*
+**	IPC Shared Memory Facility.
+*/
+#include <sys/ipc.h>
+#include <sys/_time.h>
+
+extern int shmfd;		/* file descriptor to access shared memory */
+
+/*
+**	Permission Definitions.
+*/
+#define	SHM_R	0400		/* read permission */
+#define	SHM_W	0200		/* write permission */
+
+/*
+**	ipc_perm Mode Definitions.
+*/
+#define	SHM_CLEAR	01000	/* clear segment on next attach */
+#define	SHM_DEST	02000	/* destroy segment when # attached = 0 */
+
+/*
+**	Message Operations Flags.
+*/
+#define	SHM_RDONLY	010000	/* attach read-only (else read-write) */
+#define SHM_RND		020000	/* round attach address to SHMLBA */
+
+/* 
+ * Shared memory control operations (are not included in iBCS2)
+ * COHERENT 4.0.x does not use a swapper.
+ */
+#define	SHM_LOCK	3	/* lock shared memory segment in core */
+#define SHM_UNLOCK	4	/* unlock shared memory segment */
+
+/*
+**	There is a shared mem id data structure for each segment in the system.
+*/
+struct shmid_ds {
+	struct ipc_perm	shm_perm;	/* operation permission struct */
+	int		shm_segsz;	/* segment size */
+#ifdef _I386
+	unsigned short	shm_cpid;	/* pid of creator */
+	unsigned short	shm_lpid;	/* pid of last shmop */
+#else
+	unsigned short	shm_lpid;	/* pid of last shmop */
+	unsigned short	shm_cpid;	/* pid of creator */
+#endif
+	unsigned short	shm_nattch;	/* current # attached */
+#ifndef _I386
+	unsigned short	shm_cnattch;	/* in memory # attached */
+#endif
+	time_t		shm_atime;	/* last shmat time */
+	time_t		shm_dtime;	/* last shmdt time */
+	time_t		shm_ctime;	/* last change time */
+};
+
+/*
+**	Ioctl Commands issued to Shared Memory Device Driver (on Coherent).
+*/
+#define	SHMIOC	('H'<<8)
+#define	SHMCTL	(SHMIOC+'C')
+#define	SHMGET	(SHMIOC+'G')
+#define	SHMAT	(SHMIOC+'A')
+#define	SHMDT	(SHMIOC+'D')
+
+#endif

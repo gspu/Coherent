@@ -1,0 +1,433 @@
+;ISIS2 05/21/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;statement routines for ISIS-II version SAVE and LOAD, plus GTFIL
+
+	if	isis2		;ISIS-II versions
+
+	if	rtpak		;UF error in Runtime Module version
+save	equ	uferr
+load	equ	uferr
+	else
+
+;^B exit to ISIS-II
+	if	debug
+boot	equ	0		;^B gets MDS monitor rather than ISIS-II
+	else
+boot:	mvi	c,exitf
+	lxi	d,exblk
+	call	isis		;return to ISIS
+	endif
+
+;SAVE <filename>
+save:	call	prntm		;print SAVING message
+	db	'SAVING', ' ' or 80H
+	mvi	a,2		;set A for writing
+	call	gtfil		;get file name and open it
+	shld	wrblk		;set aft of write block
+	jnc	savea		;ASCII save
+	ora	a
+	jnz	saveh		;HEX save
+	if	romsq
+	lhld	sourc
+	else
+	lxi	h,srcad
+	endif
+	shld	wrblk+2		;set starting address = srcad
+	if	romsq
+	push	d
+	call	last
+	pop	d
+	else
+	lhld	eofad		;eof addr to HL
+	endif
+	dad	d		;length of file to HL
+	shld	wrblk+4		;set count for write
+	call	isisw		;write the file
+isisc:	mvi	c,dkclf		;close the file and return
+	lxi	d,clblk
+isise:	call	isis
+	lda	estat
+	ora	a		;check error status
+	rz			;no error
+	mvi	c,erri2
+	lxi	d,estat
+	call	isis		;issue ISIS error, fall through to DKERR
+dkerr:	error	f, D, K		;fatal DK error
+;ASCII SAVE
+savea:	lda	omode
+	push	psw		;save output mode
+	mvi	a,80H
+	sta	omode		;80H to OMODE to indicate ASCII save
+	call	save0		;initialize file block
+	lxi	b,-1
+	call	list1		;list the program to disk file
+	mvi	c,cntlz
+	call	dwrit		;followed by eof
+	pop	psw
+	sta	omode		;restore omode value
+	jmp	isisc		;close the file and return
+;SAVE0 initializes WRBLK to write 1 char from TEMP2,
+;returns first program loc in HL.
+save0:	lxi	h,temp2
+	shld	wrblk+2		;file chars passed in temp2
+	lxi	h,1
+	shld	wrblk+4		;set count = 1 char per call
+	if	romsq
+	lhld	sourc
+	else
+	lxi	h,srcad
+	endif
+	ret
+;HEX SAVE
+saveh:	xchg			;-first to HL
+	shld	temp		;and saved
+	call	save0		;initialize WRBLK
+	push	h		;save first
+	if	romsq		;last address to HL
+	call	last
+	else
+	lhld	eofad
+	endif
+	xchg			;last to DE
+	pop	h		;first to HL
+	dcx	h		;first - 1
+;convert the file to hex and write it
+savh1:	push	h		;save current
+	lxi	b,10H		;max record length to BC
+	dad	b		;current + max to HL
+	call	cmdhu		;compare eof to current + max
+	pop	h		;restore current
+	mov	a,c		;max to A
+	jnc	savh2		;eof >= current + max, write max
+	mov	a,e
+	sub	l
+	inr	a		;eof+1 - current = remaining to be written
+	jz	savh4		;current = eof+1, just write eof record
+savh2:	push	d		;save eof address
+	mov	e,a		;length to  E
+	mvi	d,0		;checksum to D
+	mvi	c,':'
+	call	dwrit		;write record mark
+	mov	a,e
+	call	wbyte		;write length
+	call	waddr		;write address and record type
+savh3:	mov	a,m		;fetch data byte
+	inx	h
+	call	wbyte		;write data
+	dcr	e
+	jnz	savh3		;write more data
+	call	wcsum		;write the checksum
+	pop	d		;restore eof address
+	jmp	savh1		;and do more
+;write eof record
+savh4:	mvi	c,':'
+	call	dwrit		;write :
+	xra	a
+	mov	d,a		;checksum to D
+	call	wbyte		;write record length = 0
+	if	romsq
+	lhld	sourc
+	dcx	h
+	else
+	lxi	h,srcad-1
+	endif
+	call	waddr		;write starting address 0 and record type
+	call	wcsum		;write the checksum
+	mvi	c,cntlz
+	call	dwrit		;write eof
+	jmp	isisc		;close file and return
+
+
+;LOAD <filename>
+load:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	call	prntm		;print LOADING message
+	db	'LOADING', ' ' or 80H
+	mvi	a,1		;set A for reading
+	call	gtfil		;get file name, open it
+	shld	rdblk		;set aft of read param block
+	jnc	loada		;ASCII load
+	ora	a
+	jnz	loadh		;HEX load
+	lxi	h,srcad
+	shld	rdblk+2		;set starting address = srcad
+	lhld	memt
+	dad	d		;max possible program length to HL
+	shld	rdblk+4		;and then to read block
+	call	new		;clobber old program
+	call	isisr		;read the file
+	call	isisc		;close the file
+	lxi	d,srcad-1	;first addr - 1 to DE
+	lhld	temp		;actual count to HL
+	dad	d		;compute eof address
+load1:	mov	a,m
+	ora	a
+	jz	dmodx		;all is well
+load2:	call	new		;else erase the bad prog
+	jmp	dkerr		;and issue DK error
+isisr:	mvi	c,dkrdf
+	lxi	d,rdblk
+	jmp	isise
+;ASCII load
+loada:	call	load0		;set RDBLK and clobber old program
+	lda	omode
+	push	psw		;save OMODE
+	mvi	a,7FH
+	sta	omode		;set OMODE for ASCII load
+loda1:	call	gtlin		;get a line
+	call	tkize		;tokenize it
+	jc	loda1		;ignore if no line #
+	cnz	addln		;add to source
+	jmp	loda1		;and keep loading
+;LOAD0 initializes RDBLK to read 1 char to TEMP2.
+load0:	lxi	h,temp2
+	shld	rdblk+2
+	lxi	h,1
+	shld	rdblk+4
+	jmp	new
+;HEX load
+loadh:	call	load0		;initialize RDBLK and clobber old program
+lodh1:	call	dread		;read a char from hex file
+	sui	':'
+	jnz	lodh1		;not record mark, retry
+	mov	d,a		;0 for checksum to D
+	call	rbyte		;read a file byte
+	jz	lodh3		;eof record
+	mov	e,a		;else record length to E
+	call	rbyte		;read destination msb
+	push	psw		;and save
+	call	rbyte		;read destination lsb
+	pop	h		;destination msb to H
+	mov	l,a		;destination now in HL
+	lxi	b,srcad-1	;base address to BC
+	dad	b		;add to base address for actual destination
+	call	rbyte		;skip type byte
+lodh2:	call	rbyte		;read a data byte
+	mov	m,a		;and store
+	inx	h		;address next
+	dcr	e
+	jnz	lodh2		;load another data byte
+	call	rbyte		;read checksum
+	jnz	loadx		;checksum error
+	dcx	h		;point to last loaded byte
+	shld	eofad		;and reset EOFAD in case end of program
+	jmp	lodh1		;load next record
+lodh3:	call	isisc		;close the file
+	lhld	eofad		;point to end of file
+	jmp	load1
+loadx:	call	isisc		;close the file after error
+	jmp	load2		;erase bad program, issue DK error
+
+
+;The ISIS-II version of GTFIL gets a file name and opens the file.
+;The filename is [:device:]"<filename>" [, {A | H} ] .
+;Call:	A	1 to read, 2 to write
+;	HL	address of message to print (SAVING or LOADING)
+;Retn:	Carry	Reset iff ASCII specified (with ,A)
+;	A	0 for .XYB, 1 for .HEX
+;	DE	- first address of source + 1
+;	HL	aft of opened file
+devf0:	db	':F0:', 80H	;default device name to copy
+basft:	db	'.BAS ', 80H	;file type to copy
+xybft:	db	'.XYB ', 80H	;file type to copy
+hexft:	db	'.HEX ', 80H	;file type to copy
+gtfil:	sta	opblk+4		;set access mode of open parameter block
+	mvi	d,':'
+	call	gtd		;look for device name
+	lxi	d,fname		;file name addr to DE
+	jc	gtfl0		;no device name, take default
+	call	gtchd		;store :, read 1st char
+	call	gtchd		;store 1st, read 2nd char
+	call	gtchd		;store 2nd, read :
+	cpi	':'
+	jnz	snerr		;no :
+	call	gtchd		;store :, read "
+gtfl1:	cpi	'"'
+	jnz	snerr		;no "
+	call	gtild		;get first filename char
+	jc	snerr		;not letter or digit, SN error
+	mvi	b,5		;max # chars in filename is 6
+gtfl2:	stax	d		;store filename char
+	inx	d
+	call	writc		;echo the char
+gtfl3:	call	gtild		;get next filename char
+	jc	gtfl4		;no more filename chars
+	dcr	b
+	jp	gtfl2		;store and get next
+	jmp	gtfl3		;too long, skip storing
+gtfl4:	push	d		;save next fname addr
+	call	wcrlf		;write cr and lf
+	mvi	d,'"'
+	call	gtdsn		;skip close quote
+	call	gtcom		;look for comma
+	lxi	d,xybft		;XYB filetype addr to DE
+	mvi	a,0		;0 to A in case .XYB
+	cnc	gtfl5		;use other filetype instead if comma
+	pop	h		;next fname addr to HL
+	push	psw		;save carry status
+	call	cpyst		;copy file type to FNAME
+	mvi	c,dkopf
+	lxi	d,opblk
+	call	isise		;open the file
+	if	romsq
+	lhld	sourc
+	dcx	h		;address preceding source to HL
+	xchg			;and then to DE
+	else
+	lxi	d,srcad-1	;address preceding source to DE
+	endif
+	call	cplde		;- first address + 1
+	lhld	aft		;aft to HL
+	pop	psw		;restore carry status
+	ret
+gtfl5:	mvi	d,'A'
+	call	gtd		;look for A
+	lxi	d,basft
+	rnc			;gotcha, return Carry reset
+	mvi	d,'H'
+	call	gtdsn		;SN error if neither H nor A
+	lxi	d,hexft
+	mvi	a,1
+	stc			;return Carry, A = 1 if HEX
+	ret
+gtfl0:	xchg			;FNAME addr to HL
+	lxi	d,devf0		;default device name addr to DE
+	call	cpyst		;copy :F0: to FNAME
+	dcx	h		;HL points to next FNAME loc available
+	xchg			;DE points to next
+	call	gtcha		;get next char
+	jmp	gtfl1		;and continue as above
+gtchd:	stax	d
+	inx	d
+	jmp	gtcha
+
+;routines for disk i/o
+
+;DKOUT writes a character from C to the open disk file
+dkout:	lxi	h,temp2
+	mov	m,c		;character to temp2 for writing
+isisw:	mvi	c,dkwrf
+	lxi	d,wrblk
+	jmp	isise		;write the char and return
+
+;DLOAD reads char from disk for ASCII LOAD
+dload:	call	drea1		;read char
+	jnz	pop3		;return unless eof
+	call	isisc		;close the file
+	lxi	sp,stack-4	;omode and nexts return pushed
+	pop	psw
+	sta	omode		;restore omode
+	jmp	dmod2		;and return to direct mode
+
+;DREAD reads char for HEX LOAD
+dread:	push3
+	call	drea1
+	jnz	pop3
+	jmp	loadx		;eof read
+
+;DREA1 is called from DLOAD and DREAD to read a disk char.
+;Retn:	A	char read
+;	BCDEHL	clobbered
+;	Zero	set iff eof
+drea1:	call	isisr		;read char to TEMP2
+	lda	temp		;fetch actual count
+	ora	a
+	rz			;actual = 0, i.e. eof
+	lda	temp2		;else fetch char read
+	ani	7FH		;remove parity bit
+	cpi	cntlz		;Zero set iff eof
+	ret
+
+;routines for HEX LOADing and SAVEing
+;INTEL HEX format is a series of records, with all info in ASCII:
+;frame 0	record mark ':' [3AH]
+;frames 1-2	record length n, hex number 0-FFH [0 for eof;  here max=10H]
+;frames 3-6	load address
+;frames 7-8	record type [here 0]
+;frames 9 - 8+2*n	data
+;frames 9+2*n - 10+2*n	checksum  [negated sum mod 256 of preceding items]
+
+;WASCI converts A3-A0 to ASCII and falls through to DWRIT to write
+wasci:	ani	0FH		;00H, ..., 09H, 0AH, ..., 0FH
+	adi	90H		;90H, ..., 99H, 9AH, ..., 9FH
+	daa			;90H, ..., 99H, 00H+C,...,05H+C
+	aci	40H		;D0H, ..., D9H, 41H, ..., 46H
+	daa			;30H, ..., 39H, 41H, ..., 46H
+	mov	c,a		;pass value to write through C
+				;and fall through to DWRIT
+dwrit:	push4
+	call	dkout		;write the char
+	jmp	pop4
+
+;WBYTE writes byte from A as two ASCII bytes, updating checksum in D
+wbyte:	push	psw
+	rrc
+	rrc
+	rrc
+	rrc
+	call	wasci		;convert left nibble to ascii and write
+	pop	psw
+	push	psw
+	call	wasci		;convert right nibble to ascii and write
+	pop	psw
+	add	d
+	mov	d,a		;update checksum
+	ret
+
+;WADDR writes address from HL (subtracting loading bias), and record type.
+waddr:	push	h
+	push	d
+	xchg			;address to DE
+	lhld	temp		;-first to HL
+	dad	d		;load address to HL
+	pop	d
+	mov	a,h
+	call	wbyte		;write high byte
+	mov	a,l
+	call	wbyte		;write low byte
+	xra	a
+	call	wbyte		;write record type = 0
+	pop	h
+	ret			;and return
+
+;WCSUM writes the checksum from D, followed by CR and LF.
+wcsum:	xra	a
+	sub	d
+	call	wbyte		;write checksum
+	mvi	c,cr
+	call	dwrit
+	mvi	c,lf
+	jmp	dwrit		;write cr and lf and return
+
+;RBYTE reads two ASCII bytes and builds binary char, updating checksum in D.
+;Retn:	A	char read
+;	C	clobbered
+;	D	updated checksum
+;	BEHL	preserved
+;	Zero	set iff new checksum = 0
+rbyte:	call	dread		;read a byte
+	call	ishex		;convert ASCII to binary
+	jc	loadx		;not an ASCII hex digit, abort
+	rlc
+	rlc
+	rlc
+	rlc
+	mov	c,a		;high nibble to C
+	call	dread		;read another
+	call	ishex
+	jc	loadx		;not ASCII hex digit
+	ora	c		;form complete byte from nibbles
+	mov	c,a		;and save
+	add	d		;update checksum
+	mov	d,a		;and checksum to D
+	mov	a,c		;restore result to A
+	ret
+
+	endif			;end of NOT RTPAK conditional
+	endif			;end of ISIS2 conditional
+
+
+;end of ISIS2
+	page

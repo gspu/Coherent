@@ -1,0 +1,179 @@
+.TH at "" "" "Device Driver"
+.PC "Drivers for hard-disk partitions"
+.PP
+.II /dev/at*
+.II /dev/rat*
+.II "hard disk^driver, AT"
+.II "AT hard disk^driver"
+.II "driver^AT hard disk"
+.II "device driver^AT hard disk"
+.B /dev/at*
+are the \*(CO system's AT devices for the hard-disk's partitions.
+Each device is assigned major-device number 11,
+and may be accessed as a block- or character-special device.
+.PP
+.B at
+handles two drives with up to four partitions each:
+.IP \(bu 0.3i
+Minor devices 0 through 3 identify the partitions on drive 0.
+.IP \(bu
+Minor devices 4 through 7 identify the partitions on drive 1.
+.IP \(bu
+Minor device 128 allows access to all of drive 0.
+.IP \(bu
+Minor device 129 allows access to all of drive 1.
+.PP
+To modify
+the offsets and sizes of the partitions, use the command
+.B fdisk
+on the special device for each drive (minor devices 128 and 129).
+.PP
+To access a disk partition through \*(CO,
+directory
+.B /dev
+must contain a device file that has the appropriate type,
+major and minor device numbers, and permissions.
+To create a special file for this device, invoke the command
+.B mknod
+as follows:
+.DM
+	/etc/mknod /dev/at0a b 11   0 ; : drive 0, partition 0
+	/etc/mknod /dev/at0b b 11   1 ; : drive 0, partition 1
+	/etc/mknod /dev/at0c b 11   2 ; : drive 0, partition 2
+	/etc/mknod /dev/at0d b 11   3 ; : drive 0, partition 3
+	/etc/mknod /dev/at0x b 11 128 ; : drive 0, partition table
+.DE
+.SH "Drive Characteristics"
+.II "IDE drives^characteristics"
+When processing BIOS I/O requests prior to booting \*(CO, many IDE
+drives use translation-mode drive parameters: number of heads, cylinders,
+and sectors per track.
+These numbers are called ``translation-mode''
+parameters because they do not reflect true physical drive geometry.
+The translation-mode parameters used by the BIOS code present on your
+host adapter can be obtained using the command
+.B info
+from within the tertiary-boot routine
+.BR tboot .
+(For details on
+.BR info ,
+see the Lexicon entry for
+.BR tboot .)
+It is often necessary to patch the
+.B at
+driver with BIOS values of translation-mode parameters in order to boot
+\*(CO on IDE hard drives.
+In \*(CO versions 3.1.0 and later, drive parameters are stored in table
+.B atparm
+in the driver.
+For the first hard drive, number of cylinders is a short (two-byte) value at
+.BR atparm+0 ,
+number of heads is a single byte at
+.BR atparm+2 ,
+and number of sectors per track is a single byte at
+.BR atparm+14 .
+For the second hard drive, number of cylinders is a short value at
+.BR atparm+16 ,
+number of heads is a single byte at
+.BR atparm+18 ,
+and number of sectors per track is a single byte at
+.BR atparm+30 .
+For example, if
+.B testcoh
+is a kernel linked with the
+.B at
+driver and you want to patch it for a second hard drive with 829
+cylinders, 10 heads, and 26 sectors per track, you can do:
+.DM
+	/conf/patch testcoh atparm+16=829:s atparm+18=10:c atparm+30=26:c
+.DE
+.PP
+To read the characteristics of a hard disk once the
+.B at
+driver is running, use the call to
+.B ioctl
+of the following form:
+.DM
+	#include <sys/hdioctl.h>
+	hdparm_t hdparms;
+		. . .
+	ioctl(fd, HDGETA, (char *)&hdparms);
+.DE
+.PP
+where
+.I fd
+is a file descriptor for the hard\-disk device
+and
+.I hdparms
+receives the disk characteristics.
+.SH "Non-Standard and Unsupported Types of Drives"
+Prior releases of the the \*(CO
+.B at
+hard-disk driver would not support disk drives whose
+geometry was not supported by the BIOS disk parameter tables.
+\*(CO adds support for these drives during installation
+by ``patching'' the disk parameters into the bootstrap and the
+.B /coherent
+image on the hard disk.
+.SH Files
+.nf
+\fB/dev/at*\fR \(em Block-special files
+.br
+\fB/dev/rat*\fR \(em Character-special files
+.fi
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr fdisk, fdisk 
+.Xr hai, hai
+.Xr ideinfo ideinfo
+.SH Notes
+.II polling^ATSREG
+.II "kernel^ATSREG variable"
+The driver
+.B at
+offers two varieties of polling:
+normal and alternate.
+Normal, as its name implies, is used with most varieties of AT controllers.
+Alternate polling is for Perstor controllers and some other older equipment.
+Using the wrong type of polling
+causes frequent controller timeouts and bad-track messages.
+.PP
+.B at
+also lets you specify the number of seconds to wait for a response
+from the drive after an I/O request.
+The default value is six.
+Some IDE drives occasionally become unresponsive for long intervals
+(several seconds) while control firmware makes adjustments to drive operation.
+.PP
+To set either the type of polling or the default waiting period,
+.B su
+to the superuser
+.BR root ;
+then
+.B cd
+to directory
+.B /etc/conf
+and run the script
+.BR at/mkdev .
+This script will walk you through describing your AT controller to \*(CO.
+Once you have run this script, execute the command
+.DM
+	/etc/conf/bin/idmkcoh -o cohtest
+.DE
+.PP
+to create a test kernel that incorporates your changes; then reboot your
+system and invoke the new kernel, as described in the Lexicon entry
+.BR booting .
+Note that the changes you make to the driver will not be seen by your
+\*(CO system until you boot the new kernel.
+.PP
+.II "Conner drives"
+The
+.B at
+driver lets you have up to two AT hard disks on your system.
+Note, however, that in our experience,
+it is very difficult to combine different brands of AT hard disks
+and have both run successfully.
+This is especially true with Conner drives, which apparently
+do not cooperate with other IDE drives as master and slave.
+.I "Caveat utilitor."

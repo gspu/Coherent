@@ -1,0 +1,86 @@
+# Generated from mkdev.sh on Wed Aug 10 15:41:21 1994 CDT
+# at/mkdev - get AT-compatible hard drive device info
+# Revised: Tue Mar  1 14:36:52 1994 CST
+
+DEVDIR=/dev
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+
+. $CONF_DIR/bin/conf_lib.sh
+
+#################
+# require_poll
+#
+# validation for read_input of normal/alternate polling option
+#################
+
+require_poll () {
+	case $1 in
+	a|n)
+		return 0
+		;;
+	esac
+	echo "n = normal polling, a = alternate polling, <Enter> = no change"
+	return 1
+}
+
+# Things to do:
+
+#	Ask if the driver should be enabled.
+#
+#	Configure driver constants.
+
+echo "\nAT-type hard drive (IDE, RLL, MFM, or compatible)."
+set_enable_status at
+
+# Driver configuration..
+
+read_input "Change AT-type hard disk controller configuration" \
+  ANS "n" require_yes_or_no
+
+if is_yes $ANS; then
+	echo "
+If you are not sure how to set any of the following parameters, just hit
+<Enter> to keep the current setting.  Further information can be found
+in your host adapter documentation, as well as in COHERENT files
+/etc/conf/mtune and /etc/conf/at/Space.c.
+"
+	while : ; do
+
+		tune ATSECS_SPEC "AT HD controller timeout seconds"
+
+		get_tunable ATSREG_SPEC atsreg
+
+		if [ $atsreg -eq 0x3f6 ];then
+			at_polling=n
+		elif [ $atsreg -eq 0x1f7 ];then
+			at_polling=a
+		else
+			at_polling=???
+		fi
+
+		read_input "AT HD controller polling n=normal a=alternate" \
+		  new_at_polling $at_polling require_poll
+
+		is_equal $at_polling $new_at_polling || {
+			if is_equal $new_at_polling n; then
+				echo "Polling changed to normal."
+				atsreg=0x3f6
+			else
+				echo "Polling changed to alternate."
+				atsreg=0x1f7
+			fi
+		}
+
+		$CONF_DIR/bin/idtune -f ATSREG_SPEC $atsreg
+
+		read_input "\nIs AT HD controller configuration correct" ANS "y" \
+		  require_yes_or_no
+		is_yes $ANS && break
+	done
+fi
+
+exit 0

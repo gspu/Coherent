@@ -1,0 +1,125 @@
+.TH mktime() "" "" "Time Function (libc)"
+.PC "Turn broken-down time into calendar time"
+.B "#include <time.h>"
+\fBtime_t mktime(\fItimeptr\^\fB)\fR
+\fBstruct tm *\fItimeptr\^\fB;\fR
+.PP
+.II "calendar time^create from broken-down time"
+.B mktime()
+reads broken-down time from the structure pointed to by
+.I timeptr
+and converts it into calendar time of the type
+.BR time_t .
+It does the opposite of the functions
+.B localtime()
+and
+.BR gmtime() ,
+which turn calendar time into broken-down time.
+.PP
+.B mktime()
+manipulates the structure
+.B tm
+as follows:
+.IP \fB1.\fR 0.3i
+It reads the contents of the structure, but ignores the fields
+.B tm_wday
+and
+.BR tm_yday .
+.IP \fB2.\fR
+The original values of the other fields within the
+.B tm
+structure are not restricted.
+This allows you, for example, to increment the member
+.B tm_hour
+to discover the calendar time one hour hence, even if that forces
+the value of
+.B tm_hour
+to be greater than 23, its normal limit.
+.IP \fB3.\fR
+When calculation is completed, the values of the fields within the
+.B tm
+structure are reset to within their normal limits
+to conform to the newly calculated calendar time.
+The value of
+.B tm_mday
+is not set until after the values of
+.B tm_mon
+and
+.BR tm_year .
+.IP \fB4.\fR
+The calendar time is returned.
+.PP
+If the calendar time cannot be calculated,
+.B mktime
+returns \-1 cast to
+.BR time_t .
+.SH Example
+This example gets the date from the user and writes it into a
+.B tm
+structure.
+.DM
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#define BAD_TIME ((time_t)-1)
+.DE
+.DM
+/* ask for a number and return it. */
+int askint(msg)
+char *msg;
+{
+	char buf[20];
+.DE
+.DM
+	printf("Enter %s ", msg);
+	fflush(stdout);
+.DE
+.DM
+	if(gets(buf) == NULL)
+		exit(EXIT_SUCCESS);
+	return(atoi(buf));
+}
+.DE
+.DM
+main()
+{
+	struct tm t;
+.DE
+.DM
+	for(;;) {
+		t.tm_mon  = askint("month") - 1;
+		t.tm_mday = askint("day");
+		t.tm_year = askint("year") - 1900;
+		t.tm_hour = t.tm_min = t.tm_sec = 1;
+.DE
+.DM
+		if(BAD_TIME == mktime(&t)) {
+			printf("Invalid date\en");
+			continue;
+		}
+.DE
+.DM
+		printf("Day of week is %d\en", t.tm_wday);
+		break;
+	}
+	return(EXIT_SUCCESS);
+}
+.DE
+.SH "See Also"
+.Xr "clock()," clock.l
+.Xr "difftime()," difftime
+.Xr "libc," libc
+.Xr "time [overview]" time.a
+.br
+\*(AS, \(sc7.12.2.3
+.br
+\*(PX Standard, \(sc8.1
+.SH Notes
+The above description may appear to be needlessly complex.
+However, the Committee intended that
+.B mktime()
+be used to implement a portable mechanism for determining time
+and for controlling time-dependent loops.
+This function is needed because not every environment
+describes time internally as a multiple of a known time unit.

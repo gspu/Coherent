@@ -1,0 +1,78 @@
+////////
+/
+/ Intel 8086 C runtime.
+/ SMALL model.
+/
+////////
+
+	.globl	vlrem
+	.globl	vrrem
+
+////////
+/
+/ unsigned long
+/ vrrem(a, b);
+/ unsigned long a;
+/ unsigned long b;
+/
+/ unsigned long
+/ vlrem(a, p);
+/ unsigned long a;
+/ unsigned long *p;
+/
+/ these two routines perform 32 bit unsigned remainder.
+/ they are called by the compiler when a user program performs an
+/ unsigned long remainder, and are called by the library routines
+/ that perform long remainder.
+/
+////////
+
+alow	=	8
+ahigh	=	10
+blow	=	0
+bhigh	=	2
+
+vlrem:	mov	ax,bx			/ save bx.
+	mov	bx,sp			/ point bx at
+	mov	bx,6(bx)		/ the operand and
+	jmp	L0			/ go to common end.
+
+vrrem:	mov	ax,bx			/ save bx.
+	mov	bx,sp			/ point bx at
+	lea	bx,6(bx)		/ the operand.
+
+L0:	push	si			/ standard
+	push	di			/ c
+	push	bp			/ function
+	mov	bp,sp			/ linkage.
+
+	push	ax			/ save saved bx.
+	mov	si,ahigh(bp)		/ pick up
+	mov	di,alow(bp)		/ dividend.
+	sub	dx,dx			/ clear out the
+	sub	ax,ax			/ the upper half of the mq.
+
+	mov	cx,$32			/ step count.
+
+L1:	shl	di,$1			/ shift
+	rcl	si,$1			/ one
+	rcl	ax,$1			/ bit
+	rcl	dx,$1			/ left.
+
+	cmp	dx,bhigh(bx)		/ does it go in ??
+	jb	L3			/ nope.
+	ja	L2			/ yes.
+	cmp	ax,blow(bx)		/ maybe ??
+	jb	L3			/ nope.
+
+L2:	sub	ax,blow(bx)		/ subtract the
+	sbb	dx,bhigh(bx)		/ divisor (don't maintain quotient).
+
+L3:	loop	L1			/ do this 32 times.
+
+	pop	bx			/ restore bx.
+	mov	sp,bp			/ standard
+	pop	bp			/ c
+	pop	di			/ function
+	pop	si			/ linkage.
+	ret				/ done.

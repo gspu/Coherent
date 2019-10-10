@@ -1,0 +1,162 @@
+:
+
+clear
+
+trap "clear;echo \"Ok, Nothing done\"; 
+rm -fr /MLP.1 /conf/MLP.post /tmp/MLP*;exit" 1 2 3 15
+
+echo "\n\n\n\n\n\n\n\n\n\n\n\n
+             ********************************************************
+
+               Multiple Line Printer Spooler (MLP) Version 0.9 Beta
+
+                        Magnetic Data Operations, (c) 1992
+
+                           Product Installation & Setup
+
+             ********************************************************
+
+
+                  Press <Enter> to continue, <Ctrl-C> to quit..."
+
+
+case "`id`" in
+   *root*) ;;
+        *) echo "\n\n\n\007Sorry, you need to be superuser to do this.  "
+           echo "Try again\n"
+           exit;;
+esac
+
+
+read A
+
+clear
+
+if test -f /usr/spool/mlp/controls
+then
+   echo "Existing Controls database moved to controls.o"
+   mv /usr/spool/mlp/controls /usr/spool/mlp/controls.o
+fi
+
+if test -f /usr/bin/lp
+then
+   echo "Existing /usr/bin/lp moved to lp.o"
+   mv /usr/bin/lp /usr/bin/lp.o
+fi
+
+if test -f /usr/bin/lpr
+then
+   echo "Existing /usr/bin/lpr moved to lpr.o"
+   mv /usr/bin/lpr /usr/bin/lpr.o
+fi
+
+
+echo "\nDo you want COHERENT to start MLP automatically? (y/n) >Y\b\c"; read A
+
+case "$A" in
+   [Nn]*) ;;
+       *) MESS="Start MLP scheduler daemon"
+          CMD="/usr/bin/lpsched"
+
+          cp /etc/rc /etc/rc.o
+
+          grep -v "$MESS" </etc/rc.o | grep -v "$CMD" >/etc/rc
+          echo "\n: $MESS\n$CMD" >>/etc/rc
+          chmog 744 root root /etc/rc
+
+          echo "Existing /etc/rc has been moved to rc.o"
+          ;;
+esac
+
+
+echo "\nDo you want the online manual pages? (y/n) > Y\b\c"; read MAN
+
+case "$MAN" in
+   [Nn]*) echo "\nInstalling....\c";    MAN=N;;
+       *) echo "\nInstalling.......\c";  MAN=Y;;
+esac
+
+
+if [ "$MAN" = "Y" ]
+then
+   if test -s /usr/man/man.index
+   then
+      cd /
+      uncompress /tmp/MLPman.cpio
+      echo "\b \b\c"
+
+      cpio -idumc </tmp/MLPman.cpio 2>/dev/null
+      echo "\b \b\c"
+
+      cd /usr/man/COHERENT/MLP
+      List=`echo *`
+
+      for Next in $List
+      do
+         echo "COHERENT/MLP/$Next $Next" >>/usr/man/man.index
+      done
+
+      sort -u </usr/man/man.index >/tmp/$$
+      cat /tmp/$$ >/usr/man/man.index
+      rm  /tmp/$$
+      echo "\b \b\c"
+   else
+      echo "\007The COHERENT online manual does not seem to be installed."
+   fi
+fi
+
+
+cd /
+uncompress /tmp/MLP.cpio
+echo "\b \b\c"
+
+cpio -idumc </tmp/MLP.cpio 2>/dev/null
+echo "\b \b\c"
+
+
+T=/usr/spool/mlp/backend
+
+mv $T/lp        /usr/bin
+mv $T/lpstat    /usr/bin
+mv $T/lpsched   /usr/bin
+mv $T/review    /usr/bin
+echo "\b \b\c"
+
+
+rm -fr /usr/bin/lpshut;     ln /usr/bin/lp        /usr/bin/lpshut
+rm -fr /usr/bin/reprint;    ln /usr/bin/lp        /usr/bin/reprint
+rm -fr /usr/bin/lpadmin;    ln /usr/bin/lpstat    /usr/bin/lpadmin
+rm -fr /usr/bin/cancel;     ln /usr/bin/lpstat    /usr/bin/cancel
+rm -fr /usr/bin/route;      ln /usr/bin/lpstat    /usr/bin/route
+rm -fr /usr/bin/chreq;      ln /usr/bin/lpstat    /usr/bin/chreq
+rm -fr /usr/bin/lpr;        ln /usr/bin/lp        /usr/bin/lpr
+echo "\b \b\c"
+
+
+if [ "$MAN" = "Y" ]
+then
+   echo "\n\nThe online manual has the following new topics:\n   "
+   echo "$List"
+fi
+
+
+
+A=`lpstat -v`
+
+if [ "$A" = "" ]
+then
+    lpadmin -pmain -v/dev/lpt1 -mdefault
+    lpadmin -dmain
+fi
+
+lpadmin -pdisk -v/dev/null -mdisk
+
+echo "\nThe following printer(s) are defined:\n"
+lpstat -v | awk '{print "   " $0}'
+
+
+
+echo "\n\nPress <Enter> to continue...\c"
+read A
+
+rm -fr /MLP.1 /conf/MLP.post /tmp/MLP*

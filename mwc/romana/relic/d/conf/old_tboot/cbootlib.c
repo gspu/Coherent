@@ -1,0 +1,427 @@
+/* cbootlib.c -- C routines for use by boot programs.
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+
+#include <string.h>
+#include <ctype.h>
+#include "tboot.h"
+
+/* puts() -- put a NUL terminated string.
+ * Takes one argument--a pointer to a NUL terminated character string.
+ * Does no error checking.  Calls the assembly language routine putc().
+ */
+void
+puts(s)
+	register char *s;
+{
+	while (*s != '\0') {
+		putchar(*s++);
+	}
+
+} /* puts() */
+
+
+#define BS '\010'
+#define DEL '\0'	/* This is really what getchar() returns!  */
+#define NAK '\025'
+/* gets() -- Read string from keyboard.
+ * Takes one argument--a pointer to a buffer big enough for the
+ * expected response.
+ * It stops reading as soon as it detects a carriage return.  The CR
+ * is replaced with a NUL.
+ */
+char *
+gets(s)
+	char *s;
+{
+	register char *t;
+
+	t = s;
+
+	while ('\r' != (*t = getchar())) {
+		if ((BS == *t) || (DEL == *t)) {
+			/* Process back space.  */
+			if (t > s) {
+				t--;
+				puts("\010 \010"); /* Erase the last character.  */
+			}
+		} else if (NAK == *t) {
+			/* Kill line.  */
+			while (--t >= s) {
+				puts("\010 \010"); /* Erase the last character.  */
+			}				
+			t = s;
+		} else {
+			/* Echo the character; prepare for another.  */
+			putchar(*t);
+			t++;
+		}
+	}
+	*t = '\0';
+	return(s);
+} /* gets() */
+
+
+/* Reverse string s in place.
+ * Straight from K&R.
+ */
+void
+reverse(s)
+	char s[];
+{
+	int c, i, j;
+
+	for (i = 0, j = strlen(s)-1; i < j; i++, j--) {
+		c = s[i];
+		s[i] = s[j];
+		s[j] = c;
+	}
+} /* reverse() */
+
+#define BASE10	10	/* itoa() generates base 10 numbers.  */
+
+/* Convert n to decimal characters in s.
+ * Straight from K&R  (with minor sylistic changes.)
+ */
+void
+itoa(n, s)
+	char s[];
+	int n;
+{
+	int i, sign;
+
+	if ((sign = n) < 0) {	/* Record sign.  */
+		n = -n;		/* Make n positive.  */
+	}
+	
+	i = 0;
+	do {	/* Generate digits in reverse order.  */
+		s[i++] = n % BASE10 + '0';	/* Get next digit.  */
+
+	} while ((n /= BASE10) > 0); /* Delete it.  */
+	
+	if (sign < 0) {
+		s[i++] = '-';
+	}
+	s[i] = '\0';
+	reverse(s);
+} /* itoa() */
+
+
+#define BASE16 16
+/* Convert n to digits in s, base base.
+ * Works for any base from 2 to 36.
+ * Modified itoa() from K&R.
+ */
+void
+itobase(n, s, base)
+	uint16 n;
+	char s[];
+	int base;
+{
+	uint16 i;
+
+	i = 0;
+	do {	/* Generate digits in reverse order.  */
+		s[i] = n % base + '0';	/* Get next digit.  */
+		/* Adjust for the gap between '9' and 'A'.  */
+		if (s[i] > '9') {
+			s[i] += ('A' - '9') - 1;
+		}
+		++i;
+	} while ((n /= base) > 0); /* Delete it.  */
+	
+	s[i] = '\0';
+	reverse(s);
+} /* itobase() */
+
+/* basetoi(char *s, int base)
+ * Convert a string base "base" to an integer.
+ * Good through base 36.
+ * Loosely based on K&R's atoi().
+ */
+uint16
+basetoi(s, base)
+	char *s;
+	int base;
+{
+	int i, n;
+
+	static char convert[]="0123456789abcdefghijklmnopqrstuvwxyz";
+
+	/* Lowercase the entire string.  */
+	for(i = 0; '\0' != s[i]; ++i) {
+		if (isupper(s[i])) {
+			s[i] = tolower(s[i]);
+		}
+	}
+
+	/* Actually do the conversion.  */
+	n = 0;
+	for (i = 0; '\0' != s[i] && NULL != strchr(convert, s[i]); ++i) {
+		n = (base * n) + (strchr(convert, s[i]) - convert);
+	}
+	return(n);
+
+} /* basetoi() */
+
+
+/* seginc(uint16 *offset,
+ *	  uint16 *segment,
+ *	  uint16 increment)
+ * Add an offset to a segment.  We may adjust the segment base
+ * to make everything fit.
+ */
+#define MAXSEG (int32)0xffff	/* Top address in a segment.  */
+#define PPSIZE 16		/* Size of a paragraph--
+				 * segments are PP aligned.
+				 */
+ 
+void
+seginc(offset, segment, increment)
+	uint16 *offset;
+	uint16 *segment;
+ 	uint16 increment;
+{
+	/* If we won't spill over a segment boundary, just add increment
+	 * to *offset.
+	 */
+	if ((int32) (*offset) + (int32) increment < MAXSEG) {
+		*offset += increment;
+	} else {
+		/* Otherwise, we have to adjust the segment.  */
+		*segment += (increment / PPSIZE);
+
+		/* If offset is within PPSIZE of the end of a segment,
+		 * we have to bump segment up to the next paragraph.
+		 */
+		if ((int32) (*offset) + (int32) (increment % PPSIZE) < MAXSEG) {
+			*offset += (increment % PPSIZE);
+		} else {
+			*segment += 1;
+			*offset = 
+			 	(int) (((int32) (*offset) +
+				        (int32) (increment % PPSIZE))
+				       - MAXSEG);
+		}
+	}
+} /* seginc() */
+
+
+/* Pad a string s on the left with character c, to length n.
+ * The old contents of s are replaced by the padded version.
+ */
+char *
+lpad(s, c, n)
+	char *s;
+	char c;
+	int n;
+{
+	static char localbuf[LINESIZE];
+	register int len_s;	/* length of s.  */
+	register int i;
+
+	len_s = strlen(s);
+
+	/* We only have something to do if the string is too short.  */
+	if (len_s < n) {
+		/* Is n small enough to fit in locabuf? */
+		if (n < (LINESIZE - 1)) {
+			/* Fill the padding into the local buffer.  */
+			for (i = 0; i < (n - len_s); ++i) {
+				localbuf[i] = c;
+			}
+			localbuf[i] = '\0';
+
+			/* Append the string to be padded.  */
+			strcat(localbuf, s);
+			/* Copy the padded string back where it came from.  */
+			strcpy(s, localbuf);
+		} else {
+			/* Too big!  Do something more complicated.  */
+			strcpy(s, "lpad: n is too big!");
+		}
+	}
+
+	return(s);
+} /* lpad() */
+
+#define BITS_PER_INT16		16	/* Number of bits in an int16.  */
+#define DIGITS_PER_INT16	4	/* Maximum hex digits in a 16 bit number.  */
+#define DIGITS_PER_INT8		2	/* Maximum hex digits in an 8 bit number.  */
+/*
+ * Print a 32 bit integer in hexadecimal.
+ */
+void
+print32(my_int)
+	uint32 my_int;
+{
+	uint16 half;
+	char buffer[sizeof("ffff")];
+
+	/* Convert and print the upper half.  */
+	half = (uint16) ((my_int) >> BITS_PER_INT16);
+	itobase(half, buffer, BASE16);
+	lpad(buffer, '0', DIGITS_PER_INT16);
+	puts(buffer);
+
+	/* Convert and print the lower half.  */
+	half = (uint16) ((my_int << BITS_PER_INT16) >> BITS_PER_INT16);
+	itobase(half, buffer, BASE16);
+	lpad(buffer, '0', DIGITS_PER_INT16);
+	puts(buffer);
+}
+
+/*
+ * Print a 16 bit integer in hexadecimal.
+ */
+void
+print16(my_int)
+	uint16 my_int;
+{
+	char buffer[sizeof("ffff")];
+
+	itobase(my_int, buffer, BASE16);
+	lpad(buffer, '0', DIGITS_PER_INT16);
+	puts(buffer);
+}
+
+/*
+ * Print an 8 bit integer in hexadecimal.
+ */
+void
+print8(my_int)
+	uint8 my_int;
+{
+	char buffer[sizeof("ff")];
+
+	itobase((uint16) my_int, buffer, BASE16);
+	lpad(buffer, '0', DIGITS_PER_INT8);
+	puts(buffer);
+}
+
+
+/*
+ * Wrapper for far-far copy.  Changes the segment so that the requested
+ * length does not wrap past the end of the segment.
+ *
+ * For Intel 8086 Real Mode.
+ */
+void
+ffcopy(to_offset, to_seg, from_offset, from_seg, length)
+	uint16 to_offset;
+	uint16 to_seg;
+	uint16 from_offset;
+	uint16 from_seg;
+	uint16 length;
+{
+	uint16 to_move;	/* Amount to move at a time.  */
+	/* Algorithm:
+	 * Align both segments so each offset is within a paragraph
+	 * of the beginning of the segment.
+	 * Move up to 1/2 a segment.
+	 * Decrement length.
+	 * Interate.
+	 */
+	 
+	while (length != 0) {
+		/* Align both segments.  */
+		seg_align(&to_offset, &to_seg);
+		seg_align(&from_offset, &from_seg);
+
+		/* Move up to 1/2 a segment.  */
+		to_move = LESSER(length, MAXUINT16/2);
+
+		_ffcopy(from_offset, from_seg, to_offset, to_seg, to_move);
+		
+		/* Decrement length.  */
+		length -= to_move;
+	}
+} /* ffcopy() */
+
+/*
+ * Align a far address so that its offset is within a paragraph of
+ * the start of the segment.
+ *
+ * Note that we ignore overflow in the segment, since this is exactly
+ * what happens when you offset past the end of the highest segment.
+ *
+ * WARNING: This routine is destructive to its arguments.
+ *
+ * For Intel 8086 Real Mode.
+ */
+void
+seg_align(offset, segment)
+	uint16 *offset;
+	uint16 *segment;
+{
+#define BYTE_PER_PP	16	/* Number of bytes in a paragraph.  */
+	uint16	new_offset,
+		new_segment;
+
+	new_segment = *segment + (*offset/BYTE_PER_PP);
+	new_offset  = *offset % BYTE_PER_PP;
+	
+	*segment = new_segment;
+	*offset = new_offset;
+} /* seg_align() */
+/*
+ * wait_for_keystroke() -- wait for a specific keystroke.
+ */
+
+/* Location of BIOS-run timer.  */
+#define TIMER_SEG	0x0040
+#define TIMER_OFF	0x006c
+
+#define MIDNIGHT	(((uint32) 24) << 16)
+
+/*
+ * Waits delay ticks for the requested keystroke.  Returns TRUE if
+ * keystroke came, FALSE if delay runs out.
+ * If key == -1, accept ANY keystroke.
+ */
+int
+wait_for_keystroke(delay, key)
+	int delay;
+	int key;
+{
+	extern uint16 myds;	/* My Data Segment, defined in Statup.s.  */
+	uint32 end_time;		/* Return when time reaches this.  */
+	uint32 current_time;	/* Current value of timer list.  */
+	int my_key_found;
+	
+	while (iskey()) {
+		getchar();	/* Eat all pending characters.  */
+	}
+
+	/* Calculate the terminating time.  */
+	ffcopy(&end_time, myds, TIMER_OFF, TIMER_SEG, sizeof(int32));
+	end_time += (int32) delay;
+
+	/* Adjust for timer reset at midnight.  */
+	if (end_time > MIDNIGHT) {
+		/* These messages are meaningless.  */
+		puts("KABOOM!\r\n");
+		puts("I'm tired.  Please leave me alone.\r\n");
+		end_time -= MIDNIGHT;
+	}
+
+	/* Busy wait keystrokes and time delay.  */
+
+	my_key_found = FALSE;
+	do {
+		ffcopy(&current_time, myds, TIMER_OFF, TIMER_SEG,sizeof(int32));
+		if (iskey()) {
+			/* The order of evaluation here is important.
+			 * getchar() MUST be called to clean out the
+			 * pending character.
+			 */
+			if (((int) getchar() == key) || (-1 == key)) {
+				my_key_found = TRUE;
+			}
+		}
+	} while (!my_key_found && (current_time < end_time));
+
+	return(my_key_found);
+} /* wait_for_keystrok() */

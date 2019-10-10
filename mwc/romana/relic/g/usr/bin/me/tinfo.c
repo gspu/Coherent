@@ -1,0 +1,119 @@
+/*
+ * Routines to use terminfo from emacs.
+ */
+#include <stdio.h>
+#include "ed.h"
+#include <term.h>
+#if TERMNFO
+#define NROW	24	/* default rows on the screen */
+#define NCOL	80	/* default columns on the screen */
+
+extern int	ttopen();
+extern int	ttgetc();
+extern int	ttputc();
+extern int	ttflush();
+extern int 	ttclose();
+extern int 	tnfomove();
+extern int 	tnfoeeol();
+extern int	tnfoeeop();
+extern int	tnfobeep();
+extern int	tnfoopen();
+extern int	tnfostand();
+extern int	tput();
+extern char	*tgoto();
+extern char	*tgetstr();
+extern char	*realloc();
+
+TERM term = {
+	NROW-1,
+	NCOL,
+	tnfoopen,
+	ttclose,
+	ttgetc,
+	ttputc,
+	ttflush,
+	tnfomove,
+	tnfoeeol,
+	tnfoeeop,
+	tnfobeep,
+	tnfostand
+};
+
+/*
+ * Get terminfo information
+ */
+tnfoopen()
+{
+	static int fts;
+	int status;
+
+	if (fts++) {
+		ttopen();
+		return;
+	}
+	setupterm(NULL, fileno(stdout), &status);
+	if (1 != status) {
+		printf("Terminfo setup failed\n");
+		exit(1);
+	}
+	term.t_ncol = columns;
+	term.t_nrow = lines - 1;
+	if (NULL == cursor_address) {
+		printf("Cursor address is not set in terminfo\n");
+		exit(1);
+	}
+	if (NULL == clear_screen) {
+		printf("Clear screen is not set in terminfo\n");
+		exit(1);
+	}
+	if (NULL == clr_eol) {
+		printf("Clear to end of line is not set in terminfo\n");
+		exit(1);
+	}
+
+	ttopen();
+}
+
+/*
+ * move to row and column.
+ */
+tnfomove(row, col)
+{
+	putp(tparm(cursor_address, row, col));
+}
+
+/*
+ * Clear to end of line.
+ */
+tnfoeeol()
+{
+	putp(clr_eol);
+}
+
+/*
+ * Clear screen.
+ */
+tnfoeeop()
+{
+	putp(clear_screen);
+}
+
+/*
+ * Say beep
+ */
+tnfobeep()
+{
+	putp(bell);
+}
+
+/*
+ * Set or clear standout mode.
+ */
+tnfostand(f)
+{
+	if (f)
+		putp(enter_standout_mode);
+	else
+		putp(exit_standout_mode);
+}
+#endif

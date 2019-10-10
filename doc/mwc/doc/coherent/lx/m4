@@ -1,0 +1,296 @@
+.TH m4 "" "" Command
+.PC "Macro processor"
+\fBm4 [file .\^.\^.\^\fB]\fR
+.PP
+.HS
+If \fIfile\fR is `-' or omitted, \fBm4\fR reads the standard input.
+.HE
+The command
+.B m4
+processes macros.
+It allows you to define strings for which
+.B m4
+is to search, and strings to replace them;
+.B m4
+then opens
+.IR file ,
+reads its contents, replaces each macro
+with its specified replacement string, and writes the results
+into the standard output stream.
+.PP
+.B m4
+can also manipulate files, make conditional decisions,
+select substrings, and perform arithmetic.
+The tutorial
+.I "Introduction to the m4 Macro Processor"
+introduces
+.B m4
+in detail.
+.PP
+.B m4
+reads its
+.IR file s
+in the order given; if no
+.I file
+is named, then
+it reads the standard input stream.
+The file name \*(Ql\-\*(Qr indicates the standard input.
+.PP
+.B m4
+copies input to output until it finds a potential \fImacro\fR.
+A macro is
+a string of alphanumerics (letters, digits, or underscores)
+that begins with a non-digit character and is surrounded by non-alphanumerics.
+If
+.B m4
+does not recognize the
+.IR macro ,
+it simply copies it to the output
+and continues processing.
+If
+.B m4
+recognizes the
+.I macro
+and the next character is a left parenthesis \*(Ql(\*(Qr,
+an
+.I "argument set"
+follows:
+.DM
+	macro(arg1,.\^.\^., argn)
+.DE
+.PP
+The arguments are collected
+by processing them in the same manner as other text
+(thus, an arguments may itself be another macro),
+and resulting output text is diverted into storage.
+.B m4
+stores up to nine arguments;
+any more will be processed but not saved.
+An argument set consists of strings of text separated by commas
+(commas inside quotation marks or parentheses do not terminate an argument),
+and must contain balanced parentheses that are free of quotation marks
+(i.e., that are
+.IR unquoted ).
+.B m4
+strips arguments of unquoted leading space (blanks, tabs, newline characters).
+.PP
+.B m4
+then removes the
+.I macro
+and its optional argument set from the input stream, processes them,
+and replaces them in the input stream with the resulting value.
+The value becomes the next piece of text to be read.
+.PP
+Quotation marks, of the form \*(Ql\ \*(Qr, inhibit the recognition of
+.IR macro .
+.B m4
+strips off one level of quotation marks when it encounters them
+(quotation marks are nestable).
+Thus, \*(Ql\fImacro\fR\*(Qr
+is not processed, but is changed to
+.I macro
+and passed on.
+.PP
+.B m4
+determines the
+.I value
+of a user-defined macro by taking the text that constitutes the macro's
+.I definition
+and replacing any occurrence within that text of \*(Ql$\fIn\fR\*(Qr
+(where
+.I n
+is `0' through `9') with the text of the
+.IR n th
+argument.
+Argument 0 is the
+.I macro
+itself.
+.PP
+.B m4
+recognizes the following predefined macros:
+.IP \fBchangequote[([\fIopenquote\^\fB],[\fIclosequote\^\fB])]\fR
+Changes the quotation characters.
+Missing arguments default to \*(Ql for open or \*(Qr for close.
+Quotation characters will not nest if they are defined to be the same character.
+Value is null.
+.IP \fBdecr[(\fInumber\^\fB)]\fR
+Decrement
+.I number
+(default, 0)
+by one and returns resulting value.
+.IP \fBdefine(\fImacro,definition\fB)\fR
+Define or redefine
+.IR macro .
+If a predefined macro is redefined,
+its original definition is irrecoverably lost.
+Value is null.
+.IP \fBdivert[(\fIn\^\fB)]\fR
+Redirects output to output stream
+.I n
+(default is zero).
+The standard output is zero, and one through nine are maintained as
+temporary files.
+Any other
+.I n
+results in output being thrown away until the next
+.B divert
+macro.
+Value is null.
+.IP \fBdivnum\fR
+Value is current output stream number.
+.IP \fBdnl\fR
+Delete to newline:
+removes all characters from the input stream up to and including
+the next newline.
+Value is null.
+.IP \fBdumpdef[(\fImacros\^\fB)]\fR
+Value is quoted definitions of all
+.IR macro s
+specified, or names and definitions of all defined macros if no arguments.
+.IP \fBerrprint(\fItext\fB)\fR
+Print
+.I text
+on standard error file.
+Value is null.
+.IP \fBeval(\fIexpression\^\fB)\fR
+Value is a number that is the value of evaluated
+.IR expression .
+It recognizes, in order of decreasing precedence:
+parentheses, **, unary + \-, * / %, binary + \-, relations, and logicals.
+Arithmetic is performed in
+.BR long s.
+.IP \fBifdef(\fImacro,defvalue,undefvalue\^\fB)\fR
+Return
+.I defvalue
+if
+.I macro
+is defined, and
+.I undefvalue
+if not.
+.IP \fBifelse(\fIarg1,arg2,arg3.\^.\^.\fB)\fR
+Compares
+.I arg1
+and
+.IR arg2 .
+If they are the same, returns
+.IR arg3 .
+If not, and
+.I arg4
+is the last argument, return
+.IR arg4 .
+Otherwise, the process repeats, comparing
+.I arg4
+and
+.IR arg5 ,
+and so on.
+Like other
+.B m4
+macros, this takes a maximum of nine arguments.
+.IP \fBinclude(\fIfile\fB)\fR
+Value is the entire contents of the
+.I file
+argument.
+If
+.I file
+is not accessible, a fatal error results.
+.IP \fBincr\fB[(\fInumber\^\fB)]\fR
+Increments given
+.I number
+(default, zero)
+by one and returns resulting value.
+.IP \fBindex(\fItext,pattern\fB)\fR
+Value is a number corresponding to position of
+.I pattern
+in
+.IR text .
+If
+.I pattern
+does not occur in
+.IR text ,
+value is \-1.
+.IP \fBlen(\fItext\fB)\fR
+Value is a number that corresponds to length of
+.IR text .
+.IP \fBmaketemp(\fIfilenameXXXXXX\fB)\fR
+Value is
+.I filename
+with last six characters, usually
+.BR XXXXXX ,
+replaced
+with current process id
+and a single letter.
+Same as the \*(CO system call
+.BR mktemp() .
+.IP \fBsinclude(\fIfile\fB)\fR
+Value is the entire contents of
+.IR file .
+If
+.I file
+is not accessible, return null and continue processing.
+.IP \fBsubstr(\fItext\^\fB[,\fIstart\^\fB[,\fIcount\^\fB]])\fR
+Value is a substring of
+.IR text .
+.I start
+may be left-oriented (nonnegative) or
+right-oriented (negative).
+.I count
+specifies how many characters to the right
+(if positive) or to the left (if negative) to return.
+If absent, it is assumed to be large and of the same sign as
+.IR start .
+If
+.I start
+is omitted,
+it is assumed to be zero if
+.I count
+is positive or omitted, or \-1 if
+.I count
+is negative.
+.IP \fBsyscmd(\fIcommand\fB)\fR
+Pass
+.I command
+to the shell
+for execution.
+Value is null.
+Same as system call
+.BR system .
+.IP \fBtranslit(\fItext,characters\^\fB[,\fIreplacements\^\fB])\fR
+Replaces
+.I characters
+in
+.I text
+with the corresponding characters from
+.IR replacements .
+If the
+.I replacements
+is absent or too short, replace
+.I characters
+with a null character.
+Value is
+.I text
+with specified replacements.
+.IP \fBundefine\fB(\fImacro\fB)\fR
+Remove macro definition.
+Value is null.
+If a predefined macro is redefined,
+its original definition is irrecoverably lost.
+.IP \fBundivert\fB[(\fIstream\^\fB[,.\^.\^.])]\fR
+Dumps each specified
+.I stream
+into the current output stream.
+With no arguments,
+.B undivert
+dumps all output streams in numeric order.
+.B m4
+will not dump any output stream into itself.
+At the end of processing,
+.B m4
+automatically dumps all diverted
+text to standard output in numeric order.
+Value is null.
+.SH "See Also"
+.Xr "commands," commands
+.Xr "mktemp()," mktemp
+.Xr "system" system
+.br
+\fIIntroduction to the m4 Macro Processor\fR

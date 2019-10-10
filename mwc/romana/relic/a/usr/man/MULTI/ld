@@ -1,0 +1,198 @@
+
+
+ld                           Command                           ld
+
+
+
+
+Link relocatable object files
+
+lldd [_o_p_t_i_o_n ...] _f_i_l_e ...
+
+A compiler  translates a file  of source code  into a relocatable
+object.  This  relocatable object  cannot be executed  by itself,
+for  calls to  routines  stored in  libraries have  not yet  been
+resolved.  ld  combines, or links, relocatable  object files with
+routines stored in libraries  produced by the archiver ar to con-
+struct  an executable  file.  For  this  reason, ld  is sometimes
+called a linker, a link editor, or a loader.
+
+ld scans  its arguments  in order  and interprets each  option as
+described below.   Each non-option argument is  either a relocat-
+able object file, produced by cc, as, or ld, or a library archive
+produced  by ar.   It rejects  all other  arguments and  prints a
+diagnostic message.
+
+Each relocatable  file argument is bound into  the output file if
+its machine  type matches the  machine type of the  first file so
+bound; if it does not,  ld prints a diagnostic message.  The sym-
+bol table of the file is  merged into the output symbol table and
+the list of  defined and undefined symbols updated appropriately.
+If  the  file redefines  a  symbol defined  in  an earlier  bound
+module, the redefinition is reported and the link continues.  The
+last such redefinition  determines the value that the symbol will
+have in the output file,  which may be acceptable but is probably
+an error.
+
+Each  library archive  argument is searched  only to  resolve un-
+defined references, i.e.,  if there are no undefined symbols, the
+linker  goes to  the next argument  immediately.  The  library is
+searched from  first module to last and  any module that resolves
+one or more undefined symbols is bound into the output exactly as
+an explicitly  named relocatable file  is bound.  The  library is
+searched repeatedly until an  entire scan adds nothing to the ex-
+ecutable file.
+
+The order  of modules in a library is  important in two respects:
+it will  affect the time required to search  the library, and, if
+more than  one module resolves an undefined  symbol, it can alter
+the set of library modules bound into the output.
+
+A library will link faster  if the undefined symbols in any given
+library module are resolved  by a library module that comes later
+in the library.   Thus, the low-level library modules, those with
+no  undefined symbols,  should come  at the  end of  the library,
+whereas the higher-level  modules, those with many undefined sym-
+bols,  should come  at the  beginning.   The library  module ran-
+lib.sym, which  is maintained by  the ar s  modifier, provides ld
+with a  compressed index to  the symbols defined  in the library.
+But even with the index, the library will link much faster if the
+modules occur in top-down rather than bottom-up order.
+
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+ld                           Command                           ld
+
+
+
+A library can be constructed to provide a type of ``conditional''
+linking  if alternate  resolutions of  undefined symbols  are ar-
+chived in  a carefully  thought-out order.  For  instance, libc.a
+contains the modules
+
+
+             finit.o
+             exit.o
+             _finish.o
+
+
+in precisely  the order given, though some  other modules may in-
+tervene.   finit.o contains  most of the  internals of  the STDIO
+library, exit.o contains  the exit() function, and _finish.o con-
+tains  an empty  version of _finish(),  the function  that exit()
+calls to  close STDIO streams  before process termination.   If a
+program uses  any STDIO routines,  macros, or data,  then finit.o
+will be bound into the output with its version of finish().  If a
+program uses no STDIO, then the ``dummy'' _finish.o will be bound
+into  the output  because  it is  the first  module that  defines
+_finish() that  the linker encounters  after exit.o adds  the un-
+defined reference.  This saves approximately 3,000 bytes.  To set
+the order of routines within a library, use the archiver ar.
+
+The available options are as follows:
+
+-dd    Define common  regions  even if  relocation information  is
+     retained.  By  default, ld leaves common  areas undefined if
+     there  are  undefined   symbols  or  if  the  -r  option  is
+     specified.
+
+-ee _e_n_t_r_y
+     Specify the  entry point of  the output module,  either as a
+     symbol or as an absolute octal address.
+
+-kk[_s_y_s_t_e_m]
+     Bind the output as a kernel process or linkable driver.  The
+     starting address depends on the target machine, and ld scans
+     the system link file  symbol table for symbols that are cur-
+     rently undefined.  system defaults to /coherent.
+
+-ll _n_a_m_e
+     An   abbreviation   for   the  library   /lliibb/lliibb_n_a_m_e.aa   or
+     /uussrr/lliibb/lliibb_n_a_m_e.aa if the first is not found.
+
+-mm   This option tells  ld to perform in-memory load if possible.
+     This requires more memory, but is faster than using a buffer
+     file.
+
+-nn   Bind  the output with separate  shared and private segments,
+     and with  each starting on  a hardware segment  boundary, so
+     that several  processes can use a single  copy of the shared
+     segment simultaneously.
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+ld                           Command                           ld
+
+
+
+-oo _f_i_l_e
+     Write output to file (default, ll.oouutt.)
+
+-RR _v_a_l_u_e
+     Relocation  base option.  By  default, ld  links executeable
+     files to  run at the user-base for  the computer.  In almost
+     all cases, the user-base is zero.  If the -R option is used,
+     ld will  link the executeable to run at  value instead of at
+     zero.  value  can be  set to any  C-style constant, or  to a
+     symbol name  that ld  can find in  the object files  and ar-
+     chives  being linked;  remember that  a  C-accessible symbol
+     must end  with an underscore character  `_'.  This option is
+     used primarily  to produce output  files that can  be burned
+     into ROM.  These programs must make their own provisions for
+     relocating initialized data and other tasks.
+
+-rr   Retain  relocation information in  the output, and  issue no
+     diagnostic  message for  undefined symbols.   By  default ld
+     discards relocation information from the output if there are
+     no undefined symbols.
+
+-ss   Strip the symbol table from the output.  The same effect may
+     be obtained  by using the command strip.  The  -s and -r op-
+     tions are mutually exclusive.
+
+-uu _s_y_m_b_o_l
+     Add symbol  to the symbol table as  a global reference, usu-
+     ally to force the linking of a particular library module.
+
+-XX   Discard local compiler-generated symbols of the form `LL...'.
+
+-xx   Discard all local symbols.
+
+***** Files *****
+
+ll.oouutt -- Default output
+/ccoohheerreenntt for -kk option
+/lliibb/lliibb*.aa -- Libraries
+/uussrr/lliibb/lliibb*.aa -- More libraries
+
+***** See Also *****
+
+ar, ar.h, as, cc, commands, l.out.h, strip
+
+***** Notes *****
+
+By  default,  COHERENT  allocates two  kilobytes  of  stack to  a
+process.  This  is sufficient for most  processes.  To change the
+amount of stack used by  a given executable program, use the com-
+mand fixstack.   See its Lexicon  entry for details.   If you are
+linking a program by hand (that is, running ld independently from
+the  cc command),  be sure  to  include the  appropriate run-time
+start-up routine with the ld command line; otherwise, the program
+will not link correctly.
+
+
+
+COHERENT Lexicon                                           Page 3
+
+

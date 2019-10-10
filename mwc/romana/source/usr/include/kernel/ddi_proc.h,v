@@ -1,0 +1,101 @@
+head	1.1;
+access
+	hal
+	ljg
+	jrd
+	chris
+	fred;
+symbols
+	r12:1.1
+	r10:1.1;
+locks; strict;
+comment	@ * @;
+
+
+1.1
+date	93.12.14.23.42.48;	author hal;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@@mwc.com
+ -lgl) */
+
+#ifndef	__KERNEL_DDI_PROC_H__
+#define	__KERNEL_DDI_PROC_H__
+
+/*
+ * This internal header file defines structures and an access procedure for
+ * DDI/DKI per-process state that may be accessed outside the process context.
+ * This corresponds to data stored in the process table in traditional UNIX
+ * systems, and we expect that this would probably be implemented that way.
+ * However, the DDI/DKI system data is kept separate from the host data to
+ * ease porting by reducing coupling with the host system to a single accessor
+ * function. We anticipate that space reserved in the process structure by the
+ * host for this system will be opaque to the rest of the kernel.
+ */
+
+#include <common/feature.h>
+#include <common/ccompat.h>
+#include <kernel/x86lock.h>
+
+#if	! _DDI_DKI
+# error	You must be compiling in the DDI/DKI environment to use this header
+#endif
+
+
+/*
+ * The following structure defines the "process-table" data that a DDI/DKI
+ * scheduling functions need to be able to access.  Note that the "pn_plist"
+ * member normally points at the process list on which this node is threaded.
+ * For reasons discussed elsewhere, this member is the only member intended
+ * to be accessed without having a prior lock on the list header (since it
+ * is used to *find* the list header), and so must be accessed atomically.
+ */
+
+typedef struct proc_node pnode_t;
+
+struct proc_node {
+	pnode_t	      *	pn_next;	/* for queueing waiting processes */
+	pnode_t	      *	pn_prev;
+
+	short		pn_priority;	/* abstract process priority */
+	short		pn_flag;	/* true if sleep is interruptible */
+
+	atomic_ptr_t	pn_plistp;	/* where we are queued */
+};
+
+
+/*
+ * DDI/DKI per-process data that may be needed outside the process context.
+ */
+
+struct ddi_proc_data {
+	pnode_t		dp_pnode;
+	unsigned short	dp_refcount;
+};
+
+typedef	struct ddi_proc_data	dpdata_t;
+
+
+__EXTERN_C_BEGIN__
+
+dpdata_t      *	ddi_proc_data	__PROTO ((void));
+
+__EXTERN_C_END__
+
+#endif	/* ! defined (__KERNEL_DDI_PROC_H__) */
+@

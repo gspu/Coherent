@@ -1,0 +1,335 @@
+head     1.3;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.3
+date     91.03.19.18.54.18;  author bin;  state Exp;
+branches ;
+next	1.2;
+
+1.2
+date     91.02.21.20.43.42;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.04.14.33.24;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial checkin. Provided by Stevesf.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*
+ * echo -- print arguments
+ *
+ * Usage:	echo [ -n ] [ argument ... ]
+ *
+ * Option:	-n	Do not print terminal newline
+ *
+ * Note:	The following C-like escape conventions are usable with
+ *		ECHO; beware of conflicts with the shell's use of \:
+ *			\b	backspace
+ *			\c	print line without new-line
+ *				(same as -n option)
+ *			\f	form-feed
+ *			\n	new-line
+ *			\r	carriage returnm
+ *			\t	tab
+ *			\v	vertical tab
+ *			\\	backslash
+ *			\0x	where x represents the octal value of an
+ *				ASCII character
+ *
+ */
+
+static char	buf[512];			/* working buffer */
+static char   * bufend	= &buf[sizeof buf];	/* pointer to end ogf buf */
+static char   * bufp	= &buf[0];	/* pointer to current offset in buf */
+static char	lastch	= '\n';		/* last output char (if non-zero) */
+static int	asc;			/* octal value */
+
+main( argc, argv )
+int	argc;
+register char	** argv;
+{
+	extern	echos();
+
+	if ( strcmp( *++argv, "-n" ) == 0 ) {
+		lastch = 0;
+		++argv;
+	}
+
+	/*
+	 * Read all argument strings into buffer. Separate each argument
+	 * with a blank.
+	 */
+	while ( *argv ) {
+		echos( *argv );
+		if ( *++argv )
+			echos( " " );
+	}
+
+	if ( *bufp = lastch )
+		++bufp;
+
+	if ( bufp > buf )
+		write( 1, buf, bufp - buf );
+
+	exit( 0 );
+}
+
+/*
+ * static
+ * echos( sp )
+ * char * sp;
+ *
+ *	Input:	sp	- pointer to string to append to output buffer.
+ *
+ *	Action:	Transfer string to output buffer at offset specified by 'bufp'.
+ *		If buffer becomes full during transfer, write buffer to stdout,
+ *		and wrap 'bufp' back to beginning of buffer.
+ */
+
+static
+echos( sp )
+register char	* sp;
+{
+	register char	* dp = bufp;
+	extern char *	getoct();
+
+ 	/*
+	 * Copy argument to buffer.
+	 */
+	for ( ; *sp ; ++sp ) {
+		if ( *sp == '\\' ) {
+			if ( *++sp == '\0' )
+				break;
+
+			switch (*sp) {
+			case 'b': *dp = '\b';	break;
+			case 'f': *dp = '\f';	break;
+			case 'n': *dp = '\n';	break;
+			case 'r': *dp = '\r';	break;
+			case 't': *dp = '\t';	break;
+			case 'v': *dp = 013;	break;
+			case 'c': lastch = 0; --dp; break;
+			case '0': sp  = getoct( ++sp );
+				  *dp = (char)asc;
+				  break;
+			default : *dp = *sp;	break;
+			}
+		} else
+			*dp = *sp;
+
+	 	/*
+		 * Empty buffer to standard output if full.
+		 */
+		if ( ++dp == bufend ) {
+			write( 1, buf, sizeof buf );
+			dp = buf;
+		}
+	}
+
+	bufp = dp;
+}
+
+/*
+ * char *
+ * getoct( s )
+ * char * s;
+ *
+ *	Input:	s	- pointer to current offset in string.
+ *
+ *	Action:	Read octal value from string ( up to 3 characters ).
+ *
+ *	Return:	Pointer to current offset in string.
+ */
+char *
+getoct( s )
+char	* s;
+{
+	int	i;	/* working counter */
+
+	i   = 0;
+	asc = 0;	/* clear octal value buffer */
+
+	while ( (*s) && (*s >= '0') && (*s <= '7') && ( i < 3 ) ) {
+		asc = asc * 8 + *s - '0';	/* octal value accumulation */
+		++s;
+		++i;
+	}
+
+	return( --s );
+}
+@
+
+
+1.2
+log
+@updated version provided by stevesf for v311
+@
+text
+@d2 20
+a21 17
+ * echo.c
+ * 2/14/91
+ * Print arguments.
+ * Usage: echo [ -n ] [ argument ... ]
+ * Option: -n	Do not print terminal newline
+ * Recognizes the following C-like escape conventions
+ * (quote args to avoid conflicts with the shell's use of '\\'):
+ *	\b	backspace
+ *	\c	print line without new-line (same as -n option)
+ *	\f	form-feed
+ *	\n	new-line
+ *	\r	carriage return
+ *	\t	tab
+ *	\v	vertical tab
+ *	\\	backslash
+ *	\0octal	where 'octal' represents the octal value of an ASCII character
+ * Does not use stdio.
+d24 5
+a28 4
+/* Globals. */
+char	buf[512];		/* working buffer			*/
+char	*bufp	= &buf[0];	/* pointer to current offset in buf	*/
+char	lastch	= '\n';		/* last output char (if non-zero)	*/
+d30 5
+a34 1
+extern char *getoct();
+d36 1
+a36 4
+main(argc, argv) int argc; register char **argv;
+{
+	/* Handle -n option. */
+	if (strcmp(*++argv, "-n") == 0) {
+d42 2
+a43 2
+	 * Process each argument string into buffer.
+	 * Separate each argument with a blank.
+d45 4
+a48 4
+	while (*argv) {
+		echos(*argv);
+		if (*++argv)
+			echos(" ");
+d51 1
+a51 2
+	/* Flush the buffer. */
+	if (*bufp = lastch)
+d53 5
+a57 3
+	if (bufp > buf)
+		write(1, buf, bufp - buf);
+	exit(0);
+d61 9
+a69 3
+ * Transfer string 'sp' to output buffer at offset specified by 'bufp'.
+ * If buffer becomes full during transfer, write buffer to stdout,
+ * and wrap 'bufp' back to beginning of buffer.
+d71 4
+a74 1
+echos(sp) register char *sp;
+d76 2
+a77 1
+	register char *dp;
+d82 6
+a87 4
+	for (dp = bufp; *sp ; ++sp) {
+		if (*sp == '\\') {
+			switch (*++sp) {
+			case '\0':		break;
+a88 1
+			case 'c': lastch = 0;	continue;
+d93 5
+a97 2
+			case 'v': *dp = '\v';	break;
+			case '0': sp  = getoct(++sp, dp);	break;
+d106 2
+a107 2
+		if (++dp == &buf[sizeof buf]) {
+			write(1, buf, sizeof buf);
+d111 1
+d116 9
+a124 2
+ * Read octal value from string (up to 3 octal digits).
+ * Store result through supplied pointer, return pointer to last octal digit.
+d127 2
+a128 1
+getoct(s, dp) register char *s; char *dp;
+d130 1
+a130 1
+	register int val, i;
+d132 10
+a141 4
+	for (val = i = 0; *s >= '0' && *s <= '7' && i < 3; ++s, ++i)
+		val = val * 8 + *s - '0';	/* octal value accumulation */
+	*dp = val;
+	return --s;
+a142 2
+
+/* end of echo.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a0 2
+
+
+d2 17
+a18 1
+ * echo -- print command line arguments
+a19 1
+#include	<stdio.h>
+d21 4
+d26 1
+a26 4
+#define	bool	char
+#define	TRUE	(0 == 0)
+#define	FALSE	(not TRUE)
+#define	not	!
+d28 1
+a28 3
+
+main( argc, argv)
+register char	**argv;
+d30 3
+a32 6
+	char	obuf[BUFSIZ];
+	bool	newline;
+
+	setbuf( stdout, obuf);
+	newline = TRUE;
+	if (*++argv && strcmp( *argv, "-n")==0) {
+a33 1
+		newline = FALSE;
+d36 4
+d41 3
+a43 3
+		fputs( *argv++, stdout);
+		if (*argv)
+			putchar( ' ');
+d46 6
+a51 4
+	if (newline)
+		putchar( '\n');
+	fclose( stdout);
+	return (0);
+d53 57
+@

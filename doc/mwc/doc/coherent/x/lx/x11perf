@@ -1,0 +1,654 @@
+.TH x11perf "" "" "X Utility"
+.PC "Test performance of the X11 server"
+\fBx11perf [ \-\fIoption \fB... ]\fR
+.PP
+.B x11perf
+runs one or more performance tests and reports how quickly your X server can
+execute them
+.PP
+Many graphics benchmarks assume that the graphics device is used to display the
+output of a single fancy graphics application,
+and that the user gets his work done on some other device, like a terminal.
+Such benchmarks usually measure
+drawing speed for lines, polygons, text, etc.
+Because workstations are not used as stand-alone graphics engines, but as
+super-terminals,
+.B x11perf
+measures window-management performance as well as
+traditional graphics performance.
+It includes benchmarks for the time your server takes
+to create and map windows (as when you start up an application);
+to map a pre-existing set of windows onto the screen (as when you deiconify an
+application or pop-up a menu);
+and to rearrange windows (as when you slosh
+windows to and fro trying to find the one you want).
+.PP
+.B x11perf
+also measures graphics performance for operations not normally used in
+stand-alone graphics displays, but are nonetheless used frequently by X
+applications.
+Such operations include
+.B CopyPlane
+(used to map bitmaps into pixels),
+scrolling (used in text windows),
+and various stipples and tiles (used for CAD and color half-toning,
+respectively).
+.PP
+You should use
+.B x11perf
+to analyze the strengths and weaknesses of servers.
+It is most useful to the writer of a server who wants to
+analyze and improve it.
+.PP
+.B x11perf
+exercises nearly every X11 operation you can perform;
+it does not limit itself to a representative sample of the
+operations that X11 applications actually use.
+Although it can be used as a benchmark, it was written and is intended
+test performance.
+As such,
+.B x11perf 
+.I "does not"
+whittle down measurements to a single ``HeXStones'' or ``MeXops'' number.
+We consider such numbers to be uninformative at best, and misleading at worst.
+Some servers that are very fast for certain applications can be
+very slow for others.
+No single number or small set of numbers are sufficient to
+characterize how an X implementation performs on all applications.
+However, by knowledge of your favorite application, you
+may be able to use the numbers
+.B x11perf
+reports to predict its performance on a given X implementation.
+.PP
+That being said, you may also want to look at
+.B x11perfcomp ,
+a program that compares the outputs of different runs of
+.BR x11perf .
+You provide it a list of files that contain the results from
+.BR x11perf ,
+and it lays them out in a nice, tabular format.
+.PP
+For repeatable results, run
+.B x11perf
+using a local connection on a freshly started server.
+The default configuration runs each test five times,
+to see if each trial takes approximately the same amount of time.
+Strange glitches should be examined;
+if non-repeatable, one might chalk them up to daemons and network traffic.
+Each trial is run for five seconds, to reduce random differences in time.
+The number of objects processed per second is displayed to
+three significant digits, but you will be lucky on most \*(UN systems if
+the numbers are consistent to two digits.
+.PP
+.B x11perf
+moves the cursor out of the test window.
+Be careful not to bump the mouse and move it back into the window.
+(A prize to the person who explains why!)
+.PP
+Before running a test,
+.B x11perf
+determines what the round trip time to the server is,
+and factors this out of the final timing reported.
+It ensures that the server has actually performed
+the work requested by fetching a pixel back from the test window;
+this ensures that servers that talk to graphics accelerators
+cannot claim that they have finished while the accelerator
+is still painting madly.
+.PP
+By default,
+.B x11perf
+automatically calibrates the number of repetitions of each test,
+so each should take approximately the same length of time to run across
+servers of widely differing speeds.
+However, as each test must be run to completion at least once,
+some slow servers may take a very long time,
+particularly on the window moving and resizing tests,
+and on the arc drawing tests.
+.PP
+All timing reports are for the smallest object involved.
+For example, the line tests use a
+.B PolyLine
+request to paint several lines at once, but report how many lines per second
+the server can paint, not how many
+.B PolyLine
+requests per second.
+Text tests paint a line of characters, but report on the number of
+characters per second.
+Some window tests map, unmap, or move a single parent window,
+but report on how many children windows per second the server can map,
+unmap, or move.
+.SH Options
+.B x11perf 
+is based solely on
+.BR Xlib .
+It recognizes the following command-line options:
+.IP "\fB\-display \fIhost\^\fB:\fIdisplay\fR" 1.0i
+Use
+.I display
+on
+.IR host .
+.IP "\fB\-sync\fR"
+Run the tests in synchronous mode.
+Normally, this is useful only for debugging
+.B x11perf .
+.IP "\fB\-pack\fR"
+Run rectangle tests so that they pack rectangles right next to each other.
+This makes it easy to debug server code for stipples and tiles:
+if the pattern looks ugly, you've got alignment problems.
+.IP "\fB\-repeat \fIn\fR"
+Repeats each test 
+.I n
+times.
+By default,
+.B x11perf
+runs each test five times.
+.IP "\fB\-time \fIseconds\fR"
+Run each test for
+.IR seconds .
+The default is five seconds for each test.
+.IP "\fB\-all\fR"
+Runs every test.
+This may take a long time to execute.
+.IP "\fB\-range \fItest1\^\fB[,\fItestN\^\fB]\fR"
+Run every test from 
+.I test1
+through
+.IR testN .
+The test names
+should be one of the options starting from
+.BR \-dot .
+These are described below.
+For example, the option
+.DM
+	\-range line100,dline10
+.DE
+.IP
+executes every test from
+.B line100
+through
+.BR dline10 .
+The option
+.DM
+	\-range line100
+.DE
+.IP
+begins with the 100-pixel line test and runs to the last test in the suite.
+.IP "\fB\-labels\fR"
+Generate just the descriptive labels for each test specified.
+For details, see the Lexicon entry for
+.BR x11perfcomp .
+.IP "\fB\-fg \fIcolor\fR"
+Use
+.I color
+to paint the foreground.
+.IP "\fB\-bg \fIcolor\fR"
+Use
+.I color
+to paint the background.
+.IP "\fB\-rop \fIrop0 ... ropN\fR"
+Use the raster operations
+.I rop0
+through
+.IR ropN .
+The default is
+.BR GXcopy .
+This option only affects graphics
+benchmarks that actually use the graphics function.
+.IP "\fB\-pm \fIpm0 ... pmN\fR"
+Use plane masks
+.I pm0
+through
+.IR pmN .
+The default is
+.BR ~0 .
+This option only affects graphics
+benchmarks that actually use the plane mask.
+.IP "\fB\-depth \fIdepth\fR"
+Use a visual with
+.I depth
+planes per pixel.
+The default is the default visual.
+.PP
+The following options name the tests that
+.B x11perf
+can perform.
+They appear here in the order in which
+.B x11perf
+executes them.
+If you name the tests with the
+.B \-range
+option, you must keep this order in mind.
+You can also ask
+.B x11perf
+to perform one or more tests individually,
+by naming each test on on the command line:
+.IP "\fB\-dot\fR" 1.0i
+Draw dots.
+.IS "\fB\-rect1\fR"
+Draw 1\(mu1 solid-filled rectangle.
+.IS "\fB\-rect10\fR"
+Draw 10\(mu10 solid-filled rectangle.
+.IS "\fB\-rect100\fR"
+Draw 100\(mu100 solid-filled rectangle.
+.IS "\fB\-rect500\fR"
+Draw 500\(mu500 solid-filled rectangle.
+.IS "\fB\-srect1\fR"
+Draw 1\(mu1 transparent stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-srect10\fR"
+Draw 10\(mu10 transparent stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-srect100\fR"
+Draw 100\(mu100 transparent stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-srect500\fR"
+Draw 500\(mu500 transparent stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-osrect1\fR"
+Draw 1\(mu1 opaque stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-osrect10\fR"
+Draw 10\(mu10 opaque stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-osrect100\fR"
+Draw 100\(mu100 opaque stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-osrect500\fR"
+Draw 500\(mu500 opaque stippled rectangle, 8\(mu8 stipple pattern.
+.IS "\fB\-tilerect1\fR"
+Draw 1\(mu1 tiled rectangle, 4\(mu4 tile pattern.
+.IS "\fB\-tilerect10\fR"
+Draw 10\(mu10 tiled rectangle, 4\(mu4 tile pattern.
+.IS "\fB\-tilerect100\fR"
+Draw 100\(mu100 tiled rectangle, 4\(mu4 tile pattern.
+.IS "\fB\-tilerect500\fR"
+Draw 500\(mu500 tiled rectangle, 4\(mu4 tile pattern.
+.IS "\fB\-bigsrect1\fR"
+Draw 1\(mu1 stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigsrect10\fR"
+Draw 10\(mu10 stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigsrect100\fR"
+Draw 100\(mu100 stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigsrect500\fR"
+Draw 500\(mu500 stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigosrect1\fR"
+Draw 1\(mu1 opaque stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigosrect10\fR"
+Draw 10\(mu10 opaque stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigosrect100\fR"
+Draw 100\(mu100 opaque stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigosrect500\fR"
+Draw 500\(mu500 opaque stippled rectangle, 161\(mu145 stipple pattern.
+.IS "\fB\-bigtilerect1\fR"
+Draw 1\(mu1 tiled rectangle, 161\(mu145 tile pattern.
+.IS "\fB\-bigtilerect10\fR"
+Draw 10\(mu10 tiled rectangle, 161\(mu145 tile pattern.
+.IS "\fB\-bigtilerect100\fR"
+Draw 100\(mu100 tiled rectangle, 161\(mu145 tile pattern.
+.IS "\fB\-bigtilerect500\fR"
+Draw 500\(mu500 tiled rectangle, 161\(mu145 tile pattern.
+.IS "\fB\-eschertilerect1\fR"
+Draw 1\(mu1 tiled rectangle, 215\(mu208 tile pattern.
+.IS "\fB\-eschertilerect10\fR"
+Draw 10\(mu10 tiled rectangle, 215\(mu208 tile pattern.
+.IS "\fB\-eschertilerect100\fR"
+Draw 100\(mu100 tiled rectangle, 215\(mu208 tile pattern.
+.IS "\fB\-eschertilerect500\fR"
+Draw 500\(mu500 tiled rectangle, 215\(mu208 tile pattern.
+.IS "\fB\-seg1\fR"
+Draw one-pixel, thin-line segment.
+.IS "\fB\-seg10\fR"
+Draw ten-pixel, thin-line segment.
+.IS "\fB\-seg100\fR"
+Draw 100-pixel, thin-line segment.
+.IS "\fB\-seg500\fR"
+Draw 500-pixel, thin-line segment.
+.IS "\fB\-seg100c1\fR"
+Draw 100-pixel, thin-line segment (one obscuring rectangle).
+.IS "\fB\-seg100c2\fR"
+Draw 100-pixel, thin-line segment (two obscuring rectangles).
+.IS "\fB\-seg100c3\fR"
+Draw 100-pixel, thin-line segment (three obscuring rectangles).
+.IS "\fB\-dseg10\fR"
+Draw ten-pixel, thin, dashed segment (three on, two off).
+.IS "\fB\-dseg100\fR"
+Draw 100-pixel, thin, dashed segment (three on, two off).
+.IS "\fB\-ddseg100\fR"
+Draw100-pixel, thin, double-dashed segment (three foreground,
+two background).
+.IS "\fB\-hseg10\fR"
+Draw ten-pixel, thin, horizontal-line segment.
+.IS "\fB\-hseg100\fR"
+Draw 100-pixel, thin, horizontal-line segment.
+.IS "\fB\-hseg500\fR"
+Draw 500-pixel, thin, horizontal-line segment.
+.IS "\fB\-vseg10\fR"
+Draw ten-pixel, thin, vertical-line segment.
+.IS "\fB\-vseg100\fR"
+Draw 100-pixel, thin, vertical-line segment.
+.IS "\fB\-vseg500\fR"
+Draw 500-pixel, thin, vertical-line segment.
+.IS "\fB\-whseg10\fR"
+Draw ten-pixel, wide, horizontal-line segment.
+.IS "\fB\-whseg100\fR"
+Draw 100-pixel, wide, horizontal-line segment.
+.IS "\fB\-whseg500\fR"
+Draw 500-pixel, wide, horizontal-line segment.
+.IS "\fB\-wvseg10\fR"
+Draw ten-pixel, wide, vertical-line segment.
+.IS "\fB\-wvseg100\fR"
+Draw 100-pixel, wide, vertical-line segment.
+.IS "\fB\-wvseg500\fR"
+Draw 500-pixel, wide, vertical-line segment.
+.IS "\fB\-line1\fR"
+Draw one-pixel, thin (width zero) line.
+.IS "\fB\-line10\fR"
+Draw ten-pixel thin line.
+.IS "\fB\-line100\fR"
+Draw 100-pixel thin line.
+.IS "\fB\-line500\fR"
+Draw 500-pixel thin line.
+.IS "\fB\-dline10\fR"
+Draw ten-pixel, thin, dashed line (three on, two off).
+.IS "\fB\-dline100\fR"
+Draw 100-pixel, thin, dashed line (three on, two off).
+.IS "\fB\-ddline100\fR"
+Draw 100-pixel, thin, double-dashed line (three foreground,
+two background).
+.IS "\fB\-wline10\fR"
+Draw ten-pixel line, line width one.
+.IS "\fB\-wline100\fR"
+Draw 100-pixel line, line width ten.
+.IS "\fB\-wline500\fR"
+Draw 500-pixel line, line width 50.
+.IS "\fB\-wdline100\fR"
+Draw 100-pixel dashed line, line width ten (30 on, 20 off).
+.IS "\fB\-wddline100\fR"
+Draw 100-pixel double-dashed line, line width ten (30 fg, 20 bg).
+.IS "\fB\-orect10\fR"
+Draw 10\(mu10, thin rectangle outline.
+.IS "\fB\-orect100\fR"
+Draw 100-pixel, thin, vertical-line segment.
+.IS "\fB\-orect500\fR"
+Draw 500-pixel, thin, vertical-line segment.
+.IS "\fB\-worect10\fR"
+Draw 10\(mu10, wide rectangle outline.
+.IS "\fB\-worect100\fR"
+Draw 100-pixel, wide, vertical-line segment.
+.IS "\fB\-worect500\fR"
+Draw 500-pixel, wide vertical line segment.
+.IS "\fB\-circle1\fR"
+Draw one-pixel-diameter, thin (line width zero) circle.
+.IS "\fB\-circle10\fR"
+Draw ten-pixel-diameter, thin circle.
+.IS "\fB\-circle100\fR"
+Draw 100-pixel-diameter, thin circle.
+.IS "\fB\-circle500\fR"
+Draw 500-pixel-diameter, thin circle.
+.IS "\fB\-dcircle100\fR"
+Draw 100-pixel-diameter, thin, dashed circle (three on, two off).
+.IS "\fB\-ddcircle100\fR"
+Draw 100-pixel-diameter, thin, double-dashed circle (three foreground,
+two background).
+.IS "\fB\-wcircle10\fR"
+Draw ten-pixel-diameter circle, line width one.
+.IS "\fB\-wcircle100\fR"
+Draw 100-pixel-diameter circle, line width ten.
+.IS "\fB\-wcircle500\fR"
+Draw 500-pixel-diameter circle, line width 50.
+.IS "\fB\-wdcircle100\fR"
+Draw 100-pixel-diameter dashed circle, line width ten (30 on, 20 off).
+.IS "\fB\-wddcircle100\fR"
+Draw 100-pixel-diameter, double-dashed circle, line width ten (30 foreground,
+20 background).
+.IS "\fB\-pcircle10\fR"
+Draw ten-pixel-diameter, thin, partial circle,
+orientation and arc angle evenly distributed.
+.IS "\fB\-pcircle100\fR"
+Draw 100-pixel-diameter, thin, partial circle.
+.IS "\fB\-wpcircle10\fR"
+Draw ten-pixel-diameter, wide, partial circle.
+.IS "\fB\-wpcircle100\fR"
+Draw 100-pixel-diameter, wide, partial circle.
+.IS "\fB\-fcircle1\fR"
+Draw one-pixel-diameter, filled circle.
+.IS "\fB\-fcircle10\fR"
+Draw ten-pixel-diameter, filled circle.
+.IS "\fB\-fcircle100\fR"
+Draw 100-pixel-diameter, filled circle.
+.IS "\fB\-fcircle500\fR"
+Draw 500-pixel-diameter, filled circle.
+.IS "\fB\-fcpcircle10\fR"
+Draw ten-pixel-diameter, partial filled circle, chord fill,
+orientation and arc angle evenly distributed.
+.IS "\fB\-fcpcircle100\fR"
+Draw 100-pixel-diameter, partially filled circle, chord fill.
+.IS \fB\-fspcircle10\fR
+Draw ten-pixel-diameter, partially filled circle, pie-slice fill,
+orientation and arc angle evenly distributed.
+.IS "\fB\-fspcircle100\fR"
+Draw 100-pixel-diameter, partially filled circle, pie slice fill.
+.IS "\fB\-ellipse10\fR"
+Draw ten-pixel-diameter, thin (line width zero) ellipse, major and
+minor axis sizes evenly distributed.
+.IS "\fB\-ellipse100\fR"
+Draw 100-pixel-diameter, thin ellipse.
+.IS "\fB\-ellipse500\fR"
+Draw 500-pixel-diameter, thin ellipse.
+.IS "\fB\-dellipse100\fR"
+Draw 100-pixel-diameter, thin, dashed ellipse (three on, two off).
+.IS "\fB\-ddellipse100\fR"
+Draw 100-pixel-diameter, thin, double-dashed ellipse (three foreground,
+two background).
+.IS "\fB\-wellipse10\fR"
+Draw ten-pixel-diameter ellipse, line width one.
+.IS "\fB\-wellipse100\fR"
+Draw 100-pixel-diameter ellipse, line width ten.
+.IS "\fB\-wellipse500\fR"
+Draw 500-pixel-diameter ellipse, line width 50.
+.IS "\fB\-wdellipse100\fR"
+Draw 100-pixel-diameter dashed ellipse, line width ten (30 on, 20 off).
+.IS "\fB\-wddellipse100\fR"
+Draw 100-pixel-diameter, double-dashed ellipse,
+line width ten (30 foreground, 20 background).
+.IS "\fB\-pellipse10\fR"
+Draw ten-pixel-diameter, thin, partial ellipse.
+.IS "\fB\-pellipse100\fR"
+Draw 100-pixel-diameter, thin, partial ellipse.
+.IS "\fB\-wpellipse10\fR"
+Draw ten-pixel-diameter, wide, partial ellipse.
+.IS "\fB\-wpellipse100\fR"
+Draw 100-pixel-diameter, wide, partial ellipse.
+.IS "\fB\-fellipse10\fR"
+Draw ten-pixel-diameter filled ellipse.
+.IS "\fB\-fellipse100\fR"
+Draw 100-pixel diameter filled ellipse.
+.IS "\fB\-fellipse500\fR"
+Draw 500-pixel-diameter filled ellipse.
+.IS "\fB\-fcpellipse10\fR"
+Draw ten-pixel-diameter, partially filled ellipse, chord fill.
+.IS "\fB\-fcpellipse100\fR"
+Draw 100-pixel-diameter, partially filled ellipse, chord fill.
+.IS "\fB\-fspellipse10\fR"
+Draw ten-pixel-diameter, partially filled ellipse, pie-slice fill.
+.IS "\fB\-fspellipse100\fR"
+Draw 100-pixel-diameter, partially filled ellipse, pie-slice fill.
+.IS "\fB\-triangle1\fR"
+Fill one-pixel/side triangle.
+.IS "\fB\-triangle10\fR"
+Fill ten-pixel/side triangle.
+.IS "\fB\-triangle100\fR"
+Fill 100-pixel/side triangle.
+.IS "\fB\-trap10\fR"
+Fill 10\(mu10 trapezoid.
+.IS "\fB\-trap100\fR"
+Fill 100\(mu100 trapezoid.
+.IS "\fB\-strap10\fR"
+Fill 10\(mu10 transparent stippled trapezoid, 8\(mu8 stipple pattern.
+.IS "\fB\-strap100\fR"
+Fill 100\(mu100 transparent stippled trapezoid, 8\(mu8 stipple pattern.
+.IS "\fB\-ostrap10\fR"
+Fill 10\(mu10 opaque stippled trapezoid, 8\(mu8 stipple pattern.
+.IS "\fB\-ostrap100\fR"
+Fill 100\(mu100 opaque stippled trapezoid, 8\(mu8 stipple pattern.
+.IS "\fB\-tiletrap10\fR"
+Fill 10\(mu10 tiled trapezoid, 4\(mu4 tile pattern.
+.IS "\fB\-tiletrap100\fR"
+Fill 100\(mu100 tiled trapezoid, 4\(mu4 tile pattern.
+.IS "\fB\-bigstrap10\fR"
+Fill 10\(mu10 transparent stippled trapezoid, 161\(mu145 stipple pattern.
+.IS "\fB\-bigstrap100\fR"
+Fill 100\(mu100 transparent stippled trapezoid, 161\(mu145 stipple pattern.
+.IS "\fB\-bigostrap10\fR"
+Fill 10\(mu10 opaque stippled trapezoid, 161\(mu145 stipple pattern.
+.IS "\fB\-bigostrap100\fR"
+Fill 100\(mu100 opaque stippled trapezoid, 161\(mu145 stipple pattern.
+.IS "\fB\-bigtiletrap10\fR"
+Fill 10\(mu10 tiled trapezoid, 161\(mu145 tile pattern.
+.IS "\fB\-bigtiletrap100\fR"
+Fill 100\(mu100 tiled trapezoid, 161\(mu145 tile pattern.
+.IS "\fB\-eschertiletrap10\fR"
+Fill 10\(mu10 tiled trapezoid, 216\(mu208 tile pattern.
+.IS "\fB\-eschertiletrap100\fR"
+Fill 100\(mu100 tiled trapezoid, 216\(mu208 tile pattern.
+.IS "\fB\-complex10\fR"
+Fill 10-pixel/side complex polygon.
+.IS "\fB\-complex100\fR"
+Fill 100-pixel/side complex polygon.
+.IS "\fB\-ftext\fR"
+Draw a character in 80-character line (6\(mu13).
+.IS "\fB\-f8text\fR"
+Draw a character in 70-character line (8\(mu13).
+.IS "\fB\-f9text\fR"
+Draw a character in 60-character line (9\(mu15).
+.IS "\fB\-f14text16\fR"
+Draw a two-byte character in 40-character line (k14).
+.IS "\fB\-tr10text\fR"
+Draw a character in 80-character line (Times-Roman 10).
+.IS "\fB\-tr24text\fR"
+Draw a character in 30-character line (Times-Roman 24).
+.IS "\fB\-polytext\fR"
+Draw a character in a 20/40/20 line (6\(mu13, Times-Roman 10, 6\(mu13).
+.IS "\fB\-fitext\fR"
+Draw a character in a 80-character image line (6\(mu13).
+.IS "\fB\-f8itext\fR"
+Draw a character in a 70-character image line (8\(mu13).
+.IS "\fB\-f9itext\fR"
+Draw a character in a 60-character image line (9\(mu15).
+.IS "\fB\-f14itext16\fR"
+Draw a two-byte character in a 40-character image line (k14).
+.IS "\fB\-tr10itext\fR"
+Draw a character in a 80-character image line (Times-Roman 10).
+.IS "\fB\-tr24itext\fR"
+Draw a character in a 30-character image line (Times-Roman 24).
+.IS "\fB\-scroll10\fR"
+Scroll 10\(mu10 pixels vertically.
+.IS "\fB\-scroll100\fR"
+Scroll 100\(mu100 pixels vertically.
+.IS "\fB\-scroll500\fR"
+Scroll 500\(mu500 pixels vertically.
+.IS "\fB\-copywinwin10\fR"
+Copy a 10\(mu10 square from window to window.
+.IS "\fB\-copywinwin100\fR"
+Copy a 100\(mu100 square from window to window.
+.IS "\fB\-copywinwin500\fR"
+Copy a 500\(mu500 square from window to window.
+.IS "\fB\-copypixwin10\fR"
+Copy a 10\(mu10 square from pixmap to window.
+.IS "\fB\-copypixwin100\fR"
+Copy a 100\(mu100 square from pixmap to window.
+.IS "\fB\-copypixwin500\fR"
+Copy a 500\(mu500 square from pixmap to window.
+.IS "\fB\-copywinpix10\fR"
+Copy a 10\(mu10 square from window to pixmap.
+.IS "\fB\-copywinpix100\fR"
+Copy a 100\(mu100 square from window to pixmap.
+.IS "\fB\-copywinpix500\fR"
+Copy a 500\(mu500 square from window to pixmap.
+.IS "\fB\-copypixpix10\fR"
+Copy a 10\(mu10 square from pixmap to pixmap.
+.IS "\fB\-copypixpix100\fR"
+Copy a 100\(mu100 square from pixmap to pixmap.
+.IS "\fB\-copypixpix500\fR"
+Copy a 500\(mu500 square from pixmap to pixmap.
+.IS "\fB\-copyplane10\fR"
+Copy a 10\(mu10 1-bit deep plane.
+.IS "\fB\-copyplane100\fR"
+Copy a 100\(mu100 1-bit deep plane.
+.IS "\fB\-copyplane500\fR"
+Copy a 500\(mu500 1-bit deep plane.
+.IS "\fB\-putimage10\fR"
+PutImage 10\(mu10 square.
+.IS "\fB\-putimage100\fR"
+PutImage 100\(mu100 square.
+.IS "\fB\-putimage500\fR"
+PutImage 500\(mu500 square.
+.IS "\fB\-shmput10\fR"
+PutImage 10\(mu10 square, MIT shared memory extension.
+.IS "\fB\-shmput100\fR"
+PutImage 100\(mu100 square, MIT shared memory extension.
+.IS "\fB\-shmput500\fR"
+PutImage 500\(mu500 square, MIT shared memory extension.
+.IS "\fB\-getimage10\fR"
+GetImage 10\(mu10 square.
+.IS "\fB\-getimage100\fR"
+GetImage 100\(mu100 square.
+.IS "\fB\-getimage500\fR"
+GetImage 500\(mu500 square.
+.IS "\fB\-noop\fR"
+X protocol NoOperation.
+.IS "\fB\-atom\fR"
+GetAtomName.
+.IS "\fB\-prop\fR"
+GetProperty.
+.IS "\fB\-gc\fR"
+Change graphics context.
+.IS "\fB\-create\fR"
+Create child window and map using MapSubwindows.
+.IS "\fB\-ucreate\fR"
+Create unmapped window.
+.IS "\fB\-map\fR"
+Map child window via MapWindow on parent.
+.IS "\fB\-unmap\fR"
+Unmap child window via UnmapWindow on parent.
+.IS "\fB\-destroy\fR"
+Destroy child window via DestroyWindow parent.
+.IS "\fB\-popup\fR"
+Hide/expose window via Map/Unmap popup window.
+.IS "\fB\-move\fR"
+Move window.
+.IS "\fB\-umove\fR"
+Moved unmapped window.
+.IS "\fB\-movetree\fR"
+Move window via MoveWindow on parent.
+.IS "\fB\-resize\fR"
+Resize window.
+.IS "\fB\-uresize\fR"
+Resize unmapped window.
+.IS "\fB\-circulate\fR"
+Circulate lowest window to top.
+.IS "\fB\-ucirculate\fR"
+Circulate unmapped window to top.
+.SH "X Defaults"
+This program uses no X defaults.
+.SH "See Also"
+.B
+X,
+x11perfcomp,
+xbench,
+X utilities
+.R
+.SH Notes
+Copyright \(co 1988, 1989 by Digital Equipment Corporation.
+For a full statement of rights and permissions, see the copyright
+statement in the source code to this program.
+.PP
+.II "McCormack, Joel"
+.II "Karlton, Phil"
+.II "Angebranndt, Susan"
+.II "Kent, Chris"
+.B x11perf
+is mostly the responsibility of Joel McCormack.
+It is based upon the
+.B x11perf
+developed by Phil Karlton, Susan Angebranndt, and Chris Kent,
+who wished to assess performance differences between various servers.
+For a general release to the world, 
+.B x11perf 
+was rewritten to ease making comparisons between widely varying
+machines, to cover most important (and unimportant) X functionality,
+and to exercise graphics operations in as many different
+orientations and alignments as possible.

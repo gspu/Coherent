@@ -1,0 +1,329 @@
+.TH olvwmrc "" "" "Technical Information"
+.PC "Resource file for olvwm"
+.B $HOME/.olvwmrc
+.PP
+.B .olvwmrc
+is the file that controls advanced keybinding and menu features
+for the Window Manager
+.BR olvwm .
+.PP
+This file controls three features of
+.BR olvwm :
+.IP \fBKeybindings\fR
+This maps specific actions to function keys.
+.IP "\fBScreen Bindings\fR"
+This controls where certain applications are started.
+.IP \fBWINMENU\fR
+This controls the items that appear in this menu,
+and their default command-line settings.
+.PP
+The syntax for each of these entries appears below.
+Common to all syntax entries is the notion of an ``identifier'':
+this is a string
+that specifies the window or windows to which the given entry applies.
+To determine whether a particular rule in
+.B .olvwmrc
+affects a particular window,
+.B olvwm
+checks the window's
+.B WM_NAME
+to see if it matches the identifier within the rule.
+This match is done only for the length of the identifier;
+for example, the identifier ``Mail'' matches all windows whose name in their
+.B WM_NAME
+begins with the letters ``M\-a\-i\-l''.
+.PP
+If this does not match,
+.B olvwm
+checks the instance, then the class fields of the window's
+.B WM_CLASS
+attribute to check for a possible match.
+If it finds a match for any of these fields, the rule affects the window.
+Case is significant.
+.PP
+An identifier can contain any alpha-numeric character; any other character
+must be enclosed within quotation marks or apostrophes.
+Thus, ``Mail'' is a valid identifier, as is ``"Mail Tool"'';
+but ``Mail Tool'' (without quotation marks) is not.
+Likewise, a string that is to be executed must be enclosed between
+quotation marks if they contain non alpha-numeric characters.
+Quotation marks can be nested in a string;
+for example, to start a clock with the label ``foo bar'',
+specify:
+.DM
+	'clock -label "foo bar"'
+.DE
+.PP
+Finally, apostrophes can be escaped with a backslash.
+For example, the full
+.B WM_NAME
+of
+.B DevGuide
+should appear as:
+.DM
+	"OpenWindows Developer\e's Guide"
+.DE
+.PP
+.B olvwm
+ignores all whitespace in this file.
+It also ignores lines that has a `#' in column one; you can use such
+lines to hold comments.
+.SH "Key/Action Bindings"
+You can set
+.B olvwmrc
+to configure
+.B olvwm
+to perform a series of actions when you press a specific key.
+The key must be function key (F1 through F10),
+a left key (L1 through L10), or a right key (R1 through R10).
+The key may be specified by itself
+or with any one or more of the following modifiers:
+.BR <shift> ,
+.BR <ctrl> ,
+.BR <alt> ,
+.BR <meta> ,
+.BR <hyper> ,
+.BR <super> ,
+.BR "<shift Lock> ,
+or
+.BR "<caps lock> ,
+in which case the key must be pressed with the given modifiers.
+Keyboards other than Sun-4 must set up key mappings
+to generate X function- or right-key symbols.
+.PP
+A key binding in
+.B olvwmrc
+takes precedence over any other function that key might perform.
+Thus, if you bind the L5 key to an action in
+.BR olvwmrc ,
+you cannot use the L5 key to bring windows to the front;
+if you bind the R8 key, you cannot use that key to scroll up on the desktop.
+Because 29 of the 35 possible keys already have a meaning within
+.BR olvwm ,
+it is recommended that you use at least one modifier with a key
+to avoid clobbering its other functions.
+.PP
+A key can be associated with any of the following six actions:
+.IP \fBWarp\fR
+This action requires a single identifier.
+.B olvwm
+locates the youngest window that matches this identifier
+and warps the view into the desktop
+so that it displays the found window on the screen.
+The window itself does not change position relative to the other windows;
+.B olvwm
+changes only the view into the desktop.
+If it does not find a matching window,
+.B olvwm
+does not change the view.
+It moves the mouse into the matching window and gives that window input focus.
+.IP \fBOpen\fR
+This action requires a list of identifiers separated by commas.
+.B olvwm
+matches each iconified window against this list,
+and opens each that matches any identifier within the list.
+.IP \fBClose\fR
+This action requires a list of identifiers separated by commas.
+.B olvwm
+matches every non-iconified window against this list, and closes each
+that matches any identifier within the list.
+.IP \fBRaise\fR
+This action requires a list of identifiers separated by commas.
+.B olvwm
+matches every window against this list, and raises each that matches
+any identifier in the list.
+.B olvwm
+raises windows from youngest to oldest,
+so that the oldest windows in the list appear in the foreground.
+.IP \fBExecute\fR
+This action requires a list of commands separated by commas.
+.B olvwm
+executes each command via Bourne shell, just as it executes a
+command given in the 
+.B olvwm
+menu file (except that multiple commands may be listed).
+.IP \fBGoto\fR
+This action requires a single integer parameter, which is the logical
+screen to which the desktop should warp when the given key is pressed.
+.IP \fBQuit\fR
+This action requires a list of identifiers separated by commas.
+.B olvwm
+matches each window against the list, and kills each that matches
+any identifier within the list.
+.PP
+These actions can appear in any order;
+.B olvwm
+performs in the reverse of the order specified.
+A command can be listed multiple times.
+For example, this is useful should you want a stacking order different
+from that obtained by using a single raise command:
+list separate raise commands for each window
+and place first the raise command for the window you want to be on top.
+.PP
+The full syntax for a Key/Action binding is
+.DM
+	KeyName { Actions }
+.DE
+.PP
+.I KeyName
+is a valid key (L1 through L10, F1 through F10, or R1 through R15)
+followed by plus signs and the modifiers desired.
+.PP
+For example, consider the following entry:
+.DM
+	L2 + Shift {
+	    Warp: "OpenWindows Developer\e's Guide"
+	    Execute: '$OPENWINHOME/bin/xview/clock -label "foo bar"',
+			"$OPENWINHOME/bin/xview/iconedit"
+	    Raise: xterm, shelltool
+	}
+.DE
+.PP
+When the user presses
+.BR "<Shift L2>" ,
+.B olvwm
+does the following:
+.IP \fB1.\fR 0.3i
+It shifts the view so that the youngest copy of
+.B DevGuide
+is on the screen.
+.IP \fB2.\fR
+It starts a clock; its name stripe will contain
+.BR "foo bar" .
+It also starts the
+.BR IconEditor .
+.IP \fB3.\fR
+It raises every
+.B xterm
+and
+.B shelltool
+to the front of the stacking order.
+.SH "Screen Bindings"
+.B olvwm
+can arrange to begin any application relative to a particular logical screen.
+A ``logical screen'' is the area on the virtual desktop that maps to
+the size of your monitor; in the virtual display manager (VDM),
+each logical screen is outlined in dashed lines
+(unless you have turned this feature off).
+Screens are numbered by row, starting with one.
+Note that the position of a logical screen varies,
+depending on the size of a desktop:
+in the default (2\(mu3) configuration
+screen 4 is in the bottom left corner of the VDM, but in a smaller
+(2\(mu2) configuration it is in the bottom right corner.
+.PP
+The syntax for specifying a screen binding is:
+.DM
+	Screen # { Identifiers }
+.DE
+.PP
+where
+.I #
+is the logical number of the screen and
+.I Identifiers
+is a list of comma-separated window identifiers for windows that should
+always start on that screen.
+Note that you can later move the window to another screen.
+.PP
+For example, the following entry ensure that the windows started
+by Sun's AnswerBook (windows with names
+.B Navigator
+and
+.BR Viewer )
+always start on screen 6:
+.DM
+	Screen 6 { Navigator, Viewer }
+.DE
+.SH "WINMENU Actions"
+When a window is selected in the
+.B WINMENU
+menu,
+.B olvwm
+performs certain actions.
+The possible actions are the same as those listed above for
+.BR "Key Actions" ,
+except that the mouse position does not change on a warp.
+By default, windows behave as if a warp,
+raise, and open were performed on the selected window.
+.PP
+To effect a different action list for a particular window, you can specify
+.DM
+	Identifier { Actions }
+.DE
+.PP
+Each of these is a
+.BR MenuGroup ;
+one or more of these can appear in the following syntax:
+.DM
+	WINMENU { MenuGroups }
+.DE
+.PP
+For example, here is a possible entry:
+.DM
+	WINMENU {
+	    "File Manager" {
+	        Warp: "Mail Tool"
+	        Open: OLVWM_USE_SELECTION
+	    }
+	    xterm { }
+	    "Virtual Desktop" {
+	        Open: OLVWM_USE_SELECTION
+	        Execute: "$OPENWINHOME/bin/props"
+	    }
+	}
+.DE
+.PP
+If you select the Calendar Manager from your WINMENU,
+then the view warps to your Mail Tool instead of your file manager;
+if the file manager is closed,
+.B olvwm
+opens it.
+(This is not that contrived an example:
+assume that your file manager is sticky and your mail tool is not,
+and you anticipate that you will need to drag between the two.)
+.PP
+If you select an
+.B xterm
+from your
+.BR WINMENU ,
+absolutely nothing will happen.
+This implements a No-Op for that window.
+.PP
+If you select the VDM from your WINMENU,
+.B olvwm
+opens it and starts the properties application.
+.PP
+Note that this Identifier list can contain the special entry
+.BR OLVWM_USE_SELECTION ,
+which operates on the window that corresponds to the one you selected.
+A subtle distinction exists here:
+given the MenuGroup
+.DM
+	xterm { Raise:  xterm }
+.DE
+.PP
+.B olvwm
+raises
+.I every
+.B xterm
+window when you select any
+.B xterm
+via the WINMENU.
+However, the entry
+.DM
+	xterm { Raise:  OLVWM_USE_SELECTION }
+.DE
+.PP
+raises only the
+.B xterm
+corresponds to the one selected via the WINMENU.
+.SH "See Also"
+.B
+fvwm,
+fwm,
+olvwm,
+olwm,
+technical information,
+twm,
+X
+.R

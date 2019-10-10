@@ -1,0 +1,40 @@
+///////
+/
+/ shlq( w0, w1, w2, w3, count ) - shift left a quad word.
+/
+/	Input:	w0..w3 = quad word to be shifted.
+/		count  = number of bits to shift by.
+/
+/	Action:	Shift left quad word w0..w3 by count bits.
+/
+/	Return:	Shifted result left in _fpac_.
+/
+////////
+	.globl	shlq_
+	.shri
+
+shlq_:	push	si
+	push	di
+	push	bp
+	mov	bp,sp
+	mov	ax,8(bp)
+	mov	dx,10(bp)
+	mov	si,12(bp)
+	mov	di,14(bp)
+	mov	cx,16(bp)
+	jcxz	1f
+
+0:	shl	ax,$1
+	rcl	dx,$1
+	rcl	si,$1
+	rcl	di,$1
+	loop	0b
+
+1:	mov	_fpac_+0,ax
+	mov	_fpac_+2,dx
+	mov	_fpac_+4,si
+	mov	_fpac_+6,di
+	pop	bp
+	pop	di
+	pop	si
+	ret

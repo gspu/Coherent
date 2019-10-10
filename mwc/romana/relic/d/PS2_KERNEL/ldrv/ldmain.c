@@ -1,0 +1,231 @@
+/* $Header: /kernel/kersrc/ldrv/RCS/ldmain.c,v 1.1 92/07/17 15:27:53 bin Exp Locker: bin $ */
+/*
+ *	The  information  contained herein  is a trade secret  of INETCO
+ *	Systems, and is confidential information.   It is provided under
+ *	a license agreement,  and may be copied or disclosed  only under
+ *	the terms of that agreement.   Any reproduction or disclosure of
+ *	this  material  without  the express  written  authorization  of
+ *	INETCO Systems or persuant to the license agreement is unlawful.
+ *
+ *	Copyright (c) 1987
+ *	An unpublished work by INETCO Systems, Ltd.
+ *	All rights reserved.
+ */
+
+/*
+ * Loadable Driver - Process Handler.
+ *
+ * $Log:	ldmain.c,v $
+ * Revision 1.1  92/07/17  15:27:53  bin
+ * Initial revision
+ * 
+ * Revision 1.2	89/03/31  16:19:36 	src
+ * Bug:	Did not cancel either attached timed functions or deferred functions
+ * 	during an unload.  As a result, if a driver did not explicitly do
+ * 	this, then unloading the driver could cause a system panic.
+ * Fix:	Now cancels the functions. (ABC)
+ * 
+ * Revision 1.1	88/03/24  08:30:44 	src
+ * Initial revision
+ * 
+ * 87/12/03	Allan Cornish		/usr/src/sys/ldrv/ldmain.c
+ * Initial version.
+ */
+#include <sys/coherent.h>
+#include <sys/proc.h>
+#include <sys/sched.h>
+#include <sys/con.h>
+#include <sys/seg.h>
+#include <sys/stat.h>
+#include <sys/uproc.h>
+
+extern CON con;
+
+extern	saddr_t	ldrvsel[NDRV];
+extern	saddr_t ldrvics[16];
+extern	void  (*ldrvipc[16])();
+extern	CON *	ldrvcon[NDRV];
+extern	CON	ldrvpsy;
+extern	saddr_t	ucs;
+
+/*
+ * Local variable - keeps track of the number of opens.
+ * The loadable driver can't terminate until after the last close.
+ * Openf is the loadable driver open routine.
+ * Closef points to the driver's close routine.
+ * The configuration table entries are taken over
+ */
+static	int	nopen = 0;
+static	void	(*openf)() = NULL;
+static	void	(*closef)() = NULL;
+
+main()
+{
+	register int mind = con.c_mind;
+	register int level;
+	extern	void myopen();
+	extern	void myclose();
+	extern	void Kdefend();
+
+	/*
+	 * Loadable devices must identify the desired major device.
+	 */
+	if ( (mind == 0) || (mind >= drvn) ) {
+		printf("ldrv:%d: bad dev\n", mind );
+		uexit( 1 );
+	}
+
+	/*
+	 * Loadable devices must use a unique [not in use] major device.
+	 */
+	if ( (drvl[mind].d_conp != NULL) || (ldrvcon[mind] != NULL) ) {
+		printf("ldrv:%d: dev bsy\n", mind );
+		uexit( 0 );
+	}
+
+	/*
+	 * Intercept driver open/close requests.
+	 * This allows the driver process to terminate after the last close,
+	 *	if one or more signals have been received.
+	 */
+	openf		= con.c_open;
+	closef		= con.c_close;
+	con.c_open	= myopen;
+	con.c_close	= myclose;
+
+	/*
+	 * Install the loadable driver pseudo device interface.
+	 * The O/S will call the pseudo-device, which will call us.
+	 * Record our driver configuration and code segment.
+	 */
+	drvl[mind].d_conp = &ldrvpsy;
+	ldrvcon[mind] = &con;
+	ldrvsel[mind] = ucs;
+
+	/*
+	 * Load the device driver.
+	 */
+	if ( con.c_load != NULL )
+		(*con.c_load)( makedev(mind,0) );
+
+	/*
+	 * Sleep until a kill signal has arrived, and no device is open.
+	 */
+	do {
+		sleep( (char *)&nopen, CVSWAP, IVSWAP, SVSWAP );
+
+	} while ( ((SELF->p_ssig & 0x0100) == 0) || (nopen != 0) );
+
+	/*
+	 * Unload the device driver.
+	 */
+	if ( con.c_uload != NULL )
+		(*con.c_uload)( makedev(mind,0) );
+
+	/*
+	 * Erase references to our kernel process.
+	 */
+	drvl[mind].d_conp = NULL;
+	ldrvcon[mind] = NULL;
+	ldrvsel[mind] = 0;
+
+	/*
+	 * Scan looking for attached interrupts.
+	 * NOTE: This is to prevent dangling interrupt vectors.
+	 */
+	for ( level = 0; level < 16; level++ ) {
+
+		/*
+		 * Interrupt is not attached to us.
+		 */
+		if ( ldrvics[level] != ucs )
+			continue;
+
+		/*
+		 * Disable interrupt.
+		 */
+		clrivec( level );
+
+		/*
+		 * Release loadable driver interrupt.
+		 */
+		ldrvics[level] = 0;
+		ldrvipc[level] = NULL;
+	}
+
+	/*
+	 * Service deferred functions BEFORE scanning for timed functions.
+	 * This is in case a deferred function schedules a timed function.
+	 */
+	kcall( Kdefend );
+
+	/*
+	 * Scan for attached timed functions which have to be terminated.
+	 */
+	for ( level = 0; level < nel(timq); level++ ) {
+		register TIM * tp;
+
+		/*
+		 * Access a specific timing queue.
+		 */
+		for ( tp = timq[level]; tp != NULL; ) {
+
+			/*
+			 * Timed function is in our loadable driver.
+			 * Restart search at start of timing queue.
+			 */
+			if ( FP_SEL(tp->t_ldrv) == getcs() ) {
+			  	timeout( tp, 0, NULL, 0 );
+				tp = timq[ level ];
+			}
+
+			/*
+			 * Not one of our timed functions.
+			 * Advance to next function in queue.
+			 */
+			else
+				tp = tp->t_next;
+		}
+	}
+
+	/*
+	 * Terminate with extreme prejudice.
+	 */
+	uexit( 0 );
+}
+
+static void
+myopen( dev, mode )
+dev_t dev;
+int mode;
+{
+	/*
+	 * Invoke the true open routine for the loadable driver.
+	 */
+	if ( openf != NULL )
+		(*openf)(dev, mode );
+
+	/*
+	 * Adjust reference count if open succeeded.
+	 */
+	if ( u.u_error == 0 )
+		nopen++;
+}
+
+static void
+myclose( dev )
+dev_t dev;
+{
+	/*
+	 * Invoke the true close routine for the loadable driver.
+	 */
+	if ( closef != NULL )
+		(*closef)( dev );
+
+	/*
+	 * Wakeup driver process after last close.
+	 * This allows it to terminate if appropriate.
+	 */
+	if ( --nopen == 0 )
+		wakeup( (char*) &nopen );
+}

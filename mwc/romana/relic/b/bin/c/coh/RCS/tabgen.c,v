@@ -1,0 +1,1081 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.47.58;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Table processor for the
+ * new compiler, machine independent.
+ * Runs under Coherent.  Uses
+ * two output files for compatability with
+ * the VAX cross compilers.
+ * Caches pattern flags, node flags, and type flags.
+ * Overlays common sequences before end of macros.
+ */
+char helpmessage[] = "\
+Usage: tabgen [-s] [-d define] [-p pfn] [-m mfn] file ...\n\
+";
+/*
+ * Options:
+ *	-s		report statistics
+ *	-d define	treat 'define' as defined in #ifdef and #ifndef
+ *			NDEF is limit on number of -d define's
+ *	-p pfn	make 'pfn' the pattern file name
+ *	-m mfn	make 'mfn' the macro file name
+ * Arguments are concatenated into the tables with attention
+ * #ifdef's and #ifndef's.
+ */
+
+#include	<ctype.h>
+#define	YATC	1
+#ifdef vax
+#include	"INC$LIB:host.h"
+#include	"INC$LIB:cc1.h"
+#else
+#include	"host.h"
+#include	"cc1.h"
+#endif
+
+#define	nel(x)	(sizeof(x)/sizeof(x[0]))
+
+#define	NCPS	8	/* Max identifier size */
+#define	NDEF	32	/* Limit on number of -d defines */
+#define NHASH	512	/* Size of macro element hash */
+#define NMAC	256	/* Max number of elements in macro */
+
+typedef	struct	cache	{
+	struct	cache	*c_fp;
+	int	c_type;
+	int	c_sequence;
+	char	c_data[];
+}	CACHE;
+
+#define	CPAT	0
+#define	CTYPE	1
+#define	CFLAG	2
+#define CICON	3
+#define CLCON	4
+#define CGID	5
+#define CFILE	6
+#define	NCACHE	7
+
+typedef struct hash {
+	char s_name[NCPS];
+} HASH;
+
+HASH hash[NHASH];
+HASH *macv[NMAC];
+HASH *m_end, *m_newl, *m_jmp, *m_gid, *m_icon, *m_lcon;
+HASH *mlookup();
+int nmac = 0;
+
+typedef struct sort {
+	int	t_boffs;
+	HASH	*t_symb;
+	struct sort *t_diff, *t_same;
+} SORT;
+
+SORT *root;
+
+FILE	*ifp;
+FILE	*pfp;
+FILE	*mfp;
+
+int	fnseq = 0;
+char	*fname	= NULL;
+int	lineno	= 0;
+CACHE	*cache	= NULL;
+int	boffs	= 0;
+int	bsave	= 0;
+int	npats	= 0;
+int	sflag	= 0;
+int	nflag	= 0;
+int	flevel	= 0;
+int	tlevel  = 0;
+int	getnc	= 0;
+int	nbol	= 0;
+int	ndef	= 0;
+int	hiteof	= 0;
+int	ungetc	= -1;
+int	opseq	= 1;
+int	fargc;
+char	**fargv;
+
+int	cacheseq[NCACHE];
+char	pbuf[128];
+char	*def[NDEF];
+char	*getcp;
+char	getbuf[128];
+
+struct	optable	{
+	char	o_id[NCPS];		/* Name */
+	short	o_value;		/* Op value */
+	short	o_seq;			/* Pattern sequence */
+	short	o_npat;			/* # of patterns */
+}	optable[]	= {
+	{ "ADD",	ADD },
+	{ "SUB",	SUB },
+	{ "MUL",	MUL },
+	{ "DIV",	DIV },
+	{ "REM",	REM },
+	{ "AND",	AND },
+	{ "OR",		OR },
+	{ "XOR",	XOR },
+	{ "SHL",	SHL },
+	{ "SHR",	SHR },
+	{ "AADD",	AADD },
+	{ "ASUB",	ASUB },
+	{ "AMUL",	AMUL },
+	{ "ADIV",	ADIV },
+	{ "AREM",	AREM },
+	{ "AAND",	AAND },
+	{ "AOR",	AOR },
+	{ "AXOR",	AXOR },
+	{ "ASHL",	ASHL },
+	{ "ASHR",	ASHR },
+	{ "EQ",		EQ },
+	{ "NE",		NE },
+	{ "GT",		GT },
+	{ "GE",		GE },
+	{ "LE",		LE },
+	{ "LT",		LT },
+	{ "UGT",	UGT },
+	{ "UGE",	UGE },
+	{ "ULE",	ULE },
+	{ "ULT",	ULT },
+	{ "STAR",	STAR },
+	{ "ADDR",	ADDR },
+	{ "NEG",	NEG },
+	{ "COM",	COM },
+	{ "NOT",	NOT },
+	{ "QUEST",	QUEST },
+	{ "COLON",	COLON },
+	{ "INCBEF",	INCBEF },
+	{ "DECBEF",	DECBEF },
+	{ "INCAFT",	INCAFT },
+	{ "DECAFT",	DECAFT },
+	{ "COMMA",	COMMA },
+	{ "CALL",	CALL },
+	{ "ANDAND",	ANDAND },
+	{ "OROR",	OROR },
+	{ "CAST",	CAST },
+	{ "CONVERT",	CONVERT },
+	{ "FIELD",	FIELD },
+	{ "SIZEOF",	SIZEOF },
+	{ "ASSIGN",	ASSIGN },
+	{ "NOP",	NOP },
+	{ "INIT",	INIT },
+	{ "ARGLST",	ARGLST },
+	{ "LEAF",	LEAF },
+	{ "FIXUP",	FIXUP },
+	{ "BLKMOVE",	BLKMOVE }
+};
+
+/*
+ * Only macros which must be recognized
+ * are listed, the rest are output symbolically.
+ */
+struct	mtab	{
+	char	m_id[NCPS];
+	short	m_byte;
+}	mtab[]	= {
+	{ "IFR",	M_IFR },
+	{ "IFE",	M_IFE },
+	{ "IFV",	M_IFV },
+	{ "CONST",	M_ICON },
+	{ "LCONST",	M_LCON },
+	{ "REGNO",	M_REGNO },
+	{ "GID",	M_GID }
+};
+
+#ifdef	Z8001
+FILE	*ofp;
+char	file[2];
+int	line;
+VARIANT	variant;
+#endif
+
+main(argc, argv)
+char	*argv[];
+{
+	char	*pfn;
+	char 	*mfn;
+	char	*p;
+	int	c;
+	int	i;
+
+	pfn = "patern.c";
+	mfn = "macros.c";
+	for (i=1; i<argc; ++i) {
+		p = argv[i];
+		if (*p == '-') {
+			while ((c = *++p) != 0) {
+				switch (c) {
+
+				case 'p':
+					if (++i >= argc)
+						usage();
+					pfn = argv[i];
+					break;
+
+				case 'm':
+					if (++i >= argc)
+						usage();
+					mfn = argv[i];
+					break;
+
+				case 's':
+					sflag = 1;
+					break;
+
+				case 'n':
+					nflag = 1;
+					break;
+
+				case 'd':
+					if (++i >= argc)
+						usage();
+					def[ndef++] = argv[i];
+					break;
+
+				default:
+					usage();
+				}
+			}
+		} else	
+			break;
+	}
+	fargc = argc - i;
+	fargv = argv + i;
+	if (fargc == 0)
+		usage();
+	pinit(pfn);
+	minit(mfn);
+	if (sflag)
+		for (i=0; i<ndef; ++i)
+			fprintf(stderr, "def[%d] = \"%s\"\n", i, def[i]);
+	ncompile();
+	pfinis();
+	mfinis();
+	if (sflag) {
+		fprintf(stderr, "%d patterns, %d bytes.\n", npats, boffs);
+		fprintf(stderr, "%d bytes saved by goto\n", bsave);
+		fprintf(stderr, "%d patflags\n", cacheseq[CPAT]);
+		fprintf(stderr, "%d types\n", cacheseq[CTYPE]);
+		fprintf(stderr, "%d flags\n", cacheseq[CFLAG]);
+		fprintf(stderr, "%d constants\n", cacheseq[CICON]);
+		fprintf(stderr, "%d long constants\n", cacheseq[CLCON]);
+		fprintf(stderr, "%d global identifiers\n", cacheseq[CGID]);
+		fprintf(stderr, "%d files\n", cacheseq[CFILE]);
+	}
+	exit (OK);
+}
+
+usage()
+{
+	fprintf(stderr, helpmessage);
+	exit(ABORT);
+}
+
+
+pinit(pfn)
+char *pfn;
+{
+	if ((pfp = fopen(pfn, "w")) == NULL) {
+		fprintf(stderr, "%s: cannot create\n", pfn);
+		exit(ABORT);
+	}
+	intro(pfp);
+	fprintf(pfp, "#if !TINY\n");
+	fprintf(pfp, "#define fl(f,l)	, f, l\n");
+	fprintf(pfp, "#else\n");
+	fprintf(pfp, "#define fl(f,l)	/* f, l */\n");
+	fprintf(pfp, "#endif\n");
+	fprintf(pfp, "extern char macros[];\n");
+}
+
+minit(mfn)
+char *mfn;
+{
+	if ((mfp = fopen(mfn, "w")) == NULL) {
+		fprintf(stderr, "%s: cannot create\n", mfn);
+		exit(ABORT);
+	}
+	intro(mfp);
+	fprintf(mfp, "char macros[] = {\n");
+	m_end = mlookup("M_END");
+	m_newl = mlookup("\n");
+	m_jmp = mlookup("M_JMP");
+	m_gid = mlookup("M_GID");
+	m_icon = mlookup("M_ICON");
+	m_lcon = mlookup("M_LCON");
+}
+
+pfinis()
+{
+	opindex();
+	dumpcache("PATFLAG\tpatcache", CPAT);
+	fprintf(pfp, "int patcsize=sizeof(patcache)/sizeof(PATFLAG);\n");
+	dumpcache("TYPESET\ttypecache", CTYPE);
+	dumpcache("FLAG\tflagcache", CFLAG);
+	dumpcache("ival_t\tivalcache", CICON);
+	dumpcache("lval_t\tlvalcache", CLCON);
+	dumpcache("char\t*gidcache", CGID);
+	fprintf(pfp, "#if !TINY\n");
+	dumpcache("char\t*namecache", CFILE);
+	fprintf(pfp, "#endif\n");
+	fclose(pfp);
+}
+
+mfinis()
+{
+	fprintf(mfp, " 0\n};\n");
+	fclose(mfp);
+}
+
+intro(fp)
+FILE *fp;
+{
+	fprintf(fp, "#ifdef vax\n");
+	fprintf(fp, "#include \"INC$LIB:cc1.h\"\n");
+	fprintf(fp, "#else\n");
+	fprintf(fp, "#include \"cc1.h\"\n");
+	fprintf(fp, "#endif\n");
+}
+
+ncompile()
+{
+	extern char *rindex();
+	for (fnseq = 0; fnseq < fargc; fnseq += 1) {
+		fname = fargv[fnseq];
+		if ((ifp = fopen(fname, "r")) == NULL) {
+			fprintf(stderr, "%s: cannot open\n", fname);
+			exit(ABORT);
+		}
+		lineno = 0;
+		hiteof = 0;
+		fprintf(pfp, "/* %s */\n", fname);
+		fprintf(mfp, "/* %s */\n", fname);
+		if (rindex(fname, '/') != 0)
+			fname = rindex(fname, '/')+1;
+		findcache(fname, CFILE);
+		compile();
+		if (tlevel!=0 || flevel!=0)
+			fatal("dangeling #if");
+		fclose(ifp);
+	}
+}
+
+compile()
+{
+	register struct optable *opp;
+	register c;
+	struct optable *oplookup();
+	char id[NCPS];
+	int npat;
+
+	c = getnb();
+	while (c != EOF) {
+		if (!isalpha(c))
+			fatal("missing op name");
+		do {
+			getid(c, id);
+			opp = oplookup(id);
+			opp->o_seq = opseq;
+			if (getnb() != ':')
+				fatal("missing ':'");
+		} while (isalpha(c = getnb()));
+		if (c != '%')
+			fatal("missing '%'");
+		fprintf(pfp, "PAT p%d[] = {\n", opseq);
+		npat = 0;
+		do {
+			do {
+				pat(npat);
+				++npat;
+				++npats;
+			} while ((c = getnb()) == '%');
+			if (c == EOF)
+				fatal("eof");
+			unget(c);
+			c = body();
+		} while (c == '%');
+		fprintf(pfp, "\n};\n");
+		for (opp = &optable[0]; opp < &optable[nel(optable)]; ++opp)
+			if (opp->o_seq == opseq)
+				opp->o_npat = npat;
+		++opseq;
+	}
+}
+
+pat(nth)
+{
+	register char	*cbp;
+	register int	c;
+	register int	i;
+	register int	needtbar;
+	int	pline;
+/*
+ * Pattern fields requiring mapping with T_ prefixes
+ * and * translation.
+ */
+	static	int	tbars[] = {
+0,
+	0,	0,	0,	0,	0,
+		1,	0,
+		1,	0
+	};
+	static	char	none[] = " NONE";
+	static	char	zero[] = "  0";
+	static	char	*stars[] = {
+zero,
+	zero,	none,	none,	none,	none,
+		zero,	zero,
+		zero,	zero
+	};
+
+	pline = lineno;
+	if (nth > 0)
+		fprintf(pfp, ",\n");
+	fprintf(pfp, " {");
+	for (i=0; i<10; ++i) {
+		cbp = pbuf;
+		if ((c = getnb()) == EOF)
+			fatal("eof");
+		needtbar = tbars[i];
+		do {
+			if (needtbar != 0) {
+				needtbar = 0;
+				if (c != '*') {
+					*cbp++ = 'T';
+					*cbp++ = '_';
+				}
+			}
+			*cbp++ = c;
+			if (c == '|')
+				needtbar = tbars[i];
+			c = get();
+		} while (c!=' ' && c!='\t' && c!='\n');
+		*cbp++ = 0;
+		unget(c);
+		if (strcmp(pbuf, "*") == 0)
+			fprintf(pfp, stars[i]);
+		else {
+			switch (i) {
+			case 0:
+				fprintf(pfp, " %2d", findcache(pbuf, CPAT));
+				break;
+			case 1:
+			case 7:
+			case 9:
+				fprintf(pfp, " %2d", findcache(pbuf, CTYPE));
+				break;
+			case 6:
+			case 8:
+				fprintf(pfp, " %2d", findcache(pbuf, CFLAG));
+				break;
+			default:
+				fprintf(pfp, " %4s", pbuf);
+			}
+		}
+		putc(',', pfp);
+	}
+	fprintf(pfp, " &macros[%4d]", boffs);
+	fprintf(pfp, " fl(%d,%d)", fnseq, pline);
+	fprintf(pfp, " }");
+}
+
+findcache(p, t)
+char	*p;
+{
+	register struct	cache	*cp;
+
+	cp = cache;
+	while (cp != NULL) {
+		if (cp->c_type==t && strcmp(p, cp->c_data)==0)
+			return (cp->c_sequence);
+		cp = cp->c_fp;
+	}
+	cp = (struct cache *) malloc(sizeof(struct cache)+strlen(p)+1);
+	if (cp == NULL)
+		fatal("out of cache!");
+	cp->c_fp = cache;
+	cache = cp;
+	cp->c_type = t;
+	cp->c_sequence = ++cacheseq[t];
+	strcpy(cp->c_data, p);
+	return (cp->c_sequence);
+}
+
+dumpcache(p, t)
+char	*p;
+{
+	register struct cache	*cp;
+	register int	i;
+
+	fprintf(pfp, "%s[] = {\n", p);
+	for (i=1; i<=cacheseq[t]; ++i) {
+		cp = cache;
+		while (cp != NULL) {
+			if (cp->c_type==t && cp->c_sequence==i)
+				break;
+			cp = cp->c_fp;
+		}
+		if (i > 1)
+			fprintf(pfp, ",\n\t");
+		else
+			fprintf(pfp, "\t");
+		if (t==CGID || t==CFILE)
+			fprintf(pfp, "\"%s\"", cp->c_data);
+		else
+			fprintf(pfp, "%s", cp->c_data);
+	}
+	if (i==1)
+		fprintf(pfp, "\t0");
+	fprintf(pfp, "\n};\n");
+}
+
+struct	optable *
+oplookup(id)
+register char *id;
+{
+	register struct optable *opp;
+
+	opp = &optable[0];
+	while (opp < &optable[sizeof(optable)/sizeof(optable[0])]) {
+		if (strncmp(id, opp->o_id, NCPS) == 0)
+			return (opp);
+		++opp;
+	}
+	fatal("operator not defined");
+}
+
+body()
+{
+	int c;
+
+	c = body1();
+	body2();
+	return (c);
+}
+
+/*
+ * Parse body.
+ */
+body1()
+{
+	register b, c;
+	static char id[NCPS];
+	int iff;
+
+	fprintf(mfp, "/* %4d */\n", boffs);
+	/* Read body and subsequent blank lines */
+	for (;;) {
+		c = getnb();
+		/* End of body reached */
+		if (c==EOF || c=='%' || (c>='A' && c<='Z'))
+			break;
+		if (c == ';')
+			continue;	/* Eat them */
+		/* No conditional yet */
+		iff = 0;
+		/* Parse line */
+		do {
+			/* Eat intermediate spaces */
+			while (c==' ' || c=='\t')
+				c = get();
+			/* Catch trailing spaces */
+			if (c == '\n')
+				break;
+			/* Read bracketed macros */
+			if (c == '[') {
+				/* Until matching ] found */
+				do {
+					/* No more tab spacing */
+					while ((c = get()) == ' ')
+						;
+					getid(c, id);
+					c = get();
+					b = maclookup(id);
+					/* Output most macros */
+					if (b != M_ICON && b != M_LCON) {
+						if (id[0] == 'Z')
+							mbyte(id);
+						else
+							mbar(id);
+					}
+					/* Output register name */
+					if (b == M_REGNO) {
+						while (c == ' ')
+							c = get();
+						getid(c, id);
+						mbyte(id);
+						c = get();
+					}
+					/* Output identifier */
+					if (b == M_GID) {
+						while (c == ' ')
+							c = get();
+						getid(c, id);
+						mnum(findcache(id, CGID));
+						c = get();
+					}
+					/* Note conditional macros */
+					if (b==M_IFR || b==M_IFV || b==M_IFE)
+						iff = 1;
+					/* Pack constants */
+					if (b == M_ICON || b == M_LCON)
+						c = getcon(b, c);
+				} while (c == ' ');
+				if (c != ']')
+					fatal("missing ']' in macro");
+			}
+			c = get();
+		} while (c!=EOF && c!='\n');
+		/* Terminate conditional */
+		if (iff != 0)
+			mbyte("M_ENDIF");
+		macv[nmac++] = m_newl;
+		if (nmac >= NMAC)
+			fatal("macro too big");
+	}
+	/* Terminate macro */
+	macv[nmac++] = m_end;
+	boffs += 1;
+	macv[nmac++] = m_newl;
+	return (c);
+}
+
+maclookup(id)
+register char *id;
+{
+	register struct mtab *mtp;
+
+	for (mtp = &mtab[0]; mtp < &mtab[sizeof(mtab)/sizeof(mtab[0])]; ++mtp)
+		if (strncmp(id, mtp->m_id, NCPS) == 0) {
+			return (mtp->m_byte);
+		}
+	return (-1);
+}
+
+getcon(m, c)
+int		m;
+register int	c;
+{
+	register long l;
+	register int b;
+	register char *p;
+	static char digita[] = "0123456789ABCDEF";
+	static char digitb[] = "0123456789abcdef";
+	static char nbuf[16];
+	extern char *index();
+
+	while (c == ' ')
+		c = get();
+	l = 0;
+	b = 10;
+	if (c == '0') {
+		b = 8;
+		c = get();
+		if (c=='x' || c == 'X') {
+			b = 16;
+			c = get();
+		}
+	}
+	for (;;) {
+		if ((p = index(digita, c)) && (p-digita) < b)
+			c = p - digita;
+		else if ((p = index(digitb, c)) && (p-digitb) < b)
+			c = p - digitb;
+		else
+			break;
+		l = b*l + c;
+		c = get();
+	}
+	sprintf(nbuf, "0x%lx", l);
+	if (m == M_ICON) {
+		mbar("ICON");
+		mnum(findcache(nbuf, CICON));
+	} else {
+		strcat(nbuf, "L");
+		mbar("LCON");
+		mnum(findcache(nbuf, CLCON));
+	}
+	return (c);
+}
+
+mbyte(id)
+char *id;
+{
+	macv[nmac++] = mlookup(id);
+	boffs += 1;
+}
+
+HASH *
+mlookup(id)
+char *id;
+{
+	register HASH *sp;
+	register char *p;
+	register int i;
+	unsigned h;
+
+	p = id;
+	h = 0;
+	i = NCPS;
+	while (--i >= 0)
+		if (*p)
+			h += *p++;
+	sp = &hash[h%NHASH];
+	p = id;
+	i = NHASH;
+	while (--i >= 0) {
+		if (sp->s_name[0] == 0) {
+			strncpy(sp->s_name, p, NCPS);
+			return (sp);
+		}
+		if (strncmp(sp->s_name, p, NCPS) == 0)
+			return (sp);
+		if (++sp >= &hash[NHASH])
+			sp = &hash[0];
+	}
+	fatal("out of hash");
+}
+
+mbar(id)
+register char *id;
+{
+	static char t[NCPS] = "M_";
+
+	strncpy(t+2, id, NCPS-2);
+	mbyte(t);
+}
+
+mnum(num)
+int num;
+{
+	static char t[] = "0x??";
+
+	mknum(t, num);
+	mbyte(t);
+}
+
+mknum(id, n)
+register char *id;
+register int n;
+{
+	static char d[] = "0123456789ABCDEF";
+
+	id[0] = '0';
+	id[1] = 'x';
+	id[3] = d[n&0xf];
+	n >>= 4;
+	id[2] = d[n&0xf];
+	id[4] = 0;
+}
+
+/*
+ * Match body into reverse sorted tree,
+ * replace common ends with jumps,
+ * print body.
+ */
+body2()
+{
+	int	sboffs;	/* Saved byte size of macro */
+	int	jto;	/* Byte offset to jump to */
+	int	jfrom;	/* Byte offset to jump from */
+	int	jnmac;	/* The element which becomes M_JMP */
+	int	noto;	/* We're in the middle of a macro, don't jump */
+	register SORT **tpp;
+	register HASH *sp;
+	static char t1[] = "0x??";
+	static char t2[] = "0x??";
+	register int i;
+
+	sboffs = boffs;
+	jto = -1;
+	tpp = &root;
+	i = nmac;
+	/* For each input macro element */
+	while (--i >= 0) {
+		/* Avoid gotos from within two byte macros */
+		noto = 0;
+		if (i > 0) {
+			sp = macv[i-1];
+			if (sp==m_gid || sp==m_icon || sp==m_lcon)
+				noto += 1;
+		}
+		/* Count down the byte offset */
+		if ((sp = macv[i]) != m_newl)
+			boffs -= 1;
+		/* Until match or new entry */
+		for (;;) {
+			/* New entry */
+			if (*tpp == NULL) {
+				if ((*tpp = malloc(sizeof(SORT))) == NULL)
+					fatal("out of trees");
+				(*tpp)->t_boffs = boffs;
+				(*tpp)->t_symb = sp;
+				(*tpp)->t_diff = NULL;
+				(*tpp)->t_same = NULL;
+				break;
+			}
+			/* Match */
+			if ((*tpp)->t_symb == sp) {
+				if (noto == 0) {
+					jto = (*tpp)->t_boffs;
+					jfrom = boffs;
+					jnmac = i;
+				}
+				break;
+			}
+			/* Search for match or empty */
+			tpp = &(*tpp)->t_same;
+		}
+		/* Advance to next element in macro */
+		tpp = &(*tpp)->t_diff;
+	}
+	/* Ignore any matches if nflag is set */
+	if (nflag)
+		jto = -1;
+	/* See if we found a jump */
+	if (jto >= 0) {
+		/* Make the offset strings for each form of jump */
+		if (jto < 256) {
+			mknum(t1, jto);
+			i = 2;
+		} else if ((jfrom-jto) < 256) {
+			mknum(t1, jfrom-jto);
+			i = 2;
+		} else {
+			mknum(t1, jto);
+			mknum(t2, jto>>8);
+			i = 3;
+		}
+		/* If we save space, make the jump */
+		if ((jfrom+i) < sboffs) {
+			nmac = jnmac;
+			if (nmac != 0 && macv[nmac-1] != m_newl)
+				macv[nmac++] = m_newl;
+			macv[nmac++] = m_jmp;
+		}
+	}
+	/* Print out the macro */
+	for (i = 0; --nmac > 0; i += 1)
+		if ((sp = macv[i]) == m_newl)
+			putc('\n', mfp);
+		else {
+			if (i==0 || macv[i-1] == m_newl)
+				putc('\t', mfp);
+			else
+				putc(' ', mfp);
+			fprintf(mfp, "%.8s,", sp->s_name);
+			boffs += 1;
+		}
+	/* The last entry is m_jmp or a m_newl */
+	if (macv[i] == m_jmp) {
+		if (jto < 256) {
+			fprintf(mfp, "\tM_JMP1, %s,\t\t", t1);
+			boffs += 2;
+		} else if ((jfrom-jto) < 256) {
+			fprintf(mfp, "\tM_JMPB, %s,\t\t", t1);
+			boffs += 2;
+		} else {
+			fprintf(mfp, "\tM_JMP2, %s, %s,\t", t1, t2);
+			boffs += 3;
+		}
+		/* Identify the destination */
+		fprintf(mfp, "/* %d */\n", jto);
+	} else
+		putc('\n', mfp);
+	bsave += sboffs - boffs;
+}
+
+getnb()
+{
+	register int	c;
+
+	while ((c=get())==' ' || c=='\t' || c=='\n')
+		;
+	return (c);
+}
+
+get()
+{
+	register char 	*p1;
+	register char	*p2;
+	register int	c;
+	register int	hitslash;
+	register int	isdef;
+	register int	i;
+
+	if ((c=ungetc) >= 0) {
+		ungetc = -1;
+		return (c);
+	}
+	if (hiteof != 0)
+		return (EOF);
+	while (getnc == 0) {
+		p1 = &getbuf[0];
+		hitslash = 0;
+		while ((c=getc(ifp))!=EOF && c!='\n') {
+			if (hitslash == 0) {
+				if (c == '/')
+					hitslash = 1;
+				else
+					*p1++ = c;
+			}
+		}
+		if (c == EOF) {
+			hiteof = 1;
+			return (EOF);
+		}
+		*p1++ = '\n';
+		++lineno;
+		if (getbuf[0] == '#') {
+			static char endif[] = "endif";
+			static char ifdef[] = "ifdef";
+			static char ifndef[] = "ifndef";
+
+			p2 = &getbuf[1];
+			if (match(p2, endif)) {
+				if (tlevel != 0)
+					--tlevel;
+				else if (flevel != 0)
+					--flevel;
+				else
+					fatal(endif);
+				if ((tlevel+flevel) == 0)
+					fprintf(pfp, "\n/* #%s */", endif);
+				continue;
+			}
+			if (match(p2, ifdef) || match(p2, ifndef)) {
+				if (flevel != 0) {
+					++flevel;
+					continue;
+				}
+				while ((c = *p2)!=' ' && c!='\t' && c!='\n')
+					++p2;
+				while ((c = *p2)==' ' || c=='\t')
+					++p2;
+				if (c == '\n')
+					fatal("if name");
+				p1 = p2;
+				while (*p2!=' ' && *p2!='\t' && *p2!='\n')
+					++p2;
+				*p2 = 0;
+				isdef = 0;
+				for (i=0; i<ndef; ++i) {
+					if (strcmp(def[i], p1) == 0) {
+						isdef = 1;
+						break;
+					}
+				}
+				if (getbuf[3] == 'n')	/* #ifndef */
+					isdef = !isdef;
+				if (isdef != 0)
+					++tlevel;
+				else
+					++flevel;
+				fprintf(pfp, "\n/* %s */", getbuf);
+				continue;
+			}
+			if (flevel == 0) {
+				p2 = &getbuf[0];
+				while (p2 < p1)
+					putc(*p2++, pfp);
+			}
+			continue;
+		}
+		if (flevel == 0) {
+			getnc = p1 - &getbuf[0];
+			getcp = &getbuf[0];
+		}
+	}
+	--getnc;
+	return (*getcp++);
+}
+
+unget(c)
+{
+	ungetc = c;
+}
+
+getid(c, id)
+register c;
+char id[];
+{
+	register char *p;
+
+	if (!isalpha(c) && c != '_')
+		fatal("missing identifier");
+	p = id;
+	do {
+		if (p < &id[NCPS])
+			*p++ = c;
+		c = get();
+	} while (isalnum(c));
+	while (p < &id[NCPS])
+		*p++ = 0;
+	unget(c);
+}
+
+fatal(s)
+char *s;
+{
+	fprintf(stderr, "%s: %d: %s\n", fname, lineno, s);
+	exit(ABORT);
+}
+
+opindex()
+{
+	register struct optable *opp;
+
+	fprintf(pfp, "PATX patx[] = {\n");
+	opp = &optable[0];
+	while (opp < &optable[nel(optable)]) {
+		fprintf(pfp, "\t");
+		if (opp->o_seq == 0)
+			fprintf(pfp, "NULL,\t0");
+		else
+			fprintf(pfp, "p%d,\t%d", opp->o_seq, opp->o_npat);
+		if (opp != &optable[nel(optable)-1])
+			putc(',', pfp);
+		putc('\n', pfp);
+		++opp;
+	}
+	fprintf(pfp, "};\n");
+}
+
+match(p1, p2)
+register char	*p1;
+register char	*p2;
+{
+	register int	c;
+
+	while ((c = *p2++) != 0) {
+		if (*p1++ != c)
+			return (0);
+	}
+	return (1);
+}
+@

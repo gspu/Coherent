@@ -1,0 +1,442 @@
+.TH hai "" "" "Device Driver"
+.PC "Host adapter\-independent SCSI driver"
+.PP
+.II /dev/sd*
+.II /dev/rsd*
+.II "driver^SCSI devices"
+.II "device driver^SCSI devices"
+.II "SCSI devices^device driver"
+.B hai
+is a host adapter\-independent device driver that supports various
+SCSI devices.
+It supports the Adaptec 154x host adapter, and compatibles;
+and all host adapters built around the Future Domain TMC-950/9C50 chip set.
+With a supported host adapter,
+.B hai
+can support any mix of up to seven SCSI hard disks (either fixed or removable
+media), CD-ROM drives, and tape drives.
+.PP
+.B hai
+has major-device number 13.
+It can access devices
+either in block mode or character mode.
+The minor number specifies the device and partition number for
+disk-type devices;
+this allows the use of up to eight SCSI identifiers (SCSI-ID's), with up to
+four logical unit numbers
+(LUNs) per SCSI-ID and up to four partitions per LUN.
+Tape and other special devices decode the minor number to perform
+special operations such as ``rewind on close'' or ``no rewind on close''.
+The first
+.B open()
+call on a SCSI disk device allocates memory for the
+partition table and reads it into memory.
+.PP
+.B hai
+is a modular driver that you can configure to suit your system's suite of
+SCSI hardware.
+To build the driver, you must link the main
+.B hai
+module with the appropriate module for your system's SCSI host-adapter card,
+and a module for each type of SCSI device you have (hard disk, CD-ROM, or
+tape).
+Each of
+.B hai 's
+modules is described below.
+Usually, you will configure
+.B hai
+when you install \*(CO onto your system,
+but you can reconfigure
+.B hai
+at any time should you wish to add or modify your system's suite of SCSI
+devices.
+The script
+.B /etc/conf/hai/mkdev
+walks you through this process.
+Once you have reconfigured
+.BR hai ,
+run the program
+.B /etc/conf/bin/idmkcoh
+to build a new kernel; then reboot your system to invoke the newly built
+kernel and you're back in business.
+.SH "Extending hai"
+.B hai
+is designed to be extendable to other host adapters and other SCSI devices.
+It is easy to extend
+.B hai
+to work with new hardware.
+It is possible to extend
+.B hai
+either to support a new host adapter, or to support new peripheral
+device, or both.
+.PP
+To adapt
+.B hait
+to a new a host adapter, you must write a handful of routines to
+initialize and access the host adapter.
+A host-adapter module must be able to do the following:
+.IP \(bu 0.3i
+Initialize the host adapter and ready it for future requests.
+.IP \(bu
+Start a SCSI command and call a notification function when
+that command completes or times out.
+.IP \(bu
+Abort a SCSI command in progress.
+.IP \(bu
+Reset a device on the SCSI bus.
+.IP \(bu
+Reset the SCSI bus.
+.PP
+It is easier to write a module for a peripheral device:
+you only need to send the appropriate SCSI commands to access the device
+as required by the \*(CO device-driver interface \(em i.e.,
+.BR open() ,
+.BR close() ,
+.BR read() ,
+.BR write() ,
+and
+.BR ioctl () .
+To do this, use the routines provided by the host-adapter module, when
+neccessary, to access the SCSI bus and the device.
+.PP
+The following sections of this article discuss each of
+.BR hai 's
+constituent modules.
+.SH "hai154x \(em Adaptec Host-Adapter Module"
+.B hai154x
+is the
+.B hai
+host-adapter module for the Adaptec 154x and compatible host adapters.
+This module lets you run any combination of SCSI hard disks,
+tape drives, or CD-ROM drives through any Adaptec AHA-154x host adapter.
+.PP
+The Adaptec AHA-154x is an intelligent ISA bus mastering SCSI host
+adapter.
+Its on-board processor and DMA controllers handle the SCSI
+bus protocol and the DMA transfer of SCSI data into the PC's main
+memory.
+.B hai154x
+uses port I/O, a DMA channel, and an interrupt line, which are
+configured through the following tunable variables:
+.DS
+.II "kernel variable^HAI154X_BASE"
+.II "kernel variable^HAI154X_INTR"
+.II "kernel variable^HAI154X_DMA"
+.II "HAI154X_BASE"
+.II "HAI154X_INTR"
+.II "HAI154X_DMA"
+.ta 0.5i 1.75i
+	\fBHAI154X_BASE\fR	Base port
+	\fBHAI154X_INTR\fR	Interrupt level
+	\fBHAI154X_DMA\fR	DMA channel
+.DE
+.PP
+The following tunable parameters let you set the DMA transfer speed, the
+bus-on time, and the bus-off time on the SCSI bus:
+.DS
+.II "kernel variable^HAI154X_XFERSPEED"
+.II "kernel variable^HAI154X_BUSOFFTIME"
+.II "kernel variable^HAI154X_BUSONTIME"
+.II "HAI154X_XFERSPEED"
+.II "HAI154X_BUSOFFTIME"
+.II "HAI154X_BUSONTIME"
+.ta 0.5i 1.75i
+	\fBHAI154X_XFERSPEED\fR	DMA transfer speed, from the table below
+	\fBHAI154X_BUSOFFTIME\fR	Host-adapter bus-on time for DMA transfers
+	\fBHAI154X_BUSONTIME\fR	Host-adapter bus-off time for DMA transfers
+.DE
+.PP
+Variable
+.B HAI154X_XFERSPEED
+must be set to one of the values given in the following table.
+.DS
+.ta 0.5iC 1.0i
+	\fISetting	Speed, megabytes/second\fR
+	\fB0\fR		 5.0
+	\fB1\fR		 6.7
+	\fB2\fR		 8.0
+	\fB3\fR		10.0
+	\fB4\fR		 5.7
+.DE
+.PP
+The default setting is `4'.
+.PP
+You can use these parameters to tune the performance of the SCSI bus for
+your system.
+For most installations, the default settings should be work well.
+.SH "haiss \(em Seagate Host-Adapter Module"
+.B haiss
+is the host-adapter module for host adapters built around the
+Future Domain TMC-950 or TMC-9C50 chip sets.
+It works with the following controllers:
+.DS
+	Seagate ST01 or ST02
+	Future Domain TMC-845, 850, 860, 875, or 885
+	Future Domain TMC-840, 841, 880, or 881
+.DE
+.PP
+Through this host-adapter module,
+you can run any combination of SCSI hard disks,
+tape drives, or CD-ROM drives through any of the above host adapters.
+.PP
+These host adapters
+map the SCSI bus data and signal lines onto memory addresses on the PC bus.
+.B haiss
+then uses standard memory-read and -write operations
+to access the state of the SCSI bus and the data on it.
+By default, this controller uses the Intel block-move instruction
+to transfer data between the device's buffer and the SCSI data-address range.
+This mode of transfer may be too fast for certain SCSI devices, in which case
+data can be transferred byte by byte.
+You can set how
+.BR haiss
+transfers data; this is described below.
+.PP
+.B haiss
+can be used through the following tunable kernel variables:
+.IP \fBHAISS_TYPE\fR
+.II "kernel variable^HAISS_TYPE"
+.II HAISS_TYPE
+The type of the card, as follows:
+.DS
+.ta 0.5iC 1.0i
+	\fIType	Controller\fR
+	0	Seagate ST01/02
+	1	Future Domain TMC-845/850/860/875/885
+	2	Future Domain TMC-840/841/880/881
+.DE
+.IP \fBHAISS_INTR\fR
+.II "kernel variable^HAISS_INTR"
+.II HAISS_INTR
+The interrupt vector to which the card is set.
+Although \*(MD permits you to use this card without interrupts,
+\*(CO requires that you use interrupts.
+.IP \fBHAISS_BASE\fR
+.II HAISS_BASE
+.II "kernel variable^HAISS_BASE"
+The real-mode segment address for the start of the card's RAM area.
+On all Future Domain and Seagate host adapters
+with an eight-kilobyte ROM, this is also the base address
+that is jumpered onto the card.
+On Seagate host adapters with a 16-kilobyte ROM, this is the base address
+jumpered on the card plus 0x0200.
+.IP \fBHAISS_SLOWDEV\fR
+.II HAISS_SLOWDEV
+.II "kernel variable^HAISS_SLOWDEV"
+A bitmask of the target identifiers of all SCSI devices whose
+rate of data transfer is slower than the default transfer mode
+that the host adapter supports.
+.PP
+These variables are set automatically by the script
+.BR /etc/conf/hai/mkdev ,
+when you use it to configure
+.B hai
+for your system; or you can use the command
+.B /etc/conf/bin/idtune
+to tune them individually.
+.SH "haict \(em Tape Device Module"
+.B haict
+is the device module that controls SCSI tape drives.
+It works a number of popular quarter-inch and DAT SCSI tape drives
+.PP
+.II HAI_TAPE_SPEC
+.II "kernel variables^HAI_TAPE_SPEC"
+.II HAI_TAPE_CACHE
+.II "kernel variables^HAI_TAPE_CACHE"
+SCSI tape-drive configuration is controlled by the tunable variables
+.B HAI_TAPE_SPEC
+and
+.BR HAICT_CACHE .
+.PP
+.B HAI_TAPE_SPEC
+is a bitmap of the SCSI identifiers that identify tape drives on your system.
+For example, if a system has only one SCSI tape drive, and it is assigned
+SCSI identifier two, then you would set
+.B HAI_TAPE_SPEC
+to 0x04, which flips on bit two of that mask.
+(If you are versed in converting binary values into bit masks,
+note that the script
+.B /etc/conf/hai/mkdev
+handles that conversion for you \(em all you have to do is tell it
+what SCSI identifiers are set to which devices, and it does the rest.)
+.PP
+Variable
+.B HAICT_CACHE
+sets the size of block of memory that
+.B hai
+uses to buffer data that it writes to or reads from the tape drive.
+You can set this anywhere from zero to 256 kilobytes.
+The default is 16 kilobytes, which should works well with most tape drives.
+To tune this variable, use either the command
+.B /etc/conf/bin/idtune
+or the script
+.BR /etc/conf/hai/mkdev .
+Please note that larger tape caches may not necessarily improve
+tape performance.
+For example, the program
+.B cpio
+for example uses a 5,120-byte buffer
+that limits the effectiveness of any tape-buffering scheme.
+.SH "haicd \(em CD-ROM Device Module"
+.B haicd
+is the device module that controls SCSI CD-ROM drives.
+It permits you to read data from both audio CDs and CD-ROM that hold an
+ISO 9660 file system.
+.PP
+.II HAI_CDROM_SPEC
+.II "kernel variables^HAI_CDROM_SPEC"
+Configuration of
+.B haicd
+is controlled by the variable
+.BR HAI_CDROM_SPEC ,
+which is a bitmap of the SCSI identifiers that identify CD-ROM drives
+on your system.
+For example, if a system has only one SCSI CD-ROM drive, and it is assigned
+SCSI identifier three, then you would set
+.B HAI_TAPE_SPEC
+to 0x08, which flips on bit three of that mask.
+(If you are versed in converting binary values into bit masks,
+note that the script
+.B /etc/conf/hai/mkdev
+handles that conversion for you \(em all you have to do is tell it
+what SCSI identifiers are set to which devices, and it does the rest.)
+.PP
+As of this writing (September 1994),
+.B haicd
+has been tested with SCSI CD-ROM drives from Toshiba and NEC.
+.II "NEC CDR-74"
+.II "NEC CDR-84"
+.II "CD-ROM^NEC CDR-74"
+.II "CD-ROM^NEC CDR-84"
+The CD-ROM functions work with both makes of CD-ROM.
+Please note, however, that the audio functions of the NEC CDR-74 and CDR-84
+CD-ROM drives deviate from the SCSI-2 specification considerably;
+therefore, the audio functions of
+.B haicd
+do not work on these drives.
+.SH "haisd \(em Hard Disk Device Module"
+.B haisd
+is the
+.B hai
+device module that controls SCSI disk drives.
+Because
+.B hai
+allows multiple, overlapping, simultaneous access to the
+system's SCSI host adapter,
+the disk drives that
+.B hai
+controls operate independently of each other.
+.B haisd
+also chains ``like'' requests for multiple contiguous sectors,
+which reduces the overhead of starting SCSI commands and thereby inproves
+performance.
+.PP
+.II "kernel variable^HAI_DISK_SPEC"
+.II "HAI_DISK_SPEC"
+.B haisd
+is configured through the tunable kernel variable
+.BR HAI_DISK_SPEC ,
+which is a bitmap of the SCSI identifiers that identify hard-disk drives
+on your system.
+For example, if a system has two SCSI disk drives, one with SCSI identifier
+zero and the other with SCSI identifier one,
+.B HAI_DISK_SPEC
+to 0x03, which flips on bits 0 and 1 of that mask.
+(If you are versed in converting binary values into bit masks,
+note that the script
+.B /etc/conf/hai/mkdev
+handles that conversion for you \(em all you have to do is tell it
+what SCSI identifiers are set to which devices, and it does the rest.)
+.PP
+.B haisd
+determines partitioning information from the device's minor
+number as follows:
+.DM
+.if n .ta 0.5i 1.25i
+	\fIBit:\fR	7 6 5 4 3 2 1 0
+		S I-I-I L-L P-P
+.DE
+.PP
+The `S' field is the ``special'' bit:
+it distinguishes SCSI disk drives from tape drives.
+The `P' fields are a binary value of the partition-table
+entry for this device, from 0 through 3.
+If the special bit is set and the partition fields are not 0, then
+.B haisd
+assumes that this device is
+.I not
+a disk drive and will not allow access to the device.
+The `I' fields give the binary value of the SCSI identifier for this
+device, from zero through seven.
+This convention is used for all SCSI devices.
+Finally, the `L' fields set the logical-unit number field, from 0 through 3.
+(If you are not skilled at setting bit maps by hand, do not despair:
+the configuration script
+.B /etc/conf/hai/mkdev
+automatically builds an appropriate device node for each SCSI disk.)
+.SH Files
+\fB/dev/sd*\fR \(em Block-special SCSI-disk devices
+.br
+\fB/dev/Stp*\fR \(em Block-special SCSI-tape devices
+.br
+\fB/dev/Scdrom*\fR \(em Block-special SCSI CD-ROM devices
+.br
+\fB/dev/rsd*\fR \(em Character-special SCSI-disk devices
+.br
+\fB/dev/rStp*\fR \(em Character-special SCSI-tape devices
+.br
+\fB/dev/rScdrom*\fR \(em Character-special SCSI CD-ROM devices
+.SH "See Also"
+.Xr "CD-ROM," cd-rom
+.Xr "device drivers," device_dr
+.Xr "hai154x," hai154x
+.Xr "haiss," haiss
+.Xr "haicd," haicd
+.Xr "haict," haict
+.Xr "haisd," haisd
+.Xr "hard disk," hard_disk
+.Xr "tape" tape
+.SH Notes
+For a list of the block-special files via which you can access the
+devices that
+.B hai
+supports, see the Lexicon entries for
+.B "hard disk"
+and
+.BR tape .
+.PP
+.II "Adaptec controller"
+If you are using an Adaptec AHA-1540, AHA-1542C, or AHA-1542CF SCSI host
+adapter with a drive larger than one gigabyte and extended BIOS support
+turned on, then you must override the default number of heads to 255 and
+the number of sectors per track to
+.IR 63 .
+Note that when you run the script
+.B /etc/conf/hai/mkdev
+(or install \*(CO onto your system),
+``255'' appears as the default choice
+for the number of heads;
+however, the default choice for number of sectors is 32.
+Therefore, when you run
+.B /etc/conf/hai/mkdev
+or install \*(CO for a system that has one of the above-named SCSI
+controllers, you must select the default setting for the number of
+heads, but you must type ``63'' when asked for the number of
+sectors per track.
+.PP
+.II aha
+.II ss
+.II "device driver^aha"
+.II "device driver^ss"
+.B hai
+supercedes the older \*(CO
+device drivers
+.B aha
+and
+.BR ss ,
+which were specific to the Adaptec and Future-Domain controllers, and which
+controlled only SCSI disk drives.
+.PP
+.II "Hilton, Chris"
+.B hai
+was written by Chris Hilton (hilton@mwc.com).

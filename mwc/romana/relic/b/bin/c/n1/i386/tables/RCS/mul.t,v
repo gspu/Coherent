@@ -1,0 +1,123 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3; strict;
+comment  @@;
+
+
+1.3
+date     93.03.02.12.40.40;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.01.07.13.57.57;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.11.52.51;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@steve: fix to handle: cp = (char *) (((int) cp1) % ((int) cp2));
+@
+text
+@//////////
+/ n1/i386/tables/mul.t
+//////////
+
+/////////
+/
+/ Multiplication (*).
+/ Immediate byte operands use the three-operand multiply immediate form.
+/ Otherwise, the multiply is done in EDX:EAX.
+/ The multiply instruction does not set any flags.
+/ Signed multiply should use the new i386 two-operand MUL
+/ but currently does not.
+/
+/////////
+
+MUL:
+
+/ Long * byte constant.
+%	PEFFECT|PVALUE
+	DWORD		ANYR	*	*	TEMP
+		ADR		LONG
+		SBYTE|MMX	LONG
+			[ZIMULI]	[R],[AL],[AR]
+
+/ Long * long.
+%	PEFFECT|PVALUE
+	DWORD		EDXEAX	EAX	*	EAX
+		TREG		LONG
+		ADR		LONG
+			[TL ZIMUL]	[AR]
+
+//////////
+/ Floating point.
+//////////
+
+/ DECVAX or IEEE software floating point.
+/ Double * double.
+%	PEFFECT|PVALUE|P_SLT|PDECVAX|PIEEE
+	FF64		EDXEAX	EDXEAX	*	TEMP
+		TREG		FF64
+		ADR|IMM		FF64
+			[ZPUSH]	[HI AR]
+			[ZPUSH]	[LO AR]
+			[ZCALL]	[GID _dmul]
+			[ZADD]	[REGNO ESP],[CONST 8]
+
+/ Hardware coprocessor (NDP) floating point.
+%	PVALUE|P_SLT|PNDP
+	FLOAT		FPAC	FPAC	*	FPAC
+		TREG		FF64
+		ADR		NDPARG
+			[TR ZFMULD] [AR]
+
+//////////
+/ end of n1/i386/tables/mul.t
+//////////
+@
+
+
+1.2
+log
+@steve: merged NDP code
+@
+text
+@d20 1
+a20 1
+	LONG		ANYR	*	*	TEMP
+d27 1
+a27 1
+	LONG		EDXEAX	EAX	*	EAX
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a35 2
+#ifndef	NDPDEF
+
+a46 4
+#endif
+
+#ifdef NDPDEF
+
+a53 2
+#endif
+
+@

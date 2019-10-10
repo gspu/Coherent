@@ -1,0 +1,17 @@
+/v/doc/coherent/lx/hai
+/v/doc/coherent/lx/hard_disk
+/v/doc/coherent/lx/hash
+/v/doc/coherent/lx/hdioctl.h
+/v/doc/coherent/lx/head
+/v/doc/coherent/lx/header_fi
+/v/doc/coherent/lx/help
+/v/doc/coherent/lx/hmon
+/v/doc/coherent/lx/home
+/v/doc/coherent/lx/hosts
+/v/doc/coherent/lx/hosts.equ
+/v/doc/coherent/lx/hosts.lpd
+/v/doc/coherent/lx/hp
+/v/doc/coherent/lx/hpd
+/v/doc/coherent/lx/hpr
+/v/doc/coherent/lx/hpskip
+/v/doc/coherent/lx/hypot

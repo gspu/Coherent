@@ -1,0 +1,237 @@
+.TH select() "" "" "General Function (libsocket)"
+.PC "Check if devices are ready for activity"
+.B "#include <sys/types.h>"
+.B "#include <sys/time.h>"
+.B "#include <sys/select.h>"
+.B "#include <unistd.h>"
+\fBint select(\fInfds\^\fB, \fIreadfds\^\fB, \fIwritefds\^\fB, \fIexceptfds\^\fB, \fItimeout\^\fB)\fR
+\fBint \fInfds\^\fB;\fR
+\fBfd_set *\fIreadfds\^\fB, *\fIwritefds\^\fB, *\fIexceptfds\^\fB;\fR
+\fBstruct timeval *\fItimeout\^\fB;\fR
+.PP
+The function
+.B select()
+examines file descriptors, and tells you which are ready for a given type
+of activity.
+.B select()
+can be used with descriptors for sockets, pipes, and most character
+devices including the console, serial terminals connected via the
+.B asy
+driver, and pseudoterminals using the
+.B pty
+driver.
+.PP
+.IR readfds ,
+.IR writefds ,
+and
+.I exceptfds
+each gives the address of a a bit-map whose bits correspond to the
+file descriptors of the sockets that interest you.
+Respectively, these arguments identify the sockets
+that may have data to be read,
+those that to which you wish to write data,
+and those that may have an exception condition pending.
+(What an ``error condition'' may be, is described below.)
+.B select()
+examines descriptors zero through
+.I nfds
+in each set and checks whether the corresponding socket is ready for the
+activity in question.
+If the socket is not ready,
+.B select()
+flips off the bits that correspond to that socket.
+.PP
+Please note that although
+.IR readfds ,
+.IR writefds ,
+and
+.I exceptfds
+each is pointer to
+.BR int ,
+the bit-map it points to can be longer than 32 bits.
+You can, for example, declare that these pointers points to an array of
+.BR int s.
+.II FD_SETSIZE
+.II "file descriptors^maximum number"
+The number of file descriptors you can ask
+.B select()
+to examine limited by the manifest constant
+.BR FD_SETSIZE ,
+which is defined in header file
+.BR <sys/select.h> .
+\*(CO sets this constant to 256; thus, if you set
+.I nfds
+to a value greater than 256, only the first 256 file descriptors will
+be examined.
+.PP
+If you are not interested in a given activity, set the corresponding pointer
+to NULL.
+For example, if you are interested only in reading and writing, but not in
+exception handling, set
+.I exceptfds
+to NULL.
+.PP
+.I timeout
+gives the address a
+.B timeval
+structure that holds the maximum time you are willing to wait for
+the selection to complete.
+If it is NULL,
+.B select()
+waits indefinitely.
+.PP
+By manipulating the value of
+.IR timeout ,
+you can perform some useful tricks.
+For example,
+if you set to zero the fields
+.B tv_sec
+and
+.B tv_usec
+within the
+.B timeval
+structure to which
+.I timeout
+points,
+.B select()
+performs a nonblocking poll of the indicated devices; this is demonstrated
+below.
+Another trick is to set field
+.B tv_usec
+within
+.I timeout
+to a nonzero value, but set
+.I nfds
+to zero.
+This tells
+.B select()
+to examine no sockets, but to wait the specified number of microseconds
+while not doing it.
+This lets you ``sleep'' for an interval shorter than is possible
+through the system call
+.BR sleep() ,
+whose minimum delay is one second.
+.PP
+If all goes well,
+.B select()
+returns the number of sockets that are ready.
+If the time limit expires,
+it returns zero.
+If an error occurs, it leaves all three bit maps unmodified, returns \-1,
+and sets
+.B errno
+to one of the following values:
+.IP \fBEBADF\fR
+A descriptor set specifies an invalid descriptor.
+For example, this error occurs if one of the file descriptors does not
+describes an ordinary file instead of a socket.
+.IP \fBEINTR\fR
+.B select()
+received a signal before the time limit expired and before it could finish
+examining the sockets.
+.IP \fBEINVAL\fR
+The time structure to which
+.I timeout
+points contains invalid data:
+one of its components is negative or too large.
+.PP
+.II "Dhuse, Jon"
+The following example code demonstrates how to set up a socket and
+examine it with
+.BR select() .
+is taken from a program written by Jon Dhuse (jdhuse@sedona.intel.com),
+and was slightly modified for clarity.
+The entire program appears in the Lexicon entry
+.BR libsocket :
+.DM
+	int sd[2], rdfds[2], wrtfds[2], i;
+	struct timeval timeout;
+		...
+.DE
+.DM
+	/* create socket */
+	sd = socket(AF_UNIX, SOCK_STREAM, 0);
+		...
+.DE
+.DM
+	/* initialize the arrays of ints */
+	for (i = 1; i < 2; i++)
+		rdfs[i] = 0;
+		wrtfds[i] = 0;
+	}
+		...
+.DE
+.DM
+	/* Check whether socket is ready */
+	rdfds[0] = 1 << sd;	/* initialize bit map to check for reading */
+	wrtfds[0] = 1 << sd;	/* initialize bit map to check for writing */
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 0;
+	i = select(sd+1, rdfds, wrtfds, (int *)NULL, &timeout);
+	if (i < 0)
+		  printf("select() returned error %d\en", errno);
+	else {
+		if (rdfds & (1 << sd)) /* check if socket has data */
+			printf("socket has data to be read\en");
+		if (wrtfds & (1 << sd)) /* check if socket can be written to */
+			printf("data can be written to socket\en");
+	}
+.DE
+.SH "Associated Macros"
+The header file
+.B <sys/select.h>
+defines the following macros, which are meant to help you
+manipulate sets of file descriptors:
+.IP "\fBFD_ZERO (&\fIfdset\^\fB)\fR"
+.II FD_ZERO
+Initialize the bit map
+.I fdset
+to zero.
+.IP "\fBFD_SET (\fIfd\^\fB, &\fIfdset\^\fB)\fR"
+.II FD_SET
+Turn on bit
+.I fd
+within the bit map
+.IR fdset .
+.IP "\fBFD_CLR (\fIfd\^\fB, &\fIfdset\^\fB)\fR"
+.II FD_CLR
+Turn off bit
+.I fd
+within the bit map
+.IR fdset .
+.IP "\fBFD_ISSET (\fIfd\^\fB, \fIfdset\^\fB)\fR"
+.II FD_ISSET
+This macro evaluates to a non-zero value if bit
+.I fd
+is turned on within
+.IR fdset ;
+otherwise, it evaluates to zero.
+.PP
+The behavior of these macros is undefined if
+a descriptor's value is less than zero or greater than or equal to
+.BR FD_SETSIZE .
+.SH "Exception Conditions"
+As noted above, the bit map
+.I exceptfds
+identifies sockets that may have an exception condition pending.
+As of this writing,
+\*(CO defines an ``exception condition'' to be one of the following:
+.IP \fBPOLLHUP\fR
+A hangup has occurred, i.e., loss of carrier on a modem line
+or closure of the associated master device when
+.B select()
+queries a slave pseudo-tty.
+.IP \fBPOLLNVAL\fR
+The file  descriptor does not  correspond to  an open device.
+.SH "See Also"
+.Xr "accept()," accept
+.Xr "connect()," connect
+.Xr "libsocket," libsocket
+.Xr "poll()," poll
+.Xr "read()," read.s
+.Xr "write()" write.s
+.SH Notes
+The system call
+.B poll()
+uses a different calling sequence to do much the same work as
+.BR socket() .

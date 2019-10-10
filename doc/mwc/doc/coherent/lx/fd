@@ -1,0 +1,229 @@
+.TH fd "" "" "Device Driver"
+.PC "Floppy disk driver"
+.PP
+.II /dev/fd
+.II /dev/fha
+.II /dev/fva
+.II /dev/rfd
+.II /dev/rfha
+.II /dev/rfva
+.II "floppy disk^driver"
+.II "driver^floppy disk"
+.II "device driver^floppy disk"
+The files
+.B /dev/f*
+and
+.B /dev/rf*
+are entries for the floppy-disk driver
+.BR fd .
+Each entry is assigned major device number 4,
+is accessed as a block-special device, and has a corresponding
+character-special device entry.
+.B fd
+handles up to four 5.25-inch
+floppy-disk drives, each in one of several formats.
+.PP
+The least-significant four bits of an entry's minor device number identify
+the type of drive.
+The next least-significant two bits identify the drive.
+.PP
+The following table summarizes the name, minor device number, sectors per track,
+partition sector size, characteristics, and addressing method
+for each device entry of floppy-disk drive 0.
+.DS
+.ta 0.9iR 1.4iR 2.0iR 2.25i 3.0i
+\fI9 sectors/track\fR
+\fBfqa0\fR	13	9	1440	DSQD	cylinder (3.25 inch \(em 720K)
+\fBf9a0\fR	12	9	720	DSDD	cylinder (5.25 inch \(em 360K)
+.DE
+.DS
+.ta 0.9iR 1.4iR 2.0iR 2.25i 3.0i
+\fI15 sectors/track\fR
+\fBfha0\fR	14	15	2400	DSHD	cylinder (5.25 inch \(em 1.2MB)
+.DE
+.DS
+.ta 0.9iR 1.4iR 2.0iR 2.25i 3.0i
+\fI18 sectors/track\fR
+\fBfva0\fR	15	18	2880	DSHD	cylinder (3.5 inch \(em 1.44MB
+.DE
+.PP
+Prefixing an
+.B r
+to a device name given above gives the name of the corresponding character-device
+entry.
+Corresponding device entries for drives 1, 2, and 3 have minor numbers
+with offsets of 16, 32, and 48 from the minor numbers given above, and
+have 1, 2, or 3 in place of 0 in the names given above.
+.PP
+For device entries whose minor number's fourth least-significant bit is zero
+(minor numbers 0 through 7 for drive 0), the driver
+uses surface addressing rather than cylinder addressing.
+This means that
+it increments tracks before heads when computing sector addresses and 
+the first surface is used completely before the second surface is accessed.
+For devices whose minor number's fourth least significant bit is 1
+(minor numbers 8 through 15 for drive 0), the driver uses cylinder addressing.
+.PP
+For a floppy disk to be accessible from the \*(CO system,
+a device file must be present in directory
+.B /dev
+with the appropriate type, major and minor device numbers, and permissions.
+The command
+.B mknod
+creates a special file for a device.
+.PP
+The following table gives the all floppy-disk devices that
+\*(CO recognizes, by minor number.
+Note that some specialized devices skip the first cylinder on the disk,
+to support some third-party program that requires this
+.\" brain damaged
+feature:
+.DS
+.ta 1.5i 2.5i 3.5i 4.5i
+\fIMinor\fR
+\fINumber	Drive	Diameter	Density	Cylinders\fR
+0	0	Both	Any	1-39/79
+1	0	Both	Any	0-39/79
+4	0	5.25''	360KB	1-39
+5	0	3.5''	720KB	1-79
+6	0	5.25''	1.2MB	1-79
+7	0	3.5''	1.44MB	1-79
+12	0	5.25''	360KB	0-39
+13	0	3.5''	720KB	0-79
+14	0	5.25''	1.2MB	0-79
+15	0	3.5''	1.44MB	0-79
+16	1	Both	Any	1-39/79
+17	1	Both	Any	0-39/79
+20	1	5.25''	360KB	1-39
+21	1	3.5''	720KB	1-79
+22	1	5.25''	1.2MB	1-79
+23	1	3.5''	1.44MB	1-79
+28	1	5.25''	360KB	0-39
+29	1	3.5''	720KB	0-79
+30	1	5.25''	1.2MB	0-79
+31	1	3.5''	1.44MB	0-79
+.DE
+.SH Example
+The following program examines a \*(CO floppy-disk device and
+prints its size in bytes.
+.II "Lal, Sanjay"
+It was written by Sanjay Lal (sanjayl@tor.comm.mot.com):
+.DM
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+.DE
+.DM
+#define BLOCK 512
+.DE
+.DM
+struct FDATA {
+	int fd_size; /* Blocks per diskette */
+	int fd_nhds; /* Heads per drive */
+	int fd_trks; /* Tracks per side */
+	int fd_offs; /* Sector base */
+	int fd_nspt; /* Sectors per track */
+	char fd_GPL[4]; /* Controller gap param (indexed by rate) */
+	char fd_N; /* Controller size param */
+	char fd_FGPL; /* Format gap length */
+};
+.DE
+.DM
+/* Parameters for each kind of format */
+struct FDATA fdata [] = {
+/* 8 sectors per track, surface by surface seek. */
+	{  320, 1, 40, 0, 8, { 0x00, 0x20, 0x20 }, 2, 0x58 }, /* Single sided */
+	{  640, 2, 40, 0, 8, { 0x00, 0x20, 0x20 }, 2, 0x58 }, /* Double sided */
+	{ 1280, 2, 80, 0, 8, { 0x00, 0x20, 0x20 }, 2, 0x58 }, /* Quad density */
+.DE
+.DM
+/* 9 sectors per track, surface by surface seek. */
+	{  360, 1, 40, 0, 9, { 0x00, 0x20, 0x20 }, 2, 0x50 }, /* Single sided */
+	{  720, 2, 40, 0, 9, { 0x00, 0x20, 0x20 }, 2, 0x50 }, /* Double sided */
+	{ 1440, 2, 80, 0, 9, { 0x00, 0x20, 0x20 }, 2, 0x50 }, /* Quad density */
+.DE
+.DM
+/* 15 sectors per track, surface by surface seek. */
+	{ 2400, 2, 80, 0, 15, { 0x1B, 0x00, 0x00 }, 2, 0x54 }, /* High capacity */
+.DE
+.DM
+/* 18 sectors per track, surface by surface seek. */
+	{ 2880, 2, 80, 0, 18, { 0x1B, 0x00, 0x00 }, 2, 0x6C }	/* 1.44 3.5" */
+};
+.DE
+.DM
+#define funit(x) (minor(x) >> 4)   /* Unit/drive number */
+#define fkind(x) (minor(x) & 0x7)  /* Kind of format */
+.DE
+.DM
+static int ctrl;
+.DE
+.DM
+int main(argc, argv)
+int argc; char **argv;
+{
+	int size;
+	struct stat sbuf;
+	struct FDATA *fdp;
+.DE
+.DM
+	if (argc!=2) {
+		fprintf(stderr, "usage : %s /dev/fd...\en",argv[0]); 
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	if (strcmp(argv[1], "conv")==0) {
+		/*special case*/
+		size = getchar() + getchar() * 256;
+		printf("%ld\en", (long)((long)size * (long)512) );
+		return (EXIT_SUCCESS);
+	}
+.DE
+.DM
+	if (ctrl = stat(argv[1], &sbuf)) {
+		fprintf (stderr,"%s : error stating %s.\en", argv[0], argv[1]);
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM	
+	fdp = & fdata [fkind (sbuf.st_rdev)];		
+	printf("%ld\en", (long)((long)fdp->fd_size * (long)512) );
+.DE
+.DM
+	return (EXIT_SUCCESS);
+}
+.DE
+.SH Files
+\fB<fdioctl.h>\fR \(em Driver command header file
+.br
+\fB/dev/fd*\fR \(em Block-special files
+.br
+\fB/dev/rfd*\fR \(em Character special files
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr "fdformat," fdformat
+.Xr "floppy disk," floppy_di
+.Xr "ft," ft
+.Xr "mkfs," mkfs
+.Xr "mknod" mknod
+.SH Diagnostics
+The driver reports any error status received from the controller
+and retries the operation several times before it reports an error to the
+program that initiated an operation.
+.SH Notes
+The floppy-tape driver
+.B ft
+also works through major-device number 4.
+.PP
+.B fd
+assumes that the disk is formatted with eight, nine,
+15, or 18 sectors of 512 bytes each per track, depending upon the
+\fB/dev\fR entry.
+Cylinder addressing is the norm for \*(CO.
+.PP
+Programs that use the raw device interface must read whole sectors into
+buffers that do not straddle DMA boundaries.

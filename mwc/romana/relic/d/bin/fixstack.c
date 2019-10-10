@@ -1,0 +1,121 @@
+/* fix stack on l.out type file
+ * first parm is the amount to add or subtract in hex
+ * the second parm is the l.out file name default "l.out"
+ */
+#include <stdio.h>
+#include <l.out.h>
+#include <canon.h>
+#include <mtype.h>
+main (argc, argv)
+char	*argv[];
+{
+	FILE *lout;
+	char *argp, c, negsw=0;
+	long hexno=0;
+
+	if(--argc > 0) {
+		argp = *++argv;
+		while((c = *argp++) != '\0') {
+			switch(c) {
+				case '-' :
+					negsw=1;
+					break;
+				case '+' :
+					negsw=0;
+					break;
+				case '0' :
+				case '1' :
+				case '2' :
+				case '3' :
+				case '4' :
+				case '5' :
+				case '6' :
+				case '7' :
+				case '8' :
+				case '9' :
+					hexno<<=4;
+					hexno+=(c-'0');
+					break;
+				case 'a' :
+				case 'b' :
+				case 'c' :
+				case 'd' :
+				case 'e' :
+				case 'f' :
+					hexno<<=4;
+					hexno+=(c-'a'+10);
+					break;
+				case 'A' :
+				case 'B' :
+				case 'C' :
+				case 'D' :
+				case 'E' :
+				case 'F' :
+					hexno<<=4;
+					hexno+=(c-'A'+10);
+					break;
+				default:
+					usage();
+			}
+		}
+	} else
+		usage();
+
+	if(negsw)
+		hexno= -hexno;
+
+	if(--argc > 0)
+		argp=*++argv;
+	else
+		argp="l.out";
+
+	if(NULL==(lout=fopen(argp, "rw"))) {
+		fprintf(stderr, "fixstack: %s cannot open \n", argp);
+		exit(1);
+	}
+
+	proscess(hexno, lout, argp);
+	exit(0);
+}
+
+proscess(hexno, lout, argp)
+long hexno;
+FILE *lout;
+char *argp;
+{
+	long where;
+	struct ldheader head;
+
+	where=ftell(lout);	/* not zero on some systems */
+	if(0 == (fread(&head, sizeof(head), 1, lout))) {
+		fprintf(stderr, "fixstack: error in read\n");
+		exit(1);
+	}
+
+	if(fseek(lout, where, 0)) {
+		fprintf(stderr, "fixstack: error in seek\n");
+		exit(1);
+	}
+
+	canshort(head.l_magic);
+	if(head.l_magic!=L_MAGIC) {
+		fprintf(stderr, "fixstack: %s not an l.out file %x\n",
+			argp, head.l_magic );
+		exit(1);
+	}
+	
+	cansize(head.l_ssize[L_BSSD]);
+	head.l_ssize[L_BSSD] += hexno;
+	cansize(head.l_ssize[L_BSSD]);
+
+	if(1 != (fwrite(&head, sizeof(head), 1, lout))) {
+		fprintf(stderr, "fixstack: error in write\n");
+		exit(1);
+	}
+}
+
+usage()
+{
+	fprintf(stderr, "Usage: fixstack hexno filen.\n");
+	exit(1);
+}

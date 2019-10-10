@@ -1,0 +1,162 @@
+ttaappee -- Technical Information
+
+Magnetic-tape devices
+
+The COHERENT  system supports two classes  of magnetic-tape devices: _f_l_o_p_p_y
+_t_a_p_e, in  which the tape  device is plugged into  your system's floppy-disk
+controller; and  _S_C_S_I _t_a_p_e, in which  the tape device is  plugged into your
+system's SCSI controller (should it have one).  The following gives general
+remarks  on  tape devices,  then  briefly discusses  the  drivers for  tape
+devices and the block-special files by which you can access them.
+
+_T_a_p_e _D_e_v_i_c_e_s
+A tape consists of one or  more files.  Each file, in turn, consists of one
+or more records and is terminated by a tape mark.  Two tape marks terminate
+the  last file.   Tape records  may vary  in length,  but cannot  exceed 32
+kilobytes (16 kilobytes is more practical).
+
+Like other  block-oriented devices,  tape units  can be accessed  through a
+system's  _c_o_o_k_e_d  interface or  its  _r_a_w interface.   On  a cooked  device,
+seeking to any byte offset and  reading in any number of bytes is possible.
+You cannot read  beyond the tape mark at the  end of the current file.  For
+block-I/O requests, every record in the file must be 512 bytes long.  Write
+requests must  be made in  increments of 512  bytes.  A cooked  tape may be
+mounted like a disk, but only as a read-only file system.
+
+A raw device  bypasses the buffer cache, so that  data are written directly
+to or from  your buffer.  One write request generates  one tape record, and
+one read request returns exactly one  record.  The number of bytes read may
+be  fewer than expected.   If the  tape mark  is read, a  count of  zero is
+returned, but the  system positions the tape at the  start of the next tape
+file.  Seeking  on a raw  device is ignored,  and mounting is  not allowed.
+Raw (or character) requests are usually performed in units much larger than
+512 bytes.
+
+A  unit cannot be  opened if  it is  off-line or already  in use.   If tape
+cartridge within  the tape  drive is write  protected, you cannot  open the
+tape device for writing.  Closing the device has varying effects, depending
+on the  device's minor-device number and whether the  device was opened for
+reading or writing.  If the tape had been read, the tape is rewound; if the
+no-rewind device was specified, the tape advances to the next file.  In the
+case of writing, two tape marks are written at the current position and the
+tape is rewound; if the no-rewind  device was specified, two tape marks are
+written and the  tape is positioned between them.  When  you close a device
+that  had been  opened for  writing, the  tape volume  ends at  the current
+position; data beyond this point are undefined.
+
+Hard errors  may occur during  tape operation.  They  include detecting the
+end-of-tape  (EOT)  reflector,  reading  an  unexpectedly long  record,  or
+seeking  a cooked  tape  into a  tape  mark.  After  an  error, no  further
+operations can be performed on the unit until the program closes the device
+and you rewind  the tape.  Soft parity errors may  arise due to dirt on the
+tape, a bad tape, or misaligned  heads.  If an error occurs on a write, the
+device may  attempt to  place the  record further along  the tape.   If the
+error  occurs on  a  read, the  driver  simply rescans  the record.   After
+several failures, the driver announces a hard error.
+
+_D_r_i_v_e_r_s
+COHERENT includes two drivers for tape backups:
+
+fftt   This driver has major number 4, the same as the floppy-disk drive.  It
+     works with QIC-40  and QIC-80 drives from Colorado, Archive, Mountain,
+     and Summit.
+
+hhaaii  This is  a host adapter-independent  SCSI driver, which  supports SCSI
+     hard disks  as well as  tape.  This has  major device number  13.  hhaaii
+     works with  hard disks from  Adaptec, Seagate, and  Future Domain.  It
+     has been tested with the Archive Viper 60, 150, 250, and 525 SCSI tape
+     devices, and is known to work with them.
+
+Each  driver has  a number  of  default behaviors,  depending upon  how you
+access it.  For details, see the driver's entry in the Lexicon.
+
+_D_e_v_i_c_e_s
+The following names the devices used  to access tape drives.  For SCSI tape
+devices,  _N is  the SCSI  identifier  of your  tape unit,  as set  when you
+installed COHERENT.   (To change your  suite of SCSI  identifiers, you must
+reconfigure your kernel.  For directions on how to do this, see the Lexicon
+entry for hhaaii.)
+
+/ddeevv/rrSSttpp_N        SCSI tape unit _N, raw device, rewind.
+/ddeevv/nnrrSSttpp_N       SCSI tape unit _N, raw device, no rewind.
+/ddeevv/xxSSttpp_N        SCSI tape unit _N, control device.
+/ddeevv/rrcctt_N         QIC-24 tape unit _N, raw device, rewind.
+/ddeevv/nnrrcctt_N        QIC-24 tape unit _N, raw device, no rewind.
+/ddeevv/xxcctt_N         QIC-24 tape unit _N, control device.
+/ddeevv/fftt_N          QIC-40/80 (floppy tape), rewind.
+/ddeevv/nnfftt_N         QIC-40/80 (floppy tape), no rewind.
+/ddeevv/xxfftt_N         QIC-40/80 (floppy tape), control device.
+/ddeevv/ccttmmiinnii       Default mini-cartridge device, retensioning.
+/ddeevv/rrccttmmiinnii      Default mini-cartridge device, no retensioning.
+/ddeevv/xxccttmmiinnii      Default mini-cartridge device, control device.
+/ddeevv/mmcc_N          Irwin floppy tape, retensioning
+/ddeevv/rrmmcc_N         Irwin floppy tape, no retensioning.
+/ddeevv/xxmmcc_N         Irwin floppy tape, control device.
+
+_I_n_s_t_a_l_l_i_n_g _T_a_p_e _D_e_v_i_c_e_s
+To install a SCSI tape device onto your system, do the following:
+
+-> Power down your system; then plug  the SCSI device into your SCSI board.
+   Do _n_o_t  plug the tape device  into your SCSI board  while your system is
+   powered up, or you will damage your hardware.
+
+-> After you have rebooted your system, log in as the superuser rroooott.
+
+-> ccdd to directory /eettcc/ccoonnff.
+
+-> Invoke the command ccoohhttuunnee hhaaii and set the variable HHAAII_TTAAPPEE to the SCSI
+   ID of the tape drive -- usually, two.
+
+-> Invoke the command iiddmmkkccoohh to build a new kernel.
+
+-> Reboot your system and invoke the newly built kernel.
+
+To install a floppy-tape device onto your system, do the following:
+
+-> If you  have not already  done so, make  sure that the  you have updated
+   COHERENT to a version that supports floppy tape, that is, release 4.2.12
+   or later.
+
+-> Power down  your system and install the  floppy-tape device as described
+   in its manual.  Do not attempt  to install your device while your system
+   is  powered up,  or you  can  damage or  destroy your  system.  Be  very
+   careful that  DIP switches  and jumpers  are set correctly.   Also, make
+   sure  that all  cables  are seated  firmly  -- it  is easy  to loosen  a
+   connected while installing a tape device.
+
+-> Reboot  your system  into single-user  mode.   You can  do so  by typing
+   <ccttrrll-CC>  while your  file  system is  being checked  during the  reboot
+   process, or invoke the command
+
+       /etc/shutdown single 0
+
+   after the system has checked its file system and rebooted.
+
+-> Running from single-user mode, run the script /eettcc/ccoonnff/fftt/mmkkddeevv. If you
+   know that  your tape drive  uses soft select and  know the manufacturer,
+   you can  specify these features explicitly.  If you  know that your tape
+   drive uses  hard select and  know the unit  number (for example,  a tape
+   drive that takes the place of a second floppy-disk drive is unit 1), you
+   can  specify these  features explicitly.   If  you are  not sure  of the
+   above, select automatic configuration.  The device driver fftt will try to
+   sense which type of drive you are using.
+
+-> Unless you have other tape  drives installed, we recommend that you link
+   the  no-rewind-on-close floppy-tape  device to  the default  tape device
+   /ddeevv/ttaappee.
+
+-> While still  in single-user mode, run  the script /eettcc/ccoonnff/bbiinn/iiddmmkkccoohh.
+   This generates a new kernel that can access the tape drive.
+
+-> Reboot your system and invoke the newly built kernel.
+
+_M_a_n_i_p_u_l_a_t_i_n_g _T_a_p_e _D_e_v_i_c_e_s
+The  command ttaappee  manipulates tape  devices.  With  this command,  you can
+rewind a tape,  check the status of a tape  device, or perform other useful
+tasks.  For details, see its entry in the Lexicon.
+
+For details  on how  to build  backups onto tape  devices, see  the Lexicon
+entry for bbaacckkuuppss.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, bbaacckkuuppss, fftt, hhaaii, ttaappee (ccoommmmaanndd)

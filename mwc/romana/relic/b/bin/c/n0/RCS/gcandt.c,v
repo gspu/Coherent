@@ -1,0 +1,219 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.52.02;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * C compiler.
+ * Read class and type.
+ * Includes "readonly" and "alien" adjectives.
+ */
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * Tables used to map keyword into class and type value.
+ */
+static	short	tmtab[] = {
+	T_INT,
+	T_CHAR,
+	T_FLOAT,
+	T_DOUBLE,
+	T_VOID
+};
+
+static	short	cmtab[] = {
+	C_GREF,
+	C_SIN,
+	C_REG,
+	C_TYPE,
+	C_AUTO
+};
+
+/*
+ * Read a class and type specification in a declaration.
+ * Store the class, type, dimension list pointer and structure info
+ * list pointer back through the supplied reference arguments.
+ * Set the readonly flag indirectly through the pointer.
+ * On entry, 's' is the first token of the declaration;
+ * on exit, 's' is the first token beyond the declaration.
+ */
+gcandt(ac, at, adp, aip, rfp)
+int	*ac, *at;
+DIM	**adp;
+INFO	**aip;
+int	*rfp;
+{
+	register SYM	*sp;
+	register int	c;
+	int		t;
+	DIM		*dp;
+	INFO		*ip;
+	int		rf, af;		/* readonly, alien */
+	int		sf, lf, uf;	/* short, long, unsigned */
+	int		cf, vf, nf;	/* const, volatile, signed */
+
+	c  = C_NONE;
+	t  = T_NONE;
+	dp = ip = NULL;
+	rf = af = 0;
+	sf = lf = uf = 0;
+	cf = vf = nf = 0;
+	for (;;) {
+		switch (s) {
+
+		case SHORT:	++sf; break;
+		case LONG:	++lf; break;
+		case UNSIGNED:	++uf; break;
+		case SIGNED:	++nf; break;
+		case READONLY:	++rf; break;
+		case ALIEN:	++af; break;
+	/* These two should become the first DIM's modifying the base type */
+	/* if they appear here or first in the declarator */
+		case CONST:	++cf; break;
+		case VOLATILE:	++vf; break;
+
+		case INT:
+		case CHAR:
+		case FLOAT:
+		case DOUBLE:
+		case VOID:
+			mdeftype(t, &ip);
+			t = tmtab[s-INT];
+			break;
+
+		case STRUCT:
+		case UNION:
+			mdeftype(t, &ip);
+			gstruct(c, &t, &ip);
+			continue;
+
+		case ENUM:
+			mdeftype(t, &ip);
+			genum(c, &t, &ip);
+			continue;
+
+		case EXTERN:
+		case STATIC:
+		case REGISTER:
+		case TYPEDEF:
+		case AUTO:
+			if (c != C_NONE)
+				cerror("multiple classes");
+			c = cmtab[s-EXTERN];
+			break;
+
+		case ID:
+			if (t == T_NONE) {
+				sp = reflookup(SL_VAR);
+				if (sp!=NULL && sp->s_class==C_TYPE) {
+					t = sp->s_type;
+					dp = sp->s_dp;
+					ip = sp->s_ip;
+					sp->s_flag |= S_USED;
+					if (t==T_STRUCT || t==T_UNION
+					||  t==T_ENUM)
+						++ip->i_refc;
+					break;
+				}
+			}
+			/* Fall through */
+
+		default:
+			if (sf+lf>1 || rf>1 || af>1 || uf+nf>1 || cf>1 || vf>1)
+				cerror("too many adjectives");
+			if (lf) {
+				if (t == T_FLOAT)
+					t = T_DOUBLE;
+				else if (t == T_DOUBLE)
+					t = T_DOUBLE;	/* uh, T_LDOUBLE */
+				else if (t == T_INT)
+					t = T_LONG;
+				else if (t == T_NONE)
+					t = T_LONG;
+				else
+					cerror("inappropriate \"long\"");
+			}
+			if (sf) {
+				if (t == T_INT)
+					t = T_SHORT;
+				else if (t == T_NONE)
+					t = T_SHORT;
+				else
+					cerror("inappropriate \"short\"");
+			}
+			if (uf) {
+				if (t > T_LONG)
+					cerror("inappropriate \"unsigned\"");
+				else if (t == T_NONE)
+					t = T_UINT;
+				else
+					++t;  /* Magic */
+			}
+			if (nf) {
+				if (t > T_LONG)
+					cerror("inappropriate \"signed\"");
+				else if (t == T_NONE)
+					t = T_INT;
+			}
+			if (cf || vf) {
+				if (t == T_NONE)
+					t = T_INT;
+			}
+			if (t==T_UCHAR || t==T_USHORT || t==T_ULONG
+			||  t==T_ENUM  || t==T_FENUM
+			||  t==T_VOID  || rf!=0 || af != 0)
+				notbook();
+			*ac  = c;
+			*at  = t;
+			*adp = dp;
+			*aip = ip;
+			*rfp = 0;
+			if (rf)
+				*rfp |= S_RONLY;
+			if (af)
+				*rfp |= S_ALIEN;
+			return;
+		}
+		lex();
+	}
+}
+
+/*
+ * Check if we already have a type.
+ * If so, complain (we are about to get another)
+ * and keep the reference count of the info structure correct.
+ */
+mdeftype(t, aip)
+register int	t;
+register INFO	**aip;
+{
+	if (t != T_NONE) {
+		cerror("multiple types");
+		xdropinfo(t, *aip);
+		*aip = NULL;
+	}
+}
+@

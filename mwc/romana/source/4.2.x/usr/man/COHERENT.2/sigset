@@ -1,0 +1,81 @@
+ssiiggsseett() -- System Call (libc)
+
+Specify action to take upon receipt of a given signal
+#iinncclluuddee <ssiiggnnaall.hh>
+vvooiidd (*ssiiggsseett (_s_i_g_t_y_p_e, _f_u_n_c_t_i_o_n))()
+iinntt _s_i_g_t_y_p_e;
+void (*_f_u_n_c_t_i_o_n)();
+
+ssiiggsseett()  tells the  signal handler  what  to do  when the  current process
+receives signal _s_i_g_t_y_p_e.
+
+_s_i_g_t_y_p_e  identifies the  signal  being sought.   For a  list of  recognized
+signals, see the Lexicon entry  for ssiiggnnaall(). Note that the signal SSIIGGKKIILLLL,
+which kills a process, can be neither caught nor ignored.
+
+_f_u_n_c_t_i_o_n points  to the function  to be executed when  _s_i_g_t_y_p_e is received.
+This can  be a function  of your own  creation; or you  can use one  of the
+following macros, which expand into pointers to system-defined functions:
+
+SSIIGG_DDFFLL
+     This  is the  default action.   The process terminates  just as  if it
+     called the function eexxiitt(). In addition, the system writes a core file
+     in the  current working directory if _s_i_g_t_y_p_e is  any of the following:
+     SSIIGGQQUUIITT, SSIIGGSSYYSS, SSIIGGTTRRAAPP,  SSIIGGSSEEGGVV, or SSIIGGSSYYSS. For more information on
+     core files, see the Lexicon entry ccoorree.
+
+SSIIGG_IIGGNN
+     Ignore _s_i_g_t_y_p_e. The system discards all signals of this type.
+
+SSIIGG_HHOOLLDD
+     Hold _s_i_g_t_y_p_e. The signal is held until the process calls ssiiggrreellssee() to
+     release it.   Once the signal is released, it  is processed as defined
+     by ssiiggsseett().  Only one ``copy''  of _s_i_g_t_y_p_e can  be held at  any given
+     time.
+
+If  all goes  well, ssiiggsseett()  returns  a pointer  to the  routine that  had
+previously been in place to process _s_i_g_t_y_p_e. If something goes wrong (e.g.,
+_s_i_g_t_y_p_e  is not  defined in  ssiiggnnaall.hh), ssiiggsseett()  returns SSIIGG_EERRRR  and sets
+eerrrrnnoo to an appropriate value.
+
+_s_i_g_s_e_t() _V_e_r_s_u_s _s_i_g_n_a_l()
+The  COHERENT system  also  include the  system call  ssiiggnnaall(), which  also
+handles  signals.  ssiiggnnaall()  predates  ssiiggsseett() and  its related  functions
+ssiigghhoolldd(),  ssiiggiiggnnoorree(),  ssiiggppaauussee(),  and  ssiiggrreellssee().  You  should  _n_e_v_e_r
+combine  ssiiggnnaall() with  the ssiiggsseett()  family of functions:  use one  or the
+other, but not both.
+
+The ssiiggsseett() functions differ from  ssiiggnnaall() in the way they handle signals
+while a  signal is being processed:  ssiiggnnaall() automatically invokes SSIIGG_DDFFLL
+for  _s_i_g_t_y_p_e while  its  _f_u_n_c_t_i_o_n is  executing; whereas  ssiiggsseett() and  its
+related functions invoke SSIIGG_HHOOLLDD.
+
+Thus,  with  ssiiggnnaall(),  sending signal  _s_i_g_t_y_p_e  to  a  program while  that
+signal's  _f_u_n_c_t_i_o_n is  already executing will  trigger the  default action,
+which in  most instances is to exit from  the program.  The signal-handling
+function itself  can call ssiiggnnaall() to reset the  signal-handler to point to
+itself  or another  function; however,  there remains  a brief  interval of
+vulnerability between the time the signal-processing function is called and
+the time  it calls ssiiggnnaall() to program the  signal handler.  With ssiiggsseett(),
+however, if another _s_i_g_t_y_p_e  is received while its _f_u_n_c_t_i_o_n processing, the
+signal  handler holds  it,  and releases  it  automatically after  _f_u_n_c_t_i_o_n
+returns.
+
+ssiiggsseett() also differs from ssiiggnnaall()  in the way in which the signal-handler
+is  reset once  _s_i_g_t_y_p_e  has been  processed.  With  ssiiggnnaall(), _f_u_n_c_t_i_o_n  is
+automatically  reset to  SSIIGG_DDFFLL just  before a signal  of type  _s_i_g_t_y_p_e is
+processed.  If  you wish  _s_i_g_t_y_p_e always to  be processed by  _f_u_n_c_t_i_o_n, you
+must explicitly  re-invoke ssiiggnnaall()  for _s_i_g_t_y_p_e within  _f_u_n_c_t_i_o_n. However,
+the ssiiggsseett()  family of routines  always process _s_i_g_t_y_p_e by  the routine to
+which _f_u_n_c_t_i_o_n points until you explicitly change it.
+
+_S_e_e _A_l_s_o
+lliibbcc, ssiigghhoolldd(), ssiiggiiggnnoorree(), ssiiggnnaall(), ssiiggppaauussee(), ssiiggrreellssee()
+
+_N_o_t_e_s
+Functions called  from within a  signal handler should  be re-entrant; this
+includes the standard I/O library.  Thus, in general, it is not a good idea
+to call pprriinnttff()  from inside a signal handler.  The  risk is that a signal
+will  arrive while  the main  program  is updating  a static  structure, or
+calling mmaalllloocc(); then the signal handler will run when something is not in
+a consistent state, with unpredictable results.

@@ -1,0 +1,719 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5; strict;
+comment  @ * @;
+
+
+1.5
+date     93.05.14.10.41.23;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.11.23.10.20.23;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.11.03.12.18.07;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.10.29.08.20.53;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.09.11.12.53.28;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.5
+log
+@Cef: fixed .shift, added .even
+@
+text
+@%{
+#include <asm.h>
+/*
+ * count macro parms.
+ */
+static 
+parmCt()
+{
+	if(NULL == trueMac) {
+		yyerror(".parmct not in macro");
+ 		/* \fB.parmct\fR returns the number of
+		 * parameters in the current macro. */
+		return(0);
+	}
+	else
+		return(countList(trueMac->parms));
+}
+
+/*
+ * Verify that 2 symbols have the same segment.
+ */
+static void
+ckseg(s1, s2)
+sym *s1, *s2;
+{
+	if(s1->sg != s2->sg)
+		yyerror("Arithmetic between addresses on different segments");
+		/* You may only add or subtract addresses if they
+		 * are in the same segment. */
+}
+
+/*
+ * Create Immediate exps.
+ */
+static expr *
+setImm(val, symRef)
+long val;
+sym  *symRef;
+{
+	register expr *oper;
+	register short w;
+
+	oper = xalloc();
+	oper->mode = T_IMM;
+	if (NULL != (oper->ref = symRef))
+		oper->ref = symRef->ref;
+	w = oper->exp = val;
+	if(w == val)
+		oper->size = 2;
+	else
+		oper->size = 4;
+	return(oper);
+}
+
+/*
+ * Set up for most addressing modes.
+ */
+static expr *
+qbild(val, mode, r1, r2, scale, symRef)
+long val;
+int mode;
+psym *r1, *r2;
+long scale;
+sym *symRef;
+{
+	register expr *oper;
+	char i;
+
+	if (NULL != r1 && T_R != mode) {
+		switch((int)r1->size) {
+		case 2:
+			lflags |= A_SHORT;
+			if (!scale)
+				break;
+		case 1:
+			regerror(r1);
+			break;
+		case 4:
+			lflags |= A_LONG;
+			break;
+		}
+
+		if (ORD_REG != r1->flag)	/* cant ind via ctl regs */
+			regerror(r1);
+
+		if (NULL != r2) {
+			if (ORD_REG != r2->flag)
+				regerror(r2);
+			if (r1->size != r2->size)
+				yyerror("Mixed length addressing registers");
+		/* Addressing registers must both be the same length. */
+		}
+	}
+	else if ((T_R == mode) && (r1->flag == ORD_REG)) {
+		switch ((int)r1->size) {
+		case 4:
+			lflags |= O_LONG;
+			break;
+		case 2:
+			lflags |= O_SHORT;
+		}
+	}
+
+	oper = xalloc();
+	oper->exp  = val;
+	oper->r1 = r1;
+	oper->r2 = r2;
+	oper->mode = mode;
+
+	i = scale;
+	if (i != scale)
+		i = 3;	/* set a bad scale */
+
+	switch (i) {
+	case 0:
+	case 1:	/* for generated code */
+		oper->scale = 0; break;
+	case 2:
+		oper->scale = 1; break;
+	case 4:
+		oper->scale = 2; break;
+	case 8:
+		oper->scale = 3; break;
+	default:
+		yyerror("Bad scale");
+		/* Address scale must be 0, 1, 2, 4, or 8. */
+	}
+
+	if (NULL != (oper->ref = symRef))
+		oper->ref = symRef->ref;
+	return(oper);
+}
+
+/*
+ * Floating point register expr.
+ */
+static expr *
+fbild(regno)
+long regno;
+{
+	register expr *oper;
+
+	if (regno < 0 || regno > 7) {
+		regno &= 7;
+		yyerror("Invalid floating point register number"); /**/
+	}
+
+	oper = xalloc();
+	oper->exp = regno;
+	oper->mode = T_FP;
+	return (oper);
+}
+	
+/*
+ * Report register error.
+ */
+regerror(rg)
+psym *rg;
+{
+	yyerror("%s is an improper register in this context", rg->name); /**/
+}
+
+/*
+ * Concatinate strings.
+ */
+static char *
+concat(s1, s2)
+char *s1, *s2;
+{
+	long l;
+	unsigned short u;
+	char *res;
+
+	u = l = (long)strlen(s1) + (long)strlen(s2) + 1;
+	if(u != l) {
+		yyerror("Length %ld string range exceeded", l);
+		/* Strings may not exceed 32 kilobytes. */
+		return(galloc(1));
+	}
+	res = galloc(u);
+	sprintf(res, "%s%s", s1, s2);
+	return(res);
+}
+
+/*
+ * Substring.
+ * Assumes that all strings are created from unsigned lengths.
+ */
+static char *
+substr(s, from, len)
+char *s;
+long from, len;
+{
+	register char *p, *res;
+	unsigned short l;
+
+	l = strlen(s);
+	s += from;
+	from = l - from;	/* from now len to end */
+
+	if(len > from)
+		len = from;	/* since strlen fit unsigned len must */
+	if(len < 0)
+		len = 0;
+
+	for(p = res = galloc((unsigned)(len + 1)); len--; )
+		*p++ = *s++;
+	return(res);
+}
+
+/*
+ * String search.
+ */
+static
+stringSearch(s1, s2)
+char *s1, *s2;
+{
+	char *p;
+
+	if(NULL == (p = strstr(s1, s2)))
+		return(-1);
+	return(p - s1);
+}
+
+/*
+ * Do long comparisons.
+ * < > <= >= != ==  compare operator
+ * 1 2  5  6  3  4  t
+ */
+static
+compare(t, v)
+int t;
+long v;
+{
+	return(((v < 0) ? t : (v > 0) ? (t >> 1) : (t >> 2)) & 1);
+}
+
+/*
+ * Do double comparisons.
+ * < > <= >= != ==  compare operator
+ * 1 2  5  6  3  4  t
+ */
+static
+fcompare(t, v)
+int t;
+double v;
+{
+	return(((v < 0.0) ? t : (v > 0.0) ? (t >> 1) : (t >> 2)) & 1);
+}
+
+static void
+unmatched(c)
+{
+	yyerror("Unmatched '%c'", c);
+	/* A delimeter, [, (, ), or ] is unmatched in this command. */
+}
+
+%}
+%union {
+	long	val;	/* numeric value */
+	double  dbl;
+	sym	*s;	/* name size loc bitd bitl flag */
+	opc	*o;	/* opcode kind */
+	expr	*e;	/* mode loc size exp bitd bitl chain next */
+	char	*t;	/* token */
+	parm	*p;	/* parm  */
+	data	*d;	/* data item */
+	}
+%token PC		/* The PC reg */
+%token <val> NUMBER	/* a number */
+%token <dbl> FNUM	/* floating point number */
+%token <val> COMPARISON	/* =  < > <= >= !=*/
+%token <o> OP		/* a 386 opcode */
+%token <o> DATA		/* dc.w etc */
+%token <o> CMD		/* an assembler command or macro call */
+%token <o> DCMD		/* a command with string parms */
+%token <o> ICMD		/* an assembler command taking a numexp parm */
+%token <o> NCMD		/* an assembler command without parms */
+%token <o> ECMD		/* an assembler command with a name and an expr */
+%token <o> ECMDX	/* an assembler command with a name and a datalist */
+%token <s> IDENTIFIER	/* a symbol */
+%token <s> REG		/* A register */
+
+%token DEFINED		/* the word .defined */
+%token SIZEOF		/* the word .sizeof */
+%token SEGMENT		/* the word .segment */
+%token LOCATION		/* the word .location */
+%token PLUS		/* + */
+%token MINUS		/* - */
+%token TIMES		/* * */
+%token DIVIDE		/* / */
+%token REM		/* % */
+%token LSHIFT		/* << */
+%token RSHIFT		/* >> */
+%token AND		/* & */
+%token OR		/* | */
+%token XOR		/* ^ */
+%token COMMA		/* , */
+%token LPAREN		/* [ reversed with () */
+%token RPAREN		/* ] */
+%token LBRACK		/* ( */
+%token RBRACK		/* ) */
+%token AT		/* @@ */
+%token D_SIGN		/* $ */
+%token NOT		/* ~ */
+%token BANG		/* ! */
+%token COLON		/* : */
+%token PARMCT		/* .parmct */
+%token TOSTRING		/* .string */
+%token TONUMBER		/* .number */
+%token TOFLOAT		/* .float */
+%token FSTACK		/* %st */
+%token NL		/* \n */
+
+%token <t> TOKEN	/* a token in an assembler command or macro call */
+%type <p> label parm plist
+%type  <t> string
+
+%right COMMA		/* low presidence to hi */
+%right COLON
+%right AT P_SIGN
+%left  OR
+%left  XOR
+%left  AND
+%left  COMPARISON
+%left  LSHIFT RSHIFT
+%left  PLUS MINUS
+%left  TIMES DIVIDE REM
+%right DEFINED SIZEOF SEGMENT LOCATION NOT LEN BANG
+%right TOKEN
+%left  LPAREN LBRACK TOSTRING TONUMBER TOFLOAT
+%right NL
+
+%type <dbl> dblexp
+%type <val> numexp
+/* addressing modes */
+%type <e> operand oper escoper
+
+%type <s> addexp
+
+/* for dc.? */
+%type <d> item itemlist
+%%
+
+/* oper types */
+/*
+ * label opcode operand comment NL
+ * label and comment eaten by lexer.
+ */ 
+file	: line | file line;
+
+line	: label CMD plist NL { /* assembler command with parms */
+		docmd($1, $2, $3); }
+	| label DCMD plist NL { /* a command with string parms */
+		docmd($1, $2, $3); }
+	| label ECMD parm COMMA item NL { /* command with a name & an expr */
+		ecmd($1, $2, $3, $5); }
+	 /* command with a name & a datalist */
+	| label ECMDX parm COMMA itemlist NL {
+		ecmd($1, $2, $3, $5); }
+	| label ECMD NL {
+		ecmd($1, $2, NULL, NULL); }
+	| label NCMD NL {	/* assembler command takes no parms */
+		docmd($1, $2, (parm *)NULL); }
+	| label ICMD item NL { /* assembler command with data parm */
+		ncmd($1, $2, $3); }
+	| label DATA itemlist NL { /* data list */
+		dcmd($1, $2, $3); }
+	| label OP operand NL {	/* opcode operands */
+		buildind($1, $2, $3); }
+	| label OP OP NL {	/* built by rep instr */
+		buildind($1, $2, NULL);
+		buildind(NULL, $3, NULL ); }
+	| label NL {	/* label alone on line */
+		buildlab($1); }
+	| error NL {	/* syntax error */
+		if (bcnt > 0)
+			unmatched('[');
+		if (bcnt < 0)
+			unmatched(']');
+		if (pcnt > 0)
+			unmatched('(');
+		if (pcnt < 0)
+			unmatched(')');
+		yyerrok; };
+
+itemlist : item COMMA itemlist {
+		$$ = $1;
+		$$->next = $3; }
+	| item {
+		$$ = $1; }
+	| {
+		$$ = NULL; };
+
+item	: addexp {
+		$$ = gitem('y');
+		$$->d.y  = $1; }
+	| dblexp {
+		$$ = gitem('d');
+		$$->d.d = $1; }
+	| numexp {
+		$$ = gitem('l');
+		$$->d.l = $1; }
+	| string {
+		$$ = gitem('s');
+		$$->d.s = $1; }
+	| numexp P_SIGN item {
+		$$ = $3;
+		$$->count = $1; };
+
+plist	: parm {		/* start parm list */
+		$$ = $1; }
+	| parm COMMA plist {	/* chain parm list */
+		$$ = $1;
+		$$->next = $3; }
+	| {
+		$$ = NULL; };
+
+parm	: TOKEN {		/* start a parm */
+		$$ = (parm *)gcpy($1, offset(parm, str)); };
+
+label	: { 
+		$$ = NULL; }
+	| TOKEN {
+		$$ = (parm *)gcpy($1, offset(parm, str)); };
+
+/* operand may be stuff separated by commas */
+operand : escoper COMMA operand {
+		$$ = $1;
+		$$->next = $3; }
+	| escoper {
+		$$ = $1; }
+	| TIMES escoper {
+		lflags |= A_INDIR;
+		$$ = $2; }
+	| {
+		$$ = NULL; };
+
+escoper : oper {
+	$$->sg = -1;
+	$$ = $1; }
+	| REG COLON oper {
+		$$ = $3;
+		if ($1->flag != SEG_REG)
+			regerror($1);
+		$$->sg = $1->loc; };
+
+/* operands are one of these */
+oper : REG {
+		$$ = qbild(0L, T_R, $1, NULL, 0L, NULL); }
+
+     | FSTACK {
+     		$$ = fbild(0L);	}
+
+     | FSTACK LBRACK numexp RBRACK {
+     		$$ = fbild($3); }
+
+     | LBRACK REG RBRACK {
+		$$ = qbild(0L, T_RI, $2, NULL, 0L, NULL); }
+
+     | LBRACK REG COMMA numexp RBRACK {
+		$$ = qbild(0L, T_RIS, $2, NULL, $4, NULL); }
+
+     | LBRACK COMMA REG COMMA numexp RBRACK {
+		$$ = qbild(0L, T_RIS, $3, NULL, $5, NULL); }
+
+     | LBRACK REG COMMA REG RBRACK {
+     		$$ = qbild(0L, T_RIX, $2, $4, 0L, NULL); }
+
+     | LBRACK REG COMMA REG COMMA numexp RBRACK {
+     		$$ = qbild(0L, T_RIXS, $2, $4, $6, NULL); }
+
+     | numexp LBRACK REG RBRACK {
+		$$ = qbild($1, T_RID, $3, NULL, 0L, NULL); }
+
+     | numexp LBRACK REG COMMA numexp RBRACK {
+		$$ = qbild($1, T_RIDS, $3, NULL, $5, NULL); }
+
+     | numexp LBRACK COMMA REG COMMA numexp RBRACK {
+		$$ = qbild($1, T_RIDS, $4, NULL, $6, NULL); }
+
+     | numexp LBRACK REG COMMA REG RBRACK {
+     		$$ = qbild($1, T_RIXD, $3, $5, 0L, NULL); }
+
+     | numexp LBRACK REG COMMA REG COMMA numexp RBRACK {
+     		$$ = qbild($1, T_RIXDS, $3, $5, $7, NULL); }
+
+     | addexp LBRACK REG RBRACK {
+		$$ = qbild($1->loc, T_RID, $3, NULL, 0L, $1); }
+
+     | addexp LBRACK REG COMMA numexp RBRACK {
+		$$ = qbild($1->loc, T_RIDS, $3, NULL, $5, $1); }
+
+     | addexp LBRACK COMMA REG COMMA numexp RBRACK {
+		$$ = qbild($1->loc, T_RIDS, $4, NULL, $6, $1); }
+
+     | addexp LBRACK REG COMMA REG RBRACK {
+     		$$ = qbild($1->loc, T_RIXD, $3, $5, 0L, $1); }
+
+     | addexp LBRACK REG COMMA REG COMMA numexp RBRACK {
+     		$$ = qbild($1->loc, T_RIXDS, $3, $5, $7, $1); }
+
+     | addexp {
+     		$$ = qbild($1->loc, T_D, NULL, NULL, 0L, $1); }
+
+     | numexp {
+     		$$ = qbild($1, T_D, NULL, NULL, 0L, NULL); }
+
+     | D_SIGN numexp {
+		$$ = setImm($2, (sym *)NULL); }
+
+     | D_SIGN addexp {
+		$$ = setImm($2->loc, $2); };
+
+
+/* Various expressions */
+
+addexp	: IDENTIFIER  { $$ = $1; }
+	| LPAREN addexp RPAREN { $$=$2; }
+	| addexp PLUS numexp { $$ = copySym($1); $$->loc += $3; }
+	| addexp MINUS numexp { $$ = copySym($1); $$->loc -= $3; }
+	| numexp PLUS addexp { $$ = copySym($3); $$->loc += $1; };
+
+/* numeric expressions done here */
+numexp	: NUMBER {
+		$$ = $1; }
+	| LPAREN numexp RPAREN {
+		$$ = $2; }
+	| addexp MINUS addexp {
+		ckseg($1, $3); $$ = $1->loc - $3->loc; }
+	| addexp COMPARISON addexp {
+		ckseg($1, $3); $$ = compare((int)$2, $1->loc - $3->loc); }
+	| numexp COMPARISON numexp {
+		$$ = compare((int)$2, $1 - $3); }
+	| string COMPARISON string {
+		$$ = compare((int)$2, (long)strcmp($1, $3)); }
+	| dblexp COMPARISON dblexp {
+		$$ = fcompare((int)$2, $1 - $3); }
+
+	| SIZEOF addexp {
+		$$ = $2->size; }
+
+	| LOCATION addexp {
+		$$ = $2->loc; }
+
+	| SEGMENT addexp {
+		$$ = $2->sg + 1; }
+
+	| DEFINED IDENTIFIER {
+		$$ = $2->statement && (statement >= $2->statement); }
+	| DEFINED NUMBER {
+		$$ = 1; }
+	| PARMCT {
+		$$ = parmCt(); }
+
+	| numexp PLUS numexp {
+		$$ = $1 + $3; }
+	| numexp MINUS numexp {
+		$$ = $1 - $3; }
+	| numexp TIMES numexp {
+		$$ = $1 * $3; }
+	| numexp DIVIDE numexp {
+		$$ = $1 / $3; }
+	| numexp REM numexp {
+		$$ = $1 % $3; }
+
+	| numexp LSHIFT numexp {
+		$$ = $1 << $3; }
+	| numexp RSHIFT numexp {
+		$$ = $1 >> $3; }
+
+
+	| numexp AND numexp {
+		$$ = $1 & $3; }
+	| numexp OR numexp {
+		$$ = $1 | $3; }
+	| numexp XOR numexp {
+		$$ = $1 ^ $3; }
+	| MINUS numexp %prec TIMES {
+		$$ = - $2; }
+	| BANG numexp {
+		$$ = !$2; }
+	| NOT numexp {
+		$$ = ~$2; }
+
+	| string LBRACK numexp RBRACK {
+		$$ = ($3 > strlen($1)) ? 0 : $1[(short)$3]; }
+	| string AT string {
+		$$ = stringSearch($1, $3); }
+	| TONUMBER string {
+		$$ = atol($2); }
+	| TONUMBER dblexp {
+		$$ = $2; };
+
+string	: TOKEN {
+		$$ = gcpy($1, 0); }
+	| LPAREN string RPAREN {
+		$$ = $2; }
+	| string PLUS string {
+		$$ = concat($1, $3); }
+	| string LPAREN numexp COMMA numexp RPAREN {
+		$$ = substr($1, $3, $5); }
+	| string LPAREN numexp RPAREN {
+		$$ = substr($1, $3, strlen($1) - $3); }
+	| TOSTRING numexp {
+		$$ = galloc(12);
+		sprintf($$, "%ld", $2); }
+	| TOSTRING dblexp {
+		$$ = galloc(20);
+		sprintf($$, "%g", $2); };
+
+/* floating point done here */
+dblexp	: FNUM {
+		$$ = $1; }
+	| LPAREN dblexp RPAREN {
+		$$ = $2; }
+	| dblexp PLUS dblexp {
+		$$ = $1 + $3; }
+	| dblexp MINUS dblexp {
+		$$ = $1 - $3; }
+	| dblexp TIMES dblexp {
+		$$ = $1 * $3; }
+	| dblexp DIVIDE dblexp {
+		$$ = $1 / $3; }
+	| MINUS dblexp %prec TIMES {
+		$$ = - $2; }
+	| TOFLOAT string {
+		$$ = strtod($2, (char **)NULL); }
+	| TOFLOAT numexp {
+		$$ = $2; };
+
+@
+
+
+1.4
+log
+@cef: adding code to understand gcc output
+@
+text
+@d362 1
+a362 1
+		ecmd($1, $2, NULL, 0L); }
+@
+
+
+1.3
+log
+@cef: allow opcodes and macros at start of a line; also
+rep	movsb
+type constructs (required for gcc.
+@
+text
+@d280 1
+d358 3
+@
+
+
+1.2
+log
+@Update by cef for x87 suppt
+@
+text
+@d367 3
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a521 1
+	
+a523 1
+
+@

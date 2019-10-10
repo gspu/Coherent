@@ -1,0 +1,1452 @@
+
+
+as                           Command                           as
+
+
+
+
+i8086 assembler
+
+aass [-ggllxx] [ -oo_f_i_l_e ] _f_i_l_e ...
+
+as is  the Mark Williams assembler.  It  is a multipass assembler
+that  turns files  of assembly  language into  relocatable object
+modules  similar  to  those  produced  by  the compiler.   as  is
+designed   for  writing   small  assembly-language   subroutines.
+Because it  is not intended  to be used  for full-scale assembly-
+language  programming,  it  lacks  many  of  the  more  elaborate
+facilities of full-fledged assemblers.  For example, there are no
+facilities  for conditional  compilation or  user-defined macros.
+However,  it does optimize  span-dependent instructions  (for ex-
+ample, branches).
+
+***** Features *****
+
+as includes the following features:
+
+*   It  automatically  compiles  jump  instructions  into  either
+   regular   (three-byte)  jumps   or  short   (two-byte)  jumps,
+   whichever is  required.  There is  no explicit short  jump in-
+   struction.
+
+*  The assembler  supports temporary labels, which conserves sym-
+   bol table space and relieves  the you of having to invent many
+   unique labels.
+
+*  Program modules are relocatable.  They can be linked with each
+   other and with C program modules produced by the COHERENT com-
+   piler.  All  assembled modules must be  linked before they can
+   be executed.
+
+*  The  assembler does not  support file inclusion,  but multiple
+   source files  can be  concatenated and assembled  by including
+   their names in the command line to run the assembler.
+
+*  The  assembler generates SMALL  model objects in  the COHERENT
+   l.out object format.
+
+***** Usage *****
+
+Normally, the assembler is invoked via the cccc command, which will
+automatically assemble and link  any file of source code that has
+the  suffix .ss.   If you  wish, however, you  can invoke  the as-
+sembler  as a  separate program, by  using the  following command
+line:
+
+
+             aass [-ggllxx] [ -oo _f_i_l_e ] _f_i_l_e ...
+
+
+The named _f_i_l_es are concatenated and the resulting object code is
+written to the file specified by  the -o option, or to file l.out
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+as                           Command                           as
+
+
+
+if no -o option is given.
+
+The option -g causes all symbols that are undefined at the end of
+the first pass to be given the type undefined external, as though
+they had been declared with a .globl directive.
+
+The  option -l  tells the  assembler to  generate a  listing.  It
+writes the listing to the standard output, normally the terminal;
+it may  be easily  redirected to  a file or  printer using  the >
+operator.
+
+The option  -x strips from the symbol table  of the object module
+all non-global  symbols that begin with  the character `L'.  This
+speeds  up the  loading of  files by  removing compiler-generated
+labels from the symbol table.
+
+***** Register Names *****
+
+The  following lists  the  identifiers that  represent the  i8086
+machine registers, which are predefined:
+
+
+        AX      SP      AL      AH      CS
+        BX      BP      BL      BH      DS
+        CX      SI      CL      CH      ES
+        DX      DI      DL      DH      SS
+
+
+***** Lexical Conventions *****
+
+Assembler  tokens consist  of identifiers  (also known  as ``sym-
+bols'' or ``names''), constants, and operators.
+
+An identifier is a sequence of alphanumeric characters (including
+the period `.' and the underscore `_').  The first character must
+not be  numeric.  Only  the first 16  characters of the  name are
+significant; it throws  away the remainder.  Upper case and lower
+case  are different.  The  machine instructions,  assembly direc-
+tives, and built-in symbols that are used frequently are in lower
+case.
+
+Numeric constants are defined  by the assembler by using the same
+syntax as the C compiler: a sequence of digits that begins with a
+zero  `0' is  an  octal constant;  a  sequence of  digits with  a
+leading `0x' is a  hexadecimal constant (`A' through `F' have the
+decimal values 10 through 15);  and any strings of digits that do
+not begin with `0' are interpreted as decimal constants.
+
+A  character constant  consists of an  apostrophe followed  by an
+ASCII character.  The constant's  value is the ASCII code for the
+character, right-justified in  the machine word.  For example, an
+instruction to  move the letter `A' to the  register  al could be
+expressed in either of two equivalent ways:
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+as                           Command                           as
+
+
+
+
+        mov     al,$0x41
+        mov     al,$'A
+
+
+The dollar sign indicates an immediate operand.
+
+A blank space can be  represented either 00xx2200 (its ASCII value in
+hexadecimal), or as an apostrophe followed by a space (' ), which
+on paper looks like just an apostrophe alone.
+
+The following gives the multi-character escape sequences that can
+be used in a character constant to represent special characters:
+
+
+          \bb   Backspace    (0010)
+          \ff   Formfeed     (0014)
+          \nn   Newline      (0012)
+          \rr   Carriage return(0015)
+          \tt   Tab          (0011)
+          \vv   Vertical tab (0013)
+          \_n_n_n Octal value  (0_n_n_n)
+
+
+A blank space can be  represented either as 0x20 (its ASCII value
+in  hexadecimal), or as  an apostrophe  followed by a space (' ),
+which on the page would look like just an apostrophe.
+
+***** Blanks and Tabs *****
+
+Blanks and tab characters  may be used freely between tokens, but
+not within  identifiers.  A blank  or a tabulation  character  is
+required  to separate  adjacent tokens  not  otherwise separated,
+e.g., between an instruction opcode and its first operand.
+
+***** Comments *****
+
+Comments are  introduced by a slash (`/')  and continue until the
+end of  the line.  All characters in comments  are ignored by the
+assembler.
+
+***** Program Sections *****
+
+The assembler permits  you to divide programs into sections, each
+corresponding  (roughly)  to a  functional  area  of the  address
+space.  Each program  section has its own location counter during
+assembly.   There  are eight  program  sections, subdivided  into
+three groups containing code, data and tables:
+
+
+         code:   sshhrrii    Shared instruction
+                 bbssssii    Uninitialized instruction
+                 pprrvvii    Private instruction
+         data:   pprrvvdd    Private data
+                 sshhrrdd    Shared data
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+as                           Command                           as
+
+
+
+                 bbssssdd    Uninitialized data
+                 ssttrrnn    Strings
+         tables: ssyymmtt    Symbol table
+
+
+All Mark Williams assemblers  use the same set of sections.  This
+increases the portability  of programs between operating systems.
+Not all  the sections are  distinct under COHERENT,  however; the
+meanings of  the sections under (including hints as  to how the C
+compiler uses them) are as follows:
+
+shri (shared  instruction) is the same  as prvi (private instruc-
+tion);  the adjective  shared refers to  the sharing  of physical
+memory between  two or more  concurrent processes.  prvi  is used
+for all code generated by the C compiler.
+
+Similarly, there  is no distinction  between shrd and  prvd.  The
+compiler uses  the latter for  all external and  static data that
+are explicitly initialized in a C program.
+
+Uninitialized  sections are actually  initialized to  zeros.  The
+reason is that the  C compiler uses the bssd (uninitialized data)
+section for  external or static data that  are not explicitly in-
+itialized: the C language  guarantees that these data are in fact
+initialized to zeros.   The bssi (uninitialized instruction) sec-
+tion is not used by the compiler.
+
+The strn (strings) section is actually a special part of the data
+section, used by the C compiler to store string constants.  It is
+synonymous with prvd under COHERENT.
+
+The symt (symbol table) section contains the symbol table used by
+the linker.  Both the  C compiler and the assembler generate sym-
+bol tables that go in this section.
+
+In most  cases, you need  not worry about what  all these program
+sections are,  and can simply write code  under the keyword .prvi
+or .shri,  and write data under the keyword  .prvd or .shrd.  You
+are advised not to place items  in the symt section, as this sec-
+tion is used for internal communication among the C compiler, the
+assembler, and the linker.
+
+At  the end  of  assembly, the  sections  of a  program are  con-
+catenated so that in  the assembly listing the program looks like
+a monolithic block of code  and data.  All ccooddee sections are com-
+bined into the i8086 ccooddee segment, and all ddaattaa sections into the
+i8086  ddaattaa segment.   The symbol  table is  not linked  when the
+program is executed, and so is not assigned to any i8086 segment.
+
+***** The Current Location *****
+
+The special symbol `.'  (period) is a counter that represents the
+current location.  The current  location can be changed by an as-
+signment; for example:
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+as                           Command                           as
+
+
+
+
+         . = .+START
+
+
+The assignment must not cause  the value to decrease, and it must
+not change the program section, i.e., the right-hand operand must
+be defined in the same section as the current section.
+
+***** Expressions *****
+
+An expression is a sequence of symbols representing a value and a
+program section.   Expressions are  made up of  identifiers, con-
+stants, operators, and brackets.  All binary operators have equal
+precedence and are  executed in a strict left-to-right order (un-
+less altered by brackets).
+
+Notice  that  square brackets,  `['  and  `]',  group  expression
+elements, because  parentheses are used for  indexed register ad-
+dressing.
+
+***** Types *****
+
+Every  expression has  a type  determined  by its  operands.  The
+simplest  operands are  symbols.   The types  of  symbols are  as
+follows:
+
+Undefined A symbol is defined if  it is a constant or a label, or
+          when  assigned a  defined value;  otherwise, it  is un-
+          defined.  A  symbol may become  undefined if it  is as-
+          signed the value  of an undefined expression.  It is an
+          error to  assemble an  undefined expression in  pass 2.
+          Pass  1 allows assembly  of undefined  expressions, but
+          phase errors  may  be produced if undefined expressions
+          are used  in certain  contexts, such  as in a  .blkw or
+          .blkb.
+
+Absolute   An absolute  symbol is one  defined ultimately  from a
+          constant  or  from the  difference  of two  relocatable
+          values.
+
+Register  These are the machine registers.
+
+Relocatable
+          All other user  symbols are relocatable symbols in some
+          program section.   Each program section  is a different
+          relocatable type.
+
+Each keyword  in the assembler has a  secret type that identifies
+it internally;  however, all of these  secret types are converted
+to absolute in expressions.  Thus,  any keyword may be used in an
+expression to  obtain the  basic value  of the keyword.   This is
+useful when  employing the keywords that  define machine instruc-
+tions.  The basic value of a machine operation is usually the op-
+code with any operand-specific bits set to zero.
+
+
+
+COHERENT Lexicon                                           Page 5
+
+
+
+
+as                           Command                           as
+
+
+
+Notice that  the type of an expression does  not include such at-
+tributes  as length  (word or  byte), so  the assembler  will not
+remember whether  you defined a particular variable  to be a word
+or a byte.  Addresses and constants have different types, but the
+assembler does not treat  a constant as an immediate value unless
+it is preceded by a dollar sign `$'.  If you use a constant where
+an address  is expected, aass  will treat the constant  like an ad-
+dress (and  vice versa).  It is up to  you to distinguish between
+variables and addresses or immediate values.
+
+***** Operators *****
+
+The  following  figure shows  various  characters interpreted  as
+operators in expressions.
+
+
+          +   Addition
+          -   Subtraction
+          *   Multiplication
+          -   Unary negation
+          ~   Unary complement
+          ^   Type transfer
+          |   Segment construction
+
+
+You can  group expressions by means of  square brackets (`['  and
+`]'); parentheses  are reserved for use  in address mode descrip-
+tions.
+
+***** Type Propagation *****
+
+When operands are  combined in expressions, the resulting type is
+a function  of both the  operator and the types  of the operands.
+The operators  `*', `~', and  unary `-'  can  only manipulate ab-
+solute operands and always yield an absolute result.
+
+The operator `+'  signifies the addition of two absolute operands
+to yield an absolute result, and the addition of an absolute to a
+relocatable operand  to yield a result with the  same type as the
+relocatable operand.
+
+The binary operator `-' allows two operands of the same type, in-
+cluding  relocatable,  to  be  subtracted  to yield  an  absolute
+result.   It also  allows  an absolute  to be  subtracted from  a
+relocatable, to yield a result with the same type as the relocat-
+able operand.
+
+The binary  operator `^'  yields a result  with the value  of its
+left operand and  the type of its right operand.   It may be used
+to create expressions (usually  intended to be used in an assign-
+ment statement) with any desired type.
+
+***** Statements *****
+
+A  program consists  of  a sequence  of  statements separated  by
+
+
+COHERENT Lexicon                                           Page 6
+
+
+
+
+as                           Command                           as
+
+
+
+newlines or  by semicolons.  There are  four kinds of statements:
+null statements,  assignment statements, keyword  statements, and
+machine instructions.
+
+***** Labels *****
+
+You can precede any statement by any number of labels.  There are
+two kinds of labels: _n_a_m_e _l_a_b_e_l_s and _t_e_m_p_o_r_a_r_y _l_a_b_e_l_s.
+
+A name  label consists of an identifier followed  by a colon (:).
+The program section and value of the label are set to that of the
+current  location counter.   It is  an error for  the value  of a
+label to change during an assembly.  This most often happens when
+an undefined symbol is used to control a location counter adjust-
+ment.
+
+A temporary  label consists of  a digit (00  to 99)  followed  by a
+colon (:).   Such a label defines temporary  symbols of the  form
+xxff and xxbb, where xx is  the digit of the label.  References of the
+form xxff  refer to the  first temporary label xx:  forward from the
+reference;  those of  the form  xxbb refer  to the  first temporary
+label xx: backward  from the reference.  Such labels conserve sym-
+bol table space in the assembler.
+
+***** Null Statements *****
+
+A  null statement  is an  empty line, or  a line  containing only
+labels or  a comment.  Null statements  can occur anywhere.  They
+are ignored  by the assembler,  except that any  labels are given
+the current value of the location counter.
+
+***** Assignment Statements *****
+
+An assignment statement  consists of an identifier followed by an
+equal sign `=' and  an expression.  The value and program section
+of the identifier are set  to that of the expression.  Any symbol
+defined by  an assignment statement  may be redefined,  either by
+another  assignment  statement  or  by  a label.   An  assignment
+statement  is equivalent  to the equ  keyword statement  found in
+many assemblers.
+
+***** Assembler Directives *****
+
+Assembler  directives give instructions  to the  assembler.  Each
+directive keyword  begins with a period, and  in general they are
+followed by operands.
+
+The following  directives change  the current program  section to
+the named section:
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 7
+
+
+
+
+as                           Command                           as
+
+
+
+             .bssd
+             .bssi
+             .prvd
+             .prvi
+             .shrd
+             .shri
+             .strn
+             .symt
+
+
+The current location counter is set to the highest previous value
+of the location counter for the selected section.
+
+The following describes the directives in detail.
+
+.aasscciiii _s_t_r_i_n_g
+     The first  non-white space character,  typically a quotation
+     mark, after  the keyword  is taken  as a delimiter.   as as-
+     sembles successive  characters from the  string into succes-
+     sive  bytes until  it encounters the  next instance  of this
+     delimiter.   To include  a quotation mark  in a  string, use
+     some other character for the delimiter.
+
+     It  is  an error  for  a newline  to  be encountered  before
+     reaching the final delimiter.  You can use a multi-character
+     constant  in  the string  to  represent  newlines and  other
+     special characters.
+
+.bbllkkbb _e_x_p_r_e_s_s_i_o_n
+     Assemble a block of  bytes that are filled with zeroes.  The
+     block is expression bytes long.
+
+.bbllkkww _e_x_p_r_e_s_s_i_o_n
+     Assemble a block of  words that are filled with zeroes.  The
+     block is expression words long.
+
+.bbyyttee _e_x_p_r_e_s_s_i_o_n [, _e_x_p_r_e_s_s_i_o_n ]
+     The _e_x_p_r_e_s_s_i_o_ns  in the list are truncated  to byte size and
+     assembled  into successive bytes.   Expressions in  the list
+     are separated by commas.
+
+.eevveenn
+     Force alignment by inserting  a null byte of data, if neces-
+     sary, to set the location counter to the next even location.
+
+.oodddd
+     Force alignment by inserting  a null byte of data, if neces-
+     sary, to set the location counter to the next odd location.
+
+.gglloobbll _i_d_e_n_t_i_f_i_e_r [, _i_d_e_n_t_i_f_i_e_r ]
+     The identifiers  in the  comma-separated list are  marked as
+     global.  If  they are defined in  the current assembly, they
+     may be  referenced by other object modules;  if they are un-
+     defined, they  must be resolved by  the linker before execu-
+     tion.
+
+
+COHERENT Lexicon                                           Page 8
+
+
+
+
+as                           Command                           as
+
+
+
+
+.ppaaggee
+     Force the printed  listing of your assembly-language program
+     to skip  to the top of  a new page by  inserting a form-feed
+     character into the file.  The title is printed at the top of
+     the page.
+
+.ttiittllee _s_t_r_i_n_g
+     Print string at the top  of every page in the listing.  This
+     directive also causes the listing to skip to a new page.
+
+.wwoorrdd _e_x_p_r_e_s_s_i_o_n [, _e_x_p_r_e_s_s_i_o_n ]
+     Truncate _e_x_p_r_e_s_s_i_o_ns to  word length and assemble the resul-
+     ting data  into successive  words.  Expressions in  the list
+     are separated by commas.
+
+***** Address Descriptors *****
+
+The following  syntax is used for  general source and destination
+address descriptors.  The symbol `r' refers to a register and the
+symbol  `e'  to  an expression.   Please  refer to  the following
+figure.
+
+
+       _S_y_n_t_a_x                            _A_d_d_r_e_s_s_i_n_g _M_o_d_e    _E_x_a_m_p_l_e
+
+       r     Register                mov  ax, cx
+       e     Direct address          mov  ax, 0800
+       (r)   Indexing, no displacement    movax, (bx)
+       e(r)  Indexing with displacement   movax, 2(bx)
+       (r,r) Double indexing, no displacementmov ax, (bx, si)
+       e(r,r)                        Double indexing with displacementmov ax, 2(bx, si)
+       $e    Immediate               mov  ax, $0800
+
+
+Note that the dollar sign is always used to indicate an immediate
+value, even if the expression is a constant.
+
+A direct  address is interpreted as either a  direct address or a
+PC-relative  displacement, depending on  the requirements  of the
+instruction.
+
+If an address descriptor  indicates an indexing mode and the base
+expression is  of type absolute, the  assembler uses the shortest
+displacement length  (zero, one, or two bytes)  that can hold the
+expression's value.   Relocatable base expressions,  whose values
+cannot be completely  determined until the program is loaded, are
+always assigned two-byte displacements.
+
+Any  address  descriptor  may be  modified  by  a segment  escape
+prefix.  A  segment escape prefix consists  of a segment register
+name followed by a colon `:'.  The escape causes the assembler to
+produce a segment override prefix that uses the specified segment
+register as  an operand.  The assembler  does not produce segment
+override prefixes unless explicitly required by an instruction.
+
+
+COHERENT Lexicon                                           Page 9
+
+
+
+
+as                           Command                           as
+
+
+
+
+***** 8086 Instructions *****
+
+The  following machine  instructions are  defined.   The examples
+illustrate the general syntax of the operands.  Combinations that
+are syntactically valid may be forbidden for semantic reasons.
+
+The examples use the following references:
+
+
+       _a     General address
+       _a_l    AL register
+       _a_x    AX register
+       _c_l    CL register
+       _d     Direct address
+       _d_x    DX register
+       _e     Expression
+       $_e    Immediate expression
+       _m     Memory address (not an immediate)
+       _p     Port address
+
+
+aass treats as ordinary one-byte machine operations some operations
+that the Intel assembler ASM86 handles with special syntax; these
+include the  _l_o_c_k and  _r_e_p_e_a_t prefixes.   aass makes no  attempt to
+prevent  the generation  of incorrect  sequences of  these prefix
+bytes.
+
+Although every machine  operation has a type and value associated
+with it, in most cases the value was chosen to help aass format the
+machine instructions.
+
+For more  information on these instructions,  see the Intel ASM86
+Assembly Language Reference Manual.
+
+    aaaaaa             ASCII adjust AL after addition
+    aaaadd             ASCII adjust AX before division
+    aaaamm             ASCII adjust AX after multiply
+    aaaass             ASCII adjust AL after subtraction
+    aaddccbb    _r, _a    Add with carry, byte
+    aaddcc     _r, _a    Add with carry, word
+    aaddccbb    _a, _r    Add with carry, byte
+    aaddcc     _a, _r    Add with carry, word
+    aaddccbb    _a, $_e   Add with carry, byte
+    aaddcc     _a, $_e   Add with carry, word
+    aaddddbb    _r, _a    Add, byte
+    aadddd     _r, _a    Add, word
+    aaddddbb    _a, _r    Add, byte
+    aadddd     _a, _r    Add, word
+    aaddddbb    _a, $_e   Add, byte
+    aadddd     _a, $_e   Add, word
+    aannddbb    _r, _a    Logical and, byte
+    aanndd     _r, _a    Logical and, word
+    aannddbb    _a, _r    Logical and, byte
+    aanndd     _a, _r    Logical and, word
+
+
+COHERENT Lexicon                                          Page 10
+
+
+
+
+as                           Command                           as
+
+
+
+    aannddbb    _a, $_e   Logical and, byte
+    aanndd     _a, $_e   Logical and, word
+    ccaallll    _d       Near call, PC-relative
+    ccbbww             Convert byte into word
+    ccllcc             Clear carry flag
+    cclldd             Clear direction flag
+    ccllii             Clear interrupt flag
+    ccmmcc             Complement carry flag
+    ccmmppbb    _r, _a    Compare two operands, byte
+    ccmmpp     _r, _a    Compare two operands, word
+    ccmmppbb    _a, _r    Compare two operands, byte
+    ccmmpp     _a, _r    Compare two operands, word
+    ccmmppbb    _a, $_e   Compare two operands, byte
+    ccmmpp     _a, $_e   Compare two operands, word
+    ccmmppss            Compare string operands, bytes
+    ccmmppssbb           Compare string operands, bytes
+    ccmmppssww           Compare string operands, words
+    ccwwdd             Convert word to double
+    ddaaaa             Decimal adjust AL after addition
+    ddaass             Decimal adjust AL after subtraction
+    ddeeccbb    _a       Decrement by one, byte
+    ddeecc     _a       Decrement by one, word
+    ddiivvbb    _m       Unsigned divide, byte
+    ddiivv     _m       Unsigned divide, word
+    eesscc     _a       Escape 00xxDD88
+    hhlltt             Halt
+    iiccaallll   _a       Near call, absolute offset at EA word
+    iiddiivvbb   _m       Signed divide, byte
+    iiddiivv    _m       Signed divide, word
+    iijjmmpp    _a       Jump short, absolute offset at EA word
+    iimmuullbb   _m       Signed multiply, byte
+    iimmuull    _m       Signed multiply, word
+    iinnbb     _a_l, _p   Input, byte
+    iinn      _a_x, _p   Input, word
+    iinnbb     _a_l, _d_x  Input, byte
+    iinn      _a_x, _d_x  Input, word
+    iinnccbb    _a       Increment by one, byte
+    iinncc     _a       Increment by one, word
+    iinntt     _e       Call to interrupt
+    iinnttoo            Call to interrupt, overflow
+    iirreett            Interrupt return
+    jjaa      _d       Jump short if greater
+    jjaaee     _d       Jump short if greater or equal
+    jjbb      _d       Jump short if less
+    jjbbee     _d       Jump short if less or equal
+    jjcc      _d       Jump short if carry
+    jjccxxzz    _d       Jump short if CX equals zero
+    jjee      _d       Jump short if equal to
+    jjgg      _d       Jump short if greater
+    jjggee     _d       Jump short if greater or equal
+    jjll      _d       Jump short if less
+    jjllee     _d       Jump short if less or equal
+    jjmmpp     _d       Jump short, PC-relative word offset
+    jjmmppbb    _d       Jump short, PC-relative byte offset
+    jjmmppll    _d       Jump long
+
+
+COHERENT Lexicon                                          Page 11
+
+
+
+
+as                           Command                           as
+
+
+
+    jjnnaa     _d       Jump short if not above
+    jjnnaaee    _d       Jump short if not above or equal
+    jjnnbb     _d       Jump short if not below
+    jjnnbbee    _d       Jump short if not below or equal
+    jjnncc     _d       Jump short if not carry
+    jjnnee     _d       Jump short if not equal
+    jjnngg     _d       Jump short if not greater
+    jjnnggee    _d       Jump short if not greater or equal
+    jjnnll     _d       Jump short if not less
+    jjnnllee    _d       Jump short if not less or equal
+    jjnnoo     _d       Jump short if not overflow
+    jjnnpp     _d       Jump short if not parity
+    jjnnss     _d       Jump short if not sign
+    jjnnzz     _d       Jump short if not zero
+    jjoo      _d       Jump short if overflow
+    jjpp      _d       Jump short if parity
+    jjppee     _d       Jump short if parity even
+    jjppoo     _d       Jump short if parity odd
+    jjss      _d       Jump short if sign
+    jjzz      _d       Jump short if zero
+    llaahhff            Load flags into AH register
+    llddss     _r, _a    Load double pointer into DS
+    lleeaa     _r, _a    Load effective address offset
+    lleess     _r, _a    Load double pointer into ES
+    lloocckk            Assert BUS LOCK signal
+    llooddssbb           Load byte into AL
+    llooddss            Load byte into AL
+    llooddssww           Load byte into AL
+    lloooopp    _d       Loop; decrement CX, jump short
+                    if CX less than zero
+    llooooppee   _d       Loop; decrement CX, jump short
+                    if CZ not zero and equal
+    llooooppnnee  _d       Loop; decrement CX, jump short
+                    if CX not zero and not equal
+    llooooppnnzz  _d       Loop; decrement CX, jump short
+                    if CZ not zero and ZF equals zero
+    llooooppzz   _d       Loop; decrement CX, jump short
+                    if CX not zero and zero
+    mmoovvbb    _r, _a    Move, byte
+    mmoovv     _r, _a    Move, word
+    mmoovvbb    _a, _r    Move, byte
+    mmoovv     _a, _r    Move, word
+    mmoovvbb    _a, $_e   Move, byte
+    mmoovv     _a, $_e   Move, word
+    mmoovvbb    _a, _s    Move, byte
+    mmoovv     _a, _s    Move, word
+    mmoovvbb    _s, _a    Move, byte
+    mmoovv     _s, _a    Move, word
+    mmoovvssbb           Move string byte-by-byte
+    mmoovvss            Move string word-by-word
+    mmoovvssww           Move string word-by-word
+    mmuullbb    _m       Multiply, byte
+    mmuull     _m       Multiply, word
+    nneeggbb    _a       Two's complement negation, byte
+    nneegg     _a       Two's complement negation, word
+
+
+COHERENT Lexicon                                          Page 12
+
+
+
+
+as                           Command                           as
+
+
+
+    nnoopp             No operation
+    nnoottbb    _a       One's complement negation, byte
+    nnoott     _a       One's complement negation, word
+    oorrbb     _r, _a    Logical inclusive OR, byte
+    oorr      _r, _a    Logical inclusive OR, word
+    oorrbb     _a, _r    Logical inclusive OR, byte
+    oorr      _a, _r    Logical inclusive OR, word
+    oorrbb     _a, $_e   Logical inclusive OR, byte
+    oorr      _a, $_e   Logical inclusive OR, word
+    oouuttbb    _p, _a_l   Output to port, byte
+    oouutt     _p, _a_x   Output to port, word
+    oouuttbb    _d_x, _a_l  Output to port, byte
+    oouutt     _d_x, _a_x  Output to port, word
+    ppoopp     _m       Pop a word from the stack
+    ppoopp     _s       Pop a word from the stack
+    ppooppff            Pop from stack into flags register
+    ppuusshh    _m       Push a word onto the stack
+    ppuusshh    _s       Push a word onto the stack
+    ppuusshhff           Push flags register onto the stack
+    rrccllbb    _a, $_1   Rotate left $1 times, byte
+    rrccllbb    _a, _c_l   Rotate left CL times, byte
+    rrccll     _a, $_1   Rotate left $1 times, word
+    rrccll     _a, _c_l   Rotate left CL times, word
+    rrccrrbb    _a, $_1   Rotate right $1 times, byte
+    rrccrrbb    _a, _c_l   Rotate right CL times, byte
+    rrccrr     _a, $_1   Rotate right $1 times, word
+    rrccrr     _a, _c_l   Rotate right CL times, word
+    rreepp             Repeat following string operation
+    rreeppee            Find nonmatching bytes
+    rreeppnnee           Repeat, not equal
+    rreeppnnzz           Repeat, not equal
+    rreeppzz            Repeat, equal
+    rreett             Return from procedure
+    rroollbb    _a, $_1   Rotate left, byte
+    rroollbb    _a, _c_l   Rotate left, byte
+    rrooll     _a, $_1   Rotate left, word
+    rrooll     _a, _c_l   Rotate left, word
+    rroorrbb    _a, $_1   Rotate right, byte
+    rroorrbb    _a, _c_l   Rotate right, byte
+    rroorr     _a, $_1   Rotate right, word
+    rroorr     _a, _c_l   Rotate right, word
+    ssaahhff            Store AH into flags
+    ssaallbb    _a, $_1   Shift left, byte
+    ssaallbb    _a, _c_l   Shift left, byte
+    ssaall     _a, $_1   Shift left, word
+    ssaall     _a, _c_l   Shift left, word
+    ssaarrbb    _a, $_1   Shift right, byte
+    ssaarrbb    _a, _c_l   Shift right, byte
+    ssaarr     _a, $_1   Shift right, word
+    ssaarr     _a, _c_l   Shift right, word
+    ssbbbbbb    _r, _a    Integer subtract with borrow, byte
+    ssbbbb     _r, _a    Integer subtract with borrow, word
+    ssbbbbbb    _a, _r    Integer subtract with borrow, byte
+    ssbbbb     _a, _r    Integer subtract with borrow, word
+    ssbbbbbb    _a, $_e   Integer subtract with borrow, byte
+
+
+COHERENT Lexicon                                          Page 13
+
+
+
+
+as                           Command                           as
+
+
+
+    ssbbbb     _a, $_e   Integer subtract with borrow, word
+    ssccaassbb           Compare string data, byte
+    ssccaass            Compare string data, word
+    sshhllbb    _a, $_1   Shift left, byte
+    sshhllbb    _a, _c_l   Shift left, byte
+    sshhll     _a, $_1   Shift left, word
+    sshhll     _a, _c_l   Shift left, word
+    sshhrrbb    _a, $_1   Shift right, byte
+    sshhrrbb    _a, _c_l   Shift right, byte
+    sshhrr     _a, $_1   Shift right, word
+    sshhrr     _a, _c_l   Shift right, word
+    ssttcc             Set carry flag
+    ssttdd             Set direction flag
+    ssttii             Set interrupt enable flag
+    ssttoossbb           Store string data, byte
+    ssttooss            Store string data, byte or word
+    ssttoossww           Store string data, word
+    ssuubbbb    _r, _a    Integer subtraction, byte
+    ssuubb     _r, _a    Integer subtraction, word
+    ssuubbbb    _a, _r    Integer subtraction, byte
+    ssuubb     _a, _r    Integer subtraction, word
+    ssuubbbb    _a, $_e   Integer subtraction, byte
+    ssuubb     _a, $_e   Integer subtraction, word
+    tteessttbb   _r, _a    Logical compare, byte
+    tteesstt    _r, _a    Logical compare, word
+    tteessttbb   _a, _r    Logical compare, byte
+    tteesstt    _a, _r    Logical compare, word
+    tteessttbb   _a, $_e   Logical compare, byte
+    tteesstt    _a, $_e   Logical compare, word
+    wwaaiitt            Wait until BUSY pin is inactive
+    xxccaallll   _d, _d    Far call, immediate four-byte address
+    xxcchhggbb   _r, _a    Exchange memory, byte
+    xxcchhgg    _r, _a    Exchange memory, word
+    xxiiccaallll          Far call, address at EA double word
+    xxiijjmmpp           Jump far, address at memory double word
+    xxjjmmpp    _d, _d    Jump far, immediate four-byte address
+    xxllaatt            Table look-up translation
+    xxoorrbb    _r, _a    Logical exclusive OR, byte
+    xxoorr     _r, _a    Logical exclusive OR, word
+    xxoorrbb    _a, _r    Logical exclusive OR, byte
+    xxoorr     _a, _r    Logical exclusive OR, word
+    xxoorrbb    _a, $_e   Logical exclusive OR, byte
+    xxoorr     _a, $_e   Logical exclusive OR, word
+    xxrreett            Return, intersegment
+
+***** 80286 Instructions *****
+
+The  following  instructions  implement  80286-specific  actions.
+Programs that use them cannot be run on 8086-based machines.
+
+    ppuusshhaa           Push all general registers
+    ppooppaa            Pop all general registers
+
+    iinnssbb            Input byte from port DX to ES:(DI)
+    iinnss             Input word from port DX to ES:(DI)
+
+
+COHERENT Lexicon                                          Page 14
+
+
+
+
+as                           Command                           as
+
+
+
+    oouuttssbb           Output byte from port DX from ES:(DI)
+    oouuttss            Output word from port DX from ES:(DI)
+
+    eenntteerr   $_e, $_e  Make stack frame for procedure
+    lleeaavvee           Tear down stack frame for procedure
+
+    bboouunndd   _r, _e    Check array index against bounds
+
+    ssllddtt    _a       Store Local Descriptor Table Register
+    ssttrr     _a       Store Task Register
+    llllddtt    _a       Load Local Descriptor Table Register
+    llttrr     _a       Load Task Register
+    vveerrrr    _a       Verify a segment for reading
+    vveerrww    _a       Verify a segment for writing
+
+    ssggddtt    _m       Store Global Descriptor Table register
+    ssiiddtt    _m       Store Interrupt Descriptor Table register
+    llggddtt    _m       Load Global Descriptor Table register
+    lliiddtt    _m       Load Interrupt Descriptor Table register
+    ssmmssww    _a       Store Machine Status Word
+    llmmssww    _a       Load Machine Status Word
+
+    llaarr     _r,_a     Load access rights byte
+    llssll     _r,_a     Load segment limit
+
+    ccllttss            Clear Task Switched Flag
+    aarrppll            Adjust RPL field of Selector
+
+    ppuusshh    $_e      Push sign extended byte
+Also the $_1 forms become $_e  on  rol, rolb, ror, rorb, sal, salb,
+shrb, shr,  and shrb.  This is because 8086  task of shifting and
+rotating by an immediate value could only take an immediate value
+of 1; however, on the 80286 the immediate value may be up to 31.
+
+***** i8087 Op Codes *****
+
+The assembler  can also  generate object  files for use  with the
+i8087 mathematics  co-processor.  The following  listing presents
+the assembly  language op codes for  this feature.  sstt00 indicates
+floating point  register 0 and  sstt11 indicates any  floating point
+register but 0; dd is the same as in the above listing.
+
+
+          _d  Direct address
+          _s_t_0Floating point register 0
+          _s_t_1Any floating point register _e_x_c_e_p_t 0
+
+
+The following lists the i8087 instructions:
+    ffaabbss            Absolute value
+    ffaadddd    _s_t_0, _s_t_1Add real
+    ffaadddd    _s_t_1, _s_t_0Add real
+    ffffaadddd   _d       Add real, float
+    ffddaadddd   _d       Add real, double
+    ffaaddddpp           Add real and pop
+
+
+COHERENT Lexicon                                          Page 15
+
+
+
+
+as                           Command                           as
+
+
+
+    ffaaddddpp   _s_t, _s_t_0 Add real and pop
+    ffbblldd    _d       Load packed decimal (BCD)
+    ffbbssttpp   _d       Store packed decimal (BCD) and pop
+    ffcchhss            Change sign
+    ffcclleexx           Clear exception
+    ffnncclleexx          Clear exception
+    ffccoomm            Compare real
+    ffffccoomm   _d       Compare real, float
+    ffddccoomm   _d       Compare real, double
+    ffccoommpp           Compare real and pop
+    ffccoommpp   st1     Compare real and pop
+    ffffccoommpp  _d       Compare real and pop, float
+    ffddccoommpp  _d       Compare real and pop, double
+    ffccoommpppp          Compare real and pop twice
+    ffddeeccssttpp         Decrement stack pointer
+    ffddiissii           Disable interrupts
+    ffnnddiissii          Disable interrupts, no operands
+    ffddiivv    _s_t_0, _s_t_1Divide real
+    ffddiivv    _s_t_1, _s_t_0Divide real
+    ffffddiivv   _d       Divide real, float
+    ffddddiivv   _d       Divide real, double
+    ffddiivvpp           Divide real and pop
+    ffddiivvpp   st1     Divide real and pop
+    ffddiivvrr   _s_t_0, _s_t_1Divide real reversed
+    ffddiivvrr   _s_t_1, _s_t_0Divide real reversed
+    ffffddiivvrr  _d       Divide real reversed, float
+    ffddddiivvrr  _d       Divide real reversed, double
+    ffddiivvrrpp          Divide real reversed and pop
+    ffddiivvrrpp  _s_t_1     Divide real reversed and pop
+    ffeennii            Enable interrupts
+    ffnneennii           Enable interrupts, no operands
+    ffffrreeee   _s_t_1     Free register
+    ffiiaadddd   _d       Integer add
+    ffllaadddd   _d       Integer add, long
+    ffiiccoomm   _d       Integer compare
+    ffllccoomm   _d       Integer compare, long
+    ffiiccoommpp  _d       Integer compare and pop
+    ffllccoommpp  _d       Integer compare and pop, long
+    ffiiddiivv   _d       Integer divide
+    ffllddiivv   _d       Integer divide, long
+    ffiiddiivvrr  _d       Integer divide reversed
+    ffllddiivvrr  _d       Integer divide, long reversed
+    ffiilldd    _d       Integer load
+    fflllldd    _d       Integer load, long
+    ffqqlldd    _d       Integer load, quad
+    ffiimmuull   _d       Integer multiply
+    ffllmmuull   _d       Integer multiply, long
+    ffiinnccssttpp         Increment stack pointer
+    ffiinniitt           Initialize processor
+    ffnniinniitt          Initialize processor
+    ffiisstt    _d       Integer store
+    ffllsstt    _d       Integer store, long
+    ffiissttpp   _d       Integer store and pop
+    ffllssttpp   _d       Integer store and pop, long
+    ffqqssttpp   _d       Integer store and pop, quad
+
+
+COHERENT Lexicon                                          Page 16
+
+
+
+
+as                           Command                           as
+
+
+
+    ffiissuubb   _d       Integer subtract
+    ffllssuubb   _d       Integer subtract, long
+    ffiissuubbrr  _d       Integer subtract reversed
+    ffllssuubbrr  _d       Integer subtract reversed, long
+    fflldd     _s_t_1     Load real
+    fffflldd    _d       Load real, float
+    ffddlldd    _d       Load real, double
+    ffttlldd    _d       Load real, temp
+    ffllddccww   _d       Load control word
+    ffllddeennvv  _d       Load environment
+    ffllddllgg22          Load log(10)2
+    ffllddllnn22          Load log(e)2
+    ffllddll22ee          Load log(2)e
+    ffllddll22tt          Load log(2)10
+    ffllddppii           Load pi
+    ffllddzz            Load +0.0
+    fflldd11            Load +1.0
+    ffmmuull            Multiply real
+    ffmmuull    _s_t_0, _s_t_1Multiply real
+    ffffmmuull   _s_t_1, _s_t_0Multiply real, float
+    ffddmmuull   _d       Multiply real, double
+    ffmmuullpp   _d       Multiply real and pop
+    ffnnoopp    st1     No operation
+    ffppaattaann          Partial arctangent
+    ffpprreemm           Partial remainder
+    ffppttaann           Partial tangent
+    ffrrnnddiinntt         Round to integer
+    ffrrssttoorr  _d       Restore saved state
+    ffssaavvee   _d       Save state
+    ffnnssaavvee  _d       Save state
+    ffssccaallee          Scale
+    ffsseettppmm          Set protected mode
+    ffssqqrrtt           Square root
+    ffsstt     _s_t_1     Store real
+    ffffsstt    _d       Store real, float
+    ffddsstt    _d       Store real, double
+    ffssttccww   _d       Store control word
+    ffnnssttccww  _d       Store control word
+    ffsstteennvv  _d       Store environment
+    ffnnsstteennvv _d       Store environment
+    ffssttpp    _s_t_1     Store real and pop
+    ffffssttpp   _d       Store real and pop, float
+    ffddssttpp   _d       Store real and pop, double
+    ffttssttpp   _d       Store real and pop, temp
+    ffssttssww   _d       Store status word
+    ffnnssttssww  _d       Store status word
+    ffssuubb    _s_t_0, _s_t_1Subtract real
+    ffssuubb    _s_t_1, _s_t_0Subtract real
+    ffffssuubb   _d       Subtract real, float
+    ffddssuubb   _d       Subtract real, double
+    ffssuubbpp           Subtract real and pop
+    ffssuubbpp   _s_t_1     Subtract real and pop
+    ffssuubbrr   _d       Subtract real reversed
+    ffffssuubbrr  _d       Subtract real reversed, float
+    ffddssuubbrr  _d       Subtract real reversed, double
+
+
+COHERENT Lexicon                                          Page 17
+
+
+
+
+as                           Command                           as
+
+
+
+    ffssuubbrrpp          Subtract real reversed and pop
+    ffssuubbrrpp  _s_t_1     Subtract real reversed and pop
+    ffttsstt            Test stack top against +0.0
+    ffwwaaiitt           Wait while 8087 is busy
+    ffxxaamm            Examine stack top
+    ffxxcchh    _s_t_1     Exchange registers
+    ffxxcchh            Exchange registers
+    ffxxttrraacctt         Extract exponent and significance
+    ffyyll22xx           Y*log(2)X
+    ffyyll22xxpp11         Y*log(2)(X+1)
+
+***** C Compiler Conventions *****
+
+as is often used to  write small functions that perform tasks not
+easily or efficiently done  in C.  Such functions are intended to
+be called  from a  C program.  As  long as the  assembly language
+source code  follows compiler conventions,  the assembler routine
+will be fully compatible with C functions.  These conventions are
+(1) the names of external variables and (2) calling functions.
+
+***** Naming Conventions *****
+
+The C  compiler appends an underline character `_'  to the end of
+every external  declared in a  C source file.   When referring to
+any external  variable or function  declared in a  C source file,
+append  an underscore  to the  name.  In  a similar  manner, when
+defining a  function or variable  in an assembly  language source
+file that is  to be accessed from a C  source file, append an un-
+derline character.
+
+***** Function-Calling Conventions *****
+
+Function-calling conventions  deal with how  arguments are passed
+to functions,  how values are  returned, and which  registers are
+used for special purposes and must be protected.
+
+***** Arguments *****
+
+Function arguments  are passed on the stack.   They are pushed by
+the calling  function, which also  removes them when   the called
+function returns.   Looking at  the declaration of  the function,
+the order in  which they are pushed onto the  stack is from right
+to  left; that  is, the  C compiler pushes  the argument  list in
+reverse order  of declaration.  The  instruction call to  jump to
+the function  also pushes  the return  address, so that  when the
+called routine  gains control the first argument  is found at of-
+fset 2 from the stack pointer.
+
+Integer  and pointer  arguments  are word  size,  and are  simply
+pushed with a  push instruction.  Characters, although byte size,
+are  not passed  as  bytes.  The  C language  requires that  char
+variables be  promoted to the type int  before being passed.  The
+promotion is  signed or  unsigned, depending  on the type  of the
+char variable.  lloonnggs are pushed  one word at a time; the higher-
+address word is pushed first.  This ensures that the words of the
+
+
+COHERENT Lexicon                                          Page 18
+
+
+
+
+as                           Command                           as
+
+
+
+long are  in the  correct order on  the stack, because  the stack
+grows toward low-addressed memory.
+
+Passing ffllooaatts, ddoouubbllees, or structure arguments is more involved.
+C requires  ffllooaatts to be  promoted to and passed  as ddoouubbllees,  so
+this conversion must  be performed first.  ddoouubbllees and structures
+are passed so that as they sit on the stack, all bytes are in the
+correct order;  this is analogous to the  passing of lloonnggs.  This
+means, for  example, that  ddoouubbllees may  be pushed with  four push
+word instructions,  beginning with the highest  addressed word in
+the 64-bit double, and ending with the lowest addressed word.
+
+If in doubt about how to  apply any of this, try writing a simple
+C program that uses what you  need, and compile it with the -vasm
+option  to the  cc command.   This produces  an assembly-language
+version of  the C  program, which can  be studied to  see exactly
+what the compiler does, and mimicked to good effect.
+
+***** Return Values *****
+
+
+Functions return  values in various registers  according to their
+type.  iinntts and pointers  are returned in the ax register.  cchhaarrs
+are returned  by first promoting  them to iinntts  and returning the
+result in the ax register; effectively, this means that cchhaarrs are
+returned in  the al  register.  lloonnggs  are returned in  the dx:ax
+register pair, with  the most significant word (also the high-ad-
+dress word) in the dx register, and the least significant word in
+the ax register.
+
+ffllooaatts, ddoouubbllees,  and structures are  returned in a  more complex
+fashion.  C  requires ffllooaatts be returned as  ddoouubbllees, so they are
+converted.  ddoouubbllees  are returned  in a special  eight-byte array
+named _ffppaacc (of course, in assembly language the name is _ffppaacc_).
+This array is defined by the compiler.  In the event that a func-
+tion returns a structure, the contents of the structure are saved
+in memory,  and the function returns a  pointer to that structure
+in the  ax register.  The  calling function then  moves the bytes
+into the actual destination.
+
+Again, if in doubt about how to do this in assembly language, try
+compiling a function with assembly language output to see how the
+compiler does it.
+
+***** Important Registers *****
+
+Every function must preserve  the value of the bp register, which
+is the caller's stack frame pointer.  Also, the compiler uses the
+si  and di  registers  for register  variables, so  they must  be
+preserved.
+
+***** Example of an Assembly Language Program *****
+
+The following  assembly language file, strchar.s  defines a func-
+tion strchar that returns  the number of occurrences of a charac-
+
+
+COHERENT Lexicon                                          Page 19
+
+
+
+
+as                           Command                           as
+
+
+
+ter in a string.
+
+
+FILE: strchar.s
+
+    /
+    /
+    /  Count and return the occurrences
+    /  of a character in a string.
+    /
+    /     int
+    /     strchar(s, c)
+    /     char *s;
+    /     int c;
+    /
+    /
+
+
+
+        .globl     strchar_   / Make the name known externally.
+
+        strchar_:
+             push    si         / Standard C function
+             push    di         / linkage. Save the
+             push    bp         / si, di, and bp registers
+             mov     bp, sp     / and set up new frame pointer.
+
+
+
+             mov     si, 8(bp)  / String ptr -> si.
+             mov     bx, 10(bp) / Char -> bx (actually bl).
+             sub     ax, ax     / Clear ax (count register).
+             sub     cx, cx     / Clear cx.
+
+
+
+        0:   movb    cl, (si)   / Get character from string.
+             jcxz    2f         / End of string?
+             cmpb    bl, cl     / No. Do chars match?
+             jnz     1f         / No.
+             inc     ax         / Yes. Increment count.
+
+
+
+        1:   inc     si         / Bump string pointer
+             jmp     0b         / and loop again.
+
+
+
+        2:   pop     bp         / Standard C return
+             pop     di         / linkage. Restore
+             pop     si         / saved registers and
+             ret                / go home.
+
+
+
+
+COHERENT Lexicon                                          Page 20
+
+
+
+
+as                           Command                           as
+
+
+
+
+The following  C program, main.c  uses strchar The  assembly lan-
+guage listing  that follows, main.s  was produced from  main.c by
+the -vasm  option in cc.   The listing has been  edited, and com-
+ments added, to illustrate what is happening.
+
+
+FILE: main.c
+
+        main()
+        {
+            int n;
+            n = strchar("aardvark", 'a');
+        }
+
+
+
+FILE: main.s
+
+              .shri                / ``code'' program section.
+
+              .globl   main_
+
+
+
+        main_:
+
+              .strn                / ``string'' program section.
+
+
+
+        L2:   .byte    0x61        / This is the string
+              .byte    0x61        / ``aardvark''
+              .byte    0x72
+              .byte    0x64
+              .byte    0x76
+              .byte    0x61
+              .byte    0x72
+              .byte    0x6B
+              .byte    0x00
+
+
+
+              .shri                / Back to ``code''
+
+              push  si             / Standard C function
+              push  di             / linkage.  Save registers,
+              push  bp             / set up new frame pointer (bp),
+              mov   bp, sp         / and make room on stack
+              sub   sp, $0x02      / for the auto int, ``n''
+
+
+
+
+
+
+
+COHERENT Lexicon                                          Page 21
+
+
+
+
+as                           Command                           as
+
+
+
+              mov   ax, $0x61      / Push the
+              push  ax             / character `a'.
+              mov   ax, $L2        / Push the address
+              push  ax             / of the string ``aardvark''
+              call  strchar_       / Function call.
+              add   sp, $0x04      / Remove args from stack.
+              mov   -0x02(bp), ax  / Assign result to auto `n'.
+
+
+
+              mov   sp, bp         / Standard C return
+              pop   bp             / linkage.  Adjust stack
+              pop   di             / pointer, then restore
+              pop   si             / registers and
+              ret                  / go home.
+
+
+***** Diagnostics *****
+
+All errors  detected by the assembler are  reported on the screen
+as an error message that is tagged with a line number.  If a sym-
+bol is associated with the  error message (for example, if a sym-
+bol is undefined), then the symbol's name is also given.  If more
+than one  input file appears on the  command line, error messages
+are tagged with the name of the source file.
+
+If a listing is generated,  errors are reported on the listing in
+the same  format, with the  error flags at the  left margin.  The
+total number of  errors is displayed on the screen  at the end of
+the assembly.
+
+For a full listing of aass error messages, see the tutorial for the
+C compiler, which appears earlier in this manual.
+
+***** See Also *****
+
+cc, commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                          Page 22
+
+

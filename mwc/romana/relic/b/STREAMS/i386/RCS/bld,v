@@ -1,0 +1,404 @@
+head     2.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.4;
+comment  @# @;
+
+
+2.4
+date     93.08.09.13.38.57;  author bin;  state Exp;
+branches ;
+next     2.3;
+
+2.3
+date     93.07.20.11.14.46;  author bin;  state Exp;
+branches ;
+next     2.2;
+
+2.2
+date     93.07.14.11.54.24;  author root;  state Exp;
+branches ;
+next     2.1;
+
+2.1
+date     93.07.07.10.34.31;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+2.4
+log
+@Kernel 82 changes
+@
+text
+@# bld - make 386 kernel
+#
+# requires a running 386 kernel
+#
+
+sync
+
+# make sure the environment is set for kernel objects
+if [ -z $K386OBJ ]; then
+	echo "Error - K386OBJ environment variable not set!"
+	exit 1
+fi
+
+# make sure the environment is set for kernel libraries
+if [ -z $K386LIB ]; then
+	echo "Error - K386LIB environment variable not set!"
+	exit 1
+fi
+
+CFLAGS=${CFLAGS-"-VPSTR"}
+CC=${CC-"exec /bin/cc"}
+
+unset TARGET
+
+# Each drvl entry is 0x14, or 20 decimal, bytes.
+
+while [ $# -gt 0 ]
+do
+	ARG=$1
+	case $ARG in
+
+	fha)	CONFDIR="CONFDIR=fha_conf"
+		TARGET=${TARGET-/tmp/fha_kernel}
+		;;
+
+	ft)	PATCH="${PATCH} ftCon=ftcon PHYS_MEM=589824"
+		;;
+
+	fva)	CONFDIR="CONFDIR=fva_conf"
+		TARGET=${TARGET-/tmp/fva_kernel}
+		;;
+
+	sc)	CFLAGS=${CFLAGS}" -DGORT"
+		;;
+
+	ticom)	# piggy's Tiwanese 4 port card
+		PATCH="${PATCH} AL_ADDR+8=0x2b0 AL_ADDR+12=0x2b8"
+		;;
+
+	xl)	PATCH="${PATCH} ftCon=ftxlcon PHYS_MEM=589824"
+		;;
+
+	-c)	shift
+		CFLAGS="$CFLAGS $1"
+		;;
+
+	-o)	shift
+		TARGET=$1
+		;;
+
+	*=*)	PATCH="${PATCH} ${ARG}"
+		;;
+
+	*)
+echo "Usage:  $0"
+echo "  {fha | fva | sc | ticom} {-o target} {-c cflags} {addr=value}..."
+		exit 1
+		;;
+	esac
+	shift
+done
+
+make "CFLAGS=$CFLAGS" "CC=$CC" libs 	|| exit 1
+
+TARGET=${TARGET-/at386.test}
+
+here=$CWD
+cd ../conf
+make TARGET=${TARGET} ${CONFDIR} || exit 1
+cd $here
+
+if [ -n "${PATCH}" ]; then
+	set -x
+	/conf/patch $TARGET $PATCH || exit 1
+fi
+
+@
+
+
+2.3
+log
+@*** empty log message ***
+@
+text
+@d9 1
+a9 4
+if [ $K386OBJ ]
+then
+	:
+else
+d15 1
+a15 4
+if [ $K386LIB ]
+then
+	:
+else
+d20 1
+a20 2
+#CFLAGS=${CFLAGS-"-DTRACER -VPSTR -D__COHERENT__"}
+CFLAGS=${CFLAGS-"-D__COHERENT__ -VPSTR"}
+d23 1
+a23 3
+OPTS="${K386OBJ}/tty.o ${K386OBJ}/pipe.o ${K386OBJ}/putchar.o"
+OPTS=${OPTS}" ${K386OBJ}/rm.o ${K386OBJ}/fdc.o ${K386OBJ}/fl386.o"
+OPTS=${OPTS}" ${K386OBJ}/ipc.o"
+d25 1
+a25 13
+DEFAULT_KB=y
+DEFAULT_ASYNC=y
+DEFAULT_MM=y
+DEFAULT_HD=y
+USE_ASY=n
+USE_LP=y
+USE_PTY=y
+USE_ASYNC=y
+MAKE_LIBS=y
+PATCH="flCon=fl386con"
+KEROBJ=${K386LIB}/ker386.o
+TARGET=${TARGET-/at386.tst}
+ASYNC=/etc/default/async
+a26 2
+# Each drvl entry is 0x14, or 20 decimal, bytes.
+
+d31 3
+a33 3
+	aha)
+	OPTS=${OPTS}" ${K386OBJ}/aha_dsl.o ${K386OBJ}/aha.o ${K386OBJ}/scsi.o"
+		PATCH="${PATCH} drvl+260=sdcon"
+d35 2
+a36 4
+	al)
+		OPTS=${OPTS}" ${K386OBJ}/alx.o ${K386OBJ}/com1.o ${K386OBJ}/com2.o"
+		PATCH="${PATCH} drvl+100=a0con drvl+120=a1con"
+		DEFAULT_ASYNC=n
+d38 3
+a40 5
+	asy)
+		OPTS=${OPTS}" ${K386OBJ}/asy.o"
+		PATCH="${PATCH} drvl+100=asycon"
+		USE_ASY=y
+		DEFAULT_ASYNC=n
+d42 2
+a43 4
+	at)
+		OPTS=${OPTS}" ${K386OBJ}/$ARG.o"
+		PATCH="${PATCH} drvl+220=atcon"
+		DEFAULT_HD=n
+d45 1
+a45 52
+	emu)
+		OPTS=${OPTS}" em87.o "
+		;;
+	hai)
+		OPTS=${OPTS}" ${K386OBJ}/hai.o"
+		PATCH="${PATCH} drvl+260=scsicon"
+		;;
+	hs)
+		OPTS=${OPTS}" ${K386OBJ}/hs.o"
+		PATCH="${PATCH} drvl+140=hscon"
+		DEFAULT_ASYNC=n
+		;;
+	fha)
+OPTS=${OPTS}" ${K386OBJ}/stubs.o ${K386OBJ}/at.o ${K386OBJ}/ss.o"
+OPTS=${OPTS}" ${K386OBJ}/aha_dsl.o ${K386OBJ}/aha.o ${K386OBJ}/scsi.o"
+PATCH="${PATCH} rootdev=makedev(4,14) pipedev=makedev(8,131) ronflag=1"
+PATCH="${PATCH} NBUF=64 NHASH=61 NCLIST=16 ALLSIZE=32768"
+		DEFAULT_HD=n
+		USE_PTY=n
+		USE_LP=n
+		USE_ASYNC=n
+		DEFAULT_ASYNC=n
+		;;
+	ft)
+		PATCH="${PATCH} ftCon=ftcon PHYS_MEM=589824"
+OPTS=${OPTS}" ${K386OBJ}/ft.o"
+		;;
+	fva)
+OPTS=${OPTS}" stubs.o ${K386OBJ}/at.o ${K386OBJ}/ss.o"
+OPTS=${OPTS}" ${K386OBJ}/aha_dsl.o ${K386OBJ}/aha.o ${K386OBJ}/scsi.o"
+PATCH="${PATCH} rootdev=makedev(4,15) pipedev=makedev(8,131) ronflag=1"
+PATCH="${PATCH} NBUF=64 NHASH=61 NCLIST=16 ALLSIZE=32768"
+		DEFAULT_HD=n
+		USE_PTY=n
+		USE_LP=n
+		USE_ASYNC=n
+		DEFAULT_ASYNC=n
+		;;
+	kb|kb_d|kb_f|nkb)
+		OPTS=${OPTS}" ${K386OBJ}/$ARG.o"
+		DEFAULT_KB=n
+		;;
+	nl)
+		MAKE_LIBS=n
+		;;
+	sc)
+		CFLAGS=${CFLAGS}" -DGORT"
+		;;
+	ss)
+		OPTS=${OPTS}" ${K386OBJ}/$ARG.o"
+		PATCH="${PATCH} drvl+260=sscon"
+		;;
+d49 2
+a50 4
+	vt)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtnkb.o"
+d52 3
+a54 4
+	vtkb)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtkb.o"
+d56 2
+a57 24
+	vtkb_d)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtkb_d.o"
+		;;
+	vtkb_f)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtkb_f.o"
+		;;
+	xl)
+		PATCH="${PATCH} ftCon=ftxlcon PHYS_MEM=589824"
+OPTS=${OPTS}" ${K386OBJ}/xlft.o ${K386OBJ}/xla.o ${K386OBJ}/xl_dec.o"
+		;;
+	-a)
+		shift
+		ASYNC=$1
+		;;
+	-c)
+		shift
+		CFLAGS="$CFLAGS $1"
+		;;
+	-o)
+		shift
+d60 2
+a61 2
+	*=*)
+		PATCH="${PATCH} ${ARG}"
+d63 1
+d66 1
+a66 3
+echo "  {aha|al|asy|at|fha|fva|ft|hai|hs|inst|kb|kb_d|kb_f|nkb"
+echo "    |sc|ss|ticom|vt|vtkb|vtkb_d|vtkb_f|xl}"
+echo "  {-o target} {-a async_file} {-c cflags} {addr=value}..."
+d73 1
+a73 39
+if [ ${USE_LP} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/lp.o"
+	PATCH="${PATCH} drvl+60=lpcon"
+fi
+if [ ${USE_PTY} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/pty.o"
+	PATCH="${PATCH} drvl+180=ptycon"
+fi
+if [ ${USE_ASYNC} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/albaud.o"
+fi
+if [ ${DEFAULT_KB} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/kb.o"
+fi
+if [ $DEFAULT_ASYNC = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/asy.o"
+	PATCH="${PATCH} drvl+100=asycon"
+	USE_ASY=y
+fi
+if [ $DEFAULT_HD = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/at.o"
+	PATCH="${PATCH} drvl+220=atcon"
+fi
+if [ ${DEFAULT_MM} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/mmas.o ${K386OBJ}/mm.o"
+fi
+make "CFLAGS=$CFLAGS" "CC=$CC" ${KEROBJ} 	|| exit 1
+if [ ${MAKE_LIBS} = "y" ]
+then
+	make "CFLAGS=$CFLAGS" "CC=$CC" libs 	|| exit 1
+fi
+set -x
+d75 1
+a75 4
+#if [ -f $TARGET ]
+#then
+#	mv $TARGET $TARGET.old || exit 1
+#fi
+d77 7
+a83 3
+ld -K -o $TARGET -e stext ${KEROBJ} ${OPTS} || exit 1
+if [ -n "${PATCH}" ]
+then
+d86 1
+a86 4
+if [ ${USE_ASY} = "y" ]
+then
+	su root /conf/asypatch -v $TARGET < $ASYNC
+fi
+@
+
+
+2.2
+log
+@From Nigel
+@
+text
+@d27 1
+a27 1
+CFLAGS=${CFLAGS-"-DTRACER -VPSTR"}
+d45 1
+a45 1
+: ${TARGET=/at386.tst}
+d77 4
+d97 4
+d120 1
+a120 1
+		CFLAGS=${CFLAGS}" -DSERIAL_CONSOLE"
+d170 1
+a170 1
+echo "  {aha|al|asy|at|fha|fva|hs|inst|kb|kb_d|kb_f|nkb"
+@
+
+
+2.1
+log
+@Last Pre-STREAMS kernel
+@
+text
+@d6 2
+d45 1
+a45 1
+TARGET=/at386.tst
+a76 5
+	hai)
+		OPTS=${OPTS}" ${K386OBJ}/haiscsi.o ${K386OBJ}/haiSd.o"
+		OPTS=${OPTS}" ${K386OBJ}/haiCt.o ${K386OBJ}/haiAha.o"
+		PATCH="${PATCH} drvl+260=scsicon"
+		;;
+a92 4
+	ft)
+		PATCH="${PATCH} ftCon=ftcon PHYS_MEM=589824"
+OPTS=${OPTS}" ${K386OBJ}/ft.o"
+		;;
+d162 1
+a162 1
+echo "  {aha|al|asy|at|fha|fva|ft|hai|hs|inst|kb|kb_d|kb_f|nkb"
+@

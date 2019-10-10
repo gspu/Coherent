@@ -1,0 +1,68 @@
+.TH esbbcall() "" "" "DDI/DKI Kernel Routine"
+.PC "Call a function upon allocation of a buffer"
+.B "#include <sys/types.h>"
+.B "#include <sys/stream.h>"
+\fBtoid_t esbbcall(priority\^\fB, \fIfunction\^\fB, \fIarg\^\fB)\fR
+\fBint \fIpriority\^\fB; int (*\fIfunction\^\fB)(); long \fIarg\^\fB;\fR
+.PP
+.B esbbcall()
+calls
+.B esballoc()
+to allocate a message-block header and a data-block header for
+a data buffer that the driver itself supplies.
+If
+.B esballoc()
+cannot immediately allocate the requested headers,
+.B esbbcall()
+schedules
+.IR function
+to be run
+(with the argument
+.IR arg )
+when memory becomes available.
+.I function
+has no user context and must not call any function that sleeps.
+.PP
+.I priority
+gives the priority of the allocation request.
+Legal values are
+.BR BPRI_LO ,
+.BR BPRI_MED ,
+and
+.BR BPRI_HI ,
+for, respectively, a low-, medium-, or high-priority request.
+.PP
+If all goes well,
+.B esbbcall()
+returns a non-zero value that identifies the scheduled request;
+you can pass this identifier to the function
+.B unbufcall()
+to cancel the request, should need arise.
+If, however, something goes wrong,
+.B esbbcall()
+returns zero.
+.SH "See Also"
+allocb(),
+bufcall(),
+DDI/DKI kernel routines,
+esballoc(),
+itimeout(),
+unbufcall()
+.R
+.SH Notes
+.B esbbcall()
+has base or interrupt level.
+It does not sleep.
+.PP
+A driver can hold a
+driver-defined basic lock, read/write lock, or sleep lock
+acoss a call to this function.
+.PP
+Even when
+.I function
+is called,
+.B esballoc()
+can fail if another module or driver grabbed the available memory before
+.I function
+could call
+.BR allocb() .

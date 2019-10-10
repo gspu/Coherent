@@ -1,0 +1,163 @@
+/*
+ * h/i386/cc1mch.h
+ * Machine specific macros, types and definitions
+ * used by the C compiler code generator (cc1).
+ * i386.
+ */
+
+/* Type definitions. */
+typedef	char	COST;		/* Cost of evaluation			*/
+typedef	char	TYPE;		/* Machine type				*/
+typedef	long	FLAG;		/* Flags				*/
+typedef	char	REGNAME;	/* Register name			*/
+typedef	int	TYPESET;	/* Set of TYPE				*/
+typedef	char	PHYSREG;	/* Physical register name		*/
+typedef	unsigned long PATFLAG;	/* Pattern flags, at least 16 bits	*/
+typedef	int	KIND;		/* Register kind			*/
+typedef	long	MASK;		/* Field masks				*/
+typedef	char	INDEX;		/* Index type				*/
+
+/* Manifest constants. */
+#define	DOWN	1		/* Grow stack downwards			*/
+#define	BITS	0		/* n'th bit code is not needed		*/
+#define LONGREL	0		/* Long relational code is not needed	*/
+#define	SWREG	EAX		/* Switch register			*/
+#define	FNUSED	(BEAX|BECX|BEDX)	/* Preserve EBX, EDI, ESI	*/
+#define NOFREE	(BESP|BEBP)	/* Always occupied registers		*/
+#define	MBLARG	MFNARG		/* Block argument context		*/
+#define	MBLREG	ANYR		/* Block argument register		*/
+#define	ICALLS	1		/* Free level on call			*/
+#define	DVALIS	0		/* Index into dval for DVAL sign	*/
+#define	DVALMS	0200		/* Bit to flip for DVAL sign		*/
+#define	NBPCH	8		/* # of bits in char (out.c)		*/
+#define	NSWITCH	4		/* # of cases in switch coded as conditionals */
+
+/* Macros. */
+#define	isblkp(t)	((t)==PTB)
+#if	DECVAX
+#define poolseg(op)	((op!=DCON) ? SLINK : SDATA)
+#else
+#define poolseg(op)	SLINK
+#endif
+
+#if	!TINY
+/*
+ * Debug printout macros.
+ * Explained in snap1.c
+ */
+#define isnap(x)	printf(" %d", (x))
+#define lsnap(x)	printf(" %ld", (x))
+#define csnap(x)	((x)!=0?printf(" cost=%d", (x)):0)
+#define fsnap(x)	((x)!=0?printf(" flag=%lx", (x)):0)
+#define mdlsnap(x)	snaptype((x), "Bad leaf")
+#define mdosnap(x)	snaptype((x), "Bad op")
+#endif
+
+/*
+ * Tree flags.
+ * The 'FLAG' type must be big enough to hold all of these bits.
+ * After the machine specific flags are the machine independent ones,
+ * and then a number of handy combinations of the flags,
+ * which are used all over.
+ */
+#define	T_0	0x00000001L	/* 0				*/
+#define	T_1	0x00000002L	/* 1				*/
+#define	T_SHCNT	0x00000004L	/* [0 ... 31] (shift count)	*/
+#define	T_SBYTE	0x00000008L	/* [-128 ... 127]		*/
+#define	T_UBYTE	0x00000010L	/* [0 ... 255]			*/
+#define	T_SWORD	0x00000020L	/* [-32768 ... 32768]		*/
+#define	T_UWORD	0x00000040L	/* [0 ... 65535]		*/
+#define	T_NUM	0x00000080L	/* ICON or LCON			*/
+#define	T_DCN	0x00000100L	/* DCON				*/
+#define	T_ADDR	0x00000200L	/* ADDR				*/
+#define	T_REG	0x00000400L	/* REG				*/
+#define	T_LEA	0x00000800L	/* Looks like a LEA		*/
+#define	T_DIR	0x00001000L	/* Direct			*/
+#define	T_OFS	0x00002000L	/* Offset			*/
+
+/* The following are used to determine SIB addressibility.	*/
+#define	T_123	0x00004000L	/* [1 2 3]			*/
+#define	T_234589 0x00008000L	/* [2 3 4 5 8 9]		*/
+#define	T_SIBM	0x000F0000L	/* SIB-addressible mask		*/
+#define	T_ADISP	0x00010000L	/* SIB absolute displacement	*/
+#define	T_RDISP	0x00020000L	/* SIB relocatable displacement	*/
+#define	T_BREG	0x00040000L	/* SIB with base register	*/
+#define	T_IREG	0x00080000L	/* SIB with (scaled) index reg	*/
+
+#define	T_TREG	0x80000000L	/* Need a temporary register	*/
+#define	T_LV	0x40000000L	/* Lvalue context		*/
+#define	T_MMX	0x20000000L	/* Must match shape exactly	*/
+#define	T_INDIR	0x10000000L	/* Fake indirect flag		*/
+
+#define	T_CON	(T_NUM|T_ADDR)
+#define	T_IMM	(T_CON|T_DCN)
+#define	T_ADR	(T_DIR|T_REG)
+#define T_NLEAF	(T_DIR|T_REG|T_IMM)
+#define	T_EASY	(T_DIR|T_REG|T_IMM|T_OFS)
+#define	T_LEAF	(T_DIR|T_REG|T_IMM|T_OFS|T_LEA)
+
+/*
+ * These type testing macros use a
+ * table that is hidden in file "table1.c".
+ * Although you might think they should be in the "PERTYPE"
+ * table (and you are right), they are not so that the
+ * code that is generated does not have a multiply in it.
+ */
+#define islong(t)	((tinfo[t]&01)  != 0)
+#define isword(t)	((tinfo[t]&02)  != 0)
+#define	isworl(t)	((tinfo[t]&03)  != 0)
+#define isuns(t)	((tinfo[t]&04)  != 0)
+#define	isflt(t)	((tinfo[t]&010) != 0)
+#define isint(t)	((tinfo[t]&020) != 0)
+#define isbyte(t)	((tinfo[t]&040) != 0)
+#define isworb(t)       ((tinfo[t]&042) != 0)
+#define	issized(t)	((tinfo[t]&0100)!= 0)
+#define	ispoint(t)	((tinfo[t]&0200)!= 0)
+
+/*
+ * Machine-dependent pattern flags.
+ * These must not overlap with the pattern flags in cc1.h.
+ */
+#define	PNDP		0x10000L	/* 80x87 hardware fp		*/
+#define	PIEEE		0x20000L	/* IEEE software fp		*/
+#define	PDECVAX		0x40000L	/* DECVAX software fp		*/
+#define	PBYTE		0x80000L	/* Requires EAX EBX ECX EDX	*/
+#define	MDPFLAGS	0xF0000L	/* Machine-dependent pattern flags */
+
+/*
+ * Register kinds.
+ * Used by the register allocator.
+ */
+#define	KB	0x01		/* Byte			*/
+#define	KW	0x02		/* Word			*/
+#define	KL	0x04		/* Long (dword)		*/
+#define	KD	0x08		/* Double		*/
+#define	KP	KL		/* Pointer		*/
+
+#define	KWL	(KW|KL)		/* Word or dword	*/
+#define	KBWL	(KB|KW|KL)	/* Byte, word or dword	*/
+
+/*
+ * Macros for machine dependent stuff.
+ * out.c, pool.c.
+ */
+#define GIDFMT	(A_GID|A_DIR)		/* Afield ival for GID output	*/
+#define LIDFMT	(A_LID|A_DIR)		/* Afield ival for LID output	*/
+#define CONFMT	(A_OFFS|A_IMM)		/* Afield ival for constant output */
+#define mapssize(i)	(((i)+3)&~3)	/* Stack roundup		*/
+#define mapcode(c, tp)	(c)		/* Escape to map mch opcodes	*/
+#define gentos(x,y)			/* No top of stack required	*/
+#define genstar(x,y,z,zz)		/* No star address required	*/
+#define iptrtype()	PTR
+
+/*
+ * Externals.
+ */
+#if	!YATC
+extern	int	blkflab;		/* n1/i386/mtree2.c	*/
+extern	PREGSET	regbusy;		/* n1/i386/gen1.c	*/
+extern	char	tinfo[];		/* n1/i386/table1.c	*/
+#endif
+
+/* end of h/i386/cc1mch.h */
+

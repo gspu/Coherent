@@ -1,0 +1,142 @@
+ssttrrttoouull() -- General Function (libc)
+
+Convert string to unsigned long integer
+#iinncclluuddee <ssttddlliibb.hh>
+uunnssiiggnneedd lloonngg ssttrrttoouull(_s_t_r_i_n_g, _t_a_i_l_p_t_r, _b_a_s_e)
+char *_s_t_r_i_n_g; cchhaarr **_t_a_i_l_p_t_r; iinntt _b_a_s_e;
+
+ssttrrttoouull()  converts the  number  given in  _s_t_r_i_n_g  to a  uunnssiiggnneedd lloonngg  and
+returns its value.   It is the uunnssiiggnneedd lloonngg counterpart  of ssttrrttooll() and a
+more  general  version of  the  function aattooll().  ssttrrttoouull()  also stores  a
+pointer  to  the  first character  following  the  number through  _t_a_i_l_p_t_r,
+provided _t_a_i_l_p_t_r does not equal NULL.
+
+_b_a_s_e gives the  base of the number being read,  either zero or a value from
+two to  36.  If the  given _b_a_s_e is  zero, ssttrrttoouull() determines  an implicit
+base for the number: hexadecimal if the number starts with  00xx or 00XX, octal
+if the number starts with 00, or decimal otherwise.  Alternatively, the user
+can specify an explicit _b_a_s_e between two and 36.
+
+ssttrrttoouull()  parses  the  _s_t_r_i_n_g  into  three  portions:  beginning,  subject
+sequence, and tail.
+
+The _b_e_g_i_n_n_i_n_g  consists of zero  or more white-space  characters that begin
+the string.
+
+The _s_u_b_j_e_c_t  _s_e_q_u_e_n_c_e is the portion of the  string that ssttrrttoouull() converts
+into  an uunnssiiggnneedd  lloonngg.  It consists  of  an optional  sign character,  an
+optional prefix  00xx or  00XX if the  _b_a_s_e is 16,  and a nonempty  sequence of
+_d_i_g_i_t_s  in the  specified  base.  For  example,  if the  _b_a_s_e  is 16,  then
+ssttrrttoouull()  recognizes   numeric  characters  `0'  to   `9'  and  alphabetic
+characters `A' through `F' and `a'  to `f' as digits.  It continues to scan
+until it encounters a nondigit.
+
+The  _t_a_i_l continues  from  the end  of  the subject  sequence  to the  null
+character that ends the string.
+
+ssttrrttoouull() ignores  the beginning  portion of  the string.  It  converts the
+subject sequence  to an uunnssiiggnneedd  lloonngg. Finally, if _t_a_i_l_p_t_r  does not equal
+NULL ,  it sets  the pointer pointed  to by _t_a_i_l_p_t_r  to the address  of the
+first character of the string's tail.
+
+ssttrrttoouull() returns  an uunnssiiggnneedd lloonngg  representing the value  of the subject
+sequence.  If the input _s_t_r_i_n_g does  not specify a valid number, it returns
+zero and stores the initial value  of _s_t_r_i_n_g through _t_a_i_l_p_t_r. If the number
+it builds  is too large  to fit into  an uunnssiiggnneedd lloonngg, it  sets the global
+variable eerrrrnnoo to the value of the macro EERRAANNGGEE and returns UULLOONNGG_MMAAXX.
+
+_E_x_a_m_p_l_e
+This  example uses  ssttrrttoouull()  as a  hash  function for  table lookup.   It
+demonstrates both hashing and  linked lists.  Hash-table lookup is the most
+efficient when used to look up  entries in large tables; this is an example
+only.
+
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/*
+ * For fastest results, use a prime about 15% bigger
+ * than the table. If short of space, use a smaller prime.
+ */
+#define HASHP 11
+struct symbol {
+    struct symbol *next;
+    char *name;
+    char *descr;
+} *hasht[HASHP], codes[] = {
+
+    NULL,    "a286",     "frogs togs",
+    NULL,    "xy7800",   "doughnut holes",
+    NULL,    "z678abc",  "used bits",
+    NULL,    "xj781",    "black-hole varnish",
+    NULL,    "h778a",    "table hash",
+    NULL,    "q167",     "log(-5.2)",
+    NULL,    "18888",    "quid pro quo",
+    NULL,    NULL,       NULL /* end marker */
+};
+
+void
+buildTable()
+{
+    long h;
+    register struct symbol *sym, **symp;
+
+    for(symp = hasht; symp != (hasht + HASHP); symp++)
+             *symp = NULL;
+
+    for(sym = codes; sym->descr != NULL; sym++) {
+             /*
+              * hash by converting to base 36. There are
+              * many ways to hash, but use all the data.
+              */
+
+             h = strtoul(sym->name, NULL, 36) % HASHP;
+             sym->next = hasht[h];
+             hasht[h] = sym;
+    }
+}
+
+struct symbol *
+lookup(s)
+char *s;
+{
+    long h;
+    register struct symbol *sym;
+
+    h = strtoul(s, NULL, 36) % HASHP;
+    for(sym = hasht[h]; sym != NULL; sym = sym->next)
+             if(!strcmp(sym->name, s))
+                         return(sym);
+    return(NULL);
+}
+
+main()
+{
+    char buf[80];
+    struct symbol *sym;
+
+    buildTable();
+    for(;;) {
+             printf("Enter name ");
+             fflush(stdout);
+
+             if(gets(buf) == NULL)
+                         exit(EXIT_SUCCESS);
+
+             if((sym = lookup(buf)) == NULL)
+                         printf("%s not found\n", buf);
+
+             else
+                         printf("%s is %s\n", buf, sym->descr);
+    }
+}
+
+_S_e_e _A_l_s_o
+eerrrrnnoo, lliibbcc, lliimmiittss.hh, ssttddlliibb.hh, ssttrrttooll()
+ANSI Standard, section 7.10.1.6
+
+_N_o_t_e_s
+ssttrrttoouull() ignores  initial white space in the input  _s_t_r_i_n_g. White space is
+defined as being all characters so recognized by the function iissssppaaccee().

@@ -1,0 +1,95 @@
+.TH recvfrom() "" "" "Sockets Function (libsocket)"
+.PC "Receive a message from a socket"
+.B
+#include <sys/compat.h>
+#include <sys/socket.h>
+#include "socketvar.h"
+.R
+\fBint recvfrom (\fIsocket\^\fB, \fIbuffer\^\fB, \fIlength\^\fB, \fIflags\^\fB, \fIaddress\^\fB, \fIaddrlen\^\fB)\fR
+\fBint \fIsocket\^\fB; char *\fIbuffer\^\fB; int \fIlength\^\fB; int \fIflags\^\fB;\fR
+\fBsockaddr_t *\fIfrom\^\fB; int *\fIalen\^\fB;\fR
+.PP
+.B recvfrom()
+receives messages from another socket.
+Unlike the related function
+.BR recv() ,
+.B recvfrom()
+receives data regardless of whether the socket is connected or not.
+.PP
+.I socket
+is the file descriptor of the socket from which data are to be received.
+It may or may not be connected.
+.I buffer
+is the chunk of memory in user space into which the data are to be written;
+it is
+.I length
+bytes long.
+If a received message is longer than
+.I length
+bytes, excess bytes can be discarded,
+depending on the type of socket from which the message is received.
+If
+.I from
+is not NULL,
+.B recvfrom()
+initializes it to the the source address of the message.
+It initializes
+.I alen
+to the size of the buffer associated with
+.IR address ,
+and modifies it upon return to the size of the address stored there.
+.PP
+If no messages are waiting at
+.IR socket ,
+.B recvfrom()
+waits for a message to arrive, unless the socket is nonblocking.
+In this case, it returns \-1 and sets
+.BR errno ,
+as described below.
+.PP
+.I flags
+ORs together either or both of the following flags:
+.IP \fBMSG_OOB\fR
+Read any out-of-band data present on
+.IR socket ,
+rather than the regular, in-band data.
+.IP \fBMSG_PEEK\fR
+``Peek'' at the data present on
+.IR socket .
+The data are returned but remain on
+.IR socket ;
+therefore, another call to
+.B recvfrom()
+or
+.B recv()
+retrieves the same data.
+.PP
+If all goes well,
+.B recvfrom()
+returns the number of bytes received.
+If an error occurs, it returns \-1 and sets
+.B errno
+to one of the following values:
+.IP \fBEBADF\fR
+.I socket
+is an invalid descriptor.
+.IP \fBENOTSOCK\fR
+.I socket
+is the descriptor of a file, not a socket.
+.IP \fBEINTR\fR
+The operation was interrupted by delivery of a signal before any data was
+available to be received.
+.IP \fBEAGAIN\fR
+.I socket
+is marked non-blocking, but the requested operation would block.
+.IP \fBENOMEM\fR
+Too little user memory is available to complete the operation.
+.SH "See Also"
+.Xr "libsocket," libsocket
+.Xr "recv()" recv
+.SH "Notes"
+At present, the \*(CO implementation of
+.B recvfrom()
+always behaves as if
+.I address
+were initialized to NULL.

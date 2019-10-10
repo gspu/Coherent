@@ -1,0 +1,198 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.08.10.12.43.40;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * This file contains routines which define a simple high-precision timer
+ * for PC systems, with appropriate definitions for working under a variety
+ * of different operating environments.
+ *
+ * The basic idea, which is discussed in (among other places)
+ *	"Accurately Timing Windows Events Without Timer Reprogramming"
+ *	Jerry Jongerius,
+ *	Microsoft Systems Journal,
+ *	July 1991.
+ * is to read the count register of counter/timer channel 0 on the PC, which
+ * is normally set up to generate a divide-by-65536 signal from a 1.19318MHz
+ * timebase, ie. the infamous 18.2Hz timer tick.
+ *
+ * While it is possible to read this value with low overhead if you have some
+ * cooperation from the timer tick handler, it's not too tough for normal
+ * application code to get at this, as long as it is possible to disable
+ * interrupts for a short time. This is only necessary to prevent disruption
+ * to the technique from other subsystems that use it as well.
+ */
+
+/*
+ * Locate the system-dependent header files we need depending on the
+ * operating environment we are being compiled under.
+ */
+
+#include <ccompat.h>
+
+#define	INT_FLAG_BIT_MASK		0x200
+
+#if	defined (__GNUC__) && defined (GNUDOS)
+
+#include <pc.h>
+#include <dos.h>
+
+#define	INPUT_BYTE(port)	inportb (port)
+#define	OUTPUT_BYTE(port,byte)	outportb (port, byte)
+
+static inline unsigned short SPL7 (void) {
+        register unsigned short temp;
+        asm ("pushf; pop %0; cli" : "=r" (temp));
+        return temp;
+}
+
+static inline void SPLX (unsigned short prev) {
+        if ((prev & INT_FLAG_BIT_MASK) != 0)
+                asm ("sti");
+}
+
+#define	BIOS_CLOCK_INT	0x1A
+
+static inline unsigned short GETTICKCOUNT (void) {
+	union REGS in;
+        in.h.ah = 0;
+        int86 (BIOS_CLOCK_INT, & in, & in);
+        return in.x.dx;
+}
+
+#elif	__BORLANDC__
+
+#include <dos.h>
+#include <conio.h>
+
+#define	INPUT_BYTE(port)	inportb (port)
+#define	OUTPUT_BYTE(port,byte)	outportb (port, byte)
+
+#define SPL7()		(_AX = _FLAGS, disable (), _AX)
+#define SPLX(s)		((s & INT_FLAG_BIT_MASK) != 0 ? enable () : (void) 0)
+
+#define	BIOS_DATA_SEGMENT	0x40
+#define	BIOS_TICK_COUNT_LOW	0x6C
+#define	GETTICKCOUNT()		* (unsigned short far *) MK_FP (BIOS_DATA_SEGMENT, BIOS_TICK_COUNT_LOW)
+
+#else
+#error unknown system type
+#endif
+
+/*
+ * Returns a 32-bit unsigned value which combines the BIOS tick count with
+ * the current count value from the CTC. Since we do not have the cooperation
+ * of the tick interrupt handler, we detect overflows by reading the BIOS
+ * count before and after; we examine the sign of the value we read from the
+ * CRTC to decide which side of the fence we fell on.
+ *
+ * The BIOS tick count is actually 32-bit, but the low 16-bit part only
+ * overflows about once per hour, so who cares?
+ */
+
+#define	CTC_PORT_CMD	0x43
+#define	CTC_PORT_0	0x40
+#define	CTC_READ_CMD	0xC2
+
+#ifdef	__USE_PROTO
+unsigned long getTickCount (void)
+#else
+unsigned long
+getTickCount ()
+#endif
+{
+	register unsigned short microcount;
+        unsigned short tickcount, tickcount2;
+        register short	s;
+
+        tickcount = GETTICKCOUNT ();
+
+        /*
+         * Once we are in a critical section, issue the read (which locks the
+         * current values in the registers until the read completes).
+         */
+
+        s = SPL7 ();
+
+        OUTPUT_BYTE (CTC_PORT_CMD, CTC_READ_CMD);
+        microcount = (INPUT_BYTE (CTC_PORT_0) & 0x80) != 0 ? 0x8000 : 0;
+        microcount |= INPUT_BYTE (CTC_PORT_0) >> 1;
+        microcount |= INPUT_BYTE (CTC_PORT_0) << 7;
+
+	SPLX (s);
+
+        if ((microcount & 0x7FFF) == 0)
+        	microcount |= 0x7FFF;
+
+        /*
+         * Turn the count-down into a count-up.
+         */
+
+        microcount = ~ microcount;
+
+        /*
+         * See if we need to cope with a timer wraparound condition.
+         */
+
+        if ((tickcount2 = GETTICKCOUNT ()) != tickcount) {
+        	/*
+                 * OK, now which BIOS tick did our measurement fall into?
+                 * Since the CTC is a upcount from zero, if the value we
+                 * read has the high bit clear, go with the new value,
+		 * otherwise use the old one.
+                 */
+
+                if ((microcount & 0x8000) == 0)
+                	tickcount = tickcount2;
+        }
+
+        return ((unsigned long) tickcount << 16) | microcount;
+}
+
+/*
+ * Sit in a loop making sure that the values returned from the timer code
+ * monotonically increase.
+ */
+
+#include <stdio.h>
+
+#ifdef	__USE_PROTO
+void main (void)
+#else
+void
+main ()
+#endif
+{
+	unsigned long last, current;
+
+        current = getTickCount ();
+        while (! kbhit ()) {
+        	last = current;
+                current = getTickCount ();
+                if ((long) (current - last) <= 0) {
+                	break;
+                }
+        }
+	printf ("At end : %lx <= %lx\n", current, last);
+}
+@

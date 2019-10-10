@@ -1,0 +1,136 @@
+.TH group "" "" "System Administration"
+.PC "Define groups of users"
+.PP
+The group file
+.B /etc/group
+describes the user groups that have been defined on your \*(CO system.
+This allows users to control the access that members of their group
+have to certain files.
+.B /etc/group
+contains the information to map any ASCII group
+name to the corresponding numerical group identifier, and vice versa.
+It also contains, in ASCII, the names of the members of each group.
+This information is used by, among others, the command
+.BR newgrp .
+.PP
+Each group has an entry in the file
+.B /etc/group ,
+one line per entry.
+Each line consists of four colon-separated ASCII fields, as follows:
+.DS
+\fIgroup_name\fB : \fIpassword\fB : \fIgroup_number\fB : \fImember\fB[,\fImember\^\fB...]\fR
+.DE
+.PP
+Passwords are encrypted with
+.BR crypt ,
+so the group file is generally readable.
+.PP
+The \*(CO system has five system calls that manipulate
+.BR /etc/group ,
+as follows:
+.IP \fBendgrent()\fR 0.75i
+Close
+.BR /etc/group .
+.IP \fBgetgrent()\fR
+Return the next entry from
+.BR /etc/group .
+.IP \fBgetgrnam()\fR
+Return the first entry with a given group name.
+.IP \fBgetgrgid()\fR
+Return the first entry with a given group identifier.
+.IP \fBsetgrent()\fR
+Rewind
+.BR /etc/group ,
+so that searches can begin again from the beginning of the file. 
+.PP
+The calls
+.BR getgrent() ,
+.BR getgrid() ,
+and
+.B getgrnam()
+each return a pointer to structure
+.BR group ,
+which the header file
+.B grp.h
+defines as follows:
+.DM
+.ta 0.5i 1.0i 2.0i
+struct group {
+	char	*gr_name;	/* Group name */
+	char	*gr_passwd;	/* Group password */
+	int	gr_gid;	/* Numeric group id */
+	char	**gr_mem;	/* Group members */
+};
+.DE
+.PP
+A user can belong to more than one group.
+His ``main'' group, however,
+is the one that is named is in his entry in the file
+.BR /etc/passwd .
+When a user creates a file, that file by default is ``owned'' by the
+user's main group.
+.PP
+For example, consider user
+.BR joe ,
+who has the following entry in
+.BR /etc/passwd :
+.DM
+	joe:*:10:5:Joe Smith:/usr/joe:/usr/bin/ksh
+.DE
+.PP
+The fourth field, which in this example has the value
+.BR 5 ,
+gives the number of the user's main group.
+(For details on what the other fields mean, see the Lexicon entry for
+.BR passwd .)
+Looking in
+.BR /etc/group ,
+we see the following entry for group 5:
+.DM
+	user::5:
+.DE
+.PP
+Thus, whenever
+.B joe
+creates a file, by default it will be ``owned'' by group
+.BR user .
+Any member of group
+.B user
+will be granted that file's group-level permissions on that file.
+.PP
+.II chmod
+A user can use the command
+.B chmod
+to change the group-level permissions on any file he owns.
+.II chgrp
+The superuser
+.B root
+can use the command
+.B chgrp
+to changes the group ownership for any file.
+For details on how to use these commands, see their entries in the Lexicon.
+.SH Files
+.B /etc/group
+.SH "See Also"
+Administering COHERENT,
+.Xr "chgrp()," chgrp.s
+.Xr "chmod," chmod.c
+.Xr "chown," chown.c
+.Xr "endgrent()," endgrent
+.Xr "getgrent()," getgrent
+.Xr "getgrgid()," getgrgid
+.Xr "getgrnam()," getgrnam
+.Xr "grp.h," grp.h
+.Xr "newgrp," newgrp
+.Xr "passwd," passwd
+.Xr "setgrend()" setgrend
+.SH Notes
+At present the group password field cannot be set directly
+(no command similar to
+.B passwd
+exists for groups).
+One alternative is to set the password in the
+.B /etc/passwd
+file for a user with the
+.B passwd
+command, then transcribe the password into the group file manually.

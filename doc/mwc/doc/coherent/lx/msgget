@@ -1,0 +1,328 @@
+.TH msgget() "" "" "General Function (libc)"
+.PC "Create or get a message queue"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/msg.h>"
+\fBmsgget(\fIkey\^\fB, \fIflag\^\fB)\fR
+\fBkey_t \fIkey\^\fB; int \fIflag\^;\fR
+.PP
+.II "message passing^msgget()"
+The function
+.B msgget()
+gets or creates a message queue.
+If necessary, it can create a message queue and its control structure,
+and link them to the identifier
+.IR key .
+.PP
+.I key
+is an identifier that your application generates to identify
+its message queues.
+To guarantee that each key is unique, you should use the function call
+.B ftok()
+to generate keys.
+.PP
+When it creates a message queue,
+.B msgget()
+also creates a copy of structure
+.BR msqid_ds ,
+which the header file
+.B <sys/msg.h>
+defines as follows:
+.DM
+.ta 0.5i 2.75i
+struct msqid_ds {
+	struct ipc_perm msg_perm;	/* operation permission struct */
+	struct msg *msg_first;	/* ptr to first message on queue */
+	struct msg *msg_last;	/* ptr to last message on queue */
+	unsigned short msg_cbytes;	/* current # bytes on queue */
+	unsigned short msg_qnum;	/* # of messages on queue */
+	unsigned short msg_qbytes;	/* max # of bytes on queue */
+	unsigned short msg_lspid;	/* pid of last msgsnd() */
+	unsigned short msg_lrpid;	/* pid of last msgrcv() */
+	time_t msg_stime;	/* last msgsnd() time */
+	time_t msg_rtime;	/* last msgrcv() time */
+	time_t msg_ctime;	/* last change() time */
+};
+.DE
+.PP
+The messages themselves consist of a linked list of structures of type
+.BR msg .
+Fields
+.B msg_first
+and
+.B msg_last
+point to, respectively, the first and last messages in the list.
+Header file
+.B <sys/msg.h>
+defines structure
+.B msg
+as follows:
+.DM
+.ta 0.5i 2.75i
+struct msg {
+	struct msg *msg_next;	/* pointer to next message on queue */
+	long msg_type;	/* message type */
+	short msg_ts;	/* message text size */
+	short msg_spot;	/* message text map address */
+};
+.DE
+.PP
+Field
+.B msg_perm
+is a structure of type
+.BR ipc_perm ,
+which header file
+.B <sys/ipc.h>
+defines as follows:
+.DM
+.ta 0.5i 2.75i
+struct ipc_perm {
+	unsigned short uid;	/* owner's user id */
+	unsigned short gid;	/* owner's group id */
+	unsigned short cuid;	/* creator's user id */
+	unsigned short cgid;	/* creator's group id */
+	unsigned short mode;	/* access modes */
+	unsigned short seq;	/* slot usage sequence number */
+	key_t key;	/* key */
+};
+.DE
+.PP
+.B msgget()
+initializes
+.B msqid_ds
+as follows:
+.IP \(bu 0.3i
+It sets the fields
+.BR msg_perm.cuid ,
+.BR msg_perm.uid ,
+.BR msg_perm.cgid ,
+and
+.B msg_perm.gid
+to, respectively, the effective user ID and effective group ID
+of the calling process.
+.IP \(bu
+It sets the low-order nine bits of
+.B msg_perm.mode
+to the low-order nine bits of
+.IR flag .
+These nine bits define access permissions:
+the top three bits give the owner's
+access permissions (read, write, execute),
+the middle three bits the owning group's access permissions,
+and the low three bits access permissions for others.
+.IP \(bu
+It sets
+.B msg_ctime
+is set to the current time.
+.IP \(bu
+It sets
+.B msg_qbytes
+to the value of kernel variable
+.BR NMSQB ,
+which sets the maximum number of bytes available to the message queue.
+.PP
+If any of the following error conditions is true,
+.B msgget()
+returns \-1 and sets
+.B errno
+to the value within parentheses:
+.IP \(bu 0.3i
+.I key
+already has a message queue, but the owner of the process that called
+.B msgget()
+does not have permission to read it (\fBEACCES\fR).
+.IP \(bu
+.I key
+does not have a message queue associated with it, but
+.I flag
+is does not request that one be created
+(i.e., \fIflag\fB & IPC_CREAT\fR is false)
+(\fBENOENT\fR).
+.IP \(bu
+.I flag
+requests that
+.B msgget()
+create a message queue, but the system's maximum number of message queues
+(as set by the kernel variable
+.BR NMSQID )
+already exists (\fBENOSPC\fR).
+.IP \(bu
+.I key
+already has a message queue, but
+.I flag
+requests that a queue be created exclusively
+(i.e., (\fIflag\fB & IPC_CREAT) && (\fIflag\fB & IPC_EXCL\fR) is true)
+(\fBEEXIST\fR).
+.PP
+If all goes well
+.B msgget()
+returns the message-queue identifier, which is always a non-negative integer.
+Otherwise, it returns \-1 and sets \fBerrno\fR to an appropriate value.
+.SH Example
+The following program,
+.BR samplemsg.c ,
+gives an example of the \*(CO message facility.
+One server process accepts user keyboard input, and sends it
+client 1 if the first character is an upper-case letter, or to
+client 2 if the first character is not an upper-case letter.
+.DM
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+.DE
+.DM
+/* Maximum size of messages in this example.
+ * The default maximum size is 2048. */
+#define	MAX_MSG_SIZE 80 
+.DE
+.DM
+/* template for a message */
+struct my_msg {
+	long mtype;			 
+	unsigned char mtext[MAX_MSG_SIZE];
+};
+.DE
+.DM
+struct my_msg sndmsg; /* message we will send */
+struct my_msg rcvmsg; /* message we will receive */
+.DE
+.DM
+.ta 1.5i
+key_t key;	/* key for getting our message queue */
+int id;	/* message queue id returned by msgget() */
+long msgtype;	/* type of the message */
+.DE
+.DM
+main()
+{
+	/* Generate unigue key */
+	if ((key = ftok("./samplemsg", 'A')) == -1)
+		fprint (stderr, "samplemsg does not exist.\en");
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	/* get our message queue, abort on error */
+	if( -1 == (id = msgget(key, IPC_CREAT|0660))){
+		printf("Error obtaining message queue\en");
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	printf("To end this demonstration, type 'end'.\en"
+		"Enter the message -> ");
+	fflush(stdout);
+	msgtype = 1;	/* 1st client receives messages of type 1 */
+.DE
+.DM
+	/* fork() to produce our 1st client processes. */
+	if (fork()) { /* we are parent process (server) */
+		msgtype = 2; /* 2nd client receives messages of type 2 */
+		/* fork() again to produce our 2nd client processes. */
+		if (fork()) { /* we are parent process (server) */
+			send_messages(); /* server */
+		} else
+			receive_messages(); /* second client */
+	} else
+		receive_messages(); /* 1st client */
+	exit (EXIT_SUCCESS);
+}
+.DE
+.DM
+/* Get a message from user and send it to client or child processes */
+send_messages()
+{
+	for (;;) {
+		/* get our message to send */
+		gets(sndmsg.mtext);
+.DE
+.DM
+		/* if 'end' was entered, send message to BOTH clients,
+		 * as this is a flag for them to terminate themselves.
+		 * Otherwise, just send the message.
+		 */
+		if (!strcmp(sndmsg.mtext,"end")) {
+			sndmsg.mtype = 1;
+			msgsnd(id, &sndmsg, strlen(sndmsg.mtext)+1, 0);
+			sndmsg.mtype = 2;
+			msgsnd(id, &sndmsg, strlen(sndmsg.mtext)+1, 0);
+			printf("Thank you. Bye.\en");
+			break;
+		}
+.DE
+.DM
+		/* Determine the type of message this will be.
+		 * if the first character is upper case letter,
+		 * then this is a type-1 message; otherwise,
+		 * this is a type-2 message.
+		 */
+		if (isupper(sndmsg.mtext[0]))
+			sndmsg.mtype = 1L;
+		else
+			sndmsg.mtype = 2L;
+.DE
+.DM
+		if (msgsnd(id, &sndmsg, strlen(sndmsg.mtext)+1, 0) < 0) {
+			perror("send");
+			break;
+		}
+	}
+.DE
+.DM
+	while (wait(NULL) > 0)	/* Wait for the children */
+		;
+	msgctl(id, IPC_RMID,0); /* remove message queue */
+	return;
+}
+.DE
+.DM
+/* receive_messages(). */
+receive_messages()
+{
+	char clntbuf[20];
+.DE
+.DM
+	sprintf(clntbuf, "Client %ld", msgtype);
+.DE
+.DM
+	for (;;) {
+		if (msgrcv(id, &rcvmsg, MAX_MSG_SIZE, msgtype, 0) < 0) {
+			perror(clntbuf);
+			exit(EXIT_FAILURE);
+		}
+.DE
+.DM
+		printf("%s received: '%s'\en", clntbuf, rcvmsg.mtext);
+		if (!strcmp(rcvmsg.mtext,"end"))
+			break;
+		printf("Enter next message -> ");
+		fflush(stdout);
+	} 
+	exit(EXIT_SUCCESS);
+}
+.DE
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/msg.h
+.R
+.SH "See Also"
+.Xr "ftok()," ftok()
+.Xr "ipcrm," ipcrm
+.Xr "ipcs," ipcs
+.Xr "libc," libc
+.Xr "libsocket," libsocket
+.Xr "msgctl()," msgctl
+.Xr "msgrcv()," msgrcv
+.Xr "msgsnd()" msgsnd
+.SH Notes
+Prior to release 4.2, \*(CO implemented semaphores through the driver
+.BR msg .
+In release 4.2, and subsequent releases, \*(CO has implemented
+semaphores as a set of functions that conform in large part to the \*(UN
+System-V standard.

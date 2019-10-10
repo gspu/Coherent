@@ -1,0 +1,143 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @# @;
+
+
+1.1
+date     93.08.10.12.38.17;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@# Shell version of something similar to the System V 'idtune' command
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Call with the $0 of the script as a parameter; this commands writes the
+# name of the directory containing the script to standard output.
+# Example:
+#	conf_path $0
+
+conf_path () {
+	set `which $1 2>/dev/null` X
+	if [ $# -ne 2 ]; then
+		echo .		# Assume the current directory.
+		return 1
+	fi
+	set `expr $1 : '\(.*\)/.*'` X
+	if [ $# -ne 2 ]; then
+		echo .		# Must be in the current directory.
+	else
+		echo $1
+	fi
+	return 0
+}
+
+# Report a usage message to standard output, with the name of the script
+# passed as the argument to this function.
+
+usage () {
+	echo $1 ": Change values of configurable parameters"
+	echo "usage :\t[-f] [-m] param value [param value] ..."
+	echo "\t-f suppresses interactive confirmation of the change"
+	echo "\t-m specifies that the current value be raised to the given minimum"
+}
+
+# Read the mtune/stune parameters for a variable into shell globals
+
+read_mstune () {
+	ggrep ^"$1$WHITESPACE" $CONF_DIR/[ms]tune 2>/dev/null 1>&2
+	if [ $? -ne 0 ]; then
+		echo There is no installed tunable parameter called $1 1>&2
+		return 1
+	fi
+	set `grep "^$1$WHITESPACE" $CONF_DIR/mtune 2>/dev/null` \
+	    `grep "^$1$WHITESPACE" $CONF_DIR/stune 2>/dev/null`
+	MTUNE_MIN=$2
+	MTUNE_DEFAULT=$3
+	MTUNE_MAX=$4
+	if [ $# -gt 4 ]; then
+		STUNE_VALUE=$6
+	else
+		STUNE_VALUE=$3
+	fi
+	OLD_STUNE_VALUE=$STUNE_VALUE
+}
+
+# Update the value of a tunable parameter
+
+write_mstune () {
+	if [ $OLD_STUNE_VALUE -eq $2 ]; then
+		return 0
+	fi
+	if [ $2 -lt $MTUNE_MIN -o $2 -gt $MTUNE_MAX ]; then
+		echo The new value is not within the legal range of values. \
+			1>&2
+		return 1
+	fi
+
+	$HOME_DIR/devadm -I $CONF_DIR -s"$1 $2" -W
+}
+
+# Confirm the parameter change
+
+ask () {
+	echo Tunable parameter $1 is currently set to $2.
+	echo -n Is it OK to change it to $3"? (y/n) "
+	read yesno
+	[ "$yesno" = "y" ]
+	return $?
+}
+
+HOME_DIR=`conf_path $0`
+CONF_DIR=$HOME_DIR/..
+WHITESPACE="	 "		: A space and a tab
+
+if [ $# -lt 1 ]; then
+	usage $0 1>&2
+	exit 100
+fi
+
+while [ $# -gt 1 ]; do
+	ARG=$1; shift
+	case $ARG in
+	-f)	FORCE=1
+		;;
+
+	-m)	MINIMUM=1
+		;;
+
+	*)	read_mstune $ARG || exit 1
+
+		# If there is no change, do nothing. If there is a minimum and
+		# the current value is large enough, do nothing. Otherwise,
+		# make the change if forced or the user confirms.
+
+		if [ $STUNE_VALUE -ne $1 -a \
+			\( -z "$MINIMUM" -o $STUNE_VALUE -lt $1 \) ] &&
+		   ([ -n "$FORCE" ] || ask $ARG $STUNE_VALUE $1) then
+			write_mstune $ARG $1
+		fi
+		shift
+		;;
+	esac
+done
+
+if [ $# -ne 0 ]; then
+	usage $0 1>&2
+	exit 100
+fi
+@

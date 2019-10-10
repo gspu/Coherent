@@ -1,0 +1,66 @@
+.TH bcanputnext() "" "" "DDI/DKI Kernel Routine"
+.PC "Test whether a priority band has room for a message"
+.B "#include <sys/types.h>"
+.B "#include <sys/stream.h>"
+\fBint bcanputnext(\fIqueue\^\fB, \fIpriority\^\fB)\fR
+\fBqueue_t *\fIqueue\^\fB; uchar_t \fIpriority\^\fB;\fR
+.PP
+.B bcanputnext()
+attempts to find a queue with a priority band of level
+.I priority
+that can hold a message.
+.PP
+.B bcanputnext()
+search the stream beginning at \fIqueue\fB->q_next\fR.
+It seeks a queue that contains a service routine.
+If it finds one, it tests the queue to see whether
+it can hold a message in priority band
+.IR priority .
+If the band is full,
+.B bcanputnext()
+marks the queue so that the caller's service routine is
+back-enabled automatically when the amount of data in the queue
+reaches its low-water mark.
+.PP
+.B bcanputnext()
+returns one if a message of
+.I priority
+can be put into the stream,
+or if it reached the end of the stream without finding a queue that has
+a service procedure.
+If the stream is full, it returns zero.
+.SH "See Also"
+.B
+bcanput(),
+canput(),
+canputnext(),
+DDI/DKI kernel routines,
+putbq(),
+putnext(),
+queue
+.R
+.SH Notes
+.B bcanputnext()
+has base or interrupt level.
+It does not sleep.
+.PP
+You must test whether
+.I queue
+has room for a message of the given
+.IR priority ,
+and not send the message if no room is available.
+Because of race conditions,
+.B bcanput()
+can state that
+.I priority
+has room for a message, but
+.I priority
+could be filled by another process before your process enqueues its message.
+This, however, is a benign problem.
+.PP
+Your process cannot have the stream frozen
+when it calls this function.
+Your process can hold
+driver-defined basic locks, read/write locks, and sleep locks
+across a call to this function.
+

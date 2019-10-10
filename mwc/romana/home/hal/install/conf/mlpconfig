@@ -1,0 +1,135 @@
+# /conf/mlpconfig
+#
+# Build the description of the main printer for the print spooler.
+
+SPOOL_FILE=/usr/spool/mlp/controls
+
+# Maybe defer main printer description, if no printer device is defined.
+
+if [ ! -c /dev/lp ]; then
+	/bin/echo "You have not configured a main printer as /dev/lp."
+	/bin/echo -n "Skip sprint spooler configuration for now? "
+	read ANS
+	case $ANS in
+	y|Y)
+		/bin/echo "
+You may configure the main printer for the spooler at a later time
+with the /conf/mlpconfig command.\n"
+		exit 0
+		;;
+	esac
+fi
+
+# Delete the main printer spec, if any, from SPOOL_FILE.
+
+if /bin/grep "^printer.*=.*main" $SPOOL_FILE > /dev/null
+then
+
+/bin/ed - +v $SPOOL_FILE <<_EOF
+/^printer.*=.*main/d
+wq
+_EOF
+
+fi
+
+# The script appends one of the following lines to the end of
+# /usr/spool/mlp/controls:
+# 
+# printer = main, /dev/lp, default	# non-laser printer, either port
+# printer = main, /dev/hp, default	# PostScr. laser printer, either port
+# printer = main, /dev/hp, hpserial	# PCL laser printer, serial port
+# printer = main, /dev/hp, hppar	# PCL laser printer, parallel port
+
+/bin/echo "
+COHERENT includes print spooling software which allows you to use
+multiple printers.  Earlier we asked you about your printer to determine
+which port it used.  Now we will complete print spooler configuration.
+"
+
+PR_LASER='q'
+while [ $PR_LASER = 'q' ]; do
+	echo 'Is your printer a laser printer? [y/n] \c'
+	read PR_LASER
+	case $PR_LASER in
+	y|Y)	PR_LASER=y
+		;;
+	n|N)	PR_LASER=n
+		;;
+	*)	PR_LASER=q
+		;;
+	esac
+done
+
+# if the user has a laser printer, ask what type of laser:  PostScript or
+# PCL
+
+PR_PS='q'
+if [ $PR_LASER = 'y' ]; then
+	while [ $PR_PS = 'q' ]; do
+		echo 'Is your printer a PostScript printer? [y/n] \c'
+		read PR_PS
+		case $PR_PS in
+		y|Y)	PR_PS=y
+			;;
+		n|N)	PR_PS=n
+			;;
+		*)	PR_PS=q
+			;;
+		esac
+	done
+fi
+
+# Try to deduce whether printer is serial or parallel.
+# Major number 3 = parallel port, 5 = serial port
+
+/bin/ls -l /dev/lp 2> /dev/null | read junk1 junk2 junk3 junk4 LPMAJ junk
+
+case "$LPMAJ" in
+3)	PAR_SER=hppar
+	;;
+5)	PAR_SER=hpserial
+	;;
+*)	PAR_SER=q
+	;;
+esac
+
+# If /dev/lp not already linked to major number 3 or 5, ask the user about it.
+
+while [ $PAR_SER = 'q' ]; do
+	echo '\nIs your printer a (s)erial or a (p)arallel printer? [s/p] \c'
+	read PAR_SER
+	case $PAR_SER in
+	s|S)	PAR_SER=hpserial
+		;;
+	p|P)	PAR_SER=hppar
+		;;
+	*)	PAR_SER=q
+		;;
+	esac
+done
+
+# If the printer is a line printer (i.e., PR_LASER = 'n'), do nothing.
+# If the printer is a laser printer AND is plugged into a parallel port:
+#		link /dev/lp to /dev/hp
+#		link /dev/rlp to /dev/rhp
+# If the printer is a laser printer AND is plugged into a serial port:
+#		link /dev/lp to /dev/hp
+
+if [ $PR_LASER = 'y' ]; then
+	ln -f /dev/lp /dev/hp
+	if [ $PAR_SER = 'hppar' ]; then
+		ln -f /dev/rlp /dev/rhp
+	fi
+fi
+
+# Build the print line.
+
+if [ $PR_LASER = 'n' ]; then
+	echo "printer = main, /dev/lp, default" >> $SPOOL_FILE
+else
+	if [ $PR_PS = 'y' ]; then
+		echo "printer = main, /dev/hp, default" >> $SPOOL_FILE
+	else
+		echo "printer = main, /dev/hp, $PAR_SER" >> $SPOOL_FILE
+	fi
+fi

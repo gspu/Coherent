@@ -1,0 +1,135 @@
+.TH LOCK_ALLOC() "" "" "DDI/DKI Kernel Routine"
+.PC "Allocate a basic lock"
+.B "#include <sys/types.h>"
+.B "#include <sys/kmem.h>"
+.B "#include <sys/ksynch.h>"
+\fBlock_t *LOCK_ALLOC(\fIhierarchy\^\fB, minimum\^\fB, \fIlock_info\^\fB, \fIflag\^\fB)\fR
+\fBuchar_t \fIhierarchy\^\fB; pl_t \fImininum\^\fB; lkinfo_t *\fIlock_info\^\fB; int \fIflag\^\fB;\fR
+.PP
+Function
+.B LOCK_ALLOC()
+allocates a basic lock.
+It initializes the lock to the unlocked state.
+.PP
+.I hierarchy
+gives the order in which the newly created lock
+is to be acquired relative to other locks.
+It must no less than one and no greater than 32,
+and must be selected so that locks normally are acquired in increasing order.
+If your driver acquires locks at more than one level of interrupt priority
+and you wish it to be portable,
+you should organize the hierarchy among those locks
+such that the hierarchy increases with level of priority.
+.PP
+.I minimum
+gives the minimum level of priority to be used by any function
+that attempts to acquire this lock.
+Any subsequent calls to
+.B LOCK()
+to acquire the lock that
+.B LOCK_ALLOC()
+creates must pass in a priority at least as great as
+.IR minimum .
+.PP
+.B LOCK_ALLOC()
+recognizes the following values for
+.IR minimum :
+.IP \fBplbase\fR 0.75i
+Block no interrupts.
+.IS \fBpltimeout\fR
+Block the functions scheduled by functions
+.B itimeout()
+and
+.BR dtimeout() .
+.IS \fBpldisk\fR
+Block disk-device interrupts.
+.IS \fBplstr\fR
+Block \*(ST interrupts.
+.IS \fBplhi\fR
+Block all interrupts.
+.PP
+The above assumes the following order of priority levels:
+.DM
+	plbase < pltimeout <= pldisk, plstr <= plhi
+.DE
+.PP
+The order of
+.B pldisk
+and
+.B plstr
+relative to each other is not defined.
+.PP
+.I lock_info
+points to a
+.B lkinfo
+structure.
+Fields
+.B lk_flags
+and
+.B lk_pad
+must be initialized to zero.
+Field
+.B lk_name
+points to the string that names the lock.
+Names are used only for collecting statistics.
+A name should begin with the driver's magic prefix; and it
+should be unique to the lock or group of locks for which the
+driver wishes to collect statistics.
+A given
+.I lock_info 
+can be shared among multiple basic locks and read/write locks, but
+not between a basic lock and a sleep lock.
+.PP
+.I flag
+specifies whether you can sleep for the lock to be allocated,
+should sufficient memory not be available immediately.
+.B KM_SLEEP
+indicates that the caller will sleep if necessary;
+.B KM_NOSLEEP
+indicates that it will not.
+.PP
+If all goes well,
+.B LOCK_ALLOC()
+returns a pointer to the newly allocated lock.
+If
+.I flag
+is set to
+.B KM_NOSLEEP
+and sufficient memory is not available, it returns NULL.
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+lkinfo,
+LOCK(),
+LOCK_DEALLOC(),
+TRYLOCK(),
+UNLOCK()
+.R
+.SH Notes
+If
+.I flag
+is set to
+.BR KM_SLEEP ,
+.B LOCK_ALLOC()
+has base level and can sleep.
+If
+.I flag
+is set to
+.BR KM_NOSLEEP ,
+it has base or interrupt level and cannot sleep.
+.PP
+If
+.I flag
+is set to
+.BR KM_NOSLEEP ,
+a driver can hold a
+driver-defined basic lock or read/write lock across a call to this function.
+If
+.I flag
+is set to
+.BR KM_SLEEP ,
+it cannot.
+A driver can hold a
+driver-defined sleep lock across a call to this function
+regardless of the value of
+.IR flag .

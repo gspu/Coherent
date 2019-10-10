@@ -1,0 +1,409 @@
+////////
+/
+/ I/O library for use with boot programs.  Uses the BIOS.
+/
+/ La Monte H. Yarroll <piggy@mwc.com>, September 1991
+/
+////////
+
+////////
+/
+/ Magic constants.
+/
+////////
+
+	RETF	= 0xCB			/ Far return
+	VIDEO	= 0x10			/ video swi
+	DISK	= 0x13			/ disk io swi
+	KEYBD	= 0x16			/ keyboard swi
+	MON	= 0x00			/ Monitor swi
+	READ1	= 0x0201		/ read 1 sector
+	
+	BUFSIZE	= 0x200		/ Size of a physical disk block.
+	
+	NTRK	= 40		/ Number of tracks on a floppy.
+	NSPT	= 9		/ Number of sectors per track on a floppy.
+	NHD	= 1		/ Number of heads per drive on a floppy.
+
+	FIRST	= 8		/ Relative start of partition.
+
+	.shri	/ Shared code segment, initialized.
+////////
+/
+/ Read a block from disk, relative to the start of the boot partition,
+/ using the code in the IBM firmware.
+/
+/ It takes two parameters:
+/	daddr_t	blockno;	/* 32 bit block number.  */
+/	char *buff;	/* Must point to a 512 byte buffer.  */
+/
+/ The buffer must not cross a 4K boundry.  Disk input should generally
+/ be done through the C routine bread(), which calls _bread() with an
+/ aligned buffer.
+/
+////////
+
+	.globl	_bread_
+_bread_:
+	push	es			/ Save registers
+	push	si
+	push	di
+	push	bp
+	push	dx
+
+	push	ds
+	pop	es			/ Set es:bp to address of the buffer.
+
+	mov	bp, sp
+	mov	ax, 12(bp)		/ Get low word of block number.
+	mov	dx, 14(bp)		/ Get high word of block number.
+	mov	bx, 16(bp)		/ Get a buffer to put it in.
+	mov	bp, bx
+
+	mov	di, bp			/ Blast the buffer contents.
+	mov	cx, $BUFSIZE		/ For block 0, this fills the buffer
+	rep				/ with zeros.
+	stosb
+
+	/ Block #0 is the sparse block--it means a block of all zeros.
+	test	ax, ax			/ if block 0, return zeroed buffer
+	jnz	3f
+	test	dx, dx
+	jnz	3f
+	movb	al, $1			/ Say that we read 1 block.
+	jmp	2f
+	/ Translate block number into cylinder, head, and sector.
+3:	add	ax, first		/ add first block
+	adc	dx, first+2		/ add rest
+
+	mov	bx, ax			/ save block number
+	movb	al, heads		/ get number of heads
+	movb	cl, sects		/ get number of sectors
+	mulb	cl			/ calculate sectors per cylinder
+	xchg	bx,ax			/ swap block/sectors
+	div	bx			/ calculate track
+	xchg	dx, ax			/ put track in DX
+	divb	cl			/ calculate head/sector
+
+	movb	cl, ah			/ set sector
+	inc	cx			/ sectors start at 1 [incb cl]
+	
+	cmp	dx, traks		/ check for second side
+	jb	0f
+	sub	dx, traks		/ fold track
+	inc	ax			/ next head [incb al]
+
+0:	rorb	dh, $1			/ rotate track(low) into
+	rorb	dh, $1			/  msbits of DX
+	orb	cl, dh			/ set track(high)
+	movb	ch, dl			/ set track(low)
+	movb	dh, al			/ set head
+	movb	dl, drive		/ set drive
+	mov	bx, bp			/ set offset [bbuf]
+
+	mov	ax, $READ1		/ Read, 1 sector.
+	int	DISK			/ Disk I/O.
+	jnc	2f			/ Jump if no error.
+	mov	ax, $READ1		/ try again
+	int	DISK
+	jc	berror
+
+2:
+	/ al contains the number of blocks read (should be 1).
+	pop	dx			/ restore registers.
+	pop	bp
+	pop	di
+	pop	si
+	pop	es
+	ret				/ return.
+
+berror:	/ error handling for _bread.
+	xorb	al, al	/ ah contains an error code.
+	jmp	2b
+
+////////
+/
+/ Write the character in "al" out to
+/ the display, using routines in the ROM.
+/ Like most calls to the ROM, this routine spends
+/ most of its time saving and restoring the
+/ registers.
+/
+////////
+
+	.globl	putchar_
+putchar_:	push	si			/ Save registers.
+	push	di
+	push	bp
+
+	mov	bp, sp
+	mov	ax, 8(bp)		/ Fetch the single argument.
+
+	mov	bx, $0x0007		/ Page 0, white on black
+	movb	ah, $0x0E		/ Write TTY.
+	int	VIDEO			/ Call video I/O in ROM.
+
+	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+
+
+////////
+/
+/ Fetch character from keyboard, using
+/ routines in the ROM.
+/
+////////
+
+	.globl	getchar_
+getchar_:
+	push	si			/ Save registers.
+	push	di
+	push	bp
+
+	movb	ah, $0x00		/ Read keystroke.
+	int	KEYBD
+
+	movb	ah, $0x00
+	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+
+////////
+/
+/ Check for a pending keystroke using
+/ routines in the ROM.
+/
+////////
+
+	.globl	iskey_
+iskey_:
+	push	si			/ Save registers.
+	push	di
+	push	bp
+
+	movb	ah, $0x01		/ Check for keystroke.
+	int	KEYBD
+	jne	0f
+	xor	ax, ax			/ Set false.
+	jmp	1f
+0:	xor	ax, ax
+	inc	ax			/ Set true.
+1:	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+
+
+////////
+/
+/ Goto a far address
+/ Takes two integer arguments: an offset, and a segment, in that order.
+/
+////////
+
+	.globl gotofar_
+gotofar_:
+	add	sp, $2
+	.byte	RETF
+
+
+////////
+/
+/ Goto a kernel.
+/ Takes three integer arguments: an offset, a segment, and a new data segment
+/ in that order.
+/
+////////
+
+	.globl gotoker_
+gotoker_:
+	mov	bp, sp
+	mov	es, 6(bp)	/ Point es at the new data segment.
+	mov	si, $seconddat	/ Point ds:si at useful data.
+/	add	sp, $2
+/	.byte	RETF
+	mov	bx, bp
+	add	bx, $2
+	xcall	(bx)
+	ret
+
+
+////////
+/
+/ Initilize hard disk parameters
+/
+////////
+	.globl	hdinit_
+hdinit_:
+	push	si			/ Save registers.
+	push	di
+	push	bp
+
+	mov	si, bp			/ set si to partition table
+
+	movb	dl, (si)		/ get drive number
+	movb	ah, $8			/ get drive parameters
+	int	DISK
+	jc	1f			/ abort on error (just return)
+
+	movb	al, ch			/ fetch cyl(lo)
+	movb	ah, cl			/ move cyl(hi), sects
+	rolb	ah, $1			/ shift cylinder high to
+	rolb	ah, $1			/ the least sig bits
+	andb	ah, $3			/ mask out cylinder bits
+
+	mov	di, $traks		/ point to drive
+	stosw				/ set number of tracks
+
+	movb	al, $0x3F		/ sector mask
+	andb	al, cl			/ mask sector
+	stosb				/ set sector
+
+	movb	al, dh			/ get max head
+	inc	ax			/ change to # of heads (incb al)
+	stosb				/ set number of heads
+
+	movsb				/ set drive
+	add	si, $FIRST-1		/ point to first block
+	movsw				/ fetch first block
+	movsw
+
+1:	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+
+	ret
+
+////////
+/
+/ Invoke the native monitor.
+/ Useful for debugging.
+/
+////////
+
+	.globl	intmon_
+intmon_:
+	int	MON
+	ret
+
+////////
+/
+/ void _ffcopy(from_fp, to_fp, count)
+/ faddr_t from_fp, to_fp;
+/ int count;
+/
+/ Copy count bytes from from_fp to to_fp.
+/
+/ Here is the stack after initial "push bp":
+/
+/	12(bp)	count
+/	10(bp)	FP_SEL(to_fp)
+/	8(bp)	FP_OFF(to_fp)
+/	6(bp)	FP_SEL(from_fp)
+/	4(bp)	FP_OFF(from_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+	.globl	_ffcopy_
+_ffcopy_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si
+
+	lds	si, 4(bp)	/ from_fp  to DS:SI
+	les	di, 8(bp)	/ to_fp to ES:DI
+	mov	cx, 12(bp)	/ rep count to CX
+	rep
+	movsb
+
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret		/ return from _ffcopy()
+
+
+
+////////
+/
+/ Read a block from disk, relative to start of disk,
+/ using the code in the IBM firmware.
+/
+/ It takes two parameters:
+/	daddr_t	blockno;	/* 32 bit block number.  */
+/	char *buff;	/* Must point to a 512 byte buffer.  */
+/
+/ The buffer must not cross a 4K boundry.  Disk input should generally
+/ be done through the C routine xbread(), which calls _xbread() with an
+/ aligned buffer.
+/
+////////
+
+	.globl	_xbread_
+_xbread_:
+	push	es			/ Save registers
+	push	si
+	push	di
+	push	bp
+	push	dx
+
+	push	ds
+	pop	es			/ Set es:bp to address of the buffer.
+
+	mov	bp, sp
+	mov	ax, 12(bp)		/ Get low word of block number.
+	mov	dx, 14(bp)		/ Get high word of block number.
+	mov	bx, 16(bp)		/ Get a buffer to put it in.
+	mov	bp, bx
+
+	/ Translate block number into cylinder, head, and sector.
+3:
+	mov	bx, ax			/ save block number
+	movb	al, heads		/ get number of heads
+	movb	cl, sects		/ get number of sectors
+	mulb	cl			/ calculate sectors per cylinder
+	xchg	bx,ax			/ swap block/sectors
+	div	bx			/ calculate track
+	xchg	dx, ax			/ put track in DX
+	divb	cl			/ calculate head/sector
+
+	movb	cl, ah			/ set sector
+	inc	cx			/ sectors start at 1 [incb cl]
+	
+	cmp	dx, traks		/ check for second side
+	jb	0f
+	sub	dx, traks		/ fold track
+	inc	ax			/ next head [incb al]
+
+0:	rorb	dh, $1			/ rotate track(low) into
+	rorb	dh, $1			/  msbits of DX
+	orb	cl, dh			/ set track(high)
+	movb	ch, dl			/ set track(low)
+	movb	dh, al			/ set head
+	movb	dl, drive		/ set drive
+	mov	bx, bp			/ set offset [bbuf]
+
+	mov	ax, $READ1		/ Read, 1 sector.
+	int	DISK			/ Disk I/O.
+	jnc	2f			/ Jump if no error.
+	mov	ax, $READ1		/ try again
+	int	DISK
+	jc	berror
+
+2:
+	/ al contains the number of blocks read (should be 1).
+	pop	dx			/ restore registers.
+	pop	bp
+	pop	di
+	pop	si
+	pop	es
+	ret				/ return.

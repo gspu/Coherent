@@ -1,0 +1,152 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.02.10.16.53.54;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.02.20.18.35.04;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.20.18.34.22;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 2/20/91
+Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@#define	NEWTTYS	1
+/*
+ * libc/gen/ttyname.c
+ * Coherent I/O Library.
+ * Return the name of the terminal device
+ * associated with the given file descriptor.
+ * The names in /etc/ttys define the domain.
+ */
+
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/dir.h>
+
+extern char *index();
+
+static char dev_buff[DIRSIZ+8] = "/dev/console";
+
+char *
+ttyname(fd) int fd;
+{
+	if (_ttyslot(fd) >= 0)
+		return dev_buff;
+	return NULL;
+}
+
+/*
+ * Return the /etc/ttys slot for fd, -1 on error.
+ * The /dev/... name is left in dev_buff.
+ * Used by ttyname() and ttyslot().
+ */
+int
+_ttyslot(fd) int fd;
+{
+	register FILE *fp;
+	register short fd_mode;
+	register dev_t fd_rdev;
+	register int slot;
+	struct stat sb;
+
+	if (fstat(fd, &sb) < 0
+	 || (fp = fopen("/etc/ttys", "r")) == NULL)
+		return -1;
+	fd_mode = sb.st_mode;
+	fd_rdev = sb.st_rdev;
+	for (slot = 0; ; slot += 1) {
+		if (getc(fp) == '\n'	/* Missing status */
+#if NEWTTYS
+		 || getc(fp) == '\n'	/* Missing line type, ie loc or rem */
+#endif
+		 || getc(fp) == '\n'	/* Missing getty arg */
+		 || fgets(dev_buff+5, DIRSIZ, fp) == NULL
+		 || index(dev_buff, '\n') == NULL) {
+			slot = -1;
+			break;
+		}
+		*index(dev_buff, '\n') = 0;
+		if (stat(dev_buff, &sb) >= 0
+		 && sb.st_mode == fd_mode
+		 && sb.st_rdev == fd_rdev)
+			break;
+	}
+	fclose(fp);
+	return slot;
+}
+
+/* end of libc/gen/ttyname.c */
+@
+
+
+1.2
+log
+@steve 2/20/91
+Added "#define NEWTTYS 1" at start of file.  This was changed here
+(rather than hacking the Makefile) because it seemed unlikely that
+the old ttys file format (without local/remote field) would ever
+be needed.
+@
+text
+@d3 2
+a4 1
+ * Coherent I/O Library
+d9 1
+d14 2
+d19 1
+a19 2
+ttyname(fd)
+int fd;
+d21 3
+a23 3
+	if (fttyslot(fd) >= 0)
+		return (dev_buff);
+	return (NULL);
+d29 1
+a29 1
+ * Used by ttyname and ttyslot.
+d31 2
+a32 1
+fttyslot(fd)
+a38 1
+	extern char *index();
+d42 1
+a42 1
+		return (-1);
+d63 1
+a63 1
+	return (slot);
+d65 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 1
+@

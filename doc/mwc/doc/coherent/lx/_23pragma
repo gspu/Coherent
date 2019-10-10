@@ -1,0 +1,104 @@
+.TH #pragma "" "" "Preprocessing Directive"
+.PC "Perform implementation-specific preprocessing"
+.PP
+.II pragma
+.B #pragma
+is the C preprocessing directive that triggers implementation-specific behavior.
+The ANSI Standard demands that every conforming implementation of C
+document what
+.B #pragma
+does.
+.PP
+\*(CO recognizes one use of
+.BR #pragma :
+.DM
+	#pragma align [\fIn\fP]
+.DE
+.PP
+.II "Intel Binary Compatibility Standard"
+.II "Binary Compatibility Standard"
+This directive permits \*(CO to conform to the
+Intel Binary Compatability Standard (BCS), which
+specifies alignment requirements for
+.BR struct s.
+.PP
+The BCS requires that a
+.B struct
+be aligned consistently with the alignment
+of its most strictly aligned member.
+For example, the structure
+.DM
+	struct s {
+		short	s_s1;
+		int	s_i;
+		short	s_s2;
+	};
+.DE
+.PP
+must put member
+.B s_i
+at offset 4, not 2 (because
+.B int
+is dword-aligned).
+If you have an array of
+.B "struct s"
+objects, the second will be at offset 12,
+not 10 (or 8), because
+.B "struct s"
+itself must also be dword-aligned.
+.PP
+This, unfortunately, creates problems with existing compiled code, and with
+some standards, e.g., COFF.
+For example, a
+.B "struct filsys"
+(a \*(CO file system, e.g., on a floppy or hard disk) is defined in
+.B <sys/filsys.h>
+as starting out just like the above:
+.DM
+	struct filsys {
+		unsigned short	s_isize;
+		daddr_t		s_fsize;
+		short		s_nfree;
+		...
+	};
+.DE
+.PP
+Because
+.B daddr_t
+is
+.BR long ,
+\*(CO would compile this and expect to find
+.B s_fsize
+at offset 4 (not 2) and
+.B s_nfree
+at offset 8 (not 6);
+but this is not where the bits actually fall on an existing file system.
+So we circumvent the BCS with
+.BR "#pragma align" .
+The directive
+\fB#pragma align \fIn\fR
+means ``align objects on \fIn\fR-byte boundaries, at most,''
+and
+.B "#pragma align"
+means ``restore default alignment.''
+Thus,
+.B <sys/filsys.h>
+is edited to read:
+.DM
+	struct filsys {
+		unsigned short	s_isize;
+	#pragma align 2
+		daddr_t		s_fsize;
+	#pragma align
+		short		s_nfree;
+		...
+	};
+.DE
+.PP
+and the compiler thinks the struct members fall at offsets 0, 2 and 6,
+which preserves compatibility with existing binary objects.
+.SH "See Also"
+.Xr "cpp," cpp
+.Xr "C preprocessor" c_preproc
+.br
+\*(AS, \(sc6.8.6

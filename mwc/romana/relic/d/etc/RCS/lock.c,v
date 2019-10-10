@@ -1,0 +1,688 @@
+head     1.8;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.8;
+comment  @ * @;
+
+
+1.8
+date     92.06.11.08.10.44;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.01.21.09.55.36;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.01.21.08.56.27;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.12.05.15.48.28;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.12.05.15.45.44;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.11.13.11.16.10;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.11.04.13.35.53;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.10.10.12.35.30;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Piggy's lock code to prevent logged users from being booted by uucico
+@
+
+
+1.8
+log
+@piggy: console lock changes for 4.0
+@
+text
+@/*
+ *  lock.c
+ *
+ *  Provide a locking mechanism for UUCP
+ */
+
+#include <stdio.h>
+#include <access.h>
+#include <sys/stat.h>
+
+char *gen_res_name();
+
+#ifdef UUCP
+#include "dcp.h"
+#else
+#define SPOOLDIR	"/usr/spool/uucp"
+#define LOCKSIG		9	/* Significant Chars of Lockable Resources.  */
+#define LOKFLEN		64	/* Max Length of UUCP Lock File Name.	     */
+#endif /* UUCP */
+
+#define LOCKDIR	SPOOLDIR
+#define	LOCKPRE	"LCK.."
+#define PIDLEN	6	/* Maximum length of string representing a PID.  */
+
+/* There is a special version of DEVMASK for the PE multiport driver
+ * because of the peculiar way it uses the minor device number.  For
+ * all other drivers, the lower 5 bits describe the physical port--
+ * the upper 3 bits give attributes for the port.
+ */
+
+#define PE_DRIVER 21	/* Major device number for the PE driver.  */
+#define PE_DEVMASK 0x3f	/* PE driver minor device mask.  */
+#define DEVMASK 0x1f	/* Minor device mask.  */
+
+
+/*
+ *  lockit(resource)  char *resource;
+ *
+ *  Lock the given resource.
+ *  Returns (-1) if already locked or error in locking.
+ *          ( 0) if all ok, resource locked.
+ */
+
+lockit(resource)
+char *resource;
+{
+
+	int lockfd;
+	char lockfn[LOKFLEN];
+	char pidstring[PIDLEN];
+
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+	if ( (access(lockfn, AEXISTS) == 0) ||
+	     ((lockfd=creat(lockfn, 0644)) == -1) ) {
+#ifdef UUCP
+		printmsg(M_DEBUG, "Can't lock: %s", lockfn);
+#endif /* UUCP */
+		return( -1 );
+	}
+#ifdef UUCP
+	printmsg(M_DEBUG, "Just created lock: %s", lockfn);
+#endif /* UUCP */
+	sprintf(pidstring, "%d", getpid());
+	if(-1 == write(lockfd, pidstring, strlen(pidstring))){
+		close(lockfd);
+		unlink(lockfn);
+		return(-1);
+	}
+
+	close(lockfd);
+	return( 0 );
+}
+
+/*
+ *  lockrm(resource)  char *resource;
+ *
+ *  Simply remove the lock on the given resource.
+ *  Returns (-1) if not locked or error in unlocking.
+ *          ( 0) if all ok, resource lock removed.
+ *
+ *
+ * Open the lock file for read operations to try to read the PID
+ * stored in the file. If the open fails, abort. If the read fails, 
+ * abort. If the read PID does not match our PID, abort. We will only
+ * remove the lock if our PID matches the PID written to the file.
+*/
+
+lockrm(resource)
+char *resource;
+{
+	return(locknrm(resource, getpid()));
+}
+
+
+/*
+ *  locknrm(resource, pid)  char *resource;
+ *
+ *  Remove the lock on the given resource, using pid as the process id to
+ *  look for.
+ *
+ *  Returns (-1) if not locked or error in unlocking.
+ *          ( 0) if all ok, resource lock removed.
+ *
+ *  Open the lock file for read operations to try to read the PID
+ *  stored in the file. If the open fails, abort. If the read fails, 
+ *  abort. If the read PID does not match our PID, abort. We will only
+ *  remove the lock if the passed matches the PID written to the file,
+ *  or if the pid we are passed was 0.
+ *
+ */
+
+locknrm(resource, pid)
+	char *resource;
+	int pid;
+{
+	int lockfd;	/* pointer to file to read */
+	int chars_read;	/* Number of characters read().  */
+
+	char gotpid[PIDLEN + 1];	/* String value of the PID that should be stored
+			 	 * in the lock file pointed to by *lockfp.
+				 */
+	char lockfn[LOKFLEN];
+
+	if ( resource == NULL ) {
+#ifdef UUCP
+		plog(M_CALL, "Unlocking NULL resource.");
+#endif /* UUCP */
+		return( 0 );
+	}
+
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+
+	/* open the lock file for read, abort on failure */
+	if(-1 == (lockfd = (open(lockfn, 0)))){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Error opening lock file for PID verify");
+		plog(M_CALL, "Error opening lock file for PID verify");
+#endif /* UUCP */
+		close(lockfd);
+		return(-1);
+	}
+
+	/* read the contents of the file. Abort if empty */
+	if ( -1 == (chars_read = read(lockfd, gotpid, PIDLEN))) {
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: Error reading lock file for PID verify");
+		plog(M_CALL, "Lockrm: Error reading lock file for PID verify");
+#endif /* UUCP */
+		close(lockfd);
+		return(-1);
+	}
+
+	gotpid[chars_read] = '\0';	/* NUL terminate the string.  */
+	if ( (0 != pid) && (atoi(gotpid) != pid) ){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: PID verify failed. PID read was %s.", 
+			gotpid);
+		plog(M_CALL, "Lockrm: PID verify failed. PID read was %s", gotpid);
+#endif /* UUCP */
+		close(lockfd);
+		return(-1);
+	} else {
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: PID verify successful, removing lock.");
+		plog(M_CALL, "Lockrm: PID verify successful, removing lock.");
+#endif /* UUCP */
+
+		if ( unlink(lockfn) < 0 ) {
+#ifdef UUCP
+			printmsg(M_DEBUG, "Lockrm: Error unlocking: %s", lockfn);
+			plog(M_CALL, "Lockrm: Error unlocking: %s", lockfn);
+#endif /* UUCP */
+			close(lockfd);
+			return( -1 );
+		}
+#ifdef UUCP
+		printmsg(M_DEBUG, "Just unlocked: %s", lockfn);
+#endif /* UUCP */
+		close(lockfd);
+		return( 0 );
+	}
+#ifdef UUCP
+	plog(M_CALL, "Unreachable code in locknrm().");
+#endif /* UUCP */
+}
+
+/*
+ *  lockexist(resource)  char *resource;
+ *
+ *  Test for existance of a lock on the given resource.
+ *
+ *  Returns:  (1)  Resource is locked.
+ *	      (0)  Resource is not locked.
+ */
+
+lockexist(resource)
+char	*resource;
+{
+	char lockfn[LOKFLEN];
+
+	if ( resource == NULL )
+		return(0);
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+
+	return (!access(lockfn, AEXISTS));
+}
+
+
+/*
+ * Attempt to lock a tty device.  Takes the name of the tty itself,
+ * otherwise behaves like lockit().
+ */
+locktty(ttyname)
+{
+	char resource[LOKFLEN];
+	char filename[LOKFLEN];
+
+	sprintf(filename, "/dev/%s", ttyname);
+	if (NULL == gen_res_name(filename, resource)){
+		return(-1);
+	}
+	return(lockit(resource));
+
+} /* locktty() */
+
+/*
+ * Unlock a tty device.  Takes the name of the tty itself,
+ * otherwise behaves like lockrm().
+ */
+unlocktty(ttyname)
+	char *ttyname;
+{
+	return(unlockntty(ttyname, getpid()));
+} /* unlocktty() */
+
+/*
+ * Unlock a tty device.  Takes the name of the tty itself,
+ * otherwise behaves like locknrm().
+ */
+unlockntty(ttyname, pid)
+	char *ttyname;
+	int pid;
+{
+	char resource[LOKFLEN];
+	char filename[LOKFLEN];
+
+	sprintf(filename, "/dev/%s", ttyname);
+	if (NULL == gen_res_name(filename, resource)){
+#ifdef UUCP
+		plog(M_CALL, "Can't generate resource for %s.", ttyname);
+#endif /* UUCP */
+		return(-1);
+	}
+	return(locknrm(resource, pid));
+} /* unlockntty() */
+
+/*
+ * Attempt to lock a tty device.  Takes the name of the tty itself,
+ * otherwise behaves like lockit().
+ */
+lockttyexist(ttyname)
+{
+	char resource[LOKFLEN];
+	char filename[LOKFLEN];
+
+	sprintf(filename, "/dev/%s", ttyname);
+	if (NULL == gen_res_name(filename, resource)){
+		return(0);	/* Non-existent tty can not be locked :-) */
+	}
+
+	return(lockexist(resource));
+} /* lockttyexist() */
+
+/*
+ * Generates a resource name for locking, based on the major number
+ * and the lower 4 bits of the minor number of the tty device.
+ *
+ * Builds the name in buff as two "." separated decimal numbers.
+ * Returns NULL on failure, buff on success.
+ */
+char *
+gen_res_name(path, buff)
+	char *path;
+	char *buff;
+{
+	struct stat sbuf;
+	int status;
+	
+	if (0 != (status = stat(path, &sbuf))) {
+		/* Can't stat the file.  */
+		return (NULL);
+	}
+
+	if (PE_DRIVER == major(sbuf.st_rdev)) {
+		sprintf(buff, "%d.%d", major(sbuf.st_rdev),
+				       PE_DEVMASK & minor(sbuf.st_rdev));
+	} else {
+		sprintf(buff, "%d.%d", major(sbuf.st_rdev),
+				       DEVMASK & minor(sbuf.st_rdev));
+	}
+
+	return(buff);
+} /* gen_res_name */
+
+#ifdef TEST
+#include <stdio.h>
+
+#define LOCKSIG 9	/* Significant Chars of Lockable Resources.  */
+
+main(argc, argv)
+	int argc;
+	char *argv[];
+{
+	char buffer[LOCKSIG + 1];
+	char path[LOKFLEN];
+
+	if (argc != 2) {
+		fprintf(stderr, "Usage: %s ttyname\n", argv[0]);
+		exit(1);
+	}
+
+	sprintf(path, "/dev/%s", argv[1]);
+
+	if (NULL == gen_res_name(path, buffer)) {
+		fprintf(stderr, "%s: Can't stat %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+	printf("Resource to lock: %s\n", buffer);
+
+	if (-1 == locktty(argv[1])) {
+		fprintf(stderr, "%s: Can't lock %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+	printf("I think I've locked %s.\n", argv[1]);
+
+	if (lockttyexist(argv[1])) {
+		printf("Yep, %s is locked.\n", argv[1]);
+	} else {
+		fprintf(stderr, "%s: Failed to lock %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+
+	sprintf(path, "cat /usr/spool/uucp/LCK..%s", buffer);
+	printf("Contents of lock file: ");
+	fflush(stdout);
+	system(path);
+	printf("\n");
+
+	if (-1 == unlocktty(argv[1])) {
+		fprintf(stderr, "%s: Problem removing lock on %s.\n", argv[0], argv[1]);
+		exit(1);
+	}
+
+	printf("I think I've unlocked %s.\n", argv[1]);
+
+	if (lockttyexist(argv[1])) {
+		fprintf(stderr, "%s: Failed to unlock %s.\n", argv[0], argv[1]);
+		exit(1);
+	} else {
+		printf("Successfully unlocked %s.\n", argv[1]);
+	}
+
+	
+	exit(0);
+}
+#endif /* TEST */
+@
+
+
+1.7
+log
+@update by bob, oopsed on checking write condition
+@
+text
+@d107 3
+a109 1
+ *  remove the lock if the passed matches the PID written to the file.
+d154 1
+a154 1
+	if (atoi(gotpid) != pid){
+d162 1
+a162 1
+	}else{
+@
+
+
+1.6
+log
+@update by piggy & bob h. lock will now return a -1 if a write fails.
+Also added some missing close and unlink statements.
+@
+text
+@a57 2
+		close(lockfd);
+		unlink(lockfn);
+d64 6
+a69 1
+	write(lockfd, pidstring, strlen(pidstring));
+@
+
+
+1.5
+log
+@piggy changes to lock devices by maj/min number
+@
+text
+@d58 2
+d114 1
+a114 1
+	char gotpid[PIDLEN];	/* String value of the PID that should be stored
+d134 1
+@
+
+
+1.4
+log
+@changes by piggy to lock a device by maj/min number.
+@
+text
+@d9 1
+d11 2
+d25 11
+d64 1
+a64 1
+	write(lockfd, pidstring, PIDLEN);
+d86 2
+a87 8
+	FILE *lockfd;	/* pointer to file to read */
+	char gotpid[PIDLEN];	/* integer value of the PID that should be stored
+			 * in the lock file pointed to by *lockfd.
+			*/
+	char lockfn[LOKFLEN];
+	if ( resource == NULL )
+		return( 0 );
+	sprintf(lockfn, "%s/%s%.*s", LOCKDIR, LOCKPRE, LOCKSIG, resource);
+a89 47
+	/* open the lock file for read, abort on failure */
+	if( (lockfd = (fopen(lockfn, "r"))) == NULL){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Error opening lock file for PID verify");
+		plog(M_CALL, "Error opening lock file for PID verify");
+#endif /* UUCP */
+		return(-1);
+	}
+
+
+	/* read the contents of the file. Abort if empty */
+	if ( fgets(gotpid, PIDLEN, lockfd) == NULL){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: Error reading lock file for PID verify");
+		plog(M_CALL, "Lockrm: Error reading lock file for PID verify");
+#endif /* UUCP */
+		return(-1);
+	}
+
+	if (atoi(gotpid) != getpid()){
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: PID verify failed. PID read was %s.", 
+			gotpid);
+		plog(M_CALL, "Lockrm: PID verify failed. PID read was %s", gotpid);
+#endif /* UUCP */
+		return(-1);
+	}else{
+#ifdef UUCP
+		printmsg(M_DEBUG, "Lockrm: PID verify successful, removing lock.");
+		plog(M_CALL, "Lockrm: PID verify successful, removing lock.");
+#endif /* UUCP */
+
+		if ( unlink(lockfn) < 0 ) {
+#ifdef UUCP
+			printmsg(M_DEBUG, "Lockrm: Error unlocking: %s", lockfn);
+			plog(M_CALL, "Lockrm: Error unlocking: %s", lockfn);
+#endif /* UUCP */
+			return( -1 );
+		}
+#ifdef UUCP
+		printmsg(M_DEBUG, "Just unlocked: %s", lockfn);
+#endif /* UUCP */
+		return( 0 );
+	}
+}
+
+
+d109 5
+a113 3
+	FILE *lockfd;	/* pointer to file to read */
+	char gotpid[PIDLEN];	/* integer value of the PID that should be stored
+			 	 * in the lock file pointed to by *lockfd.
+d116 5
+a120 1
+	if ( resource == NULL )
+d122 2
+a125 1
+
+d127 1
+a127 1
+	if( (lockfd = (fopen(lockfn, "r"))) == NULL){
+a134 1
+
+d136 1
+a136 1
+	if ( fgets(gotpid, PIDLEN, lockfd) == NULL) {
+d141 1
+d145 1
+d152 1
+d165 1
+d171 1
+d174 3
+a178 1
+
+d196 2
+a197 1
+	return( !access(lockfn, AEXISTS) );
+d200 162
+@
+
+
+1.3
+log
+@piggy update to write pid to lock file and to only remove a lock file
+when pid's match
+@
+text
+@@
+
+
+1.2
+log
+@piggy changes to conform to Epstein sources discovered with libuuaux from
+uucp sources
+@
+text
+@d10 3
+a12 1
+#define	LOKFLEN		64	/* Max Length of UUCP Lock File Name	*/
+d14 4
+a17 1
+#define	LOCKSIG		9	/* Significant Chars of Lockable Resource  */
+d20 1
+d33 1
+d36 1
+d40 1
+a40 1
+	     ((lockfd=creat(lockfn, 0)) == -1) ) {
+d47 1
+a47 1
+	printmsg(M_DEBUG, "Just locked: %s", lockfn);
+d49 2
+d61 7
+a67 1
+ */
+d72 4
+d77 3
+d81 72
+d156 4
+a159 1
+	if ( unlink(lockfn) < 0 ) {
+d161 2
+a162 1
+		printmsg(M_DEBUG, "Error unlocking: %s", lockfn);
+d164 6
+a169 2
+		return( -1 );
+	} else {
+d171 27
+d204 1
+d224 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d10 5
+a14 1
+#define LOCK	"/usr/spool/uucp/LCK.."
+d16 7
+a22 1
+static	char	lockfile[80];
+a23 1
+char *
+d28 1
+d30 11
+a40 5
+	strcpy(lockfile, LOCK);
+	strcat(lockfile, resource);
+	if ( (access(lockfile, AEXISTS) == 0) ||
+	     ((lockfd=creat(lockfile, 0)) == -1) )
+		return( NULL );
+d42 1
+a42 1
+	return( lockfile );
+d45 9
+a53 2
+/* Lock removal routine symetric with lockit() */
+unlockit(resource)
+d56 16
+a71 3
+	strcpy(lockfile, LOCK);
+	strcat(lockfile, resource);
+	lockrm(lockfile);
+a73 7
+lockrm(the_lockfile)
+char	*the_lockfile;
+{
+	if (*the_lockfile != '\0')
+		unlink(the_lockfile);
+}
+
+d75 6
+a80 2
+ *	locktry
+ *	if the lock cannot be written, return 1
+d82 1
+a82 1
+int
+d86 6
+a91 5
+	strcpy(lockfile, LOCK);
+	strcat(lockfile, resource);
+	if (access(lockfile, AEXISTS) == 0)
+		return 1;
+	return 0;
+@

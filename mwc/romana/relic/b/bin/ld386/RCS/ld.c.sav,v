@@ -1,0 +1,881 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @@;
+
+
+1.1
+date     92.05.14.13.55.47;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * One pass Coff Loader.
+ *
+ * By Charles Fiterman for Mark Williams 3/30/92.
+ */
+#include "ld.h"
+
+flag_t	reloc,	/* Combine input into a new .o not an executable */
+	nosym,	/* No symbol table out. */
+	watch,	/* Produce a trace */
+	noilcl, /* Discard C local symbols beginning .L */
+	nolcl,	/* Discard all local symbols */
+	comflag, /* No warn on commons of different length */
+	auxflg,	/* Pass through aux symbols */
+	drvld;	/* Called as drvld */
+
+int	errCount;
+int	nundef;
+mod_t	*head, *tail;	/* input modules */
+char *ofname = "a.out";		/* output file name */
+long comnb, comns, comnl;	/* common lengths */
+char *entrys;			/* entry string */
+sym_t	*symtable[NHASH];	/* hashed symbol table */
+
+int osegs = NLSEG;			/* the number of output segments */
+FILEHDR fileh;
+AOUTHDR aouth;
+SCNHDR  *secth;		/* output segments */
+
+sym_t *endSyms[NLSEG] = { NULL, NULL, NULL };
+static long str_length;
+static FILE *ofp;
+char *argv0;
+
+/*
+ * Write or die.
+ */
+xwrite(loc, size, rep)
+char *loc;
+{
+	if (rep != fwrite(loc, size, rep, ofp))
+		fatal("write error"); /**/
+}
+
+/*
+ * Init segment descriptors.
+ */
+void
+initSegs()
+{
+	secth = alloc(sizeof(*secth) * NLSEG);
+	strcpy(secth[S_TEXT].s_name, _TEXT);
+	secth[S_TEXT].s_flags = STYP_TEXT;
+	strcpy(secth[S_DATA].s_name, _DATA);
+	secth[S_DATA].s_flags = STYP_DATA;
+	strcpy(secth[S_BSSD].s_name, _BSS);
+	secth[S_BSSD].s_flags = STYP_BSS;
+}
+
+/*
+ * Set virtual base in given segment and return next address
+ * Check for wraparound and driver space overflow
+ */
+long
+setbase(seg, all)
+register SCNHDR *all;
+{
+	register long size;
+
+	secth[seg].s_scnptr = all->s_scnptr;
+	secth[seg].s_paddr = secth[seg].s_vaddr = all->s_vaddr;
+
+	/* bump addr, diskptr and size by this segment */
+	size =  secth[seg].s_size;
+	all->s_scnptr += size;
+	all->s_vaddr += size;
+	all->s_size  += size;
+	return(size);
+}
+
+/*
+ * Set virtual bases in array of segments.
+ */
+fsize_t
+baseall()
+{
+	long inc = SEGROUND - 1;
+	SCNHDR all;
+
+	all.s_size = 0;
+	all.s_scnptr = sizeof(fileh) + (sizeof(* secth) * osegs);
+	time(&fileh.f_timdat);
+	fileh.f_nscns = osegs;
+
+	if (fileh.f_flags & F_EXEC)
+		all.s_scnptr += fileh.f_opthdr = sizeof(aouth);
+
+	if (fileh.f_flags & F_KER) /* kernel starts at DRVBASE */
+		all.s_vaddr = DRVBASE;
+	else if (reloc)	/* object file starts at zero */
+		all.s_vaddr = 0;
+	else	/* executable starts at disk address */
+		all.s_vaddr = all.s_scnptr;
+
+	/*
+	 * Code segment first.
+	 */
+	aouth.tsize = setbase(S_TEXT, &all);
+	aouth.text_start = secth[S_TEXT].s_vaddr;
+
+	/*
+	 * Set data offset
+	 */
+	if (fileh.f_flags & F_KER)	/* kernel round to klick */
+		all.s_vaddr = (all.s_vaddr + 0x0fff) & ~0x0fffL;
+	else if (!reloc)		/* executable goes to hi space */
+		all.s_vaddr = (all.s_vaddr & 0x0fff) + 0x400000L;
+
+	/*
+	 * Data segment next.
+	 */
+	aouth.dsize = setbase(S_DATA, &all);
+	aouth.data_start = secth[S_DATA].s_vaddr;
+
+	/*
+	 * Round up to page boundary
+	 */
+	if (reloc)
+		inc = 3;
+	all.s_vaddr = (all.s_vaddr + inc) & ~inc;
+
+	/*
+	 * Uninitialized data segment next.
+	 */
+	aouth.bsize = setbase(S_BSSD, &all);
+	secth[S_BSSD].s_scnptr = 0;
+	all.s_scnptr -= secth[S_BSSD].s_size; /* remove overaddition */
+
+	if (reloc) {
+		secth[S_TEXT].s_relptr = all.s_scnptr;
+		all.s_scnptr += secth[S_TEXT].s_nreloc * RELSZ;
+
+		secth[S_DATA].s_relptr = all.s_scnptr;
+		all.s_scnptr += secth[S_DATA].s_nreloc * RELSZ;
+	}
+
+	if (!nosym)
+		fileh.f_symptr = all.s_scnptr;
+}
+
+/*
+ * Determine entry point; either octal address or symbol name.
+ */
+long
+lentry(str)
+char	*str;
+{
+	{
+		register unsigned char	c, *s;
+		long	oaddr = 0;
+
+		/* Try to scan whole string as octal. */
+		for (s = str; c = *s++;) {
+			if (('0' > c) || (c > '7'))
+				break;
+			oaddr = (oaddr * 8) + (c - '0');
+		}
+
+		/* Octal string: return numeric value. */
+		if (!c)
+			return (oaddr);
+	}
+
+	/* Search for string in symbol table. */
+	{
+		register sym_t	*sp;
+		char work[SYMNMLEN + 1];
+
+		for (sp = symtable[crc16(str) % NHASH];
+		     sp != NULL;
+		     sp = sp->next)
+			if ((sp->sym.n_sclass == C_EXT) &&
+			    !strcmp(symName(&(sp->sym), work), str))
+				return(sp->sym.n_value);
+
+		message("entry point %s undefined", str); /**/
+		return (0);
+	}
+}
+
+/*
+ * Define referenced internal symbol (as end of given segment)
+ */
+void
+endbind(sn, ldrv)
+int	sn, ldrv;
+{
+	register SYMENT *sym;
+	register sym_t *sp;
+
+	if ((sp = endSyms[sn]) == NULL)
+		return;
+
+	sym = &(sp->sym);
+	if (undefined(sym)) {
+		nundef--;
+		sym->n_scnum = sn + 1;
+		sym->n_value = secth[sn].s_size;
+		sp->mod = NULL;	/* not defined in any mod */
+		return;
+	}
+
+	endSyms[sn] = NULL;	/* isn't really end symbol */
+
+	if (ldrv)
+		return;
+	else
+		spmsg(sp, "redefines builtin");
+		/* The symbols \fBetext\fR, \fBedata\fR, and \fBend\fR
+		 * are built-in symbols meaning end of the \fB.text\fR,
+		 * \fB.data\fR, and \fB.bss\fR segments.
+		 * You cannot redefine those names. */
+}
+
+/*
+ * Add reference to symbol table
+ */
+void
+undef(s)
+char *s;
+{
+	SYMENT	lds;
+
+	memset(&lds, '\0', sizeof(lds));
+	lds.n_offset = (long)s;		/* point symbol at our stuff */
+	lds.n_sclass = C_EXTDEF;	/* mark undefined */
+	addsym(&lds, NULL);		/* connect to no module */
+}
+
+/*
+ * Show undefined symbols.
+ */
+showUndef(sp, sym)
+register sym_t *sp;
+register SYMENT *sym;
+{
+	if (undefined(sym))
+		spmsg(sp, ""); /* NODOC */
+}
+
+/*
+ * Pass all symbols through a function.
+ */
+void
+allSym(fun)
+int (*fun)();
+{
+	register SYMENT *sym;
+	register sym_t *sp;
+	register mod_t *mp;
+	register i;
+	SYMENT *symEnd;
+
+	/*
+	 * Do symbols connected to modules in module order.
+	 * Only process a global symbol for it's owner.
+	 */
+	for (mp = head; mp != NULL; mp = mp->next) {
+		sym = ((SYMENT *)(mp->f->f_symptr));
+		symEnd = sym + mp->f->f_nsyms;
+		for (; sym < symEnd; sym += sym->n_numaux + 1) {
+			if (1 == sym->n_zeroes) { /* pointer to original */
+				sp = (sym_t *)sym->n_offset;
+				if (sp->mod == mp)
+					(*fun)(sp, &(sp->sym));
+			}
+			else
+				(*fun)(NULL, sym);
+		}
+	}
+
+	/*
+	 * Do symbols not connected to a module.
+	 * These are end symbols and symbols defined with -u option
+	 */
+	for (i = 0; i < NHASH; i++)
+		for (sp = symtable[i]; NULL != sp; sp = sp->next)
+			if (NULL == sp->mod)
+				(*fun)(sp, &(sp->sym));
+}
+
+/*
+ * Fixup a symbol between passes.
+ */
+symFix(sp, sym)
+sym_t *sp;
+register SYMENT *sym;
+{
+	int segn, len;
+
+	segn = sym->n_scnum;
+	if (!reloc && common(sym)) {
+		switch ((len = sym->n_value) & 3) {
+		case 2:	/* 2 byte aligned */
+			sym->n_value = comns;
+			comns += len;
+			break;
+		case 0:	/* 4 byte aligned */
+			sym->n_value = comnl;
+			comnl += len;
+			break;
+		default: /* unaligned */
+			sym->n_value = comnb;
+			comnb += len;
+		}
+		sym->n_scnum  = S_BSSD + 1;
+	}
+	else if (segn > 0)
+		sym->n_value += secth[segn - 1].s_vaddr;
+
+	if (NULL != sp && !nosym)
+		sp->symno = fileh.f_nsyms++;
+}
+
+/*
+ * Do work between passes.
+ */
+void
+betweenPass()
+{
+	if (reloc)
+		fileh.f_flags |= F_LNNO | F_AR32WR;
+	else {
+		fileh.f_flags |= F_RELFLG | F_LNNO | F_EXEC | F_AR32WR;
+		comnb += (4 - ((comnb + comns) & 3)) & 3;
+		secth[S_BSSD].s_size += comnb + comns + comnl;
+	}
+	if (nosym)
+		fileh.f_flags |= F_LSYMS;
+
+	/*
+	 * Set segment bases
+	 */
+	baseall();
+
+	if (!reloc) {
+		int i;
+
+		/* define internal symbols that have been referenced */
+		for (i = 0; i < NLSEG; i++)
+			endbind(i, fileh.f_flags & F_KER);
+
+		/* get starting addresses for 1, 2 and 4 alligned commons */
+		comnb = secth[S_BSSD].s_vaddr + secth[S_BSSD].s_size - comnb;
+		comns = comnb - comns;
+		comnl = comns - comnl;
+	}
+
+	if (nundef && !reloc) {
+		message("the following symbols are undefined");
+		errCount--;
+		allSym(showUndef);
+	}
+
+	switch (errCount) {
+	case 0:
+		break;
+	case 1:
+		fatal("pass 1, 1 error"); /* NODOC */
+	default:
+		fatal("pass 1, %d errors", errCount);
+		/* At the end of pass 1 there were \fIn\fB errors detected.
+		 * The link stopped here. */
+	}
+
+	/* Run through symbol table doing fixups */
+	fileh.f_nsyms = 0;
+	allSym(symFix);
+
+	aouth.entry = (NULL != entrys) 
+		? lentry(entrys)
+		: ((fileh.f_flags & F_KER) ? DRVBASE : aouth.text_start);
+}
+
+/*
+ * output symbol table.
+ */
+static
+outputSym(s, sm)
+register sym_t *s;
+register SYMENT *sm;
+{
+	int i;
+	char *name, work[SYMNMLEN + 1];
+	SYMENT sym;
+
+	if (NULL == s)
+		return;
+
+	memcpy(&sym, sm, sizeof(sym));
+	name = symName(sm, work);
+	if (SYMNMLEN < (i = strlen(name))) {
+		sym.n_offset = str_length;
+		str_length += i + 1;
+	}
+	else
+		memcpy(sym.n_name, name, SYMNMLEN);
+
+	if (auxflg && sym.n_numaux) {
+		SYMENT *aux;
+
+		xwrite(&sym, SYMESZ, 1);
+		aux = (SYMENT *)sym.n_offset;
+		xwrite(aux + 1, SYMESZ, 1);
+	}
+	else {
+		sym.n_numaux = 0;
+		xwrite(&sym, SYMESZ, 1);
+	}
+}
+
+/*
+ * output long symbols.
+ */
+static
+longSym(s, sm)
+register sym_t *s;
+register SYMENT *sm;
+{
+	int i;
+	char *name, work[SYMNMLEN + 1];
+
+	if (NULL == s)
+		return;
+
+	name = symName(sm, work);
+	if (SYMNMLEN < (i = strlen(name)))
+		xwrite(name, i + 1, 1);
+}
+
+/*
+ * Do relocations
+ */
+relocations(mp, segn)
+mod_t *  mp;
+{
+	register RELOC *rel;
+	char	*t;	/* actual text */
+	SCNHDR	*isgp, *orsp;
+	unsigned i;
+	long	size, told, fixr;
+
+	isgp = mp->s + segn;
+	if (!(size = isgp->s_size))
+		return;
+	orsp = secth + segn;
+	fixr = isgp->s_vaddr - orsp->s_vaddr;
+	t = (char *)isgp->s_scnptr;
+
+	if (watch) {
+		errCount--;
+		mpmsg(mp, "relocating seg#%d[%06lx]@@%06lx to %06lx r %ld",
+			segn,
+			size,
+			isgp->s_vaddr,
+			orsp->s_vaddr,
+			isgp->s_nreloc); /* NODOC */
+		told = ftell(ofp);
+	}
+	
+	for (i = 0; i < isgp->s_nreloc; i++) {
+		char *ptr;
+		char *mtype;
+		sym_t *sp;
+		SYMENT *s, *sym;
+		long relf, w, at;
+		long	workl;
+		int   undef;
+		short	works;
+		char work[SYMNMLEN + 1], *name;
+		static char *pcrel = "pcrel";
+
+		/* get reloc record */
+		rel = ((RELOC *)isgp->s_relptr) + i;
+
+		w = rel->r_vaddr - isgp->s_vaddr;
+		if ((w < 0) || (w > size)) {
+			mpmsg(mp, "relocation out of range %lx", w);
+			/* A relocation record points outside the
+			 * range of its segment. */
+			continue;
+		}
+		ptr = t + w;
+
+		s = (SYMENT *)mp->f->f_symptr + (int)rel->r_symndx;
+		if (1 == s->n_zeroes) {	/* fixed elsewhere */ 
+			sp = (sym_t *)s->n_offset;
+			sym = &(sp->sym);
+		} else {
+			sp = NULL;
+			sym = s;
+		}
+		relf = sym->n_value;
+		mtype = "rel";
+		undef = undefined(sym);				
+
+		if (watch) {
+			at = told + w;
+			name = symName(sym, work);
+		}
+		/*
+		 * This wierdness is to deal with a coff wierdness.
+		 * The address of a common is incremented by the
+		 * length of the common as seen in that module.
+		 */
+		if (common(s))
+			relf -= s->n_value;
+		/*
+		 * If the symbol is native to this module
+		 * the reference already has this modules
+		 * segment address. Subtract it.
+		 */
+		else if (!undef && ((NULL == sp) || (sp->mod == mp)))
+			relf -= mp->s[s->n_scnum - 1].s_vaddr;
+
+		if (reloc) {
+			rel->r_vaddr = w + orsp->s_vaddr;
+			rel->r_symndx = sp->symno;
+
+			switch (rel->r_type) {
+			case R_PCRBYTE:
+				mtype = pcrel;
+				relf = fixr;
+
+			case R_RELBYTE:
+				w = *ptr;
+				*ptr = w + relf;
+				break;
+
+			case R_PCRWORD:
+				mtype = pcrel;
+				relf = fixr;
+
+			case R_DIR16:
+			case R_RELWORD:
+				memcpy(&works, ptr, 2);
+				w = works;
+				works += relf;
+				memcpy(ptr, &works, 2);
+				break;
+
+			case R_PCRLONG:
+				mtype = pcrel;
+				relf = fixr;
+
+			case R_DIR32:
+			case R_RELLONG:
+				memcpy(&workl, ptr, 4);
+				w = workl;
+				workl += relf;
+				memcpy(ptr, &workl, 4);
+				break;
+
+			case R_NONREL:
+				mtype = "nonrel";
+				memcpy(&workl, ptr, 4);
+				w = workl;
+				relf = 0;
+				break;
+
+			default:
+			mpmsg(mp, "unknown r_type %d in segment %d record %d",
+				rel->r_type, segn, i);
+			/* Unknown type on COFF relocation record. */
+			}
+
+			if ((sym->n_scnum > 0) && (mtype != pcrel))
+				rel->r_symndx = sym->n_scnum - 1;
+
+			if (!undef && (sym->n_scnum < 0))
+				rel->r_type = R_NONREL;
+
+			w_message("%lx %s(%d %lx %lx) %lx = %s(%lx) + %lx",
+				at,
+				mtype,
+				rel->r_type,
+				rel->r_vaddr,
+				rel->r_symndx,
+				relf + w,
+				name,
+				sym->n_value,
+				w);
+		}
+		else {
+			switch (rel->r_type) {
+			case R_PCRBYTE:
+				mtype = pcrel;
+				relf -= orsp->s_vaddr;
+			case R_RELBYTE:
+				w = *ptr;
+				*ptr = w + relf;
+				break;
+			case R_PCRWORD:
+				mtype = pcrel;
+				relf -= orsp->s_vaddr;
+			case R_RELWORD:
+			case R_DIR16:
+				memcpy(&works, ptr, 2);
+				w = works;
+				works += relf;
+				memcpy(ptr, &works, 2);
+				break;
+			case R_PCRLONG:
+				mtype = pcrel;
+				relf -= orsp->s_vaddr;
+			case R_RELLONG:
+			case R_DIR32:
+				memcpy(&workl, ptr, 4);
+				w = workl;
+				workl += relf;
+				memcpy(ptr, &workl, 4);
+				break;
+			case R_NONREL:
+				mtype = "nonrel";
+				memcpy(&workl, ptr, 4);
+				w = workl;
+				relf = 0;
+				break;
+			default:
+			mpmsg(mp, "unknown r_type %d in segment %d record %d",
+				rel->r_type, segn, i);
+			/* NODOC */
+			}
+			w_message("%lx %s(%d) %lx = %s(%lx) + %lx",
+				at,
+				mtype,
+				rel->r_type,
+				relf + w,
+				name,
+				sym->n_value,
+				w);
+		}
+	}
+	orsp->s_vaddr += size;
+	xwrite(t, (int)size, 1);
+}
+
+/*
+ * Output all data.
+ */
+outputAll()
+{
+	register mod_t *mp;
+	register SCNHDR *scn;
+	int i;
+	struct stat statbuf;
+
+	/* Open output file */
+	if ((ofp = fopen(ofname, "w+")) == NULL)
+		fatal("cannot create %s", ofname);
+		/* Cannot create linker output file. */
+
+	/* write header */
+	if (watch)
+		w_message("before header %lx", ftell(ofp));
+	xwrite(&fileh, sizeof(fileh), 1);
+
+	if (!reloc) {	/* if executable set bits and write opt header */
+		stat(ofname, &statbuf);
+		chmod(ofname,
+			statbuf.st_mode | S_IEXEC|(S_IEXEC>>3)|(S_IEXEC>>6));
+
+		aouth.magic = Z_MAGIC;
+		xwrite(&aouth, sizeof(aouth), 1);
+	}
+
+	/* write sector headers */
+	if (watch)
+		w_message("before sect headers %lx", ftell(ofp));
+	xwrite(secth, sizeof(* secth), osegs);
+
+	/* write corrected text segments */
+	for (i = 0; i < osegs; i++)
+		for (mp = head; mp != NULL; mp = mp->next)
+			if ((S_BSSD != i) && (mp->f->f_nscns > i))
+				relocations(mp, i);
+
+	/* write relocation if required */
+	for (i = (reloc ? 0 : osegs); i < osegs; i++) {
+		for (mp = head; mp != NULL; mp = mp->next) {
+			if ((S_BSSD == i) || (mp->f->f_nscns <= i))
+				continue;
+			scn = mp->s + i;
+			if (!scn->s_nreloc)
+				continue;
+			xwrite(scn->s_relptr, RELSZ, (int)scn->s_nreloc);
+		}
+	}
+
+	if (!nosym) {
+		str_length = 4;
+
+		if (watch)
+			w_message("before symbols %ld", ftell(ofp));
+		allSym(outputSym);
+		if (4 != str_length) {
+			if (watch)
+				w_message("before long syms %ld", ftell(ofp));
+			xwrite(&str_length, sizeof(str_length), 1);
+			allSym(longSym);
+		}
+	}
+
+	fclose(ofp);
+}
+
+/*
+ * Process arguements, and call other work.
+ */
+main(argc, argv)
+char *argv[];
+{
+	int	c;
+	char	*specialList = NULL;
+	char	*argString = "?ae:inKl:L:o:rsu:wXx";
+
+	argv0 = argv[0];
+	if (!strcmp(argv0, "drvld")) { /* we are drvld not ld */
+		argString = "?ae:l:L:u:wd";
+		fileh.f_flags |= F_KER;
+		drvld = 1;
+		rdsystem("/coherent");
+		_addargs("DRVLD", &argc, &argv);	
+	}
+	else
+		_addargs("LD", &argc, &argv);	
+	free(alloc(1024 * 256));	/* this makes malloc() run faster */
+	initSegs();
+
+	while (EOF != (c = getargs(argc, argv, argString))) {
+		switch (c) {
+		case 0:		/* Not an option, read a file */
+			readFile(optarg);
+			continue;
+
+		case 'a':	/* save extra segments and aux symbols */
+			auxflg ^= 1;
+			continue;
+
+		case 'e':
+			entrys = optarg;
+
+		case 'i':	/* obselete options */
+		case 'n':
+			continue;
+
+		case 'K':	/* recompile of Kernel */
+			fileh.f_flags |= F_KER;
+			continue;
+
+		case 'L':
+			/*
+			 * Special filelist for lookup.
+			 */
+			{
+				char *new;
+
+				if (NULL == specialList) {
+					new = alloc(strlen(optarg) + 2);
+					sprintf(new, "%c%s", LISTSEP, optarg);
+				}
+				else {
+					new = alloc(
+					 strlen(specialList)+strlen(optarg)+2);
+					sprintf(new, "%s%c%s",
+					 specialList, LISTSEP, optarg);
+					free(specialList);
+				}
+				specialList = new;
+				continue;
+			}
+
+		case 'l':
+			/* -l<lib>: use standard lib */
+			{
+				char *xp, *lp;
+
+				xp = alloc(strlen(optarg) + 6);
+				sprintf(xp, "lib%s.a", optarg);
+				lp = NULL;
+				if (NULL != specialList)
+					lp = pathn(xp, NULL, specialList, "r");
+				if (NULL == lp)
+					lp = pathn(xp, "LIBPATH",
+						DEFLIBPATH, "r");
+				if (NULL == lp)
+				   fatal("can't find '%s'", xp);
+				   /* Can't locate requested library */
+
+				readFile(lp);
+				free(xp);
+				continue;
+			}
+
+		case 'o':
+			ofname = optarg;
+			continue;
+
+		case 'r':
+			reloc ^= 1;	/* retain relocation information */
+			continue;
+
+		case 's':
+			nosym ^= 1;
+			continue;
+
+		case 'u':
+			undef(optarg);
+			continue;
+
+		case 'w':
+			if (watch ^= 1)
+				w_message("Watch messages on");
+			else
+				w_message("Watch messages off");
+			continue;
+
+		case 'X':
+			noilcl ^= 1;
+			continue;
+
+		case 'x':
+			nolcl ^= 1;
+			continue;
+
+		case '?':
+			help();		/* non returning */
+
+		default:
+			usage();	/* non returning */
+		}
+	}
+	if (nosym)
+		nolcl = 1;
+
+	if (reloc)
+		nosym = nolcl = noilcl = 0;
+
+	if (!fileh.f_magic)
+		fatal("No work");
+	/* There were no object files loaded. */
+
+	betweenPass();	/* between passes */
+	outputAll();	/* output all data */
+	return (0);
+}
+@

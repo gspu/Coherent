@@ -1,0 +1,4 @@
+yylex()
+{
+	return getchar();
+}

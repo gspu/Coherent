@@ -1,0 +1,297 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     91.06.20.14.40.35;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.06.10.10.37.02;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version prov by hal
+@
+
+
+1.2
+log
+@update provided by hal
+@
+text
+@/* $Header: /usr/src/sys/i8086/src/RCS/trap.c,v 1.1 88/03/24 17:39:53 src Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Trap handler.
+ * 8086/8088 Coherent, IBM PC.
+ *
+ * $Log:	/usr/src/sys/i8086/src/RCS/trap.c,v $
+ * Revision 1.1	88/03/24  17:39:53	src
+ * Initial revision
+ * 
+ * 88/03/06	Allan Cornish		/usr/src/sys/i8086/src/trap.c
+ * Exception diagnostistics extended.
+ *
+ * 87/11/02	Allan Cornish		/usr/src/sys/i8086/src/trap.c
+ * iAPX 286 exception traps added.
+ */
+#include <sys/coherent.h>
+#include <sys/i8086.h>
+#include <sys/systab.h>
+#include <errno.h>
+#include <sys/proc.h>
+#include <sys/seg.h>
+#include <signal.h>
+#include <sys/uproc.h>
+
+#ifndef	EBUG
+#define	EBUG 1
+#endif
+
+/*
+ * Trap handler.
+ * The arguments are the registers,
+ * saved on the stack by machine code. This call
+ * is different from most C calls in that the registers
+ * get copied back; if you change a "trap" parameter then
+ * the machine register will be altered when the trap is
+ * dismissed.
+ */
+trap(es, cx, dx, ax, bx, ds, usp, uss, id, ip, cs, fw)
+unsigned es, cx, dx, ax, bx, ds, usp, uss, id, ip, cs, fw;
+{
+	register struct	systab	*stp;
+	register int	syscall;
+	register int	callnum;
+	register int	sigcode;
+	long		l;
+
+	if ( (id >> 8) == SINMI )
+		panic( "Parity error: cs=%x ip=%x\n", cs, ip );
+
+	if (depth != 0) {
+#if EBUG > 0
+		faddr_t fp;
+		FP_SEL(fp) = ax;  printf("ax "); vprint(fp);
+		FP_SEL(fp) = cs;  printf("cs "); vprint(fp);
+		FP_SEL(fp) = ds;  printf("ds "); vprint(fp);
+		FP_SEL(fp) = es;  printf("es "); vprint(fp);
+		FP_SEL(fp) = uss; printf("ss "); vprint(fp);
+#endif
+		panic("system trap: id=%x ip=%x ax=%x", id, ip, ax);
+	}
+
+	if ((SELF->p_flags&PFKERN) != 0) {
+#if EBUG > 0
+		faddr_t fp;
+		FP_SEL(fp) = ax;  printf("ax "); vprint(fp);
+		FP_SEL(fp) = cs;  printf("cs "); vprint(fp);
+		FP_SEL(fp) = ds;  printf("ds "); vprint(fp);
+		FP_SEL(fp) = es;  printf("es "); vprint(fp);
+		FP_SEL(fp) = uss; printf("ss "); vprint(fp);
+#endif
+		panic("pid%d: kernel process trap: id=%x, ip=%x ax=%d",
+			SELF->p_pid, id, ip, ax);
+	}
+
+	/*
+	 * System call.
+	 */
+	if ( (id >> 8) == SISYS ) {
+		u.u_error = 0;
+		sigcode = 0;
+		syscall = getuwi(ip-2);
+		if (u.u_error != 0 || (syscall&0xFF) != 0xCD) {
+			sigcode = SIGSYS;
+			goto trapend;
+		}
+		callnum = (syscall>>8) & 0x7F;
+		if (callnum >= NMICALL) {
+			sigcode = SIGSYS;
+			goto trapend;
+		}
+		stp = &sysitab[callnum];
+		ukcopy(usp+2, u.u_args, stp->s_alen);
+		if (u.u_error != 0) {
+			sigcode = SIGSYS;
+			goto trapend;
+		}
+		u.u_io.io_seg = IOUSR;
+		if (envsave(&u.u_sigenv) != 0)
+			u.u_error = EINTR;
+		else if ( stp->s_alen <= (3 * sizeof(int)) ) {
+			l = (*(long(*)())stp->s_func)(u.u_args[0],
+						      u.u_args[1],
+						      u.u_args[2] );
+			ax = ((struct l *) &l)->l_lo;
+			dx = ((struct l *) &l)->l_hi;
+		}
+		else {
+			l = (*(long(*)())stp->s_func)(u.u_args[0],
+						      u.u_args[1],
+						      u.u_args[2],
+						      u.u_args[3],
+						      u.u_args[4],
+						      u.u_args[5]);
+			ax = ((struct l *) &l)->l_lo;
+			dx = ((struct l *) &l)->l_hi;
+		}
+		if (u.u_error != 0) {
+			ax = -1;
+			dx = -1;
+			putuwd(MUERR, u.u_error);
+			if (u.u_error == EFAULT)
+				sigcode = SIGSYS;
+		}
+	}
+
+	/*
+	 * Trap.
+	 */
+	else switch (id>>8) {
+
+	case SIDIV:
+		sigcode = SIGDIVE;
+		break;
+
+	case SISST:
+		sigcode = SIGTRAP;
+		break;
+
+	case SIBPT:
+		sigcode = SIGTRAP;
+		break;
+
+	case SIOVF:
+		sigcode = SIGOVFL;
+		break;
+
+	case SIBND:
+		/*
+		 * Bound
+		 */
+		sigcode = SIGOVFL;
+		break;
+
+	case SIOP:
+		/*
+		 * Invalid opcode
+		 */
+		sigcode = SIGSEGV;
+		break;
+
+	case SIXNP:
+		/*
+		 * Processor extension not available
+		 */
+		sigcode = SIGSEGV;
+		break;
+
+	case SIDBL:
+		/*
+		 * Double exception
+		 */
+		panic("double exception: cs=%x ip=%x", cs, ip);
+		sigcode = SIGSEGV;
+		break;
+
+	case SIXS:
+		/*
+		 * Processor extension segment overrun
+		 */
+		sigcode = SIGSEGV;
+		break;
+
+	case SITS:
+		/*
+		 * Invalid task state segment
+		 */
+		panic("invalid tss: cs=%x ip=%x", cs, ip);
+		sigcode = SIGSEGV;
+		break;
+
+	case SINP:
+		/*
+		 * Segment not present
+		 */
+		sigcode = SIGSEGV;
+		break;
+
+	case SISS:
+		/*
+		 * Stack segment overrun/not present
+		 */
+		sigcode = SIGKILL;
+		break;
+
+	case SIGP:
+		/*
+		 * General protection.
+		 */
+		sigcode = SIGSEGV;
+		break;
+
+	default:
+		panic("user trap: id=%x ip=%x\n", id, ip );
+	}
+
+trapend:
+	if ( sigcode != 0 ) {
+		if ( sigcode == SIGSEGV ) {
+#if EBUG > 0
+			faddr_t fp;
+			FP_SEL(fp) = ax;  printf("\tax "); vprint(fp);
+			FP_SEL(fp) = cs;  printf("\tcs "); vprint(fp);
+			FP_SEL(fp) = ds;  printf("\tds "); vprint(fp);
+			FP_SEL(fp) = es;  printf("\tes "); vprint(fp);
+			FP_SEL(fp) = uss; printf("\tss "); vprint(fp);
+			printf("user trap: SEGV id=%x ax=%x pid=%d\n",
+				id, ax, SELF->p_pid );
+			printf("\tip=%x sp=%x\n", ip, usp );
+
+			/*
+			 * Force core dump.
+			 */
+			u.u_sfunc[SIGSEGV] = SIG_DFL;
+#endif
+		}
+		sendsig(sigcode, SELF);
+	}
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d29 3
+a31 3
+#include <coherent.h>
+#include <i8086.h>
+#include <systab.h>
+d33 1
+a33 1
+#include <proc.h>
+@

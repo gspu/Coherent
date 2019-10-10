@@ -1,0 +1,142 @@
+.TH gdbm_open() "" "" "GDBM Function (libgdbm)"
+.PC "Open a GDBM data base"
+.B "#include <gdbm.h>"
+.fi
+\fBGDBM_FILE gdbm_open(\fIdatabase\^\fB, \fIblock_size\^\fB, \fIread_write\^\fB, \fImode\^\fB, \fIbailout\^\fB)\fR
+.nf
+\fBchar *\fIdatabase\^\fB;\fR
+\fBint \fIblock_size\^\fB, \fIread_write\^\fB, \fImode\^\fB;\fR
+\fBvoid (*\fIbailout\^\fB)();\fR
+.PP
+Function
+.B gdbm_open()
+opens a GDBM data base.
+It takes the following parameters:
+.IP \fIdatabase\fR
+This gives the complete name of the data base.
+Please note that a data base actually consists of two files:
+one, called \fIdatabase\fB.dir\fR, holds the hashed index; the other, called
+\fIdatabase\fB.pag\fR, holds the data.
+The GDBM routines manage the manipulation of these files; you need not worry
+about them yourself.
+(For more details on how GDBM works, see the Lexicon entry for
+.BR libgdbm .)
+.IP \fIblock_size\fR
+This gives the size of a single transfer from disk to memory.
+.B gdbm_open()
+ignores this parameter is unless
+.I database
+is new.
+The minimum size is 512.
+If you set
+.I block_size
+to less than 512, the GDBM routines use a block size of
+.BR BSIZE .
+(This constant gives the size of a block under \*(CO; it is set in header file
+.BR <sys/buf.h> .
+.IP \fIread_write\fR
+This parameter indicates whether you are opening the data base into read
+mode or write mode.
+If a process opens
+.I database
+only to read records within it, it is called a ``reader''.
+If, however, a process can also add records to
+.IR database ,
+remove record from it, or modify records within it,
+it is called a ``writer''.
+.I database
+can be opened by multiple readers simultaneously, or by a single writer;
+it cannot be opened by multiple writers simultaneously, or by a reader and
+a writer simultaneously.
+This rule prevents a writer from modifying a data base while it is being read,
+and so confusing the readers; and to prevent multiple writers from
+``clobbering'' each other's changes.
+.IP
+.I read_write
+can be one of the following values:
+.RS
+.IP \fBGDBM_READER\fR
+The process opening
+.I database
+is a reader.
+.IS \fBGDBM_WRITER\fR
+The process opening
+.I database
+is a writer.
+.IS \fBGDBM_WRCREAT\fR
+The process opening
+.I database
+is a writer; if the data base
+.I database
+does not exist, create it.
+.IS \fBGDBM_NEWDB\fR
+The process opening
+.I database
+is a writer; create
+.I database
+as a new data base, regardless of whether it already exists.
+.IS \fBGDBM_FAST\fR
+If this constant is OR'd onto
+.BR GDBM_WRITER ,
+.BR GDBM_WRCREAT ,
+or
+.BR GDBM_NEWDB ,
+the GDBM routines write the data base without disk-file syncronization.
+This speeds writing to the data base;
+however, if the writer dies unexpectedly, some data may be lost.
+To flush buffered data to disk, call function
+.BR gdbm_sync() .
+.RE
+.IP \fImode\fR
+This is a bitwise OR of the modes into which
+.I database
+is created.
+For a list of the flags that can be incorporated into this argument, see
+the Lexicon entry
+.BR stat.h .
+.B gdbm_open()
+ignores this argument unless
+.I read_write
+is set to
+.B GDBM_WRCREAT
+or
+.BR GDBM_NEWDB .
+.IP \fIbailout\fR
+This points to the function that
+.B gdbm_open()
+calls should a fatal error occur.
+This function must take only one argument, a string that holds an error
+message.
+If you set
+.I bailout
+to NULL, the GDBM routines use a default function.
+.PP
+If all goes well,
+.B gdbm_open()
+returns a pointer to a record of type
+.BR GDBM_FILE .
+All other GDBM functions need this record to manipulate the data base in
+.IR database .
+If an error occurs,
+.B gdbm_open()
+returns NULL and sets global variable
+.B gdbm_errno
+and
+.B errno
+to appropriate values.
+For information on interpreting the contents of
+.BR errno ,
+see the Lexicon entry for
+.BR errno.h ;
+for information on interpreting the contents of
+.BR gdbm_errno ,
+see the entry for
+.BR gdbmerrno.h .
+.SH "See Also"
+.XR "gdbm.h," gdbm.h
+.XR "gdbmerrno.h," gdbmerr.h
+.XR "libgdbm" libgdbm
+.SH Notes
+For a statement of copyright and permissions on this routine, see the
+Lexicon entry for
+.BR libgdbm .

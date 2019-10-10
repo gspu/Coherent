@@ -1,0 +1,674 @@
+;SDISK 1/12/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;statement routines for CP/M SDISK version
+
+
+	if	cpm and sdisk
+
+;The sequential disk file block working space is located at the
+;top of RAM, between (STRT) and (FILET).  Location FILES contains the
+;number of file blocks currently allocated.
+
+;Each potential sequential disk file has a 166 byte file block, containing:
+;1	File #, 0 if unused and nonzero if OPEN
+;2	Mode, 0 for Output and nonzero for Input
+;3	Count, 0-7FH indicating last position written/read in current buffer
+;4	Column, initially 0, ignored for Input
+;5	Width, initially 72, ignored for Input
+;6-38	File control block (33 bytes)
+;39-166	Buffer (128 bytes)
+
+
+	if	rtpak		;EQUates for C3885 RTPAK version
+dclr0	equ	uferr
+close	equ	uferr
+dinp0	equ	uferr
+open	equ	uferr
+dprin	equ	uferr
+eoffn	equ	uferr
+	else			;NOT RTPAK
+
+;CLEAR @<expr>
+dclr0:	inr	a		;clear @0 means files=1, etc.
+	jz	bferr		;CLEAR @ 255 not allowed
+	mov	c,a		;desired # files to C
+	call	closn		;close any open files
+	lda	files		;current #
+	sub	c
+	jp	dclr2		;need fewer, so skip memory check
+	lxi	d,-filen
+	lhld	symta
+dclr1:	dad	d
+	inr	a
+	jnz	dclr1		;leave room for additional file
+	xchg			;new symta to DE
+	lhld	eofad
+	call	cmdhu
+	jc	omerr		;not enough space, fatal OM error
+dclr2:	lhld	strt
+	xchg
+	call	cplde		;- top of string space to DE
+	lhld	memt
+	dad	d		;-current amount of string space to HL
+	push	h		;and saved
+	mov	a,c
+	sta	files		;save new file max
+	lhld	filet		;top of file space to HL
+	lxi	d,-filen	;space per file to DE
+dclr3:	dcr	a
+	jz	dclr4
+	mvi	m,0		;initialize empty file space
+	dad	d
+	jmp	dclr3
+dclr4:	shld	strt		;store new top of string space
+	pop	d
+	dad	d		;subtract string space needed
+	jmp	cle0a		;and initialize symbol table, etc.
+
+;CLOSE [@<expr>, ...]
+close:	call	gtsfn		;look for file #
+	jc	closn		;none, close all
+	jz	bferr		;DK error if @0 closed
+	mov	h,b
+	mov	l,c
+clos1:	ora	a
+	jnz	closi		;close file open for input
+	mov	a,m		;fetch count
+	sui	80H
+	mov	b,a		;eof count to B
+	mvi	c,cntlz
+clos2:	push	b
+	push	h
+	call	dwrtc		;write an eof
+	pop	h
+	pop	b
+	inr	b
+	jnz	clos2		;write more eofs
+closi:	inx	h
+	inx	h		;point to file number
+	mvi	m,0		;reset to 0
+	lxi	d,-37
+	dad	d
+	xchg			;fcb address to DE
+	mvi	c,dkclf
+	if	c3885 and not debug
+	call	bdos1		;BDOS call with interrupts disabled
+	else
+	call	bdos
+	endif
+	cpi	255
+	rnz
+	jmp	dkerr		;close error
+closn:	call	sfils
+clon1:	dcr	b
+	rz			;all closed
+	push	b
+	push	d
+	push	h		;save all
+	mov	a,m		;fetch file number
+	ora	a
+	dcx	h
+	mov	a,m		;fetch type
+	dcx	h		;point to count
+	cnz	clos1		;close a file
+	pop	h
+	pop	d
+	pop	b		;restore
+	dad	d		;point to next
+	jmp	clon1		;and see if more to close
+
+;DIR [<ambiguous filename>]
+	if	not c3885
+dircm:	call	gtaf5		;set filename to *.*
+	xra	a
+	sta	fcbad		;set disk to @
+	sta	fcbcr
+	call	dtst0		;look for delimiter
+	cc	gtafn		;get desired ambiguous filename if present
+	mvi	c,17
+dirc1:	call	ctest		;look for console break char
+	call	wcrlf		;write crlf
+	call	bdosf		;search for next occurrence of filename
+	cpi	255
+	rz			;no more
+	ani	3
+	rrc
+	rrc
+	rrc
+	adi	81H
+	mov	e,a
+	mvi	d,0		;address of filename to DE
+	mvi	c,8
+	call	prstr		;print the filename
+	call	wrtsp		;and print a space
+	mvi	c,3
+	call	prstr		;and print filetype
+	mvi	c,18		;look for next
+	jmp	dirc1
+	endif
+
+;INPUT @<expr>, <var list>
+dinp0:	push	psw
+	call	gtcom		;skip trailing comma
+	pop	psw
+	jz	inpu1		;INPUT @0, normal INPUT with no quoted string
+	ora	a
+	jz	fmerr		;FM error if file open for Output
+	push	b		;save file count pointer
+dinp1:	call	gtlhs		;get destination
+	pop	h		;file count pointer to HL
+	cpi	strst
+	push	psw		;save type (Zero set iff string)
+	lxi	d,nlnad		;input buffer address to DE
+	mvi	c,0		;char count to C
+dinp2:	call	dread		;read a disk file char
+	cpi	' '+1
+	jc	dinp2		;ignore leading spaces or control chars
+	cpi	','
+	jz	dinp2		;and ignore leading commas
+dinp3:	cpi	' '
+	jnz	dinp4		;next not space
+	pop	psw
+	push	psw		;Zero set iff string
+	mvi	a,' '
+	jnz	dinp6		;done if space and numeric
+dinp4:	cpi	','
+	jz	dinp6		;done if comma
+	cpi	cr
+	jz	dinp5		;done if <cr>
+	stax	d		;else store the char
+	inx	d
+	inr	c		;bump the count
+	jz	dinp8		;256 chars
+	call	drea0		;else look at next char
+	jz	dinp6		;done if eof
+	inr	m		;else read it
+	jmp	dinp3		;and repeat
+dinp5:	call	dinlf		;ignore trailing <linefeed> if present
+dinp6:	pop	psw
+	push	h
+	lxi	h,nlnad
+	jnz	dinp9		;numeric value
+	xchg			;location to DE
+	mvi	a,strst
+dinp7:	call	asigv		;assign value to destination
+	call	gtcnd		;look for comma and more vars
+	jnc	dinp1
+	pop	h		;pop saved file count pointer
+din10:	call	drea0		;look at first unread char
+	rz			;eof, done
+	cpi	' '		
+	jz	din11		;ignore trailing spaces
+	cpi	cr	
+	rnz			;done if next char not space or <cr>
+	inr	m		;ignore the trailing <cr>
+;DINLF ignores next character iff <linefeed>
+dinlf:	call	drea0		;look at next char
+	rz			;eof
+	cpi	lf
+	rnz			;not <lf>, return
+	inr	m		;read the <lf>
+	ret			;and return
+din11:	inr	m		;read the trailing space
+	jmp	din10		;and look for more trailing spaces or <cr>
+dinp8:	dcr	m		;unread the 256th char
+	dcr	c		;correct the count
+	jmp	dinp6		;and assign it
+dinp9:	mvi	a,cr
+	stax	d		;put <cr> after value
+	shld	txtp2
+	call	flip		;to read the input buffer
+	call	gtlit		;evaluate the numeric value
+	jc	fierr		;bad value
+	cpi	strst
+	jz	fierr		;string value is also bad
+	push	d
+	push	psw
+	call	flip		;to read as before
+	ldax	d		;fetch next char from input buffer
+	cpi	cr
+	jnz	fierr		;FI error if not <cr>, value is bad
+	pop	psw
+	pop	d
+	jmp	dinp7		;else assign value to destination as above
+fierr:	error	f, F, I		;fatal FI error
+fmerr:	error	f, F, M		;fatal FM error
+
+;LINPUT [@<expr>] <string var>
+	if	not c3885
+linpt:	call	idtst		;LINPUT is illegal in direct mode
+	call	gtsfn		;look for file #
+	push	psw
+	push	b
+	call	gtcom		;skip comma, if any
+	call	gtlhs		;get destination
+	cpi	strst
+	jnz	snerr		;must be string
+	pop	h		;count pointer to HL
+	pop	psw
+	jc	linp0
+	jz	linp0		;normal linput
+	ora	a
+	jz	fmerr		;FM error if open for output
+	lxi	d,nlnad
+	push	d		;save input buffer address
+	mvi	c,0
+	jmp	linf1
+linf0:	inr	c		;char count to C
+	jz	linf2		;256 chars read
+linf1:	call	dread		;read a disk char
+	stax	d		;store it
+	inx	d
+	cpi	cr
+	jnz	linf0		;read another unless at cr
+	pop	d		;location = input buffer to DE
+	call	dinlf		;skip trailing <lf> if present
+	jmp	linp2		;assign value to destination
+linf2:	dcr	m		;unread the 256th char
+	dcr	c		;correct the count
+	pop	d		;restore location
+	jmp	linp2		;assign value to desination
+;LINPUT from the console
+linp0:	lhld	textp
+	push	h		;save textp
+	call	gtlin		;get input line
+	xthl			;recover old textp
+	shld	textp
+	pop	h
+	mov	d,h
+	mov	e,l		;copy first char address to DE
+	mvi	a,cr
+	mvi	c,0		;char count to C
+linp1:	cmp	m
+	jz	linp2		;done if char is cr
+	inr	c
+	inx	h
+	jmp	linp1
+linp2:	mvi	a,strst
+	jmp	asigv		;assign string value to destination
+	endif
+
+;MARGIN [@<expr>,] <expr>
+	if	not c3885
+margn:	call	gtsfn		;find file
+	jc	marg0		;none, change WIDTH
+	push	psw		;save Zero status
+	push	b		;and pointer
+	mvi	d,','
+	call	gtdsn		;skip ,
+	call	gtbex		;get byte value
+	pop	h		;pointer to HL
+	pop	psw		;restore Zero
+	jz	marg1		;@0, change WIDTH
+	dcx	h
+	dcx	h		;point to file width field
+	mov	m,c		;and change it
+	ret
+marg0:	call	gtbex		;get byte value
+marg1:	mov	a,c
+	sta	width		;value to WIDTH
+	ret
+	endif
+
+;OPEN {I | O | U} @<expr>, <filename>
+open:	call	gtcha		;get desired mode
+	push	psw		;and save
+	call	gtcom		;allow comma after mode
+	call	gtatn		;get desired file number
+	jc	bferr
+	jz	bferr		;0 not allowed
+	call	sfils		;set up B, DE, HL for search
+	mov	c,b		;max # files to C also
+	push	d
+	push	h		;and save
+;first check if number already associated with open file
+open1:	dcr	c
+	jz	open2
+	cmp	m
+	jz	foerr		;desired number already open, FO error
+	dad	d
+	jmp	open1		;else try next
+open2:	mov	c,a		;desired number to C
+	push	b
+	mvi	d,','
+	call	gtdsn		;skip ,
+	call	gtfnm		;get desired filename
+;check if file of same name is already open
+	pop	b
+	pop	h
+	push	h
+	push	b
+opn2a:	dcr	b
+	jz	opn2c		;checked all files, ok
+	mov	a,m		;fetch file #
+	lxi	d,-37
+	dad	d		;address the file fcb
+	ora	a
+	jz	opn2b		;no file, skip the test
+	push	b
+	push	h
+	lxi	d,fcbad
+	lxi	b,(12 shl 8) or 12	;count = 12 chars to B and C
+	call	cmstr		;compare file fcb with new fcb
+	jz	foerr		;already open, FO error
+	pop	h
+	pop	b
+opn2b:	lxi	d,-129
+	dad	d		;address the next file #
+	jmp	opn2a		;and test it
+opn2c:	pop	b
+	pop	h
+	pop	d
+;then check if space available for file
+open3:	dcr	b
+	jz	operr		;all available file areas full
+	mov	a,m
+	ora	a
+	jz	open4		;available
+	dad	d
+	jmp	open3		;else try next
+open4:	mov	m,c
+	dcx	h
+	pop	psw		;recover desired mode
+	cpi	'O'
+	jz	openo
+	cpi	'U'
+	jz	openu
+;else open for input
+	cpi	'I'
+	jnz	snerr		;SN error if not I
+	inx	h
+	mvi	m,0		;reset file # to 0 in case not found
+	push	b
+	push	h
+	call	cdkop		;open the file
+	pop	h
+	pop	b
+	mov	m,c		;set the file #
+	dcx	h
+	mvi	m,255		;mode = input
+	dcx	h
+	mvi	m,7FH		;count = 7FH so next read gets new buffer
+	lxi	d,-35
+	dad	d		;HL addresses file fcb
+	jmp	open6
+;open for output
+openo:	xra	a
+	mov	m,a		;mode = output
+	dcx	h
+	mov	m,a		;buffer address = 0
+	dcx	h
+	mov	m,a		;column = 0
+	dcx	h
+	mvi	m,72		;default width = 72
+	lxi	d,-33
+	dad	d		;HL addresses file fcb
+	push	h
+	call	cdkmk		;delete old, make new
+	pop	h
+open6:	lxi	b,fcbad
+	lxi	d,33
+	jmp	moved		;copy default fcb to fcb and return
+;open for update
+openu:	mvi	m,0		;mode = output
+	dcx	h
+	push	h		;save count address
+	dcx	h
+	mvi	m,72		;column = 72
+	dcx	h
+	mvi	m,72		;default width = 72
+	lxi	d,-161
+	dad	d		;address buffer base
+	xthl			;save
+	push	h		;and save count address
+	call	cdkop		;open the file
+opnu1:	call	cdkrd		;read a record
+	mvi	a,0		;count zero in case eof
+	jz	opnu4		;eof
+	lxi	h,dmaad		;default dma address to HL
+	mvi	a,cntlz		;eof to A
+opnu2:	cmp	m		;check if next char is eof
+	jz	opnu3		;yup
+	inr	l		;else try next
+	jnz	opnu2
+	jmp	opnu1		;reading another buffer if necessary
+opnu3:	mov	a,l
+	sui	80H		;compute the new count
+opnu4:	pop	h
+	mov	m,a		;store the new count
+	pop	h
+	lxi	b,dmaad
+	lxi	d,80H
+	call	moved		;copy the buffer to file entry buffer
+	lda	fcbcr
+	dcr	a
+	sta	fcbcr		;update the cr field to rewrite the same record
+	jmp	open6		;and copy the fcb to the file entry
+foerr:	error	f, F, O		;fatal FO error
+operr:	error	f, O, P		;fatal OP error
+
+;PRINT @<expr>, <print list>
+dprin:	push	psw
+	mvi	d,','
+	call	gtd		;skip comma if present
+	pop	psw
+	jz	prin0		;normal PRINT if @0
+	ora	a
+	jnz	fmerr		;FM error if file is OPEN for input
+	lxi	h,nulls
+	mov	a,m		;fetch current NULLS value
+	push	psw		;and save
+	mvi	m,0		;and reset to 0 for disk PRINT
+	lhld	colum
+	push	h		;save current column and width
+	mov	h,b
+	mov	l,c
+	shld	filep		;set file pointer so PRINT goes to file
+	dcx	h
+	mov	e,m		;column to E
+	push	h
+	dcx	h
+	mov	d,m		;width to D
+	xchg
+	shld	colum		;set file column and width
+	call	prin0		;print the line
+	lda	colum
+	pop	h
+	mov	m,a		;reset file column
+	pop	h
+	shld	colum		;restore column and width
+	pop	psw		;recover original NULLS value
+	sta	nulls		;and restore it
+	lxi	h,0
+	shld	filep		;reset file pointer
+	ret
+
+;SCRATCH [<ambiguous filename>]
+	if	not c3885
+scrat:	call	gtafn		;get ambiguous filename
+	mvi	c,dkdlf
+	jmp	bdosf		;delete it
+	endif
+
+
+;functions
+
+;EOF: <integer> --> <integer>
+eoffn:	mov	a,b
+	ora	a
+	jnz	bferr		;arg too large, cannot be file #
+	mov	a,c
+	call	gtsf0		;find arg value
+	ora	a
+	jz	fmerr		;FM error if open for output
+	mov	h,b
+	mov	l,c
+eoff0:	call	drea0		;look at next char
+	lxi	b,-1
+	rz			;eof, return -1
+	inx	b
+	ret			;no eof, return 0
+
+
+;routines
+
+;DREAD reads a char from a disk file, issues DK error if char is EOF.
+dread:	call	drea0		;read a char
+	jz	eferr		;EF error if read through eof
+	inr	m		;else read the char
+	ret
+eferr:	error	f, E, F		;fatal EF error
+
+;DREA0 looks at the next character from a disk file.
+;Call:	HL	pointer to count of file entry
+;Retn:	A	next character
+;	BC,DE,HL	preserved
+;	Zero	Set iff eof
+drea0:	push	h
+	push	d
+	mov	a,m		;fetch count
+	inr	a		;and bump it
+	jp	drea1		;ok unless 80H
+;must read a new buffer of characters and reset count
+	mvi	m,255		;reset count of last char read
+	push	h
+	push	b
+	lxi	d,-35
+	dad	d
+	push	h		;save fcb address
+	lxi	d,-128
+	dad	d		;address buffer
+	xchg
+	call	stdma		;set dma address to buffer
+	pop	d
+	mvi	c,dkrdf
+	if	c3885 and not debug
+	call	bdos1		;BDOS call with interrupts disabled
+	else
+	call	bdos
+	endif
+	push	psw		;save status
+	call	rtdma		;and reset the dma address to 80H
+	pop	psw		;restore status
+	pop	b
+	pop	h
+	cpi	2
+	jz	dkerr		;read error
+	cpi	1
+	mvi	a,cntlz
+	jz	drea2		;return if eof
+	xra	a		;reset count
+drea1:	lxi	d,-163
+	dad	d
+	call	adahl		;address desired char
+	mov	a,m		;fetch it
+drea2:	cpi	cntlz		;Zero set iff eof
+	pop	d
+	pop	h
+	ret
+
+dwrit:	call	dwrtc		;write char to disk file
+	jmp	pop4		;restore and return
+dwrtc:	mov	a,m		;fetch count
+	inr	m		;update count
+	push	psw
+	xchg			;count pointer to DE
+	lxi	h,-163
+	dad	d		;point to buffer base
+	call	adahl		;add count+base = destination
+	mov	m,c		;char to destination
+	pop	psw
+	rp			;return unless count is 80H
+	xra	a
+	stax	d		;store new count = 0
+	inx	h		;point to fcb
+	push	h		;save fcb address
+	lxi	d,-128
+	dad	d
+	xchg
+	call	stdma		;set dma address to buffer
+	pop	d		;recover fcb address
+	push	d		;and save again
+	mvi	c,dkwtf
+	if	c3885 and not debug
+	call	bdos1		;BDOS call with interrupts disabled
+	else
+	call	bdos
+	endif
+	push	psw
+	call	rtdma		;reset dma address
+	pop	psw
+	pop	d		;fcb address to DE
+	ora	a
+	rz			;successful write, return
+	lxi	h,37		;otherwise disk is full
+	dad	d
+	mvi	m,0		;reset the file # to 0, now inactive
+	mvi	c,dkdlf
+	if	c3885 and not debug
+	call	bdos1		;BDOS call with interrupts disabled
+	else
+	call	bdos
+	endif
+	error	f, D, F		;fatal DF error
+
+	endif			;end of NOT RTPAK conditional
+
+;@ <expr>
+;GTATN gets @ followed by a number for sequential disk routines.
+;A fatal DK error occurs if the <expr> is not in the range 0 to 255.
+;Retn:	Carry	Set iff no @ found
+;	Zero	Set iff <expr> is 0
+;	A	Value of <expr>
+gtatn:	mvi	d,'@'
+	call	gtd		;look for @
+	rc			;not found
+	call	gtexp		;evaluate the <expr>
+	mov	a,b
+	ora	a
+	jnz	bferr		;fatal BF error if not between 0 and 255
+	ora	c		;value to A
+	ret
+bferr:	error	f, B, F		;fatal BF error
+
+;GTSFN finds an OPEN sequential disk file.  A DK error occurs
+;if a nonzero file # is given but no corresponding OPEN file exists.
+;Retn:	Carry	Set iff no @ found
+;	Zero	Set iff file @0 is specified
+;	A	Mode of file (0 output, nonzero input)
+;	BC	Pointer to count field of file entry
+;	HL	Pointer to byte preceding file buffer
+gtsfn:	call	gtatn		;look for @<expr>
+	rc			;no @
+	rz			;@ 0
+	if	rtpak
+	jmp	uferr		;issue UF error if nonzero file # in RTPAK
+	else			;NOT RTPAK
+gtsf0:	call	sfils		;set up registers for search -- EOF entry point
+gtsf1:	dcr	b
+	jz	bferr		;not found, BF error
+	cmp	m		;compare desired to actual
+	jz	gtsf2		;gotcha
+	dad	d		;else try next
+	jmp	gtsf1
+gtsf2:	mov	b,h
+	mov	c,l		;file pointer to BC
+	dad	d		;HL points below buffer
+	ori	1		;Carry and Zero reset
+	dcx	b
+	ldax	b		;fetch mode
+	dcx	b		;point to count with BC
+	ret
+
+sfils:	lxi	h,files
+	mov	b,m		;max # files to B
+	lhld	filet
+	lxi	d,-filen
+	ret
+
+	endif			;end of NOT RTPAK conditional
+	endif			;end of SDISK conditional
+
+;end of SDISK
+	page

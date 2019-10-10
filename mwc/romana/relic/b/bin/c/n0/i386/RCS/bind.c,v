@@ -1,0 +1,631 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     93.04.13.13.04.20;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.11.51.17;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@steve: fixed misfolding of typed constants
+@
+text
+@/*
+ * n0/i386/bind.c
+ * Machine-specific parts of the C compiler parser.
+ * i386.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/* Local stack: local offset and register mask. */
+typedef	struct	locals	{
+	struct	locals *l_lstp;
+	ival_t	l_lofs;
+	int	l_mask;
+}	LOCALS;
+
+LOCALS	*clstp;		        /* Local stack			*/
+ival_t	clofs;                  /* Current local offset		*/
+int	cmask;			/* Current mask			*/
+ival_t	llofs;			/* Last local offset reported	*/
+int	lmask;			/* Last register mask reported	*/
+int	alignment;		/* Alignment from #pragma	*/
+
+/*
+ * This table is indexed by C type to obtain the size
+ * in bytes of a machine object.
+ */
+int     mysizes[] = {
+	0,			/* T_NONE		*/
+	1,	1,		/* T_CHAR    T_UCHAR	*/
+	2,	2,		/* T_SHORT   T_USHORT	*/
+	4,	4,		/* T_INT     T_UINT	*/
+	4,			/* T_PTR		*/
+	4,	4,		/* T_LONG    T_ULONG	*/
+	4,	8,		/* T_FLOAT   T_DOUBLE	*/
+	0,			/* T_VOID		*/
+	0,	0,		/* T_STRUCT  T_FSTRUCT	*/
+	0,	0,		/* T_UNION   T_FUNION	*/
+	0,	0		/* T_ENUM    T_FENUM	*/
+};
+
+/*
+ * This table is indexed by C type to obtain the machine type,
+ * as defined in 'mch.h'.
+ */
+char    mytypes[] = {
+	0,			/* T_NONE		*/
+	S8,     U8,		/* T_CHAR    T_UCHAR	*/
+	S16,    U16,		/* T_SHORT   T_USHORT	*/
+	S32,    U32,		/* T_INT     T_UINT	*/
+	PTR,			/* T_PTR		*/
+	S32,    U32,		/* T_LONG    T_ULONG	*/
+	F32,    F64,		/* T_FLOAT   T_DOUBLE	*/
+	S32,			/* T_VOID		*/
+	BLK,    0,		/* T_STRUCT  T_FSTRUCT	*/
+	BLK,    0,		/* T_UNION   T_FUNION	*/
+	0,      0		/* T_ENUM    T_FENUM	*/
+};
+
+/*
+ * main() calls this routine to perform machine-dependent parser setup.
+ */
+vinit()
+{
+#if	MONOLITHIC
+	alignment = 0;
+#endif
+}
+
+/*
+ * Empty the local binding stack and mark the unavailable registers.
+ */
+initlocals()
+{
+	clstp = NULL;
+	llofs = clofs = 0;
+	lmask = cmask = BESP|BEBP;
+	bput(AUTOS);
+	iput(clofs);
+	iput((ival_t)cmask);
+}
+
+/*
+ * Save the current state of the local bindings.
+ */
+savelocals()
+{
+	register LOCALS	*lstp;
+
+	lstp = (LOCALS *) new(sizeof(LOCALS));
+	lstp->l_lstp = clstp;
+	lstp->l_lofs = clofs;
+	lstp->l_mask = cmask;
+	clstp = lstp;
+}
+
+/*
+ * Restore locals.
+ * Tell the code generator if it changes.
+ */
+restlocals()
+{
+	register LOCALS	*lstp;
+
+	if ((lstp=clstp) == NULL)
+		cbotch("restlocals");
+	clstp = lstp->l_lstp;
+	clofs = lstp->l_lofs;
+	cmask = lstp->l_mask;
+	putautos();
+	free((char *) lstp);
+}
+
+/*
+ * Inform the code generator (and perhaps the optimizer)
+ * about the current automatic variable allocation.
+ */
+putautos()
+{
+	if (clofs != llofs || cmask != lmask) {
+		llofs = clofs;
+		lmask = cmask;
+		bput(AUTOS);
+		iput(-clofs);
+		iput((ival_t)cmask);
+	}
+}
+
+/*
+ * Bind locals to the correct place on the stack frame.
+ * Locals grow down from EBP, e.g. EBP-4, EBP-8, etc.
+ */
+bindlocal(sp) register SYM *sp;
+{
+	register int c, regno;
+
+	if ((c = sp->s_class) == C_REG) {
+		if ((regno = grabreg(sp)) >= 0) {
+			sp->s_value = regno;
+			return;
+		}
+		/* Demote register local to auto. */
+		setclass(sp, C_AUTO);
+	}
+	if (c==C_AUTO || c==C_REG) {
+		clofs -= ssize(sp);
+		/* Keep stack dword-aligned. */
+		if ((clofs & 3) != 0)
+			clofs &= ~3;
+		sp->s_value = clofs;
+		if (clofs >= 0)
+			cerror("auto \"%s\" is not addressable", sp->s_id);
+	}
+}
+
+/*
+ * Attempt to get a register for symbol 'sp'.
+ * Only integer dword objects go in registers currently.
+ * Chars, shorts and floats could go in registers if loadreg() were changed.
+ * Return register id if successful, -1 otherwise.
+ */
+grabreg(sp) register SYM *sp;
+{
+	register DIM *dp;
+	register int type;
+
+	if ((dp = sp->s_dp) != NULL)
+		return (dp->d_type == D_PTR) ? allocreg() : -1;
+	type = sp->s_type;
+	if (type >= T_INT && type <= T_ULONG)
+		return allocreg();
+	return -1;
+}
+/*
+ * Allocate a register.
+ * Currently allocates EBX, ESI and EDI.
+ * Return register id if successful, -1 otherwise.
+ */
+int
+allocreg()
+{
+	if ((cmask&BEBX) == 0) {
+		cmask |= BEBX;
+		return EBX;
+	} else if ((cmask&BESI) == 0) {
+		cmask |= BESI;
+		return ESI;
+	} else if ((cmask&BEDI) == 0) {
+		cmask |= BEDI;
+		return EDI;
+	} else
+		return -1;
+}
+
+/*
+ * Bind arguments.
+ * Stack frame during function execution:
+ *		...
+ *	ebp+8	arg1
+ *	ebp+4	return address
+ *	ebp	saved ebp
+ *	ebp-4	auto1
+ *		...
+ 	ebp-n	autolast
+ *	ebp-n-4	saved esi	[if required]
+ *	ebp-n-8	saved edi	[if required]
+ *	ebp-n-12 saved ebx	[if required]
+ */
+bindargs()
+{
+	register SYM *sp;
+	register int i;
+	register ival_t offset;
+
+	offset = 8;				/* arg1 offset */
+	for (i = 0; i < nargs; ++i) {
+		sp = args[i];
+		if (sp->s_class != C_PREG)
+			sp->s_class = C_PAUTO;
+		sp->s_value = offset;
+		offset += ssize(sp);
+		/* Keep parameters dword-aligned. */
+		if ((offset & 3) != 0)
+			offset = (offset + 3) & ~3;
+	}
+}
+
+/*
+ * Copy register arguments from the stack into the register.
+ * Change class of the argument to plain register.
+ * Note that bindargs() has put the stack displacement
+ * into the 's_value' field of the argument symbol.
+ */
+loadargs()
+{
+	register SYM *sp;
+	register int i, r;
+	register ival_t v;
+
+	for (i = 0; i < nargs; ++i) {
+		sp = args[i];
+		if (sp->s_class == C_PREG) {
+			if ((r=grabreg(sp)) >= 0) {
+				v = sp->s_value;	/* stack offset */
+				sp->s_class = C_REG;
+				sp->s_value = r;	/* register number */
+				loadreg(sp, v);
+				continue;
+			}
+			/* Demote parametric register to parametric auto. */
+			setclass(sp, C_PAUTO);
+		}
+	}
+}
+
+/*
+ * Change the storage class of sp.
+ * Issue a 'strict' warning if desired.
+ */
+setclass(sp, c) register SYM *sp; int c;
+{
+	sp->s_class = c;
+	if (isvariant(VSNREG))
+		cstrict("identifier \"%s\" not bound to register", sp->s_id);
+}
+
+/*
+ * Load symbol 'sp' from offset 'offset' in the frame.
+ * Since register variables are always dwords,
+ * the type can always be setup to T_INT.
+ */
+loadreg(sp, offset) SYM *sp; ival_t offset;
+{
+	register TREE	*lp, *rp, *tp;
+
+	newtree(sizeof(TREE));
+	lp = talloc();
+	lp->t_op = REG;
+	lp->t_type = T_INT;
+	lp->t_reg = sp->s_value;
+	rp = talloc();
+	rp->t_op = PID;
+	rp->t_type = T_INT;
+	rp->t_offs = offset;
+	tp = build(ASSIGN, lp, rp);
+	putautos();
+	tput(EEXPR, 0, tp);
+}
+
+/*
+ * Process a #pragma.
+ * Currently recognizes only "#pragma align [n]".
+ * Return 1 if recognized, 0 if not.
+ */
+pragma(p) char *p;
+{
+	static char align[] = "align";
+
+	while (*p == ' ' || *p == '\t')
+		++p;
+	if (strncmp(align, p, sizeof(align)-1) == 0) {
+		alignment = atoi(p + sizeof(align)-1);
+		if (alignment < 0) {
+			cerror("#pragma align: bad alignment %d", alignment);
+			alignment = 0;
+		}
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * Look at type 't', DIM list 'dp' and field width 'w' (0 for non fields)
+ * and return the bit offset of the base of the structure member.
+ * The 'offset' argument is the current bit offset in the structure or union.
+ * Check for fields that are too wide, bad field base types, and arrange
+ * that the byte, word or dword that spans the field can be grabbed in one grab.
+ * See comments in bindlocal() above concerning reals and bitfield alignment.
+ */
+long
+fieldalign(t, dp, ip, w, offset)
+register DIM	*dp;
+INFO		*ip;
+register int	w;
+long		offset;
+{
+	register long bitwidth, amask, a;
+
+	/*
+	 * Find bit width of type t;
+	 * e.g. 8 for char, 16 for short, 32 for int or ptr.
+	 */
+	if (dp != NULL) {
+		switch(dp->d_type) {
+		case D_FUNC:	t = T_PTR;	break;
+		case D_PTR:	t = T_PTR;	break;
+		case D_ARRAY:			break;
+		case D_MOSAR:			break;
+		default:	cbotch("fieldalign %d", dp->d_type);
+		}
+	} else if (t == T_FENUM)
+		t = T_INT;
+	else if (t == T_ENUM)
+		t = ip->i_type;
+	if (alignment == 0) {
+		if (t == T_STRUCT || t == T_UNION)
+			bitwidth = 8 * saligntype(ip);
+		else
+			bitwidth = 8 * mysizes[t];
+		if (bitwidth == 0)
+			bitwidth = 32;
+		amask = bitwidth - 1;
+	} else {
+		if (t == T_STRUCT || t == T_UNION)
+			a = saligntype(ip);
+		else
+			a = (mysizes[t] == 0) ? 4 : mysizes[t];
+		amask = 8 * ((a < alignment) ? a : alignment) - 1;
+		bitwidth = 8 * a;
+	}
+	if (w != 0) {
+		/* Nonzero width bitfield. */
+		if (dp != NULL)
+			cerror("non scalar field");
+		if (bitwidth > 32)
+			cerror("bad base type for field");
+#if	0
+		if (w > bitwidth)
+			cerror("field too wide");
+#endif
+		/* Bump to next alignment boundary if necessary. */
+		if ((offset & amask) + w > bitwidth)
+			offset = (offset + amask) & ~amask;
+	} else {
+		/* Zero width bitfield or non field. */
+		offset = (offset + amask) & ~amask;
+	}
+	return offset;
+}
+
+/*
+ * Convert a tree into its low level form.
+ * Fill in the machine type byte looking at the C type
+ * and the segment information.
+ */
+TREE *
+transform(tp, why, above) register TREE *tp; int why, above;
+{
+	register TREE *lp;
+	register int t;
+	register int wd;
+
+	/*
+	 * The way that this code looks at the DIM lists to decide
+	 * what type of conversion is inserted makes me sick.
+	 * The correct type of conversion node (MUL, DIV, etc.)
+	 * should really be inserted when the tree is constructed,
+	 * guided by a table.
+	 */
+	if (tp->t_op == CONVERT) {
+		lp = tp->t_lp;
+		if (tp->t_dp!=NULL && lp->t_dp==NULL && why!=REXPR) {
+			tp->t_op = MUL;
+			tp->t_dp = NULL;
+			if (lp->t_type != T_INT)
+				tp->t_lp = bconvert(lp, T_INT, NULL,NULL,NULL);
+			tp->t_type = T_INT;
+		} else if (tp->t_dp==NULL && lp->t_dp!=NULL && tp->t_rp!=NULL) {
+			tp->t_op = DIV;
+			lp->t_dp = NULL;
+			lp->t_type = T_INT;
+		}
+	}
+
+	/* Fixup any remaining ZCONs. */
+	if (tp->t_op == ZCON) {
+		tp->t_op = ICON;
+		tp->t_type = T_INT;
+		tp->t_ival = tp->t_zval;
+	}
+
+	/* Set the type field. */
+	if (tp->t_dp != NULL)
+		tp->t_type = mytypes[T_PTR];
+	else if ((t=tp->t_type)==T_FSTRUCT || t==T_FUNION || t==T_FENUM) {
+		unksize(t, tp->t_ip);
+		tp->t_type = S32;		/* default to S32 */
+	} else {
+		if (t == T_ENUM)
+			t = tp->t_ip->i_type;	/* enum base type */
+		tp->t_type = mytypes[t];
+	}
+
+	if (tp->t_op >= MIOBASE) {
+		wd = why;
+		if (why == REXPR)
+			wd = EEXPR;
+		tp->t_lp = transform(tp->t_lp, wd, tp->t_op);
+		if (tp->t_op!=FIELD && tp->t_rp!=NULL)
+			tp->t_rp = transform(tp->t_rp, wd, -1);
+		if (tp->t_op==CONVERT && tp->t_rp==NULL) {
+			lp = tp->t_lp;
+			if (tp->t_type == lp->t_type)
+				tp = lp;
+		}
+	}
+	return tp;
+}
+
+/*
+ * Check if the operator 'op' applied to C types 'lt' and 'rt'
+ * (which are outputs from tltype(), which means that all pointers
+ * have been converted to type T_PTR) involves no conversions.
+ * This means the code generator must deal with the type mismatch.
+ */
+noconvert(op, lt, rt) register int op, lt, rt;
+{
+	if (op==ASSIGN || op==CAST || (op>=EQ && op<=ULT)) {
+		if ((lt>=T_CHAR && lt<=T_UCHAR)
+		&&  (rt>=T_CHAR && rt<=T_UCHAR))
+			return 1;		/* 8-bit types */
+		if ((lt>=T_SHORT && lt<=T_USHORT)	
+		&&  (rt>=T_SHORT && rt<=T_USHORT))
+			return 1;		/* 16-bit types */
+		if ((lt>=T_INT  && lt<=T_ULONG)
+		&&  (rt>=T_INT  && rt<=T_ULONG))
+			return 1;		/* 32-bit types */
+		if (op==CAST && lt==T_FLOAT && rt==T_DOUBLE)
+			return 1;		/* (float)double */
+	}
+	return 0;
+}
+
+/*
+ * Align the location counter well enough for the object 'sp'.
+ */
+align(sp) SYM *sp;
+{
+	bput(ALIGN);
+	bput(aligntype(sp));
+}
+
+/*
+ * Return the appropriate alignment type for 'sp'.
+ * The alignment type is 1 for byte, 2 for word, 4 for dword.
+ */
+aligntype(sp) SYM *sp;
+{
+	register int type, atype, dtype;
+	register DIM *dp;
+
+	if (alignment != 0)
+		return alignment;	/* use #pragma-defined alignment */
+	type = sp->s_type;
+	atype = mysizes[type];
+	if ((dp = sp->s_dp) != NULL) {
+		while (dp != NULL
+		    && ((dtype = dp->d_type) == D_ARRAY || dtype == D_MOSAR))
+			dp = dp->d_dp;
+		if (dtype == D_PTR || dtype == D_FUNC)
+			return 4;	/* pointer to, function returning */
+	}
+	if (atype == 1 || atype == 2 || (atype == 4 && type != T_PTR))
+		return atype;		/* chars, shorts, ints, longs, floats */
+	else if (type == T_DOUBLE)
+		return 4;		/* dword alignment, not qword */
+	else if (type == T_STRUCT || type == T_UNION)
+		return saligntype(sp->s_ip);
+	else if (type == T_ENUM)
+		return mytypes[sp->s_ip->i_type];	/* enum base type */
+	else if (type == T_FSTRUCT || type == T_FUNION || type == T_FENUM) {
+		cerror("alignment of %s \"%s\" is not known",
+			(type == T_FSTRUCT) ? "struct"
+		      : (type == T_FUNION)  ? "union"
+		      : "enum",
+			sp->s_id);
+		return 4;
+	}
+	/* T_NONE, T_PTR, T_VOID */
+	cbotch("aligntype type=%d", type);
+}
+
+/*
+ * Run down a struct INFO list to find alignment type.
+ */
+int
+saligntype(ip) register INFO *ip;
+{
+	register int i, j, max, n;
+
+	if (alignment != 0)
+		return alignment;
+	n = ip->i_nsp;			/* number of members */
+	for (i = max = 0; i < n; i++) {
+		j = aligntype(ip->i_sp[i]);
+		if (j > max)
+			max = j;
+	}
+	return max;
+}
+
+/*
+ * Given a field type, return an appropriate alignment type.
+ */
+int
+faligntype(t) register int t;
+{
+	if (t <= T_ULONG && t != T_PTR)
+		return mysizes[t];
+	cbotch("faligntype %d", t);
+}
+
+/*
+ * Check object sizes for overflow.
+ */
+sizeof_t
+szcheck(n, a, s) sizeof_t n; int a; char *s;
+{
+	return n;
+}
+
+#if	FOLD_DOUBLES
+/*
+ * Convert DCON to/from host double.
+ * Used by the double constant folder in n0/fold.c.
+ * Assumes host fp representation == target fp representation!
+ * The byte orders of the double and DCON are reversed.
+ */
+double
+dval_to_d(tp) TREE *tp;
+{
+	double d;
+	register char *src, *dst;
+
+	for (src = tp->t_dval, dst = ((char *)&d) + sizeof(d) - 1; dst >= &d; )
+		*dst-- = *src++;
+	return d;
+}
+
+void
+d_to_dval(tp, d) TREE *tp; double d;
+{
+	register char *src, *dst;
+
+	for (dst = tp->t_dval, src = ((char *)&d) + sizeof(d) - 1; src >= &d; )
+		*dst++ = *src--;
+}
+#endif
+
+/* end of n0/i386/bind.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d565 28
+@

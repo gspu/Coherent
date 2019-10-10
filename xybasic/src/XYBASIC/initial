@@ -1,0 +1,455 @@
+;INITIAL 05/20/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;initialization dialog
+
+
+	if	asm80
+	cseg			;relocatable code segment
+	endif
+
+;XYBASIC performs a JMP INIT from ROMORG on initial entry.
+;The user program source and working space overlay the code
+;in this module after initialization in RAM versions.
+
+init:	lxi	sp,stack	;initialize SP
+
+;save A on entry in Wild version
+	if	wild
+	push	psw
+	endif
+
+;set up RAM locations if ROM version
+	if	rom
+	lxi	b,nzram		;source address to BC
+	lxi	d,nzlen		;byte count to DE
+	lxi	h,ramorg	;destination address to HL
+	call	moved		;block move nonzero bytes to RAM
+	lxi	b,zlen		;0 to B, bytes to zero to C
+	call	fillm		;fill RAM locations with 0
+	mvi	a,':'
+	lxi	h,tlnad-1
+	mov	m,a		;colon precedes tokenized input buffer
+	inx	h
+	mvi	a,cr
+	mov	m,a		;cr to tokenized input buffer
+	if	editc
+	sta	nlnad		;and cr to input buffer in EDITC version
+	endif
+	sta	srcad-1		;cr precedes source text
+	endif			;end of ROM conditional
+
+;initialize runtime package pointers
+	if	rtpak		;initialize souce text pointers
+	lxi	h,srcad
+	mvi	m,0		;source text empty
+	shld	eofad		;initialize EOFAD
+	call	cspst		;reset CSTACK and ESTACK
+	endif			;end of RTPAK conditional
+
+;set up i/o jmp vector if CP/M version
+	if	cpm
+	lhld	cpmba+1		;3E03H + base
+	lxi	d,3
+	dad	d		;3E06H + base
+	shld	cstat+1		;store to allow console status not via BDOS
+	dad	d		;3E09H + base
+	shld	conin+1		;store to allow console reading without echo
+	dad	d		;3E0CH + base
+	shld	cnout+1		;store to allow console writing
+	dad	d		;3E0FH + base
+	shld	lout+1		;store to allow list device writing
+	if	amd		;also define PUN and RDR in AMD version
+	dad	d
+	shld	pout+1		;3E12H + base is PUN out
+	dad	d
+	shld	rdrin+1		;3E15H + base is RDR in
+	endif			;end of AMD conditional
+	endif			;end of CPM conditional
+
+;initialize the real time clock for REALT version
+	if	realt
+	mvi	a,0C3H
+	sta	10H		;JMP to RST 2
+	lxi	h,clock
+	shld	11H		;so RST 2 does a JMP CLOCK
+	ei			;enable interrupts so clock runs
+	endif
+
+;initialize the real time clock for CAMAC version
+	if	camac
+	lxi	h,101H
+	shld	scrte		;set serial crate and driver to 1
+	if	c3885 and not debug	;clock initialization for 3885
+;initialize RST 7.5 at 3CH to JMP CLOCK
+	mvi	a,0C3H
+	sta	3CH		;JMP to 3CH
+	lxi	h,clock
+	shld	3DH		;CLOCK to 3DH
+;initialize counter mode and set interrupt mask
+	mvi	a,74H
+	out	0BH		;set counter 1 to mode 2
+	lxi	b,800
+	mov	a,c
+	out	9
+	mov	a,b
+	out	9		;initialize counter
+	mvi	a,0BH
+	sim			;set interrupt mask
+	ei
+	endif
+;clock initialization in old NONST version
+	if	nonst and (not rtpak) and false
+	mvi	a,0C3H
+	sta	1008H		;JMP to 1008H
+	lxi	h,clock
+	shld	1009H		;CLOCK to 1009H so interrupts will JMP CLOCK
+	mvi	a,255
+	out	4
+	mvi	a,0A6H
+	out	11
+	out	19
+	mvi	a,18H
+	out	2
+	ei
+	endif
+	endif
+
+;Packard Instruments version initialization
+	if	packi and not debug
+	mvi	a,5
+	sta	nulls		;initialize NULLS for TI Silent 700
+	rim			;read interrupt mask
+	ani	4
+	ori	8		;set
+	sim			;reset interrupt mask
+	ei			;enable interrupts
+	endif
+
+;print initial message
+	if	not (wild and rtpak)
+	call	prntm
+	if	epstn
+	db	0FH, 13H
+	endif
+	db	cr, lf
+	if	compl
+	if	rtpak
+	db	'RUNTIME '
+	else
+	db	'COMPILED '
+	endif
+	endif
+	if	(not strng) and (not float)
+	db	'INTEGER '
+	endif
+	if	amd
+	db	'AMD '
+	endif
+	if	bendx
+	db	'BENDIX '
+	endif
+	if	packi
+	db	'PACKARD INSTRUMENTS '
+	endif
+	if	wild
+	db	'WILD '
+	endif
+	db	'XYBASIC '
+	if	epstn
+	db	12H
+	endif
+	if	cpm and (not camac)
+	db	'CP/M '
+	endif
+	if	isis2
+	db	'ISIS-II '
+	endif
+	if	sdisk and (not camac)
+	db	'DISK '
+	endif
+	if	editc
+	db	'EDIT '
+	endif
+	db	'REV ', versn/10000+'0', '.'
+	if	((versn/1000) mod 10) ne 0
+	db	(versn/1000) mod 10 + '0'
+	endif
+	db	(versn/100) mod 10 +'0'
+	if	(versn mod 100) ne 0
+	db	'.'
+	if	((versn/10) mod 10) ne 0
+	db	(versn/10) mod 10 + '0'
+	endif
+	db	versn mod 10+'0'
+	endif
+	if	debug
+	db	'D'
+	endif
+	db	cr, lf or 80H
+
+;print copyright message unless CAMAC version
+	if	not camac
+	lxi	h,mwcma
+	call	prtst		;print copyright message
+	endif
+	endif			;end of NOT (WILD AND RTPAK) conditional
+
+;if compiler, find top of memory and execute program directly
+	if	compl and not rtpak
+	lhld	memt		;passed memt value to HL
+	mov	a,h
+	ora	l		;Zero set iff default to found value
+	cz	eomem		;take default value
+	if	strng
+	shld	strt		;store top of string space
+	dcr	h		;leave 100H bytes of string space
+	endif
+	shld	memt
+	mvi	m,0		;initialize symbol table
+	call	clea1		;initialize
+	mvi	m,0		;initialize cstack
+	jmp	nexts		;and execute the program
+	else			;(not COMPL) or RTPAK
+
+;check default width if ROMSQ or CP/M version
+	if	romsq and not wild
+	lda	dfltw		;default width to A
+	ora	a
+	jnz	init2		;take specified width
+	endif
+	if	cpm and not compl
+	lda	fcbad+1
+	cpi	' '		;check if filename specified on command line
+	mvi	a,72
+	jnz	init2		;yes, default width to 72
+	endif
+
+;prompt for width
+	if	wild and rtpak
+	mvi	a,255
+	sta	width
+	else
+init1:	lxi	d,1		;terminal width min  = 1
+	call	initp		;print message, get width
+	db	'WIDTH?', ' ' or 80H
+	jc	init1		;illegal value
+	mvi	a,nlmax		;default width to A
+	jz	init2		;take default value
+	mov	a,h
+	ora	a
+	jnz	init1		;too big -- try again
+	mov	a,l
+init2:	sta	width
+	endif			;end of NOT (WILD AND RTPAK) conditional
+
+init3:	if	rom		;min memtop value to DE
+	lxi	d,srcad+dbyts
+	else
+	lxi	d,eoram+dbyts
+	endif
+
+;check default memtop value if ROMSQ or CP/M version
+	if	romsq and not wild
+	lhld	dfltm		;default end of memory to HL
+	call	cmdhu
+	jc	init4		;check specified value
+	mov	a,h
+	ora	l		;Zero set iff default to max
+	jz	init5		;take max value
+	endif
+	if	cpm and not compl
+	lda	fcbad+1
+	cpi	' '
+	jnz	init5		;take max
+	endif
+
+;prompt for end of memory
+	if	wild and rtpak
+	lhld	weom
+	call	cmdhu		;compare to least
+	jc	init6		;take given value
+	else
+	call	initp		;print message, get mem top
+	db	'END OF MEMORY?', ' ' or 80H
+	jc	init3		;bad value, retry
+	jz	init5		;take default value
+init4:	call	rtest		;test if specified location is RAM
+	jnz	init3		;not RAM, retry
+	jmp	init6		;else take specified location
+	endif			;end of NOT (WILD AND RTPAK) conditional
+init5:	call	eomem		;find default end of memory
+
+;initialize RAM pointers
+init6:	xra	a
+	if	sdisk and cpm and (not rtpak)
+	shld	filet		;store end of file space
+	mov	m,a		;initialize first default file area
+	lxi	d,-filen
+	dad	d
+	mov	m,a		;initialize second default file area
+	dad	d
+	endif
+	if	strng
+	shld	strt		;store top of string space
+	dcr	h		;leave 100H bytes of string space
+	endif
+	mov	m,a		;initialize symbol table
+	shld	memt
+	if	rtpak
+	call	clea1		;initialize
+	else			;NOT RTPAK
+	call	new		;initialize source, interrupt
+	if	bendx and not debug
+	lxi	h,dmod2
+	shld	brsad		;reset reentry address to DMODE
+	endif
+	lxi	h,stop
+	shld	dmodc+1		;change ^C branch from JMP INIT to JMP STOP
+	endif
+	if	not rom
+	lxi	h,dmod2
+	shld	start+1		;change JMP INIT to JMP DMOD2 to allow reentry
+	endif
+
+;load program if specified on CP/M command line
+	if	cpm and not compl
+	lda	fcbad+1
+	cpi	' '		;check if filename specified on command line
+	jz	init7		;no
+	lxi	h,fcbft
+	mvi	m,'X'
+	inx	h
+	mvi	m,'Y'
+	inx	h
+	mvi	m,'B'		;reset filetype to .XYB
+	call	loadz		;reset LNNUM and TEXTP in case not found
+	call	cdkop		;open the file
+	lxi	h,nexts
+	push	h		;push normal statement return for RUN
+	mvi	b,1		;set B for ,R to RUN after loading
+	jmp	lod0b		;and load it
+	endif
+
+;print BYTES FREE message
+	if	not (wild and rtpak)
+init7:	call	fre		;free memory bytes to BC
+	call	wrtbu		;write (BC) unsigned
+	call	prntm		;print BYTES FREE message
+	db	' BYTES FREE', cr, lf or 80H
+	endif			;end of NOT (WILD AND RTPAK) conditional
+
+;Wild version default program execution
+	if	wild
+	pop	psw		;recover initial A value
+	if	not rtpak
+	ora	a
+	jz	dmode		;0 gets direct mode in development version
+	endif
+	mov	c,a
+	mvi	b,0		;desired program # to BC
+	call	execw		;find selected program
+	lhld	sourc
+	dcx	h
+	shld	textp		;reset TEXTP to selected program
+	jmp	nexts		;and execute it
+	else			;NOT WILD
+
+;begin at direct mode or execute specified program
+	if	romsq
+	lhld	dflta		;default prog address to HL
+	if	rtpak		;runtime version
+	mov	a,m		;fetch first char
+	cpi	cr
+	jz	init8		;first char is cr, continue as below
+	call	prntm		;else print error message
+	db	'PROGRAM NOT FOUND', cr, lf or 80H
+	jmp	boot		;and exit
+init8:	shld	rdptr		;initialize the DATA pointer
+	inx	h
+	shld	sourc		;set SOURC to program address
+	else
+	mov	a,h
+	ora	l
+	jz	dmode		;none specified
+	call	exec0		;reset SOURC to specified address
+	lhld	sourc
+	endif
+	dcx	h
+	shld	textp		;reset TEXTP to program
+	jmp	nexts		;and execute from there
+	else			;not ROMSQ
+	jmp	dmode
+	endif
+	endif			;end of NOT WILD conditional
+
+	if	not (wild and rtpak)
+;INITP prompts the user and gets a value for WIDTH or END OF MEMORY.
+;Call:	DE			min value -1
+;	Location after CALL	message to print
+;Retn:	Carry			set iff value bad
+;	Zero, no Carry		if <cr> typed
+;	no Zero, no Carry	value ok,  returned in HL
+initp:	pop	h		;message address to HL
+	call	prtst		;print message
+	push	h		;save return addr
+	push	d		;save min value -1
+	call	gtlin		;get a line from console
+	call	gtdec		;and get decimal value to DE
+	xchg			;value typed to HL
+	pop	d		;min -1 to DE
+	jc	inip1		;no digit -- check for <cr>
+	stc
+	rz			;too big, return Carry
+	call	cmdhu
+	cmc			;Carry set iff min >= value typed
+	ret
+inip1:	cpi	cr
+	rz			;<cr>, return Zero and no Carry
+	if	camac
+	lxi	h,mwcma
+	call	prtst		;print copyright message in CAMAC version
+	endif
+	stc
+	ret			;return Carry
+	endif			;end of NOT (WILD AND RTPAK) conditional
+
+	endif			;end of NOT COMPL OR RTPAK conditional
+
+;EOMEM gets default end of RAM to HL.
+eomem:	if	cpm		;fetch end of memory from BDOS
+	lhld	bdos+1
+	dcx	h
+	endif
+	if	isis2
+	call	mechk		;top of memory to AB
+	mov	h,b
+	mov	l,a		;then to HL
+	endif
+	if	nonst		;search for end of RAM
+	if	compl		;first loc to test to HL
+	lhld	eofad
+	else
+	if	rom
+	lxi	h,srcad
+	else
+	lxi	h,eoram
+	endif
+	endif
+eome1:	inx	h
+	mov	a,h
+	ora	l
+	jz	eome2		;quit if at 64K boundary
+	call	rtest		;check if RAM at location
+	jz	eome1		;RAM, try next
+eome2:	dcx	h		;top of memory to HL
+	endif
+eoram:	ret
+
+	if	rom and (rtpak or not compl)
+patch	equ	eoram+1		;patch area for ROM versions
+	endif
+
+	end			;end of XYBASIC source
+
+;end of INITIAL

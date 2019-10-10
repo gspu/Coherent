@@ -1,0 +1,363 @@
+;BENDIX 12/12/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1980 by Mark Williams Company, Chicago
+;FILES, SAVE and LOAD routines for Bendix version under Monolithic Systems OS
+
+
+	if	bendx
+
+;EQUates for Monolithic Systems Rev 2.10
+bch0w	equ	81H		;channel 0 write
+bch0r	equ	85H		;channel 0 read
+bch4w	equ	0A1H		;channel 4 write
+bch4r	equ	0A5H		;channel 4 read
+bmep	equ	12EH		;monitor entry point after errors
+brsad	equ	203BH		;monitor restart address
+sfil	equ	2052H		;file control block
+a1	equ	2025H		;edition number
+find2	equ	159CH		;search for file
+advn	equ	13ACH		;advance to next block
+dint	equ	0EB6H		;init disk to sector 0
+scra	equ	2072H		;pcb scratch area
+rblk	equ	1163H		;read block
+ndbs	equ	144		;data bytes per sector
+
+;FILES [:<unit>]
+bfils:	lxi	h,bfile
+	call	bwmon		;write 'FILES'
+	mvi	d,':'
+	call	gtd		;look for colon
+	jnc	bfil1		;colon found
+	call	isdig		;look for digit
+	jc	bc0cr		;no, just write a <cr>
+bfil1:	mvi	a,' '		;else have a unit specified
+	call	bch0w		;write a space
+	mvi	a,':'
+	call	bch0w		;and a colon
+	call	gtcha		;get desired unit number
+	call	bch0w		;and write it
+	jmp	bc0cr		;write <cr> and return
+
+;SAVE <filename>
+save:	if	sdisk
+	call	bopdw		;make sure no files currently open for writing
+	endif
+	call	prntm		;print SAVING message
+	db	'SAVING', ' ' or 80H
+	call	gtfsl		;parse filename
+	push	psw
+	lxi	h,bsav1
+	call	bwmfn		;write 'AS 4 DW <filename>.typ'
+	call	bc0cr		;write <cr> to assign channel 4 for disk write
+	pop	psw		;recover ASCII flag
+	jnc	savea		;ASCII save
+	call	last
+	inx	b		;last+1 to BC
+	lhld	sourc
+	dcx	h		;first-1 to HL
+save1:	mov	a,m		;fetch program char
+	call	bch4w		;send to disk via channel 4
+	inx	h		;point to next
+	mov	a,h
+	cmp	b
+	jnz	save1		;save more chars
+	mov	a,l
+	cmp	c
+	jnz	save1		;save more chars
+save2:	lxi	h,bsav2
+	call	bwmon		;write 'AS 4 NU', <cr> to close channel 4
+save3:	lxi	h,2
+	call	zaped		;look for earlier editions
+	rnz			;none, done
+	lxi	h,bsav3
+	call	bwmfn		;write 'ZAP <filename>.XYB'
+	lxi	h,bsav4
+	call	bwmon		;write ' 2', cr to erase old edition
+	jmp	save3		;and check for other earlier editions
+savea:	lxi	h,omode
+	mov	a,m		;fetch OMODE
+	push	psw		;and save
+	mvi	m,80H		;reset OMODE to 80H
+	lhld	sourc
+	lxi	b,-1
+	call	list1		;list file to disk
+	pop	psw		;recover OMODE
+	sta	omode		;and restore it
+	jmp	save2		;close channel as above
+
+;LOAD <filename>
+load:	call	issrc		;must be addressing working space
+	call	prntm		;print SAVING message
+	db	'LOADING', ' ' or 80H
+	call	gtfsl		;parse filename
+	push	psw		;save ASCII flag
+	call	bfind		;look for edition 1 of desired file
+	lxi	h,blod1
+	call	bwmfn		;write 'AS 4 DR <filename>.typ'
+	call	bc0cr		;write <cr> to assign channel 4 to disk read
+	call	new		;erase current program
+	pop	psw
+	jnc	loada		;ASCII load
+	call	bch4r		;read first file char
+	jc	loadx		;eof on first char, error
+	cpi	cr
+	jnz	loadx		;first char not cr, error
+	call	new		;erase old program
+	lxi	h,srcad		;address first destination
+load1:	call	bch4r		;read program char from file
+	mov	m,a		;store it
+	inx	h		;point to next destination
+	jnc	load1		;not eof, load more chars
+	ora	a		;last char should always be 0
+	dcx	h		;point to new EOFAD
+	jz	dmodx		;reset stacks and continue iff direct
+loadx:	call	new		;clobber bad program fragment
+	lxi	h,bsav2
+	call	bwmon		;assign NUll device to channel 4
+	error	f,d,k		;issue fatal DK error
+loada:	lxi	h,omode
+	mov	a,m		;fetch OMODE
+	push	psw		;and save
+	mvi	m,7FH		;reset OMODE to 7FH for saving
+loda1:	call	gtlin		;get line from disk
+	call	tkize		;tokenize it
+	jc	loda1
+	cnz	addln		;add to program
+	jmp	loda1		;and repeat
+
+
+;messages
+bfile:	db	'F', 'I' or 80H
+
+bsav1:	db	'AS 4 DW', ' ' or 80H
+bsav2:	db	'AS 4'
+bnucr:	db	' NU', cr or 80H
+bsav3:	db	'ZAP', ' ' or 80H
+bsav4:	db	' 2', cr or 80H
+
+blod1:	db	'AS 4 DR', ' ' or 80H
+
+
+;routines
+
+;BWMFN writes a message addressed by HL to the monitor,
+;followed by the filename in BFNAM.
+bwmfn:	call	bwmon		;write the message
+	lxi	h,bfnam
+				;fall through to write the filename
+;BWMON writes a message addressed by HL to the monitor, through BCH0W.
+bwmon:	mov	a,m		;fetch a message char
+	ani	7FH		;mask possible high bit
+	call	bch0w		;send char to monitor
+	mov	a,m		;refetch char
+	inx	h		;point to next
+	ani	80H		;test for last
+	jz	bwmon		;not last, write more chars
+	ret
+
+;GTFIL parses a filename, specified by any string.
+;The filename may be one to eight characters,
+;optionally preceded by a unit number of the form ':1,',
+;and optionally followed by '.' and a filetype of up to three letters.
+;The filename is stored at BFNAM, with the high bit of the last byte set.
+;Filename chars must be letters or digits.
+;Lower case is converted to UPPER automatically.
+;The filetype is defaulted to .USR if unspecified.
+;Retn:	Carry	Set iff filetype specified
+;	HL	points to last filetype char
+gtfil:	call	evals		;evaluate arg
+	call	fetch		;fetch result
+	jnc	snerr		;arg is not string
+	mov	a,c		;fetch length
+	ora	a
+	jz	snerr		;arg is null string
+	lxi	h,bfnam		;destination to HL
+	ldax	d		;fetch first char
+	ani	7FH		;mask possible high bit
+	cpi	':'
+	jnz	gtfi1		;no unit specified
+	mov	a,c		;fetch length of arg
+	cpi	4		;must be at least ':1,A'
+	jc	snerr		;too short
+	mov	b,a		;length to B
+	mvi	a,':'		;restore the colon
+	call	gtfi3		;store it
+	ldax	d		;fetch the unit number
+	ani	7FH		;mask possible high bit
+	call	isdig		;test if ASCII digit
+	jc	snerr		;error if not
+	call	gtfi3		;and store it
+	ldax	d		;fetch comma
+	ani	7FH		;mask possible high bit
+	cpi	','
+	jnz	snerr		;error if not comma
+	call	gtfi3		;store the comma
+gtfi1:	mvi	b,9		;max filename char count to B
+gtfi2:	ldax	d		;fetch filename char
+	ani	7FH		;mask possible high bit
+	call	gtfi4		;check char and convert as necessary
+	jc	gtf2a		;bad character, may be '.'
+	call	gtfi3		;store a char
+	jnz	gtfi2		;repeat for remaining chars
+gtf2c:	mvi	m,'.'
+	inx	h
+	mvi	m,'U'
+	inx	h
+	mvi	m,'S'
+	inx	h
+	mvi	m,'R' or 80H	;reset default filetype to .USR
+	ora	a		;reset Carry
+	ret
+gtf2a:	cpi	'.'
+	jnz	snerr		;bad char
+	mvi	b,5		;filetype max count
+	call	gtfi3		;store the '.'
+	jnz	gtf2b		;more chars follow
+	dcx	h		;'.' was last char, so unread it
+	jmp	gtf2c		;and return as above
+gtf2b:	ldax	d		;fetch next
+	ani	7FH
+	call	gtfi4		;check if letter or digit
+	jc	snerr		;bad char
+	call	gtfi3		;store filetype char
+	jnz	gtf2b		;repeat for more filetype chars
+	dcx	h
+	ori	80H		;reset high bit of last char
+	mov	m,a		;and store it
+	stc			;filetype specified, so return Carry
+	ret
+;GTFI3 echoes the char in A and stores it through HL.
+;A is preserved.
+;DE and HL are incremented, B and C are decremented.
+;Issues SN error if count in B becomes zero,
+;returns Zero if count in C becomes 0.
+gtfi3:	dcr	b		;decrement max count
+	jz	snerr		;SN error if too many chars
+	mov	m,a		;store it
+	inx	d		;point to next source
+	inx	h		;and to next destination
+	ora	a		;reset Carry
+	dcr	c		;decrement char count
+	ret
+;GTFI4 converts lower to UPPER, returns Carry on chars not letters or digits.
+;All registers preserved.
+gtfi4:	cpi	'0'
+	rc			;ASCII 0 to 2FH, return Carry
+	cpi	'9'+1
+	cmc
+	rnc			;'0' to '9', return Carry reset
+	cpi	'A'
+	rc			;ASCII 3AH to 3FH, return Carry
+	cpi	'Z'+1
+	cmc
+	rnc			;'A' to 'Z', return Carry reset
+	cpi	'A'+20H
+	rc			;ASCII 5AH to 5FH, return Carry
+	cpi	'Z'+21H
+	cmc
+	rc			;ASCII 7BH to 7FH, return Carry
+	ani	5FH		;lower case 'a' to 'z', convert to UPPER
+	ret			;and return Carry reset
+
+;GTFSL gets and echoes a filename for SAVE and LOAD.
+;An SN error occurs if a filetype is specified.
+;Checks for ,A after filename, and returns
+;	Carry	Set if ,A specified (.BAS file), reset if not (.XYB file).
+;Sets filetype of filename to .XYB or .BAS accordingly.
+gtfsl:	call	gtfil		;parse filename
+	jc	snerr		;filetype specified, SN error
+	push	h		;save pointer to last filetype loc
+	call	gtcom		;look for comma
+	pop	h
+	push	psw
+	jnc	gtfs2		;found comma
+	mvi	m,'B' or 80H
+	dcx	h
+	mvi	m,'Y'
+	dcx	h
+	mvi	m,'X'		;set filetype to .XYB
+gtfs1:	lxi	h,bfnam
+	call	prtst		;echo the filename
+	call	wcrlf		;followed by <crlf>
+	pop	psw		;restore Carry status
+	ret
+gtfs2:	mvi	m,'S' or 80H
+	dcx	h
+	mvi	m,'A'
+	dcx	h
+	mvi	m,'B'		;set filetype to .BAS
+	mvi	d,'A'
+	call	gtdsn		;skip A after comma
+	jmp	gtfs1		;and echo as above
+
+;DSAVE and DLOAD write and read chars via channel 4 for ASCII SAVE and LOAD.
+;They are accessed from WRITC and READC in module INOUT.
+dsave:	mov	a,c		;char to A
+	call	bch4w		;and to channel 4
+	jmp	pop4		;restore and return
+dload:	call	bch4r		;read char
+	jnc	pop3		;not EOF
+	lxi	sp,stack-4
+	pop	psw		;recover OMODE status
+	sta	omode		;and restore it
+	jmp	dmod2		;and then to direct mode
+
+;BFIND looks for edition 1 of file specified by BFNAM, issues FN error if none.
+bfind:	lxi	h,1
+	call	zaped		;look for edition 1
+	rz			;gotcha
+fnerr:	error	f, F, N
+
+;ZAPED is called by SAVE and LOAD to find earlier editions of the file, if any.
+;Because ZAP gives error for file not found, it must check for existence
+;of the file first.
+;Call:	HL	Desired version number
+;Returns Zero set iff file found, reset if not found.
+zaped:	shld	a1		;save version number
+	lxi	h,sfil
+	lxi	b,20H		;0 to B, 20H to C
+	call	fillm		;fill file control block with 0s
+	lxi	h,bfnam		;address file name
+	lxi	d,sfil+8H	;destination to DE
+	mov	a,m		;fetch filename first char
+	cpi	':'
+	jnz	zape1		;no disk number given
+	inx	h
+	mov	a,m		;fetch number
+	sui	'0'		;convert from ASCII to binary
+	sta	sfil		;unit number to SFIL
+	inx	h		;skip comma
+zape0:	inx	h		;address first filename char
+zape1:	mov	a,m		;fetch filename char
+	ani	7FH
+	cpi	'.'		;check for '.'
+	jz	zape3		;filetype specified
+	stax	d		;and store
+	mov	a,m		;refetch
+	inx	d
+	inx	h		;address next
+	ani	80H		;check if last
+	jz	zape1		;not done
+	lxi	h,0
+	shld	sfil+3		;start searching at block 0
+zape2:	lxi	h,sfil
+	call	find2		;look for file
+	rnz			;not found, done
+	lhld	a1		;fetch version number
+	dcx	h		;decrement
+	mov	a,h
+	ora	l
+	rz			;gotcha
+	shld	a1		;else save count-1
+	lxi	h,sfil
+	call	advn		;advance to next
+	jnz	zape2		;try again
+	ori	1		;reset Zero
+	ret			;eof, not found
+zape3:	lxi	d,sfil+10H	;address filetype destination
+	jmp	zape0		;skip to next char and continue
+
+
+	endif
+;end of module BENDIX
+	page

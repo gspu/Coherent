@@ -1,0 +1,650 @@
+/*
+ * The routines in this file read in declarators
+ * and build up the DIM and INFO structures.
+ */
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * Read declarator.
+ * The arg "tdp" is the dimensions from a typedef.
+ * The storage class is passed since
+ * it determines the lexic level of the lookup.
+ */
+gdecl(asp, adp, tdp, c, ls)
+SYM	**asp;
+DIM	**adp, *tdp;
+int	c, ls;
+{
+	register SYM	*sp;
+	DIM		*dp;
+	int		ll;	/* Lexical level */
+	int		aok;	/* Args are OK flag */
+	sizeof_t	bound;	/* Array bound */
+
+	if (llex == 0 && (c==C_GDEF || c==C_GREF || c==C_SEX))
+		aok = 1;
+	else
+		aok = 0;
+	while (s == CONST || s == VOLATILE) {
+		/* Ignore these for now.  They should be treated as MUL */
+		/* They can appear before the type-name as well */
+		lex();
+	}
+	if (s == MUL) {
+		lex();
+		if (gdecl(asp, adp, NULL, c, ls) == 0)
+			return (0);
+		*adp = tackdim(*adp, D_PTR, (sizeof_t)0);
+		while (tdp != NULL) {
+			*adp = tackdim(*adp, tdp->d_type, tdp->d_bound);
+			tdp = tdp->d_dp;
+		}
+		return (1);
+	}
+	if (s == LPAREN) {
+		lex();
+		if (gdecl(asp, adp, NULL, c, ls) == 0)
+			return (0);
+		mustbe(RPAREN);
+		sp = *asp;
+		dp = *adp;
+		aok = 0;
+	} else if (s == ID) {
+		if (c==C_ARG || c==C_PAUTO || c==C_PREG)
+			ll = LL_ARG;
+		else if (c==C_GDEF || c==C_GREF)
+			ll = LL_EXT;
+		else
+			ll = llex;
+		sp = deflookup(ls, ll);
+		dp = NULL;
+		lex();
+	} else {
+		cerror("declarator syntax");
+		while (s!=EOF && s!=COMMA && s!=SEMI)
+			skip();
+		return (0);
+	}
+again:
+	if (s == LPAREN) {
+		lex();
+		gproto(&aok, &dp);
+		mustbe(RPAREN);
+		goto again;
+	}
+	if (s == LBRACK) {
+		lex();
+		bound = 0;
+		if (s != RBRACK)
+			bound = getbound();
+		mustbe(RBRACK);
+		dp = tackdim(dp, D_ARRAY, bound);
+		goto again;
+	}
+	while (tdp != NULL) {
+		dp = tackdim(dp, tdp->d_type, tdp->d_bound);
+		tdp = tdp->d_dp;
+	}
+	*asp = sp;
+	*adp = dp;
+	return (1);
+}
+
+/*
+ * This routine generates tags for tagless struct/union/enum
+ * declarations.  This makes life easier for csd.
+ */
+SYM *newtag(ll) int ll;
+{
+	sprintf(id, ".%d", newlab());
+	setid(id);
+	return deflookup(SL_TAG, ll);
+}
+
+/*
+ * This routine processes structure and union declarations.
+ * The type and INFO data gets passed back indirectly through the
+ * "call by reference" parameters.
+ * The storage class is passed so that local extern structure
+ * definitions get entered at the correct (global) lexical level.
+ */
+gstruct(sc, at, aip)
+int	sc, *at;
+INFO	**aip;
+{
+	int	c, dt, i, j, mc, t, tc, w, rf, ls, ll;
+	SYM	*tsp, *msp, *mp;
+	DIM	*dp,  **mdp;
+	INFO	*ip, *nip;
+	unsigned long	ofs, max, bitsize;
+
+	ll = (sc == C_GREF) ? LL_EXT : llex;
+	ls = lsym;
+	if (notvariant(VSINU))
+		lsym += 1;
+	dt = T_STRUCT;
+	tc = C_STAG;
+	mc = C_MOS;
+	if (s == UNION) {
+		dt = T_UNION;
+		tc = C_UTAG;
+		mc = C_MOU;
+	}
+	tsp = NULL;
+	lex();
+	if (s == ID) {
+		tsp = reflookup(SL_TAG);
+		if (tsp == NULL)
+			tsp = deflookup(SL_TAG, ll);
+		lex();
+		if (s != LBRACE) {
+			c = tsp->s_class;
+			if (c == C_NONE) {
+				*at = dt+1;     /* Forward */
+				*aip = tsp;
+				return;
+			}
+			if (c==C_STAG || c==C_UTAG) {
+				if (c != tc)
+					tagmismatch(tsp);
+				*at = dt;
+				*aip = tsp->s_ip;
+				++tsp->s_ip->i_refc;
+				return;
+			}
+			cerror("\"%s\" is not a tag", tsp->s_id);
+			*at = T_INT;
+			*aip = NULL;
+			return;
+		}
+		tsp = deflookup(SL_TAG, ll);
+	} else
+		tsp = newtag(ll);
+	mustbe(LBRACE);
+	nip = (INFO *) new(sizeof(INFO));
+	nip->i_refc = 1;
+	nip->i_nsp = 0;
+	ofs = 0;
+	max = 0;
+	while (s!=EOF && s!=RBRACE) {
+		gcandt(&c, &t, &dp, &ip, &rf);
+		if (t == T_NONE) {
+			if (s == ID)
+				cerror("\"%s\" is not a typedef name", id);
+			else
+				cerror("missing type in structure body");
+			while (s!=EOF && s!=RBRACE && s!=SEMI)
+				lex();
+			if (s == SEMI)
+				lex();
+			continue;
+		}
+		if (rf != 0 || c != C_NONE)
+			cerror("class not allowed in structure body");
+		if (isvariant(VSINU)) {
+		/*
+		 * Handle the "struct" in "union" rule.
+		 * A series of unnamed structures within a union are united
+		 * into a set of named/typed offsets within the union.
+		 * Basically, we add the unique members of the
+		 * new structure to the members of the current union.
+		 * Not strictly part of C, and only works if all MOS in
+		 * same level of symbol table.
+		 */
+			if (dt==T_UNION && t==T_STRUCT && s==SEMI) {
+				notbook();
+				lex();
+				bitsize = (unsigned long)ip->i_size*NBPBYTE;
+				if (bitsize > max)
+					max = bitsize;
+				for (i=0; i<ip->i_nsp; ++i) {
+					mp = ip->i_sp[i];
+					j = nip->i_nsp;
+					while (--j >= 0)
+						if (nip->i_sp[j] == mp)
+							break;
+					if (j < 0) {
+						nip = newinfo(nip, mp);
+						if (tsp != NULL)
+							mp->s_flag |= S_TAG;
+					}
+				}
+				continue;
+			}
+		}
+		for (;;) {
+			if (s == COLON) {
+				lex();
+				newtree(sizeof(TREE));
+				++ininit;
+				w = iconexpr();
+				--ininit;
+				if (w < 0)
+					cerror("bad filler field width");
+				ofs = fieldalign(t, NULL, ip, w, ofs) + w;
+			} else if (gdecl(&msp, &mdp, dp, mc, ls)) {
+				if (sc == C_GREF)
+					msp->s_level = LL_EXT;
+				w = 0;
+				if (s == COLON) {
+					lex();
+					newtree(sizeof(TREE));
+					++ininit;
+					w = iconexpr();
+					--ininit;
+					if (w <= 0)
+						cerror("bad field width");
+				}
+				ofs = fieldalign(t, mdp, ip, w, ofs);
+				msp = declare(msp, mc, t, mdp, ip, rf, w, ofs);
+				nip = newinfo(nip, msp);
+				if (tsp != NULL)
+					msp->s_flag |= S_TAG;
+				if (w == 0)
+				    ofs += (unsigned long)ssize(msp)*NBPBYTE;
+				else
+				    ofs += w;
+			}
+			if (dt == T_UNION) {
+				if (ofs > max)
+					max = ofs;
+				ofs = 0;
+			}
+			if (s != COMMA)
+				break;
+			lex();
+		}
+		xdropinfo(t, ip);
+		mustbe(SEMI);
+	}
+	mustbe(RBRACE);
+	if (dt == T_STRUCT)
+		max = ofs;
+	max = (max + NBPSTRG - 1) / NBPSTRG;
+	max = max * NBPSTRG / NBPBYTE;
+	if (max > MAXESIZE) {
+		cerror("size of %s too large",
+			(dt==T_STRUCT) ? "struct" : "union");
+		max = 0;
+	}
+	nip->i_size = max;
+	if (tsp != NULL)
+		tsp = declare(tsp, tc, 0, NULL, nip, 0);
+	*at = dt;
+	*aip = nip;
+}
+
+/*
+ * Read an enumeration.
+ */
+genum(sc, at, aip)
+int	sc, *at;
+INFO	**aip;
+{
+	register SYM	*sp, *tsp;
+	INFO		*ip;
+	int		c, emv, emvmax, ll;
+
+	ll = (sc == C_GREF) ? LL_EXT : llex;
+	tsp = NULL;
+	lex();
+	if (s == ID) {
+		tsp = reflookup(SL_TAG);
+		lex();
+		if (s != LBRACE) {
+			if (tsp == NULL)
+				tsp = deflookup(SL_TAG, ll);
+			c = tsp->s_class;
+			if (c == C_NONE) {
+				*at = T_FENUM;
+				*aip = tsp;
+				return;
+			}
+			if (c == C_ETAG) {
+				*at = T_ENUM;
+				*aip = tsp->s_ip;
+				++tsp->s_ip->i_refc;
+				return;
+			}
+			cerror("\"%s\" is not an \"enum\" tag",
+					 tsp->s_id);
+			*at = T_INT;
+			*aip = NULL;
+			return;
+		}
+		tsp = deflookup(SL_TAG, ll);
+	} else
+		tsp = newtag(ll);
+	mustbe(LBRACE);
+	ip = (INFO *) new(sizeof(INFO));
+	ip->i_refc = 1;
+	ip->i_nsp = 0;
+	emv = 0;
+	emvmax = 0;
+	for (;;) {
+		if (s==EOF || s==RBRACE) {
+			cerror("unexpected end of enumeration list");
+			break;
+		}
+		if (s != ID) {
+			cerror("error in enumeration list syntax");
+			skip();
+			continue;
+		}
+		sp = deflookup(SL_VAR, LL_EXT);
+		lex();
+		if (s == ASSIGN) {
+			lex();
+			newtree(sizeof(TREE));
+			++ininit;
+			emv = iconexpr();
+			--ininit;
+		}
+		if (emv > emvmax)
+			emvmax = emv;
+		ip = newinfo(ip, sp);
+		sp = declare(sp, C_MOE, 0, NULL, NULL, 0, emv);
+		++emv;
+		if (s == RBRACE)
+			break;
+		mustbe(COMMA);
+	}
+	if (s == RBRACE)
+		lex();
+	ip->i_type = emvmax>MAXUCE ? T_INT : T_UCHAR;
+	if (tsp != NULL)
+		tsp = declare(tsp, C_ETAG, 0, NULL, ip, 0);
+	*at = T_ENUM;
+	*aip = ip;
+}
+
+/*
+ * Read a function prototype declaration.
+ * '*aokp' indicates whether the storage class of the parent declarator
+ * and the position of the parenthesized list is appropriate for the
+ * formal parameter list of an actual function definition.
+ * '*adp' is where the function prototype DIM should be stored.
+ */
+gproto(aokp, adp) register int *aokp; register DIM **adp;
+{
+	register SYM *ap;
+	if (*aokp==1) {
+		nargs = 0;
+		if (s != RPAREN)
+			for (;;) {
+				if (s != ID) {
+					cerror("argument list has incorrect syntax");
+					break;
+				}
+				if (nargs >= NARGS)
+					cfatal("too many arguments");
+				ap = deflookup(SL_VAR, LL_ARG);
+				ap = declare(ap, C_ARG, T_INT,
+					           NULL, NULL, 0);
+				args[nargs++] = ap;
+				lex();
+				if (s != COMMA)
+					break;
+				lex();
+			}
+		*aokp = 0;
+	}
+	*adp = tackdim(*adp, D_FUNC, (sizeof_t)0);
+}
+
+/*
+ * Tack a DIM structure onto the end
+ * of the dimension list associated with "dp".
+ */
+DIM *
+tackdim(dp, t, b)
+DIM	*dp;
+int	t;
+sizeof_t b;
+{
+	register DIM	*dp1, *dp2;
+
+	dp1 = (struct dim *) new(sizeof(struct dim));
+	dp1->d_dp = NULL;
+	dp1->d_type = t;
+	dp1->d_bound = b;
+	if ((dp2 = dp) == NULL)
+		return (dp1);
+	while (dp2->d_dp != NULL)
+		dp2 = dp2->d_dp;
+	dp2->d_dp = dp1;
+	return (dp);
+}
+
+/*
+ * Release a DIM chain.
+ */
+dropdim(dp)
+register DIM	*dp;
+{
+	if (dp != NULL) {
+		dropdim(dp->d_dp);
+		free((char *) dp);
+	}
+}
+
+/*
+ * Duplicate a DIM chain.
+ */
+DIM *
+dupldim(dp)
+register DIM	*dp;
+{
+	register DIM	*np;
+
+	if (dp == NULL)
+		return (NULL);
+	np = (struct dim *) new(sizeof(struct dim));
+	np->d_dp = dupldim(dp->d_dp);
+	np->d_type = dp->d_type;
+	np->d_bound = dp->d_bound;
+	return (np);
+}
+
+/*
+ * Append a symbol to a struct/union/enum information array.
+ * Grow the array if necessary and possible.
+ */
+INFO *
+newinfo(ip, sp)
+register INFO	*ip;
+SYM	*sp;
+{
+	register INFO	*tip;
+	register int	i;
+
+	i = ip->i_nsp;
+	if ((i % 16) == 0) {
+		tip = ip;
+		ip = (INFO *) new(sizeof(INFO) + (i+16) * sizeof(SYM *));
+		ip->i_refc = tip->i_refc;
+		ip->i_data = tip->i_data;
+		ip->i_nsp = i;
+		while (--i >= 0)
+			ip->i_sp[i] = tip->i_sp[i];
+		free((char *) tip);
+		i = ip->i_nsp;
+	}
+	ip->i_sp[i] = sp;
+	ip->i_nsp += 1;
+	return (ip);
+}
+
+/*
+ * Read an array bound.
+ * An array bound is a constant expression.
+ * It may be inside a cast, so save and restore the tree allocate pointer.
+ * If signed, give an error if the bound is less than 0.
+ * Call the machine dependent size check routine for upper bound check.
+ */
+sizeof_t getbound()
+{
+	register TREE	*tp;
+	extern TREE	*expr();
+	register int	t;
+	register long	bound;
+	TREE		*tmp;
+
+	tmp = talloc();
+	tp = expr();
+	treset(tmp);
+	if (tp->t_op == ICON)
+		bound = tp->t_ival;
+	else if (tp->t_op == LCON)
+		bound = tp->t_lval;
+	else if (tp->t_op == ZCON)
+		bound = tp->t_zval;
+	else {
+		cerror("array bound must be a constant");
+		return (0);
+	}
+	t = tltype(tp);
+	if ((t==T_CHAR || t==T_SHORT || t==T_INT || t==T_LONG)
+	&& bound < 0) {
+		cerror("array bound must be positive");
+		return (0);
+	}
+	return (szcheck(bound, 1, "array bound"));
+}
+
+/*
+ * The SYM 'sp' has storage class C_STAG or C_UTAG.
+ * A new declaration has been encountered which is of the wrong class.
+ * Print a diagnostic giving the name of the tag and its previous class.
+ */
+tagmismatch(sp)
+register SYM	*sp;
+{
+	register char	*p;
+
+	p = (sp->s_class == C_UTAG) ? "union" : "structure";
+	cerror("\"%s\" is a %s tag", sp->s_id, p);
+}
+
+/*
+ * Read a cast.
+ * Return a pointer to a CAST tree node,
+ * or NULL if not a legal cast.
+ */
+TREE *
+cast()
+{
+	register TREE	*tp;
+	DIM		*dp;
+	INFO		*ip;
+	DIM		*cast1();
+	int		rf;
+	int 		c, t;
+
+	gcandt(&c, &t, &dp, &ip, &rf);
+	if (c==C_NONE && t==T_NONE && rf==0)
+		return (NULL);
+	if (rf != 0 || c != C_NONE)
+		cerror("storage class not allowed in cast");
+	if (t == T_NONE) {
+		cerror("type required in cast");
+		t = T_INT;
+	}
+	dp = cast1(dp);
+	if (t==T_VOID && dp!=NULL && !isfunction(dp)) {
+		cerror("illegal use of void type in cast");
+		t = T_INT;
+	}
+	mustbe(RPAREN);
+	tp = talloc();
+	tp->t_op = CAST;
+	tp->t_type = t;
+	tp->t_dp = dp;
+	tp->t_ip = ip;
+	return (tp);
+}
+
+/* this is the cast version of gdecl() */
+DIM *
+cast1(tdp)
+DIM	*tdp;
+{
+	register DIM	*dp;
+	register sizeof_t b;
+	DIM		*cast2();
+
+	while (s == CONST || s == VOLATILE) {
+		lex();
+	}
+	if (s == MUL) {
+		lex();
+		dp = cast2(cast1(NULL), D_PTR, (sizeof_t)0);
+	} else {
+		dp = NULL;
+		if (s == LPAREN) {
+			lex();
+			if (s != RPAREN) {
+				dp = cast1(NULL);
+				mustbe(RPAREN);
+			} else {
+				lex();
+				dp = cast2(dp, D_FUNC, (sizeof_t)0);
+			}
+		}
+	again:
+		if (s == LPAREN) {
+			DIM *tdp;
+			lex();
+			tdp = dp;
+			cproto(&tdp);
+			dp = tdp;
+			mustbe(RPAREN);
+			goto again;
+		}
+		if (s == LBRACK) {
+			lex();
+			b = 0;
+			if (s != RBRACK)
+				b = getbound();
+			mustbe(RBRACK);
+			dp = cast2(dp, D_ARRAY, b);
+			goto again;
+		}
+	}
+	while (tdp != NULL) {
+		dp = cast2(dp, tdp->d_type, tdp->d_bound);
+		tdp = tdp->d_dp;
+	}
+	return (dp);
+}
+
+/* this is the cast version of tackdim() */
+DIM *
+cast2(dp, t, b)
+DIM	*dp;
+int	t;
+sizeof_t b;
+{
+	register DIM	*dp1, *dp2;
+
+	dp1 = (struct dim *) talloc();
+	dp1->d_dp = NULL;
+	dp1->d_type = t;
+	dp1->d_bound = b;
+	if ((dp2 = dp) == NULL)
+		return (dp1);
+	while (dp2->d_dp != NULL)
+		dp2 = dp2->d_dp;
+	dp2->d_dp = dp1;
+	return (dp);
+}
+
+cproto(adp) DIM **adp;
+{
+	*adp = cast2(*adp, D_FUNC, (sizeof_t)0);
+}
+

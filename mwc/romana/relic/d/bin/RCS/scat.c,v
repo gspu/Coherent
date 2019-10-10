@@ -1,0 +1,960 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     91.05.13.13.29.29;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.04.14.54.03;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver. prov. by stevesf.
+@
+
+
+1.2
+log
+@supports -1 (changed by epstein)
+@
+text
+@
+
+
+
+#include	"stdio.h"
+#include	<sgtty.h>
+
+/*
+ * tunables
+ */
+#define	NAV	20
+#define	NINVOKE	5
+#define	LBSIZE	256
+#define	HOTZONE	10
+/*
+ */
+
+#define	SCAT	0
+#define	NOSCAT	(!SCAT)
+#define	not_a_tty	(!is_a_tty)
+
+#define	NUL	'\0'
+#define	EOT	'\4'
+#define	BS	'\b'
+#define	HT	'\t'
+#define	NL	'\n'
+#define	FF	'\f'
+#define	CR	'\r'
+#define	ESC	'\33'
+#define	SP	' '
+#define	DEL	'\177'
+#define	ASC	0177
+
+/*
+ * Kludge around a bug in
+ * sgtty.h file
+ */
+#define	CR2	0
+#define	FF1	0
+
+
+typedef char	*arg_t;			/* argument string */
+typedef char	**argp_t;		/* pointer to the above */
+
+
+/*
+ * The flags structure that stores the command options.
+ */
+struct flags {
+	int		f_modes;	/* mode bits */
+	long		f_seekoff;	/* seek into file before scatting */
+	unsigned	f_length,	/* page length */
+			f_width;	/* page width */
+	int		f_lineoff,	/* starting scatting at this line */
+			f_inset;	/* shift display window right */
+};
+
+/* f_modes
+ */
+#define	M_TRUNC		01		/* truncate lines */
+#define	M_CTL		02		/* display unambiguously: */
+#define	M_CTLSP		04		/* 	map spaces to '_' */
+#define	M_CTLHT		010		/*	print literal tabs, not ^I */
+#define	M_SQUASH	020		/* squash empty lines */
+#define	M_XPAND		040		/* expand tabs */
+#define	M_REMOTE	0100		/* don't hold pages */
+#define	M_NUMBER	0200		/* number input lines */
+#define	M_ONEFILE	0400		/* If one file, don't stop at EOF */
+
+
+extern struct flags	flags;
+
+/*
+ * The invoke structure defines what filenames invoke what options.
+ */
+struct invoke {
+	char	*i_suffix;
+	argp_t	i_arglist;
+};
+/* Fix me */
+extern struct invoke	invoke[NINVOKE];
+extern struct invoke	*pinvoke;
+
+argp_t	process( );
+char	*getenv( );
+long	atol( );
+
+extern struct sgttyb	tty;			/* saved state of tty */
+extern struct sgttyb	tty2;
+extern struct sgttyb	ttytek;
+extern unsigned	line;			/* input line in current file */
+extern unsigned	column;
+extern unsigned	xcolumn;
+extern int	is_a_tty;		/* 1 if output is_a_tty, else 0 */
+extern int	ttyzapped;		/* !0 if tty modes were changed */
+#include	<signal.h>
+
+
+extern char	*getenv( );
+
+struct invoke	*pinvoke	= invoke;
+struct invoke	invoke[NINVOKE];
+struct flags	flags;
+struct sgttyb	tty;
+struct sgttyb	tty2;
+struct sgttyb	ttytek;
+unsigned	line;
+unsigned	column;
+unsigned	xcolumn;
+int		is_a_tty;
+int		ttyzapped;
+
+int		filecount = 0;
+
+char		*firstfile = NULL;
+struct flags	firstflags;
+
+main( argc, argv)
+argp_t	argv;
+{
+	static struct flags	flgs;
+	arg_t	av[NAV];
+	char	ibuf[BUFSIZ],
+		obuf[BUFSIZ];
+
+	setbuf( stdin, ibuf);
+	setbuf( stdout, obuf);
+	init( &flgs);
+	envargs( av);
+
+	process( av, &flgs, SCAT);
+	process( &argv[1], &flgs, SCAT);
+	if (filecount <= 1)
+		scat( NULL, &flgs);
+	fflush( stdout);
+	finis( 0);
+}
+
+
+init( fp)
+register struct flags	*fp;
+{
+	int	finis( );
+	register char *p;
+
+	fp->f_length = 24;
+	fp->f_width = 80;
+	if (ioctl( 1, TIOCGETP, &tty) == 0) {
+		++is_a_tty;
+		tty2 = tty;
+		tty2.sg_flags |= CBREAK;
+		tty2.sg_flags &= ~ECHO;
+		p = getenv("TERM");
+		if (p!=NULL && strcmp("4012", p)==0) {
+			ttytek = tty;
+			ttytek.sg_flags |= CR2;
+			ttytek.sg_flags &= ~FF1;
+			fp->f_length = 34;
+			fp->f_width = 72;
+		}
+	}
+	if (signal( SIGINT, SIG_IGN) == SIG_DFL)
+		signal( SIGINT, finis);
+}
+
+
+envargs( av)
+argp_t	av;
+{
+	register	fl;
+	register char	*p;
+	register argp_t	ap;
+
+	ap = av;
+	*ap = NULL;
+	if ((p=getenv( "SCAT")) == NULL)
+		return;
+
+	fl = 0;
+	while (*p)
+		switch (*p++) {
+		case HT:
+		case NL:
+		case SP:
+			fl = 0;
+			p[-1] = NUL;
+			break;
+		default:
+			if (fl)
+				break;
+			if (ap >= &av[NAV-1])
+				fatal( "too many env args", NULL);
+			*ap++ = &p[-1];
+			++fl;
+			break;
+		}
+
+	*ap = NULL;
+}
+
+
+argp_t
+process( av, fp, fl)
+register argp_t	av;
+register struct flags	*fp;
+{
+	register char	*p;
+	struct flags	junkflags;
+
+	while (av[0]) {
+		if (av[0][0] != '-') {
+			if (fl != SCAT)
+				return (av);
+			scat( av++[0], fp);
+			++filecount;
+			continue;
+		}
+		switch (av[0][1]) {
+		case 't':
+			fp->f_modes |= M_TRUNC;
+			break;
+		case 'c':
+			p = av[0]+2;
+			for (; ; ) {
+				switch (*p++) {
+				case NUL:
+					fp->f_modes |= M_CTL;
+					break;
+				case 't':
+					fp->f_modes |= M_CTLHT;
+					continue;
+				case 's':
+					fp->f_modes |= M_CTLSP;
+					continue;
+				default:
+					fatal( "no such sub-options ", av[0]);
+				}
+				break;
+			}
+			break;
+		case 's':
+			fp->f_modes |= M_SQUASH;
+			break;
+		case 'x':
+			fp->f_modes |= M_XPAND;
+			break;
+		case 'n':
+			fp->f_modes |= M_NUMBER;
+			break;
+		case '1':
+			fp->f_modes |= M_ONEFILE;
+			break;
+		case 'l':
+			fp->f_length = atol( &av[0][2]);
+			break;
+		case 'w':
+			fp->f_width = atol( &av[0][2]);
+			break;
+		case 'S':
+			fp->f_seekoff = atol( &av[0][2]);
+			break;
+		case 'b':
+			fp->f_lineoff = atol( &av[0][2]);
+			break;
+		case 'i':
+			fp->f_inset = atol( &av[0][2]);
+			break;
+		case 'r':
+			fp->f_modes |= M_REMOTE;
+			break;
+		case '.':
+			if (fl != SCAT)
+				return (av);
+			if (pinvoke == &invoke[NINVOKE])
+				fatal( "too many invokes", NULL);
+			pinvoke->i_suffix = &av[0][1];
+			pinvoke->i_arglist = &av[1];
+			++pinvoke;
+			av = process( &av[1], &junkflags, NOSCAT);
+			continue;
+		case '-':
+			return (&av[1]);
+		default:
+			fatal( "no such switch ", av[0]);
+		}
+		++av;
+	}
+	return (av);
+}
+
+
+fatal( arg1, arg2)
+char	*arg1,
+	*arg2;
+{
+
+	fflush( stdout);
+	prs( "scat: ");
+	prs( arg1);
+	prs( arg2);
+	prs( "\n");
+	finis( 1);
+}
+
+
+finis( status)
+{
+
+	signal( SIGINT, SIG_IGN);
+	if (ttyzapped)
+		ioctl( 1, TIOCSETP, &tty);
+	_exit( status);
+}
+
+
+#include	<errno.h>
+
+
+char	newline[]	= "\n";
+
+int	(*getline)( ),
+	getl1( ), getl2( ), getl3( );
+	puts1( ), puts2( );
+
+scat( file, fp)
+register char	*file;
+struct flags	*fp;
+{
+	register	i;
+	register char	*p;
+	struct invoke	*ip;
+	FILE	*creopen( );
+	char	*nconv( );
+	extern	errno;
+	int	(*puts)( );
+	char	c;
+	int	len;
+	static int norecurs = 0;
+
+	if ( (filecount == 0) && (file != NULL) ) {
+		firstfile = file;
+		firstflags = *fp;
+		return;
+	} else if ( (filecount == 1) && (norecurs == 0) ) {
+		norecurs = 1;
+		if ( file != NULL ) {
+			firstflags.f_modes &= ~M_ONEFILE;
+			fp->f_modes &= ~M_ONEFILE;
+		}
+		scat( firstfile, &firstflags);
+		if ( file == NULL )
+			return;
+	}
+
+	flags = *fp;
+
+	if (file != NULL) {
+		if (creopen( file) == NULL) {
+			p = "can't find ";
+			if (errno == EACCES)
+				p = "no permission on ";
+			fatal( p, file);
+		}
+	}
+	else
+		file = "[stdin].";
+
+	for (p=file; *p++; )
+		;
+	do {
+		if (*--p == '.') {
+			for (ip=invoke; ip<pinvoke; ++ip)
+				if (strcmp( p, ip->i_suffix) == 0)
+					process( ip->i_arglist, &flags, NOSCAT);
+			break;
+		}
+	} while (p > file);
+
+	if (flags.f_modes & M_NUMBER)
+		flags.f_width -= 8;
+	flags.f_width += flags.f_inset;
+	if (flags.f_width-8 >= LBSIZE)
+		fatal( "page width don't jive", NULL);
+	getline = getl1;
+	if (flags.f_modes & M_TRUNC)
+		getline = getl2;
+	if (flags.f_modes & M_CTL)
+		getline = getl3;
+	puts = puts1;
+	if (flags.f_modes & M_XPAND)
+		puts = puts2;
+
+	if (flags.f_seekoff)
+		lseek( 0, flags.f_seekoff, 0);
+	for (line=1; line<flags.f_lineoff; ++line)
+		while ((i=getchar( )) != NL)
+			if (i < 0)
+				return;
+
+	i = flags.f_length;
+	while (len=page( i, puts)) {
+		if ( (len < i) && (flags.f_modes&M_ONEFILE) ) {
+			putchar( NL);
+			break;
+		}
+		if (is_a_tty && (flags.f_modes&M_REMOTE)==0) {
+			fflush( stdout);
+			if (ttyzapped == 0) {
+				++ttyzapped;
+				ioctl( 1, TIOCSETN, &tty2);
+			}
+			for (; ; ) {
+				if (read( 2, &c, 1) <= 0)
+					finis( 0);
+				switch (c) {
+				case EOT:
+				case 'q':
+					prs( newline);
+					finis( 0);
+				case NL:
+					i = flags.f_length;
+					break;
+				case '/':
+					if (ttytek.sg_flags)
+						goto dfault;
+					i = flags.f_length/2 + 1;
+					break;
+				case SP:
+					if (ttytek.sg_flags)
+						goto dfault;
+					i = 1;
+					break;
+				case 'n':
+					prs( newline);
+					return;
+				case 'f':
+					prs( newline);
+					prs( file);
+					prs( nconv( line-1));
+					continue;
+				default:
+				dfault:
+					prs( "\7");
+					continue;
+				}
+				break;
+			}
+		}
+		putchar( NL);
+	}
+}
+
+
+page( length, puts)
+int	(*puts)( );
+{
+	register char	*p;
+	register	i,
+			nflg;
+	int	l;
+	static char	lbuf[LBSIZE];
+	char		*nconv( );
+
+	nflg = 0;
+	l = length;
+	do {
+		p = lbuf;
+		i = (*getline)( p);
+		if (i < 0)
+			break;
+
+		p += flags.f_inset;
+		if (p >= &lbuf[i] && flags.f_modes&M_SQUASH) {
+			++l;
+			if (lbuf[i] == NL)
+				++line;
+			continue;
+		}
+
+		if (l != length)
+			putchar( NL);
+		else if (ttytek.sg_flags)
+			erase( );
+		column = xcolumn = 0;
+		if (flags.f_modes & M_NUMBER)
+			if (nflg)
+				(*puts)( "        ", 8);
+			else {
+				(*puts)( nconv( line), 5);
+				(*puts)( ":  ", 3);
+				++nflg;
+			}
+		if (lbuf[i] == NL) {
+			++line;
+			nflg = 0;
+		}
+		if ((*puts)( p, &lbuf[i]-p))
+			continue;
+	} while (--l);
+
+	return (length - l);
+}
+
+
+
+
+getl1( lbuf)
+register char	*lbuf;
+{
+	register	i,
+			c;
+
+	i = 0;
+	while ((c=cread( )) >= 0) {
+		if (c == NL)
+			break;
+		if (c == HT)
+			if ((i|7)+1 <= flags.f_width) {
+				do
+					lbuf[i++] = SP;
+				while (i & 7);
+				continue;
+			}
+			else
+				;	/* overflow */
+		else if (c == FF)
+			continue;
+		else if (i < flags.f_width) {
+			lbuf[i++] = c;
+			continue;
+		}
+
+		/* line overflow condition */
+		i = overflow( lbuf, i, c);
+		c = NUL;
+		break;
+	}
+
+	lbuf[i] = c;
+	if (i==0 && c<0)
+		return (-1);
+	return (i);
+}
+
+
+getl2( lbuf)
+register char	*lbuf;
+{
+	register	i,
+			c;
+
+	i = 0;
+	while ((c=cread( )) >= 0) {
+		if (c == NL)
+			break;
+		if (c == HT)
+			do {
+				if (i < flags.f_width)
+					lbuf[i] = SP;
+			} while (++i & 7);
+		else if (c == FF)
+			continue;
+		else if (i < flags.f_width)
+			lbuf[i++] = c;
+		else
+			i += 2;
+		if (i > flags.f_width) {
+			while ((c=cread( )) >= 0)
+				if (c == NL)
+					break;
+			i = flags.f_width;
+			break;
+		}
+	}
+
+	lbuf[i] = c;
+	if (i==0 && c<0)
+		return (-1);
+	return (i);
+}
+
+
+getl3( lbuf)
+register char	*lbuf;
+{
+	register	i,
+			c;
+
+	i = 0;
+	while ((c=getchar( )) >= 0) {
+		if (c == NL)
+			break;
+		if (c & ~ASC) {
+			lbuf[i++] = '~';
+			c &= ASC;
+		}
+		if (c==HT && flags.f_modes&M_CTLHT)
+			do {
+				if (i < flags.f_width)
+					lbuf[i] = SP;
+			} while (++i & 7);
+		else if (c<SP || c==DEL) {
+			lbuf[i++] = '^';
+			lbuf[i++] = c + '@@';
+		} else {
+			switch (c) {
+			case SP:
+				if (flags.f_modes & M_CTLSP)
+					c = '_';
+				break;
+			case '_':
+				if ((flags.f_modes&M_CTLSP) == 0)
+					break;
+			case '~':
+			case '^':
+			case '\\':
+				lbuf[i++] = '\\';
+				break;
+			}
+			lbuf[i++] = c;
+		}
+		if (i+3 >= flags.f_width) {
+			lbuf[i++] = '\\';
+			c = NUL;
+			break;
+		}
+	}
+
+	lbuf[i] = c;
+	if (i==0 && c<0)
+		return (-1);
+	return (i);
+}
+
+
+#define	alphanumeric( c)	(alphnum[c>>3&017] & bitmask[c&7])
+char	alphnum[] = {
+	0000, 0000, 0000, 0000, 0000, 0000, 0377, 0300,
+	0177, 0377, 0377, 0351, 0177, 0377, 0377, 0340
+};
+char	bitmask[] = {
+	0200, 0100, 0040, 0020, 0010, 0004, 0002, 0001
+};
+
+
+overflow( lbuf, pos, c)
+register char	*lbuf;
+register	pos;
+{
+	register	i;
+
+	uncread( c);
+	if (pos == flags.f_width)	/* ***THINK ABOUT THOSE LIMITS*** */
+		c = uncread( lbuf[--pos]);
+
+	for (i=pos; i>HOTZONE && i>pos-HOTZONE; ) {
+		--i;
+		if (!alphanumeric( lbuf[i])) {
+			for (++i; pos>i; )
+				uncread( lbuf[--pos]);
+			break;
+		}
+	}
+
+	lbuf[pos++] = '\\';
+	return (pos);
+}
+
+
+puts1( p, n)
+register char	*p;
+register	n;
+{
+	register	i;
+
+	while (--n >= 0)
+		if (*p++ == SP)
+			++xcolumn;
+		else {
+			if (xcolumn > column) {
+				while (i=(column|7)+1, i<=xcolumn) {
+					putchar( HT);
+					column = i;
+				}
+				while (column < xcolumn) {
+					putchar( SP);
+					++column;
+				}
+			}
+			putchar( p[-1]);
+			xcolumn = ++column;
+		}
+
+	return (0);
+}
+
+
+puts2( p, n)
+register char	*p;
+register	n;
+{
+
+	while (--n >= 0)
+		putchar( *p++);
+
+	return (0);
+}
+
+
+
+
+#define	CQSIZE	256
+#define	CQMASK	(CQSIZE-1)
+
+#define	chr( i)	(cbuf[i&CQMASK])
+
+
+unsigned	get,
+		cnt,
+		cntmax,
+		eof;
+char	cbuf[CQSIZE];
+
+
+FILE	*
+creopen( file)
+char	*file;
+{
+	register char	*p;
+	FILE	*freopen( );
+
+	cnt = 0;
+	cntmax = 0;
+	eof = 0;
+	for (p=cbuf; p<cbuf+CQSIZE; )
+		*p++ = NUL;
+	return (freopen( file, "r", stdin));
+}
+
+
+uncread( c)
+{
+
+	chr( --get) = c;
+	++cnt, ++cntmax;
+	return (c);
+}
+
+
+
+
+#define	CQSIZE	256
+#define	CQMASK	(CQSIZE-1)
+
+
+
+
+cread( )
+{
+	register	c;
+
+	if ( ! eof)
+		while (cntmax < CQSIZE-HOTZONE) {
+			if ((c=getchar( )) < 0) {
+				++eof;
+				break;
+			}
+			switch (c &= ASC) {
+			case BS:
+				if (cnt && cbuf[get+cnt-1&CQMASK] != NL)
+					--cnt;
+				continue;
+			case ESC:
+				c = '$';
+				goto dfault;
+			case CR:
+				while (cnt && cbuf[get+cnt-1&CQMASK] != NL)
+					--cnt;
+				continue;
+			case NL:
+				cnt = cntmax;
+				goto dfault;
+			case '_':
+				switch (cbuf[get+cnt&CQMASK]) {
+				case NUL:
+				case SP:
+					goto dfault;
+				}
+				break;
+			case SP:
+				if (cbuf[get+cnt&CQMASK])
+					break;
+			default:
+			dfault:
+				cbuf[get+cnt&CQMASK] = c;
+				break;
+			}
+			if (++cnt > cntmax)
+				++cntmax;
+		}
+
+	if (eof) {
+		if (cntmax == 0)
+			return (-1);
+	}
+	--cnt;
+	--cntmax;
+	c = cbuf[get&CQMASK];
+	cbuf[get++&CQMASK] = 0;
+	return (c);
+}
+
+
+
+
+prs( s)
+register char	*s;
+{
+	register char	*p;
+
+	if ((p=s) == NULL)
+		return;
+	while (*p++)
+		;
+	write( 2, s, p-s-1);
+}
+
+
+long
+atol( p)
+char	*p;
+{
+	register	c,
+			radix,
+			pow;
+	long	l;
+
+	radix = 10;
+	if (*p == '0')
+		radix = 8;
+	pow = 0;
+	l = 0;
+
+	for (; ; ) {
+		c = *p++;
+		if (c == 'b') {
+			pow = 9;
+			break;
+		}
+		if (c == 'k') {
+			pow = 10;
+			break;
+		}
+		c -= '0';
+		if ((unsigned)c > 9)
+			break;
+		l = l*radix + c;
+	}
+
+	return (l << pow);
+}
+
+
+char	*
+nconv( u)
+register unsigned	u;
+{
+	register char	*p;
+	static char	nbuf[]	= "12345   ";
+
+	for (p=nbuf+5;
+		p>nbuf;
+		u=u/10)
+		if (u)
+			*--p = u%10 + '0';
+		else
+			*--p = ' ';
+
+	return (p);
+}
+
+
+erase( )
+{
+	register char	*p;
+
+	fflush( stdout);
+	++ttyzapped;
+	ioctl( 1, TIOCSETP, &ttytek);
+	for (p="\33\f\r\r\r"; *p; )
+		putchar( *p++);
+	fflush( stdout);
+	ioctl( 1, TIOCSETP, &tty);
+	ttyzapped = 0;
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d68 1
+d113 1
+a113 1
+int	filecount;
+d115 2
+d133 2
+a134 3
+	if (filecount == 0)
+		scat( (char *)0, &flgs);
+
+d192 1
+a192 1
+				fatal( "too many env args", (char *)0);
+d250 3
+d275 1
+a275 1
+				fatal( "too many invokes", (char *)0);
+d337 2
+d340 15
+d357 1
+a357 1
+	if (file) {
+d383 1
+a383 1
+		fatal( "page width don't jive", (char *)0);
+d401 5
+a405 1
+	while (page( i, puts)) {
+@

@@ -1,0 +1,360 @@
+.TH "hard disk" "" "" "Technical Information"
+.PC
+.PP
+The hard disk is the primary means of storing and accessing data under
+the \*(CO system.
+This article introduces some aspects of the \*(CO system that affect
+the care and feeding of your hard disk.
+.SH "Device Drivers"
+The \*(CO system comes with two drivers for hard disks:
+the
+.B at
+drivers, for AT-style hard disks (i.e., IDE, ESDI, MFM, or RLL disks);
+and
+.BR hai ,
+for the SCSI family of hard disks.
+.B hai
+is a host adapter-independent SCSI driver and also supports SCSI devices
+other than hard disks, e.g., SCSI tape.
+which is the old-style driver for Adaptec SCSI devices.
+For details on each driver, see its entry in the Lexicon.
+.PP
+.II "hard disk^enable or disable"
+The following describes how to enable or disable a given hard-disk driver
+in your kernel.
+To disable a hard-drive controller, log in as the superuser
+.B root
+and then execute the following commands:
+.DM
+	cd /etc/conf
+	bin/idenable -d \fIdisk_driver\fP
+	bin/idmkcoh -o /\fIkernel_name\fP
+.DE
+.PP
+where
+.I kernel_name
+is the name you wish to give to the new kernel, and
+.I disk_driver
+is one of \fBat\fR, \fBaha\fR, \fBss\fR, or \fBhai\fR.
+.PP
+To enable a hard disk, again log in as
+.BR root ;
+then type the following commands:
+.DM
+	cd /etc/conf
+	bin/idenable -e \fIdisk_driver\fP
+	# if you are installing the hai driver:
+	# hai/mkdev
+	bin/idmkcoh -o /\fIkernel_name\fP
+.DE
+.PP
+where
+.I disk_driver
+is one of \fBat\fR, \fBaha\fR, \fBss\fR, or \fBhai\fR.
+.SH Partitioning
+.II "hard disk^partitioning"
+.II fdisk
+The \*(CO command
+.B fdisk
+displays information about how your hard disk is currently configured.
+You can also use it to repartition your hard disk and reassign partitions
+from \*(MD to \*(CO, or vice versa.
+.PP
+This is an extremely powerful command, with which you can create
+much mayhem on your system.
+Like any powerful tool, it should be treated carefully and with respect.
+See the article on
+.B fdisk
+in the Lexicon for details on how to use this command.
+.PP
+Partitioning your hard drive can be an uncomplicated procedure.
+We offer these guidelines in an effort to make it as simple as possible.
+Before attempting any
+partitioning you should first back-up all the data currently on your hard drive.
+If you do not do this you risk losing data permanently.
+You should also know
+the correct physical parameters of your hard drive.
+This information can be
+obtained from your machine documentation or from the drive manufacturer.
+It is best not to rely on the parameters given in the BIOS:
+these may be translation parameters.
+.PP
+If your drive is formatted for \*(MD,
+it is advisable to run \*(MD \fBfdisk\fR before you
+start to install \*(CO.
+If the whole drive is taken up by DOS partitions, you
+must use \*(MD \fBfdisk\fR to create a non-DOS area on the drive.
+It is not sufficient to have an empty \*(MD logical
+drive set aside for \*(CO.
+\*(CO does not
+recognize \*(MD logical drives, it only sees the whole partition.
+The following diagram shows the way the \*(MD \fBfdisk\fR sees your drive:
+.ie p .PH 1 1 \\*(XD/harddisk.eps
+.el \{
+.ie \n(HT .PH harddisk.xbm
+.el \{
+.DM
+        ===========================
+        |    DOS Root Partition   |
+        |=========================|
+        |  DOS Extended Partition |
+        |=========================|
+        |  =====================  |
+        |  |  Logical Drive 1  |  |
+        |  =====================  |
+        | - - - - - - - - - - - - |
+        |  =====================  |
+        |  |  Logical Drive 2  |  |
+        |  =====================  |
+        | - - - - - - - - - - - - |
+        |  =====================  |
+        |  |  Logical Drive 3  |  |
+        |  =====================  |
+        ===========================
+.DE\}
+\}
+.PP
+And the following diagram shows the way the
+\*(CO \fBfdisk\fR sees your drive:
+.ie p .PH 1 1 \\*(XD/harddisk2.eps
+.el \{
+.ie \n(HT .PH harddisk2.xbm
+.el \{
+.DM
+        ===========================
+        |    DOS Root Partition   |
+        |=========================|
+        |                         |
+        |                         |
+        | DOS Extended Partition  |
+        |                         |
+        |                         |
+        ===========================
+.DE\}
+\}
+.PP
+If you use \*(CO \fBfdisk\fR
+to repartition \*(MD space, you risk causing \*(MD \fBfdisk\fR to hang.
+One further word of warning.
+If you have an automated disk formatting
+and partitioning utility on your \*(MD partition
+such as Disk Manager or Speedstor,
+you should operate it in ``manual'' mode, not in ``automatic''.
+.PP
+Some hard drives have more than 1,024 cylinders.
+\*(CO can only recognize a drive up to this limit.
+You may have a utility such as Speedstor that allows
+you to place \*(MD partitions beyond that boundary.
+\*(CO will not see those partitions,
+but you can still access them as usual through \*(MD.
+.PP
+When partitioning a drive with more than 1,024 cylinders,
+be sure to run the partitioning utility before you start to install \*(CO.
+You should create a non-DOS partition that falls
+completely within the 1,022-cylinder boundary.
+Your next \*(MD partition should start no sooner than the 1,026th cylinder. 
+.SH "Adding a COHERENT Partition"
+The following describes how to add a new \*(CO partition on your hard disk.
+.PP
+.II badscan
+.II chmod
+.II chown
+.II fsck
+.II mkfs
+.II mount
+During your initial installation of \*(CO, the installation
+program handled the details of preparing your hard disk for \*(CO.
+Adding a partition after the system is installed is not difficult,
+but it requires that you understand the operation of the following commands:
+.BR badscan ,
+.BR chmod ,
+.BR chown ,
+.BR fdisk ,
+.BR fsck ,
+.BR mkfs ,
+and
+.BR mount .
+See the Lexicon articles for each of these commands for further information
+before you attempt to add a partition.
+.PP
+In general, the following steps are required when creating a partition
+for use by \*(CO.
+Please note that you must not change the size of your existing root
+partition, or you may no longer be able to boot \*(CO from the
+hard disk.
+.IP \fB1.\fR 0.3i
+Completely back up all partitions on your hard disk.
+Be sure to back up the \*(CO partitions, as well as any non-\*(CO
+partitions (e.g., those for \*(MD or OS/2).
+Verify that your backups are
+.I readable
+and
+.I correct.
+.IP \fB2.\fR
+Log in as the superuser
+.BR root .
+.II shutdown
+Make sure all other users are off the system; then
+invoke the command
+.BR /etc/shutdown .
+This shuts down \*(CO and returns the system to single-user mode.
+.II sync
+Type the command
+.B sync
+to flush all buffers.
+.IP \fB3.\fR
+Invoke the \*(CO command
+.B fdisk
+and add the \*(CO partition to your disk, as described above.
+Be sure to write down the device name associated with your new partition
+(e.g., \fB/dev/at0c\fR) and its size.
+.IP \fB4.\fR
+The command
+.B badscan
+checks the device for bad blocks.
+If your partition resides on a non-SCSI device, run the command
+.B badscan
+as follows:
+.DM
+	/etc/badscan -v -o /conf/proto.\fIdevice raw_device xdevice\fP
+.DE
+.IP
+where
+.I device
+specifies the four-character block-special device name for the
+partition (e.g., \fBat0c\fR),
+.I raw_device
+is the full device path name for the character-special device associated with
+the partition (e.g., \fB/dev/rat0c\fR), and
+.I xdevice
+names the partition-table device for the disk drive (e.g.,
+\fB/dev/at0x\fR).
+.IP \fB5.\fR
+.II mkfs
+Invoke the command
+.B mkfs
+to create a \*(CO file system on the new partition, as follows:
+.DM
+	/etc/mkfs /dev/\fIdevice\fP /conf/proto.\fIdevice\fP
+.DE
+.IP
+This invocation forces
+.B mkfs
+to use the contents of the ``proto'' file that
+.B badscan
+created when it built the
+.I bad_block
+list for the new partition.
+.IP \fB6.\fR
+.II mkdir
+If need be, use the command
+.B mkdir
+to create a directory to use as a
+.I "mount point"
+for the newly created file system.
+The mount point is the directory onto which this directory's file system
+will be appended.
+Usually, this directory is located under `/',
+also called the \fIroot directory\fR.
+You can, however, mount a file system onto any directory that already exists.
+If you create a new directory (e.g., \fB/w\fR or \fB/mydir\fR),
+use the commands
+.B chown
+and
+.B chmod
+to set an appropriate ownership and mode for for the directory.
+.IP \fB7.\fR
+.II mount.all
+Edit the file
+.B /etc/mount.all
+and add a line of the following form:
+.DM
+	/etc/mount \fIdevice /mount_point\fR
+.DE
+.IP
+where
+.I device
+is the full path name of the device that specifies your new
+partition (e.g., \fB/dev/at0c\fR), and
+.I mount_point
+is the name of the directory that you
+created in the earlier step.
+.IP \fB8.\fR
+.II checklist
+Finally, edit the file
+.B /etc/checklist
+and add the character special
+device name (e.g., \fB/dev/rat0c\fR) of the new \*(CO partition to it.
+This will ensure that \*(CO will automatically run
+.B fsck
+on that partition's file system whenever you boot the system.
+This can be vital in recovering from a system crash.
+.SH "Adding Another Hard Disk"
+.II "hard disk^adding another"
+If you wish to add another hard disk to your system, you may have to run
+some low-level routines that are hardware specific.
+See the documentation that accompanies your hardware for details.
+.PP
+In brief, when you install the hard disk, you must partition it, as you
+did your original hard disk when you first installed \*(CO.
+If you wish to add non-\*(CO operating systems to one or more
+partitions, do so first; then add \*(CO to the remaining partitions,
+as described above.
+.SH "Changing the Size of the Root Partition"
+.II "partition^root, changing size of"
+.II "root partition^changing size of"
+Changing the size of your
+.B root
+file system requires that you reinstall \*(CO.
+It is strongly advised that you back up \fIall\fR partitions
+of your system before you attempt to do this.
+In addition, to reduce the time involved in restoring your data files,
+make an additional backup of all directories and files that have changed
+form your original \*(CO installation.
+The command
+.B find
+will help you locate all such files; see its
+Lexicon entry for details.
+.PP
+You should then follow the directions given in the release notes for
+installing \*(CO.
+Note that
+when you attempt to install \*(CO over an existing \*(CO partition,
+\*(CO will ask you if you are sure you know what you're doing
+before the installation procedure creates a new file system on the partition.
+Be sure to request that a new file system be created, or the installation
+will fail.
+.PP
+After installing the \*(CO distribution onto your new root partition,
+restore any data files and directories from the second set of backups that
+you performed.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "at," at
+.Xr "badscan," badscan
+.Xr "chmod," chmod
+.Xr "chown," chown
+.Xr "fdisk," fdisk
+.Xr "fsck," fsck
+.Xr "hai," hai
+.Xr "ideinfo," ideinfo
+.Xr "mkfs," mkfs
+.Xr "mount" mount
+.SH Notes
+For information on how an IDE drive is configured, use the command
+.BR ideinfo .
+For details on how to use this command, see its entry in the Lexicon.
+.PP
+.II "Norton Utilities"
+.II "partition table^rearranging"
+Some users have attempted to use Norton Utilities or similar tools to
+rearrange the partition table, only to find that \*(CO no longer boots.
+That is because the kernel has embedded within it the name of the partition
+on which it and its root file system live.
+By using Norton Utilities to shuffle the partition table, the kernel
+will no longer be able to find any of the files or utilities it needs to
+boot your system.
+If you still wish to shuffle your disk's partition table, be sure to change
+the name of the root device within the kernel
+.I before
+you change the partition table.

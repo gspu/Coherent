@@ -1,0 +1,318 @@
+/*
+ * The routines in this file deal with the declaration of names.
+ * The declaration stuff is done here; the parsing is done elsewhere.
+ */
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * This array maps function and parameter types
+ * into their defined interface types.
+ * fixtype() below knows about this table;
+ * if it changes, fixtype() might change too.
+ */
+static char xtype[] = {
+	T_NONE,				/* T_NONE,		*/
+	T_INT,		T_UINT,		/* T_CHAR,   T_UCHAR,	*/
+	T_INT,		T_UINT,		/* T_SHORT,  T_USHORT,	*/
+	T_INT,		T_UINT,		/* T_INT,    T_UINT,	*/
+	T_PTR,				/* T_PTR,		*/
+	T_LONG,		T_ULONG,	/* T_LONG,   T_ULONG,	*/
+	T_DOUBLE,	T_DOUBLE,	/* T_FLOAT,  T_DOUBLE,	*/
+	T_VOID,				/* T_VOID,		*/
+	T_STRUCT,	T_FSTRUCT,	/* T_STRUCT, T_FSTRUCT,	*/
+	T_UNION,	T_FUNION,	/* T_UNION,  T_FUNION,	*/
+	T_INT,		T_INT		/* T_ENUM,   T_FENUM	*/
+};
+
+/*
+ * Declare a variable 'sp' with class 'c', type 't' and structure info 'ip'.
+ * Many checks are made here for redeclarations and funny things.
+ * For objects of class 'C_MOE', 'x1' is the enumeration value.
+ * For objects of class 'C_MOS' and 'C_MOU',
+ * 'x1' is the field width in bits and 'x2' is the long offset in bits.
+ * 'ronlyf' passes both 'readonly' and 'alien' modifiers.
+ */
+SYM *
+declare(sp, c, t, ndp, ip, ronlyf, x1, x2)
+register SYM	*sp;
+DIM		*ndp;
+INFO		*ip;
+unsigned long	x2;
+{
+	register DIM	*dp, *xdp;
+	int		af, ff, rf;
+	int		oc, ot;
+	unsigned long	value;
+	unsigned	offs;
+
+	/*
+	 * Demote some function definitions to references.
+	 * Adjust the return type of functions returning char, short or float.
+	 * If the s_level is wrong, due to missing "extern", check
+	 * for redeclaration.
+	 */
+	if (ndp!=NULL && ndp->d_type==D_FUNC) {
+		if (c==C_AUTO || c==C_PAUTO || c==C_SIN
+		|| ((c==C_GDEF || c==C_SEX) && (s==SEMI || s==COMMA)))
+			c = C_GREF;
+		if (ndp->d_dp==NULL && ((ronlyf&S_ALIEN)==0 || t==T_FLOAT))
+			t = fixtype(t, sp, "function");
+		if (sp->s_level > LL_EXT)
+			sp = fixlevel(sp);
+	}
+	/*
+	 * Make certain that the declarator is not
+	 * forbidden by the semantics of C. The declaration
+	 * reader allows anything that exhibits correct
+	 * syntax through.
+	 */
+	if (c!=C_TYPE && t==T_VOID && !isfunction(ndp)) {
+		cerror("illegal use of \"void\" type");
+		t = T_INT;
+	}
+	af = ff = rf = 0;
+	for (dp=ndp; dp!=NULL; dp=dp->d_dp) {
+		switch (dp->d_type) {
+
+		case D_ARRAY:
+			if (ff != 0)
+				cerror("function cannot return an array");
+			if ((xdp = dp->d_dp) != NULL	/* [10][] */
+			&&   xdp->d_type == D_ARRAY
+			&&   xdp->d_bound == 0)
+				cerror("bad flexible array declaration");
+			af = 1;
+			ff = 0;
+			break;
+
+		case D_FUNC:
+			if (ff != 0)
+				cerror("function cannot return a function");
+			else if (af != 0)
+				cerror("cannot declare array of functions");
+			af = 0;
+			ff = 1;
+			break;
+
+		case D_PTR:
+			af = ff = 0;
+		}
+	}
+	if (ff!=0 && istruct(t))
+		notbook();
+	/*
+	 * Check for redeclarations.
+	 * If the old is "C_ARG" (a function parameter),
+	 * then just about any combination is ok.
+	 * The types are adjusted in consideration of the passing rules.
+	 * Other redeclarations are typechecked.
+	 */
+	ot = sp->s_type;
+	oc = sp->s_class;
+	if (oc == C_ARG) {
+		dp = ndp;
+		if (dp == NULL || isfunction(dp)) {
+			t = fixtype(t, sp, "parameter");
+			if (istruct(t))
+				notbook();
+		} else if (dp->d_type == D_ARRAY) {
+			dp->d_type = D_PTR;
+			dp->d_bound = 0;
+		} else if (dp->d_type != D_PTR)
+			cerror("functions cannot be parameters");
+	} else if (c==C_PAUTO || c==C_PREG) {
+		cerror("identifier \"%s\" is not a parameter", sp->s_id);
+		c = C_AUTO;
+	} else if ((c==C_AUTO || c==C_REG)
+	 && ndp!=NULL && ndp->d_type==D_ARRAY && ndp->d_bound==0) {
+		cerror("cannot declare flexible automatic array");
+	} else if (ot!=T_NONE && ot!=t && !ismemb(oc)) {
+		++rf;
+	} else if (oc == C_CXT) {
+		if (ndp == NULL || ndp->d_type != D_FUNC || ronlyf != 0)
+			++rf;
+	} else if (oc==C_MOE && c==C_MOE) {
+		if (sp->s_value != x1)
+			++rf;
+	} else if (ismemb(oc) && ismemb(c)) {
+		value = x2/NBPBYTE;
+		offs = x2%NBPBYTE;
+		if (doalign(t) && x1 != 0 && (value&1) != 0) {
+			--value;
+			offs += 8;
+		}
+		if (x1 != sp->s_width
+		 || value != sp->s_value
+		 || offs != sp->s_offset)
+			++rf;
+	} else if (isdefn(oc) && isdefn(c)) {
+		if (oc!=C_GREF && c!=C_GREF)
+			++rf;
+		else if (c == C_GREF)
+			c = oc;
+	} else if (oc != C_NONE)
+		++rf;
+	if (oc != C_NONE && (sp->s_flag&ronlyf) != ronlyf)
+		++rf;
+	sp->s_class = c;
+	sp->s_type  = t;
+	dropdim(sp->s_dp);
+	sp->s_dp = ndp;
+	sp->s_dline = line;
+	sp->s_flag |= ronlyf;
+	if ((ronlyf&S_ALIEN) != 0) {
+		if ( ! isdefn(c) || ndp==NULL || ndp->d_type!=D_FUNC)
+			cerror("inappropriate \"alien\" modifier");
+		sp->s_seg = SALIEN;
+	}
+	if (istag(oc) || ot==T_STRUCT || ot==T_UNION || ot==T_ENUM) {
+		dropinfo(sp->s_ip);
+		sp->s_ip = NULL;
+	}
+	if (istag(c) || t>T_DOUBLE) {
+		sp->s_ip = ip;
+		if (istag(c) || t==T_STRUCT || t==T_UNION || t==T_ENUM)
+			++ip->i_refc;
+	}
+	if (istag(c))
+		backplug(sp);
+	if (c == C_MOE) 
+		sp->s_value = x1;
+	if (ismemb(c)) {
+		value = x2/NBPBYTE;
+		offs = x2%NBPBYTE;
+		if (doalign(t) && x1 != 0 && (value&1) != 0) {
+			--value;
+			offs += 8;
+		}
+		if (value > MAXMEMB)
+			cerror("member \"%s\" is not addressable", sp->s_id);
+		sp->s_width  = x1;
+		sp->s_value  = value;
+		sp->s_offset = offs;
+	}
+	if (rf != 0)
+		cerror("identifier \"%s\" is being redeclared", sp->s_id);
+	return(sp);
+}
+
+/*
+ * Decrement reference count of a
+ * structure info. block.
+ * Free it if the block is now an
+ * unreferenced one.
+ */
+dropinfo(ip)
+register INFO	*ip;
+{
+	if (ip!=NULL && --ip->i_refc==0)
+		free((char *) ip);
+}
+
+/*
+ * Test if a storage class is a global
+ * storage class.
+ */
+isdefn(c)
+register int	c;
+{
+	if (c==C_GDEF || c==C_GREF || c==C_SEX || c==C_SIN)
+		return (1);
+	return (0);
+}
+
+/*
+ * Test if a type is one of the structure
+ * like types.
+ */
+istruct(t)
+{
+	if (t>=T_STRUCT && t<=T_FUNION)
+		return (1);
+	return (0);
+}
+
+/*
+ * Test for tag classes.
+ */
+istag(c)
+register int	 c;
+{
+	if (c==C_STAG || c==C_UTAG || c==C_ETAG)
+		return (1);
+	return (0);
+}
+
+/*
+ * Test for one of the type definition classes.
+ */
+istype(c)
+register int	 c;
+{
+	if (c==C_STAG || c==C_UTAG || c==C_ETAG || c==C_TYPE)
+		return (1);
+	return (0);
+}
+
+/*
+ * Test for member classes.
+ */
+ismemb(c)
+register int	c;
+{
+	if (c==C_MOS || c==C_MOU)
+		return (1);
+	return (0);
+}
+
+/*
+ * Examine a "DIM" chain to see if it describes a function.
+ */
+isfunction(dp)
+register DIM	*dp;
+{
+	register int n;
+
+	for (n = 0; dp!=NULL; dp = dp->d_dp)
+		n = (dp->d_type == D_FUNC);
+	return (n);
+}
+
+/*
+ * Given a type t, return the adjusted type xtype[t].
+ * Issue a "type adjusted" warning for dangerous cases.
+ * This does not determine "dangerous" rigorously,
+ * rather it uses facts about the values in xtype[] above;
+ * the only cases in which xtype[t]!=t are
+ * char->int, uchar->uint, short->int, ushort->uint, float->double.
+ */
+fixtype(t, sp, s)
+register int t;
+SYM *sp;
+char *s;
+{
+	register int xt;
+	char *ntype;
+
+	xt = xtype[t];
+	if (xt != t && mysizes[xt] != mysizes[t]) {
+		switch(xt) {
+		case T_INT:
+			ntype = "int";
+			break;
+		case T_UINT:
+			ntype = "unsigned int";
+			break;
+		case T_DOUBLE:
+			ntype = "double";
+			break;
+		}
+		if (isvariant(VWIDEN))
+		cwarn("type of %s \"%s\" adjusted to %s", s, sp->s_id, ntype);
+	}
+	return(xt);
+}

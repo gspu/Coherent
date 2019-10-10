@@ -1,0 +1,305 @@
+.\" ENVIRONMENTS:  TOS
+.TH "desk accessory" "" "" "Technical information"
+.XR accessory
+.PC
+.PP
+A
+.B "desk accessory"
+is a program that is loaded by \*(OS
+into the GEM desktop when it is booted.
+The desktop gives each accessory its own icon, keeps it resident in memory,
+and gives you direct access to it.
+When you build a menu, the routine
+.B menu_bar
+will automatically include the name of the accessory when it builds
+the list displayed under the
+.B desk
+entry.
+.PP
+To compile a desk accessory with \*(PN, use the option
+.BR \-VGEMACC .
+This will automatically link in the special run-time start-up
+routine
+.BR crtsd.o ,
+and otherwise perform all that is needed to create a desk accessory.
+All desk accessories must have the suffix
+.BR .acc .
+Therefore, to compile the program
+.B foo.c
+into a desk accessory, use the following form of the
+.B cc
+command:
+.DM
+	cc -VGEMACC -o foo.acc foo.c
+.DE
+.PP
+To install a desk accessory, move the compiled program into
+your system's root directory.
+If you have a hard disk, it should be in directory
+.BR c:\e ;
+otherwise, it should be in the root directory of the disk with which
+you boot \*(OS.
+Do
+.I not
+place it into the directory
+.BR \eauto .
+This will cause all manner of unpleasant things to happen.
+The program will be loaded into the desktop automatically
+when you reboot your system.
+.PP
+Because of their specialized nature, desk accessories restrict
+the number and variety of programming tools you can use with them.
+Note the following:
+.RS
+.IP \*(bu 0.3i
+Do not use any \fBstdio\fR routines.
+.IP \*(bu
+Do not use the \fBmalloc\fR routines found in \fBlibc.a\fR.
+.IP \*(bu
+Do not use \fBexit\fR, \fBPterm\fR, \fBPterm0\fR, or \fBPtermres\fR.
+.IP \*(bu
+Do not return from \fBmain\fR.
+.RE
+.PP
+Also, you should keep the following in mind as you write your
+accessory:
+.RS
+.IP \*(bu 0.3i
+If you use
+.BR rsc_load ,
+remember to use
+.B rsrc_free
+before you give up control, if possible.
+.IP \*(bu
+Do not use
+.B evnt_timer
+calls:
+use
+.B evnt_multi
+instead.
+.RE
+.SH Example
+The following example, called \fBdesk.c\fR, demonstrates how to
+write a desk accessory.
+It is based on a public-domain program written by Jan Gray in 1986.
+To compile it, use the following command:
+.DM
+	cc \-o desk.acc \-VGEMACC desk.c
+.DE
+.PP
+It displays a digital clock or a calendar in a window in the upper-right
+hand corner of the desktop.
+.DM
+#include <gemdefs.h>
+#include <osbind.h>
+#include <stdlib.h>
+#include <time.h>
+.DE
+.DM
+typedef struct { int x, y, w, h; } Rectangle;
+#define elements(r) r.x, r.y, r.w, r.h
+#define pointers(r) &r.x, &r.y, &r.w, &r.h
+.DE
+.DM
+char clock_s[] = "hh:mm TZT";
+char calend_s[] = "ddd mmm dd yyyy";
+.DE
+.DM
+main(void)
+{
+	register int clock_id;	/* Clock menu identifier */
+	register int calend_id;	/* Calendar menu identifier */
+	register int clock_w;	/* Clock window handle */
+	register int calend_w;	/* Calendar window handle */
+	register int w;		/* Temporary window handle */
+.DE
+.DM
+.ta 0.4i 2.0i
+	Rectangle clock_r;	/* Clock window rectangle */
+	Rectangle calend_r;	/* Calendar window rectangle */
+	Rectangle r;	/* Temporary rectangle */
+	int mb[8];	/* Message buffer */
+	int ret;	/* Dummy return buffer */
+.DE
+.DM
+	/* Register menu title */
+	ret = appl_init();
+	clock_id = menu_register(ret,  "  Clock");
+	calend_id = menu_register(ret,  "  Calendar");
+.DE
+.DM
+	/* Size window titles for templates */
+	graf_handle(pointers(r));
+	clock_r.w = r.w + r.x * sizeof(clock_s);
+	clock_r.h = r.h;
+	calend_r.w = r.w + r.x * sizeof(calend_s);
+	calend_r.h = r.h;
+.DE
+.DM
+	/* Position window at upper right corner */
+	wind_get(0, WF_FULLXYWH, pointers(r));
+	clock_r.x = r.w - clock_r.w; clock_r.y = r.y;
+	calend_r.x = r.w - calend_r.w; calend_r.y = r.y;
+.DE
+.DM
+	/* Initialize window handles as closed */
+	clock_w = calend_w = -1;
+	for (;;) {
+.DE
+.DM
+		/* Await message or timer event */
+		if (MU_MESAG & evnt_multi(
+			MU_MESAG | MU_TIMER,
+			0, 0, 0,
+			0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0,
+			mb, 30000, 0,	/* 30 second timer interval */
+			&ret, &ret, &ret, &ret, &ret, &ret)) {
+.DE
+.DM
+			switch (mb[0]) {
+.DE
+.DM
+			/* Accessory menu line selected */
+			case AC_OPEN:
+				if (mb[4] == clock_id) {
+					w = clock_w;
+					r = clock_r;
+.DE
+.DM
+				} else if (mb[4] == calend_id) {
+					w = calend_w;
+					r = calend_r;
+.DE
+.DM
+				} else
+					break;
+.DE
+.DM
+				if (w > 0) {
+					wind_set(w, WF_TOP, 0, 0, 0, 0);
+					break;
+				}
+
+.DE
+.DM
+				w = wind_create(NAME|CLOSER|MOVER, elements(r));
+				if (w > 0) {
+					if (mb[4] == clock_id) {
+					clock_w = w;
+					wind_set(w, WF_NAME, clock_s, 0, 0);
+					} else {
+					calend_w = w;
+					wind_set(w, WF_NAME, calend_s, 0, 0);
+					}
+					wind_open(w, elements(r));
+				}
+				break;
+.DE
+.DM
+			/* Screen manager restart */
+			case AC_CLOSE:
+				if (mb[3] == clock_id)
+					clock_w = -1;
+				else if (mb[3] == calend_id)
+					calend_w = -1;
+				break;
+.DE
+.DM
+			/* Window close box selected */
+			case WM_CLOSED:
+				w = mb[3];
+				if (w == clock_w)
+					clock_w = -1;
+				else if (w == calend_w)
+					calend_w = -1;
+				else
+					break;
+				wind_close(w);
+				wind_delete(w);
+				break;
+.DE
+.DM
+			/* Window dragged to new position */
+			case WM_MOVED:
+				w = mb[3];
+				r = *(Rectangle *)(mb+4);
+				if (w == clock_w)
+					clock_r = r;
+				else if (w == calend_w)
+					calend_r = r;
+				else
+					break;
+				wind_set(w, WF_CURRXYWH, elements(r));
+				break;
+.DE
+.DM
+			case WM_NEWTOP:
+			case WM_TOPPED:	/* Window clicked to top */
+				w = mb[3];
+				if (w != clock_w && w != calend_w)
+					break;
+				wind_set(w, WF_TOP, 0, 0, 0, 0);
+				break;
+			}
+		}
+.DE
+.DM
+		/* Update time on each event if window is open */
+		if (clock_w > 0 || calend_w > 0) {
+			register struct tm *tp;
+			register char *p;
+			time_t tt;
+.DE
+.DM
+			time(&tt);
+			tp = localtime(&tt);
+			p = asctime(tp);
+.DE
+.DM
+			calend_s[0] = *p++;
+			calend_s[1] = *p++;
+			calend_s[2] = *p++;
+			calend_s[3] = *p++;
+			calend_s[4] = *p++;
+			calend_s[5] = *p++;
+			calend_s[6] = *p++;
+			calend_s[7] = *p++;
+			calend_s[8] = *p++;
+			calend_s[9] = *p++;
+			calend_s[10] = *p++;
+.DE
+.DM
+			clock_s[0] = *p++;
+			clock_s[1] = *p++;
+			clock_s[2] = *p++;
+			clock_s[3] = *p++;
+			clock_s[4] = *p++;
+			p += 3;
+			clock_s[5] = *p++;
+.DE
+.DM
+			calend_s[11] = *p++;
+			calend_s[12] = *p++;
+			calend_s[13] = *p++;
+			calend_s[14] = *p++;
+			p = tp->tm_isdst <= 0 ? tzname[0] : tzname[1];
+.DE
+.DM
+			clock_s[6] = *p++;
+			clock_s[7] = *p++;
+			clock_s[8] = *p++;
+.DE
+.DM
+			if (clock_w >= 0)
+				wind_set(clock_w, WF_NAME, clock_s, 0, 0);
+			if (calend_w >= 0)
+				wind_set(calend_w, WF_NAME, calend_s, 0, 0);
+		}
+	}
+}
+.DE
+.SH "See Also"
+.B
+crtsd.o, technical information
+.R

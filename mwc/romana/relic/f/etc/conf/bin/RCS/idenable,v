@@ -1,0 +1,166 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @# @;
+
+
+1.1
+date     93.08.10.12.37.34;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@# Shell version to provide a more friendly interface to the 'devadm' system
+# to enable a device.
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Call with the $0 of the script as a parameter; this commands writes the
+# name of the directory containing the script to standard output.
+# Example:
+#	conf_path $0
+
+conf_path () {
+	set `which $1 2>/dev/null` X
+	if [ $# -ne 2 ]; then
+		echo .		# Assume the current directory.
+		return 1
+	fi
+	set `expr $1 : '\(.*\)/.*'` X
+	if [ $# -ne 2 ]; then
+		echo .		# Must be in the current directory.
+	else
+		echo $1
+	fi
+	return 0
+}
+
+# Report a usage message to standard output, with the name of the script
+# passed as the argument to this function.
+
+usage () {
+	echo $1 ":" Enable device entries
+	echo "usage:\t[-f] [file ...] [[-e file ...] [-d file ...]] ..."
+	echo "\tBy default, enable the named devices, reporting conflicts"
+	echo "\t-d specifies that subsequent device names are to be disabled"
+	echo "\t-e specifies that subsequent device names are to be enabled"
+	echo "\t-f specifies that conflicting devices be automatically disabled"
+}
+
+# Confirm whether a value is set to a yes
+
+isyes () {
+	[ $1 = y -o $1 = Y ]
+	return $?
+}
+
+# Read the 'sdevice' parameters for a device into shell globals
+
+read_sdevice () {
+	grep ^$1 $CONF_DIR/sdevice 2>/dev/null 1>&2
+	if [ $? -ne 0 ]; then
+		echo There is no 'sdevice' entry for $1 1>&2
+		return 1
+	fi
+
+#	set `grep ^$1 $CONF_DIR/mdevice 2>/dev/null`
+#	shift
+#	MDEV_FUNCS=$1
+#	MDEV_FLAGS=$2
+#	MDEV_PREFIX=$3
+#	MDEV_BLOCK_MAJ=$4
+#	MDEV_CHAR_MAJ=$5
+#	MDEV_MIN_MIN=$6
+#	MDEV_MIN_MAX=$7
+#	MDEV_DMA_CHAN=$8
+#	MDEV_CPU_ID=$9
+	
+	set `grep ^$1 $CONF_DIR/sdevice 2>/dev/null`
+	shift
+	SDEV_CONFIG=$1
+	SDEV_UNIT=$2
+	SDEV_INT_PRI=$3
+	SDEV_INT_TYPE=$4
+	SDEV_INT_VECT=$5
+	SDEV_IOA_LO=$6
+	SDEV_IOA_HI=$7
+	SDEV_CMA_LO=$8
+	SDEV_CMA_HI=$9
+
+	OLD_SDEV_CONFIG=$SDEV_CONFIG
+	shift
+	OLD_SDEV_INFO="$*"
+	return 0
+}
+
+# Update the value of an sdevice entry parameter
+
+set_enable_sdevice () {
+	if isyes $OLD_SDEV_CONFIG; then
+		if isyes $2; then
+			return 0	# No effect
+		fi
+		# Disabling an entry is always legal...
+	elif isyes $2; then
+		# Verify that there is nothing conflicting with us
+		BAD="`$HOME_DIR/devadm -I $CONF_DIR \
+			 -S"$1 $2 $OLD_SDEV_INFO" -r`"
+		if [ -n "$BAD" ]; then
+			if [ -n "$FORCE_ENABLE" ]; then
+				$HOME_DIR/idenable -d $BAD
+				BAD="`$HOME_DIR/devadm -I $CONF_DIR \
+					-S"$1 $2 $OLD_SDEV_INFO" -r`"
+			fi
+			if [ -n "$BAD" ]; then
+				echo Enabling $1 will conflict with $BAD
+				return 1
+			fi
+		fi
+	else
+		return 0		# No effect
+	fi
+
+	$HOME_DIR/devadm -I $CONF_DIR -S"$1 $2 $OLD_SDEV_INFO" -W
+}
+
+HOME_DIR=`conf_path $0`
+CONF_DIR=$HOME_DIR/..
+
+if [ $# -lt 1 ]; then
+	usage $0 1>&2
+	exit 100
+fi
+
+ENABLE=y
+
+while [ $# -gt 0 ]; do
+	ARG=$1; shift
+	case $ARG in
+	-d)	ENABLE=n
+		;;
+
+	-e)	ENABLE=y
+		;;
+
+	-f)	FORCE_ENABLE=1
+		;;
+
+	*)	read_sdevice $ARG || exit 1
+		set_enable_sdevice $ARG $ENABLE
+		;;
+	esac
+done
+
+@

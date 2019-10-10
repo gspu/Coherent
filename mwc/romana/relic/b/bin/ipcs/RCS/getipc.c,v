@@ -1,0 +1,378 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5; strict;
+comment  @ * @;
+
+
+1.5
+date     93.04.12.13.56.10;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.27.11.42.50;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     93.01.06.09.01.12;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.10.13.11.15.36;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.13.10.45;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.5
+log
+@vlad: mods supplied with 386 semaphores
+@
+text
+@/*
+ * Module read all information about ipc.
+ */
+#include <errno.h>
+#include <coff.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <errno.h>
+#include <sys/shm.h>
+#include <sys/msg.h>
+#include "ipcs.h"
+
+extern char	*calloc();
+
+struct msqid_ds	*msqbuf;
+
+/*
+ * Get ipc and format ipc data
+ */
+int get_data(fname, corefile)
+char	*fname;	/* namelist */
+char	*corefile;
+{
+	if (mflag) {
+		get_shmid_stats();
+	}
+
+	if (sflag) {
+		get_sem_stats();
+	}
+
+	if (qflag) {
+		get_msg_stats(fname);
+	}
+
+	return 0;
+}
+
+
+/* 
+ * get shared memory information.
+ */
+
+int get_shmid_stats()
+{
+
+int id = SHMMNI - 1;	/* shared memory identifier number */
+
+	total_shmids = 0;
+	
+	/* Allocate space for shared memory data struct */
+	if (NULL == (shmid = (struct shmid_ds *)
+	    calloc(SHMMNI, sizeof(struct shmid_ds)))) {
+		perror("ipcs");
+		exit(1);
+	}
+	/* Alocate space to keep track about shm segments */
+	if (NULL == (valid_shmid = (int *) calloc(SHMMNI, sizeof(int)))) {
+		perror("ipcs");
+		exit(1);
+	}
+
+	/* loop through all shared memory segments available to system.
+	 * increment total_shmid counter when we find one.
+	 */
+	for (id = SHMMNI - 1; id >= 0 ; id --){
+		if ( -1 != (shmctl(id, IPC_STAT, &shmid[id]))){
+			total_shmids++;
+			valid_shmid[id] = 1;
+		} else {
+			valid_shmid[id] = 0;
+		}			
+	}
+}
+
+/*
+ * get_sem_stats() contains a loop that performs semctls to IPC_STAT
+ * allocated semaphores.
+ *
+ */
+get_sem_stats()
+{
+
+int id;
+	total_sems = 0;
+
+	for (id = SEMMNI - 1; id >= 0 ; id--) {
+		if( -1 != (semctl(id, 0 , IPC_STAT, &semid[id]))){
+			valid_semid[id] = 1;
+			total_sems++;
+		}else{
+			valid_semid[id] = 0;
+		}
+	}
+}
+
+/* 
+ * get_msg_stats() read msgq data from the corefile to msqbuf
+ */
+get_msg_stats(fname)
+char	*fname;
+{
+	SYMENT 	sym;		/* The table of names to find */
+	int	fd;		/* kernel file descriptor */
+	long	msqoffset;	/* offset to message queue headers */
+
+	/* Allocate space for message queues headers */
+	if (NULL == (msqbuf = (struct msqbuf *)
+	    calloc((unsigned) NMSQID, (unsigned) sizeof(struct msqid_ds)))) {
+		perror("ipcs");
+		exit(1);
+	}
+	sym._n._n_n._n_zeroes = 0;	/* stuff for coffnlist */
+	sym.n_type = -1;
+
+	/* "msqs" is internal kernel variable that points to message
+	 * queues headers.
+	 */
+	strcpy(sym.n_name, "msqs");
+	/* do lookups. coffnlist returns 0 on error. */
+	if (!coffnlist(fname, &sym, NULL, 1)) {
+		fprintf(stderr, "ipcs: error obtaining values from %s\n", 
+									fname);
+		exit(1);
+	}
+
+	/* Now we got addresses of the queues headers. So, we can go to corefile
+	 * and read proper values. 
+	 */
+	/* Get address of message queue data */
+	if ((fd = iMemSeek(sym.n_value, 0)) < 0) {
+		perror("ipcs");
+		exit(1);
+	}
+	if (read(fd, &msqoffset, sizeof(int)) != sizeof(int)) {
+		fprintf(stderr, "ipcs: error getting message queue offset\n");
+		exit(1);
+	}
+	close(fd);
+	/* Before first request to msgget, msqs points to NULL.
+	 * So we cannot and should not read. 
+	 * After the first request to msgget, all queue headers are alloced.
+	 * At this point we will have to use IPC_ALLOC bit.
+	 */
+	usemsqs = msqoffset ? 1 : 0;
+	if (!usemsqs) {	/* There was no msq in use */
+		free(msqbuf);
+		return;
+	}
+	if ((fd = iMemSeek(msqoffset, 0)) < 0) {
+		perror("ipcs");
+		exit(1);
+	}
+	if (read(fd, msqbuf, sizeof(struct msqid_ds) * NMSQID) !=
+ 				sizeof(struct msqid_ds) * NMSQID) {
+		fprintf(stderr, "ipcs: error getting message queue status\n");
+		exit(1);
+	}
+	close(fd);
+}
+
+@
+
+
+1.4
+log
+@vlad: Makefile for kernel 72 ipcs
+@
+text
+@d87 1
+a87 1
+	for (id = NSEMID -1 ; id >= 0 ; id--){
+@
+
+
+1.3
+log
+@vlad: added code for new shared memory driver
+@
+text
+@d54 1
+a54 1
+		perror("ipcs1");
+d59 1
+a59 1
+		perror("ipcs1");
+d110 1
+a110 1
+		perror("ipcs1");
+d132 1
+a132 1
+		perror("ipcs2");
+d151 1
+a151 1
+		perror("ipcs3");
+@
+
+
+1.2
+log
+@vlad: changes for new message system call
+@
+text
+@d8 2
+d33 1
+a33 1
+		get_msg_stats(fname, corefile);
+a41 1
+ *
+d47 1
+a47 1
+int id = NSHMID -1;	/* shared memory identifier number */
+d50 12
+d66 2
+a67 3
+
+	for (id = NSHMID -1; id >= 0 ; id --){
+		if( -1 != (shmctl(id, IPC_STAT, &shmid[id]))){
+d70 1
+a70 1
+		}else{
+a80 1
+
+d100 1
+a100 1
+get_msg_stats(fname, corefile)
+a101 1
+char	*corefile;
+d110 1
+a110 1
+		perror("ipcs");
+d130 3
+a132 2
+	if ((fd = open(corefile, O_RDONLY)) < 0) {
+		fprintf(stderr, "ipcs: cannot open /dev/kmem\n");
+a134 2
+	/* Get address of message queue data */
+	lseek(fd, sym.n_value, 0);
+d139 1
+d150 4
+a153 1
+	lseek(fd, msqoffset, 0);
+d159 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d5 4
+d11 4
+d18 3
+a20 1
+int get_data()
+d22 1
+a22 1
+	if(mflag){
+d26 1
+a26 1
+	if(sflag){
+d30 2
+a31 2
+	if(qflag){
+		get_msg_stats();
+d86 10
+d97 8
+a104 10
+/* get_msg_stats() is basically a loop that is used to build an
+ * array of pointers to msqid_ds structs.
+ */
+
+get_msg_stats()
+{
+
+int x, y;
+struct msqid_ds dummy_msqid[OBSCENE_VALUE];
+int found[OBSCENE_VALUE];
+d106 2
+a107 4
+	/* initialize the variable that we will check in the print routines
+	 * to see if a given msqid was indeed found in this function.
+	 * We are also initializing another variable which will prevent from
+	 * later performing unnecessary msgctl()s.
+d109 7
+d117 2
+a118 20
+	for(y = 0 ; y < NMSQID ; y++){
+		found[y] = 0;
+		valid_msqid[y] = 0;
+	}
+
+	total_msgs = 0;
+
+	/* Here's the scoop: Coherent 4.0 numbers it's msqid sequence
+	 * numbers in steps of 256 (the identifier for the first msqid
+	 * is 0, the next is 256, then 512...) When a given queue has
+	 * been removed with a msgctl(id, IPC_RMID,o) command, its sequence
+	 * number is bumped by a value of 1. When this sequence number
+	 * is about to be increased into the next msqid sequence number,
+	 * the driver (is supposed to, according to Vlad) drops this number
+	 * back to its starting point. Example: if the first message queue
+	 * (sequence or id number of 0 when first initialized) is used,
+	 * removed and used again 255 times, it will not be increased to
+	 * 256 the 256th time someone RMID's it, it will be reduced back
+	 * to zero. (I don't believe that this actuall works yet, but I'll
+	 * get around to testing it...
+d120 3
+a122 22
+
+	for (x = 0; x <256 ; x++){
+		for(y = 0; y< NMSQID; y++){
+
+			/* our possible msqid is ((y*256) + x). If we
+			 * find that a message queue is in use with this
+			 * id, we set 2 flags. The first flag (found[y]) tells
+			 * us that we needn't repeat the msgctl test which
+			 * follows. The second flag will be used to tell us in
+			 * the print function that this is a valid message
+			 * queue to print information on.
+			 */
+
+			if(!found[y]){
+				if(-1 != msgctl( ((y*256) + x), IPC_STAT, &dummy_msqid[y])){
+					msqbuf[y] = &dummy_msqid[y];
+					found[y] = 1;
+					valid_msqid[y] = 1;
+					total_msgs++;
+				}
+			}
+		}
+d124 22
+d147 1
+@

@@ -1,0 +1,117 @@
+ccrroonn -- System Administration
+
+Execute commands periodically
+/eettcc/ccrroonn&
+
+ccrroonn is a daemon that executes commands at preset times.
+
+Once each  minute ccrroonn searches for commands to  execute.  ccrroonn first looks
+for file /uussrr/lliibb/ccrroonnttaabb. If it exists, then ccrroonn reads it for commands to
+execute.   If  /uussrr/lliibb/ccrroonnttaabb  does  not  exist, however,  ccrroonn  searches
+/uussrr/ssppooooll/ccrroonn/ccrroonnttaabbss  for command  files.  Each user  can have  her own
+command  file in  that directory.   See the Lexicon  entry for  ccrroonnttaabb for
+information how to write and load a command file.
+
+For each  entry in each command  file, ccrroonn compares the  current time with
+the scheduled  execution time and executes the command  if the times match.
+When it finishes the search, ccrroonn sleeps until the next minute.  Because it
+never exits, ccrroonn should be executed only once (customarily by /eettcc/rrcc).
+
+ccrroonn is  designed for commands  that must be  executed regularly.  Temporal
+commands that  need to  be executed  only once should  be handled  with the
+command aatt.
+
+_P_e_r_m_i_s_s_i_o_n_s
+ccrroonn  performs some  interesting manipulations  with permissions.   This is
+necessary to allow ccrroonn to run  a wide variety of programs untended without
+creating loopholes in the system's security.  Occasionally, this can create
+difficulties  for users  who  do not  grasp  what ccrroonn  does  or why.   The
+following describes  how ccrroonn manipulates  permissions on the  programs you
+ask it to run.
+
+To  begin,  when  ccrroonn executes  a  user's  ccrroonnttaabb  file,  it changes  the
+effective  user ID  to the  ID  of that  user whose  ccrroonnttaabb file  is being
+executed, ccdd's  to the user's HHOOMMEE directory.  When,  however, ccrroonn runs an
+entry from  a /uussrr/lliibb/ccrroonnttaabb, it  uses the user  ID and group  ID of user
+ddaaeemmoonn. This prevents security holes involving entries in a ccrroonnttaabbllee file.
+
+For example, the following ccrroonnttaabb entry contains redirection:
+
+    * * * * *   echo hello world >/dev/console 2>&1
+
+If  ccrroonn finds  this entry  in  /uussrr/lliibb/ccrroonnttaabb, it  tries to  execute the
+command as  user ddaaeemmoonn.  The command  will not execute  it if  user ddaaeemmoonn
+lacks permission to write to /ddeevv/ccoonnssoollee. Note that using /uussrr/lliibb/ccrroonnttaabb
+is _n_o_t recommended.
+
+If however,  it finds the entry  in user hheennrryy's ccrroonnttaabb  file, it tries to
+execute the command under the effective  user ID of hheennrryy. The command will
+fail if  hheennrryy lacks permission to write to  /ddeevv/ccoonnssoollee, and will succeed
+if he does.
+
+When the shell executes a command  in the background, it reads its standard
+input from /ddeevv/nnuullll (unless  redirected) and writes its standard output to
+the  controlling tty.   If ccrroonn  is invoked  with /eettcc/ccrroonn&  from /eettcc/rrcc,
+there  is no  controlling tty,  so the standard  output goes  to /ddeevv/nnuullll.
+Thus,
+
+    * * * * *   echo hello world
+
+typically writes hheelllloo wwoorrlldd to /ddeevv/nnuullll.
+
+When a user  logs in, /bbiinn/llooggiinn grabs the tty  and runs cchhoowwnn and cchhmmoodd on
+it.  It is owned by the user with default permissions 700.  If the user who
+has logged in on the console types the command
+
+    chmod /dev/console a+w
+
+to allow all users to write to it, then the ccrroonnttaabb entry
+
+    * * * * *   echo hello world >/dev/console 2>/tmp/cron.err
+
+will indeed echo to the console every minute.
+
+ccrroonn   should   be   executed  only   once,   at   boot   time.   It   uses
+/uussrr/lliibb/ccrroonn/FFIIFFOO as  a lock file  to prevent the execution  more than one
+ccrroonn daemon.
+
+If mail options  are enabled, which is the default,  ccrroonn sends mail to the
+owner of a ccrroonnttaabb about all commands in that file that failed.
+
+To allow ccrroonn to remove lock file /uussrr/lliibb/ccrroonn, do _n_o_t send signal KKIILLLL to
+ccrroonn. Instead,  use signal TTEERRMM.  ccrroonn ignores signals IINNTT,  HHUUPP, and PPIIPPEE.
+ccrroonn uses the signal AALLRRMM internally.
+
+_F_i_l_e_s _a_n_d _D_i_r_e_c_t_o_r_i_e_s
+
+/uussrr/lliibb/ccrroonn/FFIIFFOO
+     Lock file (named pipe).  Created by ccrroonn; removed by ccrroonn/rrcc.
+
+/uussrr/lliibb/ccrroonn/ccrroonn.aallllooww
+     List of allowed users.  Permissions: 660000 rroooott rroooott.
+
+/uussrr/lliibb/ccrroonn/ccrroonn.ddeennyy
+     List of denied users.  Permissions: 660000 rroooott rroooott.
+
+/uussrr/lliibb/ccrroonnttaabb
+     Global ccrroonnttaabb file, used by previous COHERENT ccrroonn mechanism.
+
+/uussrr/ssppooooll/ccrroonn
+     Spool directory parent.  Permissions: 770000 rroooott rroooott.
+
+/uussrr/ssppooooll/ccrroonn/ccrroonnttaabbss
+     Main ccrroonn directory.  It holds each user's command file.  Permissions:
+     770000 rroooott rroooott.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, ccoommmmaannddss, ccrroonnttaabb
+
+_N_o_t_e_s
+ccrroonn does  not presently write into  log file.  The size  of the _h_o_s_t_n_a_m_e +
+_d_o_m_a_i_n must not exceed 1,000 characters.
+
+ccrroonn looks for /uussrr/lliibb/ccrroonnttaabb  to remain compatible with the COHERENT 286
+version of  ccrroonn. If, however,  you continue to  keep all ccrroonn  commands in
+file /uussrr/lliibb/ccrroonnttaabb, it will not be possible to run sseettuuiidd ccrroonn tasks for
+logins that  have a password.  It  is strongly recommended that  you do _n_o_t
+use /uussrr/lliibb/ccrroonnttaabb, and instead create individual ccrroonnttaabb files.

@@ -1,0 +1,63 @@
+iiddllee -- Device
+
+Device that returns system's idle time
+/ddeevv/iiddllee
+
+/ddeevv/iiddllee is the device from which you can read the system's idle time.  It
+has major device 0, the  same as /ddeevv/nnuullll and /ddeevv/ccmmooss. This non-portable
+device  node is  used  exclusively for  tracking system  load.  Its  driver
+recognizes the system calls ooppeenn(), iiooccttll(), and cclloossee(), but not rreeaadd() or
+wwrriittee().
+
+The only available iiooccttll() for /ddeevv/nnuullll  writes a pair of lloonnggs to a user-
+supplied address.   The lloonngg  at the lower  address contains the  number of
+system idle clock ticks (or, more precisely, the number of ticks at the end
+of which the system was idle) that have occurred since system startup.  The
+lloonngg at  the higher address contains  the total number of  clock ticks that
+have  occurred since  system  startup.  To  estimate system  load during  a
+specific interval  of time, perform the iiooccttll() for  /ddeevv/iiddllee at the start
+and end of an interval.
+
+_E_x_a_m_p_l_e
+The following  program prints system load over  a five-second interval.  To
+see a  nonzero load  percentage, run  it concurrently with  a CPU-intensive
+process.
+
+#include <sys/null.h>
+
+main()
+{
+    long x[2];  /* tick values at start of interval */
+    long y[2];  /* tick values at end of interval */
+
+    long delta_idle, delta_lbolt;
+    int fd;
+
+    /* We need to open a device before we can ioctl it. */
+    fd = open("/dev/idle", 0);
+
+    /* Get tick values at start of interval. */
+    ioctl(fd, NLIDLE, x);
+
+    /* Sleep during the interval. */
+    sleep(5);
+
+    /* Get tick values at end of interval. */
+    ioctl(fd, NLIDLE, y);
+
+    /* Compute number of system idle ticks during the interval. */
+    delta_idle = y[0] - x[0];
+
+    /* Compute total number of clock ticks during the interval. */
+    delta_lbolt = y[1] - x[1];
+
+    /* System is loaded when it isn't idle, so system load factor
+     * is 100% minus the percentage of system idle time.
+     */
+    printf("system load = %ld%%\n",
+        100L - (100L * delta_idle)/delta_lbolt);
+    close(fd);
+}
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, iiooccttll(), nnuullll

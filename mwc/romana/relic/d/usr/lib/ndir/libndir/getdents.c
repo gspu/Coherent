@@ -1,0 +1,303 @@
+/*
+	getdents -- get directory entries in a file system independent format
+			(SVR3 system call emulation)
+
+	last edit:	25-Apr-1987	D A Gwyn
+
+	This single source file supports several different methods of
+	getting directory entries from the operating system.  Define
+	whichever one of the following describes your system:
+
+	UFS	original UNIX filesystem (14-character name limit)
+	BFS	4.2BSD (also 4.3BSD) native filesystem (long names)
+	NFS	getdirentries() system call
+
+	Also define any of the following that are pertinent:
+
+	BRL	BRL UNIX System V emulation environment on 4.nBSD
+	UNK	have _getdents() system call, but kernel may not support it
+
+	If your C library has a getdents() system call interface, but you
+	can't count on all kernels on which your application binaries may
+	run to support it, change the system call interface name to
+	_getdents() and define "UNK" to enable the system-call validity
+	test in this "wrapper" around _getdents().
+
+	If your system has a getdents() system call that is guaranteed 
+	to always work, you shouldn't be using this source file at all.
+*/
+
+
+#if DBG
+#include 	<stdio.h>
+#endif
+
+#include	<sys/types.h>
+
+#ifdef COHERENT
+#  include	<errno.h>
+   typedef daddr_t off_t;
+#else
+#  include	<sys/errno.h>
+#endif /*Coherent*/
+
+#ifdef BRL
+#  include	<sys/_dir.h>		/* BSD flavor, not System V */
+#else
+#  ifndef COHERENT
+#    include	<sys/dir.h>
+#  endif
+	/* Good thing we don't need to use the DIRSIZ() macro! */
+#  ifdef d_ino				/* 4.3BSD/NFS using d_fileno */
+#    undef	d_ino			/* (not absolutely necessary) */
+#  else
+#    define	d_fileno	d_ino		/* (struct direct) member */
+#  endif
+#endif
+
+#if DBG
+#include	"sys.dirent.h"
+#else
+#include	"sys.dirent.h"
+#endif /*DBG*/
+
+#include	<sys/stat.h>
+#ifdef UNK
+#  ifndef UFS
+#    include "***** ERROR ***** UNK applies only to UFS"
+/* One could do something similar for getdirentries(), but I didn't bother. */
+#  endif
+#  include	<signal.h>
+#endif
+
+
+
+#if defined(UFS) + defined(BFS) + defined(NFS) != 1	/* sanity check */
+#include "***** ERROR ***** exactly one of UFS, BFS, or NFS must be defined"
+#endif
+
+
+#define max(a,b) ( ((a)>(b)) ? (a) : (b) )
+
+#ifdef UFS
+#define	RecLen( dp )	(sizeof(struct direct))	/* fixed-length entries */
+#else	/* BFS || NFS */
+#define	RecLen( dp )	((dp)->d_reclen)	/* variable-length entries */
+#endif
+
+#ifdef NFS
+#  ifdef BRL
+#    define getdirentries _getdirentries /* package hides this system call */
+#  endif
+   extern int	getdirentries();
+   static long	dummy;			/* getdirentries() needs basep */
+#  define	GetBlock( fd, buf, n )	getdirentries( fd, buf, (unsigned)n, &dummy )
+#else	/* UFS || BFS */
+#  ifdef BRL
+#    define read	_read			/* avoid emulation overhead */
+#  endif
+   extern int	read();
+#  define	GetBlock( fd, buf, n )	read( fd, buf, (unsigned)n )
+#endif
+
+#ifdef UNK
+extern int	_getdents();		/* actual system call */
+#endif
+
+extern char	*strncpy();
+extern int	fstat(), strlen();
+
+off_t	lseek();
+
+extern int	errno;
+
+#ifndef DIRBLKSIZ
+#define	DIRBLKSIZ	4096		/* directory file read buffer size */
+#endif
+
+#ifndef NULL
+#define	NULL	0
+#endif
+
+#ifndef SEEK_CUR
+#define	SEEK_CUR	1
+#endif
+
+#ifndef S_ISDIR				/* macro to test for directory file */
+#define	S_ISDIR( mode )		(((mode) & S_IFMT) == S_IFDIR)
+#endif
+
+#ifdef UNK
+static enum	{ maybe, no, yes }	state = maybe;
+					/* does _getdents() work? */
+
+/*ARGSUSED*/
+static void
+sig_catch( sig )
+	int	sig;			/* must be SIGSYS */
+	{
+	state = no;			/* attempted _getdents() faulted */
+	}
+#endif
+
+int
+getdents( fildes, buf, nbyte )		/* returns # bytes read;
+					   0 on EOF, -1 on error */
+	int			fildes;	/* directory file descriptor */
+	char			*buf;	/* where to put the (struct dirent)s */
+	unsigned		nbyte;	/* size of buf[] */
+	{
+	int			serrno;	/* entry errno */
+	off_t			offset;	/* initial directory file offset */
+	struct stat		statb;	/* fstat() info */
+	union	{
+		char		dblk[DIRBLKSIZ];
+					/* directory file block buffer */
+		struct direct	dummy;	/* just for alignment */
+		}	u;		/* (avoids having to malloc()) */
+	register struct direct	*dp;	/* -> u.dblk[.] */
+	register struct dirent	*bp;	/* -> buf[.] */
+
+#ifdef UNK
+	switch ( state )
+		{
+		void		(*shdlr)();	/* entry SIGSYS handler */
+		register int	retval;	/* return from _getdents() if any */
+
+	case yes:			/* _getdents() is known to work */
+		return _getdents( fildes, buf, nbyte );
+
+	case maybe:			/* first time only */
+		shdlr = signal( SIGSYS, sig_catch );
+		retval = _getdents( fildes, buf, nbyte );	/* try it */
+		(void)signal( SIGSYS, shdlr );
+
+		if ( state == maybe )	/* SIGSYS did not occur */
+			{
+			state = yes;	/* so _getdents() must have worked */
+			return retval;
+			}
+		/* else fall through into emulation */
+
+	case no:	/* fall through into emulation */
+		}
+#endif
+
+#if DBG
+	printf("\ngetdents: fd= %d; buf=%x; nbytes=%d\n",fildes,buf,nbyte);
+#endif
+
+	if ( buf == NULL 
+#ifndef BIT_16
+	|| (unsigned long)buf % sizeof(long) != 0 ) /* ugh */
+#else
+	)
+#endif /*16bit*/
+		{
+		errno = EFAULT;		/* invalid pointer */
+		return -1;
+		}
+
+#if DBG
+	printf("fstat says: %d\n",fstat(fildes, &statb));
+#endif
+	if ( fstat( fildes, &statb ) != 0 )
+		return -1;		/* errno set by fstat() */
+#if DBG
+	printf("fstat OK\n");
+#endif
+	if ( !S_ISDIR( statb.st_mode ) )
+		{
+		errno = ENOTDIR;	/* not a directory */
+		return -1;
+		}
+#ifdef DBG
+	printf("fd  is a dir.\n");
+#endif
+	if ( (offset = lseek( fildes, (off_t)0, SEEK_CUR )) < 0 )
+		return -1;		/* errno set by lseek() */
+
+
+#ifdef BFS				/* no telling what remote hosts do */
+	if ( (unsigned long)offset % DIRBLKSIZ != 0 )
+		{
+		errno = ENOENT;		/* file pointer probably misaligned */
+		return -1;
+		}
+#endif
+
+	serrno = errno;			/* save entry errno */
+
+#if DBG
+	printf(stderr,"\nIn getdents: \n");
+#endif
+	for ( bp = (struct dirent *)buf; bp == (struct dirent *)buf; )
+		{			/* convert next directory block */
+		int	size;
+
+		do	size = GetBlock( fildes, u.dblk, DIRBLKSIZ );
+		while ( size == -1 && errno == EINTR );
+
+		if ( size <= 0 )
+			return size;	/* EOF or error (EBADF) */
+
+		for ( dp = (struct direct *)u.dblk;
+		      (char *)dp < &u.dblk[size];
+		      dp = (struct direct *)((char *)dp + RecLen( dp ))
+		    )	{
+#ifndef UFS
+			if ( dp->d_reclen <= 0 )
+				{
+				errno = EIO;	/* corrupted directory */
+				return -1;
+				}
+#endif
+
+			if ( dp->d_fileno != 0 )
+				{	/* non-empty; copy to user buffer */
+				register int	reclen, namlen =
+					strlen ( dp ->d_name );
+#if DBG
+	printf("name (%s) is %d long, ",dp->d_name, namlen);
+#endif /*DBG*/
+				namlen = (namlen > MAXNAMLEN) ? MAXNAMLEN
+								: namlen;
+#ifdef DBG
+	printf("(ultimately %d long) MAXNAMLEN=%d\n", namlen,MAXNAMLEN);
+#endif
+				reclen = DIRENTSIZ(namlen);
+
+				if ( (char *)bp + reclen > &buf[nbyte] )
+					{
+					errno = EINVAL;
+					return -1;	/* buf too small */
+					}
+
+				bp->d_ino = (long) dp->d_fileno;
+				bp->d_off = offset + ((char *)dp - u.dblk);
+				bp->d_reclen = reclen;
+
+				(void)strncpy( bp->d_name, dp->d_name,
+					     namlen);
+				(void)memset (bp->d_name + namlen, (char *)0,
+					reclen - DIRENTBASESIZ - namlen
+					     );	/* adds NUL padding */
+
+#if DBG
+	printf("getdents: Name=%s; inode = %D; offset = %D; len=%d\n",bp->d_name,
+		bp->d_ino, bp->d_off, bp->d_reclen );
+#endif
+				bp = (struct dirent *)((char *)bp + reclen);
+				}
+			}
+
+		if ( (char *)dp > &u.dblk[size] )
+			{
+			errno = EIO;	/* corrupted directory */
+			return -1;
+			}
+		}
+
+	errno = serrno;			/* restore entry errno */
+	return (char *)bp - buf;	/* return # bytes read */
+	}

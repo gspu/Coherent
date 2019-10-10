@@ -1,0 +1,444 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @@;
+
+
+1.1
+date     93.07.30.07.52.54;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@dnl Taylor UUCP configuration file
+dnl This should be processed with autoconf to produce a configure script.
+dnl Copyright (c) 1992 Ian Lance Taylor
+dnl
+AC_INIT(policy.h)
+AC_CONFIG_HEADER(conf.h)
+AC_PROG_CC
+AC_PROG_CPP
+AC_GCC_TRADITIONAL
+AC_PROG_INSTALL
+AC_PROG_RANLIB
+AC_ISC_POSIX
+AC_MINIX
+AC_AIX
+AC_DYNIX_SEQ
+AC_IRIX_SUN
+AC_CROSS_CHECK
+dnl
+CFLAGS=${CFLAGS--g}
+AC_SUBST(CFLAGS)dnl
+AC_SUBST(LDFLAGS)dnl
+dnl
+echo checking for mail program
+if test -s /usr/ucb/mail; then
+ AC_DEFINE([MAIL_PROGRAM], `echo '"/usr/ucb/mail"'`)
+elif test -s /bin/mail; then
+ AC_DEFINE([MAIL_PROGRAM], `echo '"/bin/mail"'`)
+elif test -s /usr/bin/mail; then
+ AC_DEFINE([MAIL_PROGRAM], `echo '"/usr/bin/mail"'`)
+elif test -s /usr/bin/mailx; then
+ AC_DEFINE([MAIL_PROGRAM], `echo '"/usr/bin/mailx"'`)
+fi
+echo checking for echo program
+if (PATH= echo test) 2>/dev/null | grep test >/dev/null 2>&1; then
+ AC_DEFINE([ECHO_PROGRAM], `echo '"echo"'`)
+elif test -s /bin/echo; then
+ AC_DEFINE([ECHO_PROGRAM], `echo '"/bin/echo"'`)
+fi
+AC_LN_S
+dnl
+AC_HAVE_HEADERS(stddef.h string.h strings.h unistd.h stdlib.h limits.h)
+AC_HAVE_HEADERS(time.h sys/wait.h sys/ioctl.h dirent.h memory.h sys/param.h)
+AC_HAVE_HEADERS(utime.h fcntl.h sys/file.h sys/times.h libc.h sysexits.h)
+AC_HAVE_HEADERS(poll.h tiuser.h xti.h sys/tli.h stropts.h ftw.h glob.h)
+AC_HAVE_HEADERS(sys/types.tcp.h)
+dnl
+AC_COMPILE_CHECK([sys/select.h],
+[#include <sys/select.h>
+#include <sys/time.h>],
+[int i;],
+[AC_DEFINE(HAVE_SYS_SELECT_H)])
+dnl
+AC_MAJOR_HEADER
+dnl
+AC_RETSIGTYPE
+dnl
+AC_COMPILE_CHECK([time.h and sys/time.h being included together],
+[#include <sys/time.h>
+#include <time.h>],
+[int i;],
+AC_DEFINE([HAVE_SYS_TIME_AND_TIME_H]))
+dnl
+AC_COMPILE_CHECK([termios.h and sys/ioctl.h being included together],
+[#include <termios.h>
+#include <sys/ioctl.h>],
+[int i;],
+AC_DEFINE([HAVE_TERMIOS_AND_SYS_IOCTL_H]))
+dnl
+AC_COMPILE_CHECK([CBREAK],
+[#include <sgtty.h>], [int i = CBREAK;],
+AC_DEFINE([HAVE_CBREAK]))
+dnl
+AC_COMPILE_CHECK([pid_t in sys/types.h],
+[#include <sys/types.h>], [pid_t x;], ,
+AC_DEFINE(PID_T, int))
+dnl
+AC_COMPILE_CHECK([uid_t in sys/types.h],
+[#include <sys/types.h>], [uid_t x;], ,
+AC_DEFINE(UID_T, int))
+dnl
+AC_COMPILE_CHECK([gid_t in sys/types.h],
+[#include <sys/types.h>], [gid_t x;], ,
+AC_DEFINE(GID_T, int))
+dnl
+AC_COMPILE_CHECK([off_t in sys/types.h],
+[#include <sys/types.h>], [off_t x;], ,
+AC_DEFINE(OFF_T, long))
+dnl
+dnl On SCO 3.2.2 sig_atomic_t is in <sys/types.h> but not <signal.h>.
+AC_COMPILE_CHECK([sig_atomic_t in signal.h],
+[#include <signal.h>], [sig_atomic_t x;],
+AC_DEFINE([HAVE_SIG_ATOMIC_T_IN_SIGNAL_H]))
+dnl
+AC_COMPILE_CHECK([sig_atomic_t in sys/types.h],
+[#include <sys/types.h>], [sig_atomic_t x;],
+AC_DEFINE([HAVE_SIG_ATOMIC_T_IN_TYPES_H]))
+dnl
+case $DEFS in
+*HAVE_STDDEF_H*)
+  AC_COMPILE_CHECK([size_t in stddef.h],
+  [#include <stddef.h>], [size_t x;],
+  AC_DEFINE([HAVE_SIZE_T_IN_STDDEF_H])) ;;
+esac
+dnl
+AC_COMPILE_CHECK([size_t in sys/types.h],
+[#include <sys/types.h>], [size_t x;],
+AC_DEFINE([HAVE_SIZE_T_IN_TYPES_H]))
+dnl
+AC_COMPILE_CHECK([time_t in time.h],
+[#include <time.h>], [time_t i;],
+AC_DEFINE([HAVE_TIME_T_IN_TIME_H]))
+dnl
+AC_COMPILE_CHECK([time_t in sys/types.h],
+[#include <sys/types.h>], [time_t i;],
+AC_DEFINE([HAVE_TIME_T_IN_TYPES_H]))
+dnl
+dnl The filesystem info code is from David MacKenzie's fileutils 3.4
+dnl package.
+echo checking how to get filesystem space usage
+# SVR4
+AC_TEST_CPP([#include <sys/statvfs.h>],
+  AC_DEFINE(STAT_STATVFS) space=1)
+if test -z "$space"; then
+# AIX
+AC_HEADER_EGREP(f_nlsdirtype, sys/statfs.h, 
+  AC_DEFINE(STAT_STATFS2_BSIZE) space=1)
+fi
+if test -z "$space"; then
+# SVR3
+AC_TEST_CPP([#include <sys/statfs.h>], 
+  AC_DEFINE(STAT_STATFS4) space=1)
+fi
+if test -z "$space"; then
+# 4.3BSD
+AC_TEST_CPP([#include <sys/vfs.h>],
+  AC_DEFINE(STAT_STATFS2_BSIZE) space=1)
+fi
+if test -z "$space"; then
+# 4.4BSD
+AC_HEADER_EGREP(MOUNT_UFS, sys/mount.h,
+  AC_DEFINE(STAT_STATFS2_FSIZE) space=1)
+fi
+if test -z "$space"; then
+# Ultrix
+AC_TEST_CPP([#include <sys/mount.h>],
+  AC_DEFINE(STAT_STATFS2_FS_DATA) space=1)
+fi
+if test -z "$space"; then
+AC_FUNC_CHECK(ustat, AC_DEFINE(STAT_USTAT))
+fi
+dnl
+AC_COMPILE_CHECK([void],
+[], [extern void foo (); (void) exit (0);],
+AC_DEFINE([HAVE_VOID]))
+dnl
+AC_COMPILE_CHECK([unsigned char],
+[], [unsigned char i = (unsigned char) -1;],
+AC_DEFINE([HAVE_UNSIGNED_CHAR]))
+dnl
+AC_COMPILE_CHECK([errno],
+[#include <errno.h>], [int i = errno; errno = 1;],
+AC_DEFINE([HAVE_ERRNO_DECLARATION]))
+dnl
+undefine([index])
+AC_HAVE_FUNCS(memset memcmp memchr memcpy bcopy bcmp bzero)
+AC_HAVE_FUNCS(strchr strrchr index rindex strerror strtol strstr)
+AC_HAVE_FUNCS(strdup strcasecmp strncasecmp stricmp strnicmp)
+AC_HAVE_FUNCS(bsearch vfprintf)
+AC_HAVE_FUNCS(remove ftruncate ltrunc rename opendir dup2 waitpid wait4)
+AC_HAVE_FUNCS(sigsetjmp setret sigaction sigvec sigset)
+AC_HAVE_FUNCS(sigprocmask sigblock sighold getdtablesize sysconf)
+AC_HAVE_FUNCS(setpgrp setsid setreuid gethostname uname)
+AC_HAVE_FUNCS(gettimeofday ftw glob)
+dnl Check for getline, but not in -linet, since ISC has an
+dnl incompatible version there.
+SAVELIBS="$LIBS"
+LIBS=`echo $LIBS | sed 's/-linet//'`
+AC_HAVE_FUNCS(getline)
+LIBS="$SAVELIBS"
+dnl Check for the SCO buggy ftime; the code can cope with the bug,
+dnl though it would prefer not to, so if we're cross-configuring we
+dnl accept that ftime exists.
+AC_FUNC_CHECK(ftime,
+[AC_TEST_PROGRAM([
+#include <sys/types.h>
+#include <sys/timeb.h>
+main ()
+{
+  struct timeb s, slast;
+  int c = 0;
+  ftime (&slast);
+  while (c < 10)
+    {
+      ftime (&s);
+      if (s.time < slast.time
+	  || (s.time == slast.time && s.millitm < slast.millitm))
+	exit (1);
+      if (s.time != slast.time)
+	++c;
+      slast.time = s.time;
+      slast.millitm = s.millitm;
+    }
+  exit (0);
+}
+],
+AC_DEFINE(HAVE_FTIME),
+echo 1>&2 "Your ftime seems to be buggy",
+AC_DEFINE(HAVE_FTIME))])
+dnl
+AC_HAVE_FUNCS(times)
+AC_HAVE_FUNCS(napms nap usleep poll select)
+case $DEFS in
+*HAVE_NAPMS*) ;;
+*HAVE_NAP*)  ;;
+*HAVE_USLEEP*) ;;
+*HAVE_POLL*) ;;
+*HAVE_SELECT*) ;;
+*) echo 1>&2 'WARNING: No way to sleep for less than one second'
+   echo 1>&2 '         \p in chat scripts will sleep for a full second'
+   ;;
+esac
+dnl
+AC_HAVE_FUNCS(getgrent)
+dnl
+changequote(,)dnl
+trfrom='[a-z]' trto='[A-Z]'
+changequote([,])dnl
+for i in socket t_open; do
+  def=HAVE_`echo $i|tr "$trfrom" "$trto"`
+  AC_FUNC_CHECK([$i],[AC_DEFINE($def)],[missing=1])dnl
+  for lib in "-lsocket" "-lsocket -lnsl" "-lnsl" "-lxti"; do
+    if test -n "$missing"; then
+      case $LIBS in
+      *${lib}*) ;;
+      *)
+	SAVELIBS="$LIBS"
+	LIBS="$LIBS $lib"
+	missing=
+	AC_COMPILE_CHECK([$i with $lib], , [extern char $i(); $i();],
+			 [AC_DEFINE($def)],
+			 [missing=1; LIBS="$SAVELIBS"])dnl
+	;;
+      esac
+    fi
+  done
+done
+dnl
+AC_HAVE_FUNCS(getcwd getwd)
+case $DEFS in
+*HAVE_GETCWD*) ;;
+*HAVE_GETCD*) ;;
+*) UNIXOBJS="$UNIXOBJS getcwd.o"
+   if test -s /bin/pwd; then
+     AC_DEFINE([PWD_PROGRAM], `echo '"/bin/pwd"'`)
+   fi ;;
+esac
+dnl
+AC_HAVE_FUNCS(mkdir)
+case $DEFS in
+*HAVE_MKDIR*) UUDIR='# ' ;;
+*) UUDIR=
+   UNIXOBJS="$UNIXOBJS mkdir.o"
+   if test -s /bin/mkdir; then
+     AC_DEFINE([MKDIR_PROGRAM], `echo '"/bin/mkdir"'`)
+   fi ;;
+esac
+AC_SUBST(UUDIR)dnl
+dnl
+AC_HAVE_FUNCS(rmdir)
+case $DEFS in
+*HAVE_RMDIR*) ;;
+*) UNIXOBJS="$UNIXOBJS rmdir.o"
+   if test -s /bin/rmdir; then
+     AC_DEFINE([RMDIR_PROGRAM], `echo '"/bin/rmdir"'`)
+   fi ;;
+esac
+dnl
+dnl Figure out which functions we need from lib subdirectory
+case $DEFS in
+*HAVE_BSEARCH*) ;;
+*) LIBOBJS="$LIBOBJS bsrch.o" ;;
+esac
+case $DEFS in
+*HAVE_BZERO*) ;;
+*HAVE_MEMSET*) ;;
+*) LIBOBJS="$LIBOBJS bzero.o" ;;
+esac
+case $DEFS in
+*HAVE_GETLINE*) ;;
+*) LIBOBJS="$LIBOBJS getlin.o" ;;
+esac
+case $DEFS in
+*HAVE_MEMCHR*) ;;
+*) LIBOBJS="$LIBOBJS memchr.o" ;;
+esac
+case $DEFS in
+*HAVE_MEMCMP*) ;;
+*HAVE_BCMP*) ;;
+*) LIBOBJS="$LIBOBJS memcmp.o" ;;
+esac
+case $DEFS in
+*HAVE_MEMCPY*) ;;
+*HAVE_BCOPY*) ;;
+*) LIBOBJS="$LIBOBJS memcpy.o" ;;
+esac
+case $DEFS in
+*HAVE_STRCASECMP*) ;;
+*HAVE_STRICMP*) ;;
+*) LIBOBJS="$LIBOBJS strcas.o" ;;
+esac
+case $DEFS in
+*HAVE_STRCHR*) ;;
+*HAVE_INDEX*) ;;
+*) LIBOBJS="$LIBOBJS strchr.o" ;;
+esac
+case $DEFS in
+*HAVE_STRDUP*) ;;
+*) LIBOBJS="$LIBOBJS strdup.o" ;;
+esac
+case $DEFS in
+*HAVE_STRNCASECMP*) ;;
+*HAVE_STRNICMP*) ;;
+*) LIBOBJS="$LIBOBJS strncs.o" ;;
+esac
+case $DEFS in
+*HAVE_STRRCHR*) ;;
+*HAVE_RINDEX*) ;;
+*) LIBOBJS="$LIBOBJS strrch.o" ;;
+esac
+case $DEFS in
+*HAVE_STRSTR*) ;;
+*) LIBOBJS="$LIBOBJS strstr.o" ;;
+esac
+case $DEFS in
+*HAVE_STRTOL*) ;;
+*) LIBOBJS="$LIBOBJS strtol.o" ;;
+esac
+AC_SUBST(LIBOBJS)dnl
+dnl Figure out which functions we need from unix subdirectory
+case $DEFS in
+*HAVE_OPENDIR*) ;;
+*) UNIXOBJS="$UNIXOBJS dirent.o" ;;
+esac
+case $DEFS in
+*HAVE_DUP2*) ;;
+*) UNIXOBJS="$UNIXOBJS dup2.o" ;;
+esac
+case $DEFS in
+*HAVE_FTW*) ;;
+*) UNIXOBJS="$UNIXOBJS ftw.o" ;;
+esac
+case $DEFS in
+*HAVE_REMOVE*) ;;
+*) UNIXOBJS="$UNIXOBJS remove.o" ;;
+esac
+case $DEFS in
+*HAVE_RENAME*) ;;
+*) UNIXOBJS="$UNIXOBJS rename.o" ;;
+esac
+case $DEFS in
+*HAVE_STRERROR*) ;;
+*) UNIXOBJS="$UNIXOBJS strerr.o" ;;
+esac
+AC_SUBST(UNIXOBJS)
+dnl
+case $DEFS in
+*HAVE_SIGVEC*)
+  AC_COMPILE_CHECK([sv_flags],
+  [#include <signal.h>], [struct sigvec s; s.sv_flags = 0;],
+  AC_DEFINE([HAVE_SIGVEC_SV_FLAGS])) ;;
+esac
+dnl
+dnl See whether we can make an extern declaration
+define(ILT_CHECK_DECLARATION,
+[changequote(,)dnl
+trfrom='[a-z]' trto='[A-Z]'
+changequote([,])dnl
+AC_COMPILE_CHECK([$1 declared as "$2"],
+[#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
+#ifdef HAVE_LIBC_H
+#include <libc.h>
+#endif
+#ifdef HAVE_SYS_TIMES_H
+#include <sys/times.h>
+#endif
+extern $2 $1 ();], ,
+AC_DEFINE(`echo $1 | tr "$trfrom" "$trto"`_DECLARATION_OK))])
+dnl
+ILT_CHECK_DECLARATION(times, long)
+ILT_CHECK_DECLARATION(getpwnam, struct passwd *)
+ILT_CHECK_DECLARATION(getpwuid, struct passwd *)
+ILT_CHECK_DECLARATION(getgrent, struct group *)
+dnl
+AC_COMPILE_CHECK([BSD setpgrp],
+[#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif],
+[getpgrp (0); setpgrp (0, 0);],
+AC_DEFINE([HAVE_BSD_PGRP]))
+dnl
+AC_COMPILE_CHECK([union wait],
+[#include <sys/wait.h>
+#ifndef WIFEXITED
+#define WIFEXITED(u) ((u).w_termsig == 0)
+#endif],
+[union wait u; if (WIFEXITED (u)) wait (&u);],
+AC_DEFINE([HAVE_UNION_WAIT]))
+dnl
+if test -n "$cross_compiling"; then
+ AC_DEFINE([HAVE_LONG_FILE_NAMES], [0])
+ AC_DEFINE([HAVE_RESTARTABLE_SYSCALLS], [-1])
+else
+ AC_RESTARTABLE_SYSCALLS
+ AC_LONG_FILE_NAMES
+fi
+dnl
+AC_OUTPUT(Makefile uuconf/Makefile lib/Makefile unix/Makefile)
+@

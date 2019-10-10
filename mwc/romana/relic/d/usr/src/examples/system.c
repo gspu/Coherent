@@ -1,0 +1,57 @@
+#include <stdio.h>
+
+FILE *newfp;
+int oldstdout;
+
+main()
+{
+	extern int system();
+
+	ropen("list.fil");
+	system("ls *.c");
+	rclose();
+}
+
+/*
+ * Redirect stdout prior to system() call.
+ * You can't redirect child process's I/O
+ * but you can redirect main()'s and let the child inherit it.
+ */
+ropen(tofile)
+char *tofile;
+{
+	if ((newfp = fopen(tofile, "wr")) == NULL)
+		fatal("cannot open output file \"%s\"", tofile);
+
+	/* Duplicate stdout so it can be restored later */
+	if ((oldstdout = dup(fileno(stdout))) == -1)
+		fatal("dup failed");
+
+	/* Force duplication of new file handle as stdout */
+	if (dup2(fileno(newfp), fileno(stdout)) == -1)
+		fatal("dup2 failed");
+}
+
+/*
+ * Terminate redirection
+ */
+rclose()
+{
+	/* Restore old stdout */
+	if (dup2(oldstdout, fileno(stdout)) == -1)
+		fatal("dup2 failed");
+	/* Close the extra handle */
+	if (close(oldstdout) != 0)
+		fatal("cannot close old stdout");
+	fclose(newfp);
+}
+
+/*
+ * Fatal error
+ */
+fatal(p)
+char *p;
+{
+	fprintf(stderr, "system: %r\n", &p);
+	exit(1);
+}

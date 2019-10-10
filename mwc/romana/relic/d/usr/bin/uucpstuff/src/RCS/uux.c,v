@@ -1,0 +1,475 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.06.14.09.15.21;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.06.03.19.15.35;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.11.15.03.23;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver pulled from mango
+@
+
+
+1.3
+log
+@updated by epstein
+@
+text
+@/*
+ *  uux.c
+ *
+ *  Execute commands on a remote system.
+ *
+ *  Peter S. Housel (housel@@ecn.purdue.edu)
+ *  changes copyright (c) 1989-1991 by Mark Williams Company
+ */
+
+#include <stdio.h>
+#include <signal.h>
+#include <ctype.h>
+#include "dcp.h"
+
+#define DEFGRADE	'a'	/* or whatever */
+
+extern int getopt();
+extern int optind;
+extern char *optarg;
+extern char *index(/* char *string, char c */);
+extern char *rindex(/* char *string, char c */);
+extern char *mktemp(/* char *template */);
+extern	char	*strtok();
+extern FILE *fopen();
+
+void usage(), dostdin(), doarg();
+char *uucpname(), *whoami();
+char *filesite(/* char *filename */), *filepath(/* char *filename */);
+char *basename(/* char *filename */);
+extern	int getseq();
+int	debug = 0;
+
+char tempname[] =		"/usr/spool/uucp/TM.XXXXXX";
+char luser[512];		/* local user name */
+char mysite[SITELEN];	/* this host's uucpname */
+char cmdsite[SITELEN];	/* site where command is run */
+char cmd[64];			/* remote command name */
+char arglist[2048] = "";	/* remote argument list */
+FILE *commandfile;		/* the "C." spool command file */
+FILE *execfile;			/* the "X." remote spool execute file */
+char grade = DEFGRADE;		/* transfer grade */
+int	local = 0;
+int nocico = 0;			/* "don't run uucico" flag */
+int trylink = 0;		/* try spoolfile links before copying */
+int readstdin = 0;		/* read standard input ("-" or "-p") */
+int	notifyfail = 1;
+int	notifysucceed = 0;	/* notify succeed */
+char	directory [40] = SPOOLDIR;
+char	subdirectory [60];
+int	output = 0;
+int	input = 0;
+#define	ARGBUFSZ 1024
+char	argbuf[ARGBUFSZ];
+char	onearg[ARGBUFSZ];
+char	*rmtname = NULL;
+
+main(argc, argv)
+int argc; 
+char *argv[];
+{
+	int c;				/* option character */
+	int seq;			/* 'seq number' of X. file */
+	static char scratch[256];	/* ubiquitous scratch buffer */
+	char *p;			/* equally ubiquitous scratch pointer */
+	char	*arg;
+	register int (*intfun)(), (*quitfun)();
+
+	strcpy(mysite, uucpname());
+	if (strlen(mysite) == 0) {
+		fprintf(stderr, "uux: can't get my own uucpname\n");
+		exit(1);
+	}
+	strcpy(luser, whoami());
+	while( (c=getopt(argc, argv, "a:bcCg:jnprS:s:vVx:z")) != EOF ) {
+		switch(c) {
+		case 'a':
+			strcpy(luser, optarg);
+			break;
+		case 'b':
+		case 'c':
+		case 'C':
+			notsup(c);
+			break;
+		case 'g':
+			if (isalnum(optarg[0]) && '\0' == optarg[1])
+				grade = optarg[0];
+			else
+				fprintf(stderr,
+				"uux: %s: illegal grade\n", optarg);
+			break;
+		case 'j':
+			notsup(c);
+			break;
+		case 'r':
+			nocico = 1;
+			break;
+		case 'n':
+			notifyfail = 0;
+			break;
+		case 'p':
+			readstdin = 1;
+			break;
+		case 's':
+			notsup(c);
+			break;
+		case 'S':
+			strcpy(directory, optarg);
+			fprintf(stderr, "Debug directory is %s\n", directory);
+			break;
+		case 'x':
+			debug = atoi (optarg);
+			fprintf (stderr, "debug is %d\n", debug);
+			fprintf(stderr, "uux version %s\n", VERSION);
+			break;
+		case 'v':
+		case 'V':
+			fatal("uux: Version %s", VERSION);
+		case 'z':
+			notifysucceed = 1;
+			break;
+		default:
+			usage();
+			exit(1);
+		}
+	}
+	if (optind < argc && strcmp(argv[optind], "-") == 0) {
+		++optind;
+		readstdin = 1;
+	}
+	if (optind >= argc) {
+		usage();
+		exit(1);
+	}
+	if (NULL == (p = filesite(argv[optind]))) {
+		fprintf(stderr, "uux: illegal command\n");
+		exit(1);
+	}
+	strcpy(cmdsite, p);
+	if (NULL == (p = filepath(argv[optind]))) {
+		fprintf(stderr, "uux: illegal command\n");
+		exit(1);
+	}
+	strcpy(cmd, p);
+	++optind;
+	local = 0;
+	if (strlen(cmdsite) == 0) {
+		local = 1;
+	} else if (!knowhost(cmdsite)) {
+		fprintf(stderr, "uux: site %s unknown\n", cmdsite);
+		exit(1);
+	}
+	if (local == 0) {
+		if (NULL == (commandfile = fopen(mktemp(tempname), "w"))) {
+			fprintf(stderr, "uux: can't open ");
+			perror(tempname);
+			exit(1);
+		}
+	}
+	sprintf(subdirectory, "%s/%s", directory, cmdsite);
+	if (!ckdir(subdirectory)) {
+		fprintf(stderr, "Unable to create directory %s\n",
+			subdirectory);
+		exit (1);
+	}
+	intfun = signal(SIGINT, SIG_IGN);
+	quitfun = signal(SIGQUIT, SIG_IGN);
+	seq = getseq(cmdsite);
+	if (local == 0)
+		sprintf(scratch, "%s/%s/D.%.*s%c%04d", directory,
+			cmdsite, SITESIG, mysite, 'X', seq);
+	else
+		sprintf(scratch, "%s/%s/X.%.*s%c%04d", directory,
+			mysite, SITESIG, mysite, 'X', seq);
+	if (debug > 1)
+		fprintf(stderr, "command path is %s\n", scratch);
+	if ((execfile = fopen(scratch, "w")) == NULL) {
+		fprintf(stderr, "uux: can't open execfile for output: ");
+		perror(scratch);
+		exit(1);
+	}
+	rmtname = &cmdsite[0];
+	open_the_logfile("uux");
+	if (readstdin)
+		dostdin();
+	strcpy(argbuf, "");
+	while (optind < argc) {
+		arg = argv[optind++];
+		if ((strlen(arg) + strlen(argbuf) + 2) > ARGBUFSZ) {
+			fprintf(stderr, "Argument list too long\n");
+			exit(1);
+		}
+		strcat(argbuf, " ");
+		strcat(argbuf, arg);
+	}
+	plog(M_INFO, "%s!%s %s", cmdsite, cmd, argbuf);
+	processargs();
+
+	if (local == 0) {
+		fprintf(commandfile,
+		"S D.%.*s%c%04d X.%.*s%c%04d %s - D.%.*s%c%04d 0666\n",
+		SITESIG, mysite, 'X', seq, SITESIG, mysite, 'X', seq, luser,
+		SITESIG, mysite, 'X', seq);
+	}
+	plog(M_INFO, "user: %s site %s %s", luser, mysite, 
+		notifyfail ? "notifyfail" : "");
+	fprintf(execfile, "U %s %s\nR %s\n", luser, mysite, luser);
+	if (notifyfail)
+		fprintf(execfile, "Z \n");
+	if (notifysucceed)
+		fprintf(execfile, "n \n");
+
+	fprintf(execfile, "C %s %s\n", cmd, arglist);
+	fclose(execfile);
+	if (local == 0) {
+		fclose(commandfile);
+		sprintf(scratch, "%s/%s/C.%.*s%c%04d",
+			directory, cmdsite, SITESIG, cmdsite, grade, seq);
+		if (link(tempname, scratch) == 0)
+			unlink(tempname);
+		else {
+			fprintf(stderr, "uux: couldn't rename commandfile\n");
+			exit(1);
+		}
+	}
+	if (nocico)
+		exit(0);
+	else {
+		exec_cico(cmdsite);
+	}
+	exit (0);
+	
+}
+
+processargs()
+{
+	char	*ap, *arg;
+	char	append [2];
+	ap = argbuf;
+
+	strcpy(append, "");
+	while ((arg = strtok(ap, " \t\n")) != NULL) {
+		ap = NULL;
+		if ((strcmp(arg, ">") == 0) || (strcmp(arg, "<") == 0) ||
+		strcmp(arg, "|") == 0)
+			strcpy(append, arg);
+		else {
+			strcpy(onearg, append);
+			strcat(onearg, arg);
+			strcpy(append, "");
+			doarg(onearg);
+		}
+	}
+}
+
+notsup(c)
+int	c;
+{
+	fprintf(stderr, "Option %c not supported yet\n", c);
+}
+
+void usage()
+{
+	fprintf(stderr,
+	"usage: uux [-plrv] [-g grade] [-a user] [-] host!cmd arg ...\n");
+	exit (1);
+}
+
+void
+dostdin()
+{
+	static char name[128], spoolname[128];	/* spool data filename */
+	FILE *data;				/* spool data file */
+	int seq;				/* spool sequence number */
+	int c;					/* char from stdin */
+
+	seq = getseq(cmdsite);
+	sprintf(subdirectory, "%s/%s", directory, cmdsite);
+	if (!ckdir(subdirectory)) {
+		fprintf(stderr, "Unable to create directory %s\n",
+			subdirectory);
+		exit (1);
+	}
+	sprintf(name, "D.%.*s%c%04d", SITESIG, mysite, grade, seq);
+	sprintf(spoolname, "%s/%s/%s", directory, cmdsite, name);
+	if ((data = fopen(spoolname, "w")) == NULL) {
+		fprintf(stderr, "uux: can't copy stdin\n");
+		return;
+	}
+	while(EOF != (c = getc(stdin)))
+		putc(c, data);
+	fclose(data);
+
+	fprintf(execfile, "F %s\nI %s\n", name, name);
+	if (local == 0)
+		fprintf(commandfile,
+		"S %s %s %s - %s 0666\n", name, name, luser, name);
+}
+
+void doarg(arg)
+char *arg;
+{
+	char name[128], spoolname[128];	/* spool data filename */
+	FILE *data;				/* spool data file */
+	FILE *source;				/* source data file */
+	int seq;				/* spool sequence number */
+	int c;					/* char from input */
+
+	if (debug > 2)
+		fprintf(stderr, "doarg argument: [%s]\n", arg);
+	output = 0;
+	input = 0;
+	if ('(' == arg[0] && ')' == arg[strlen(arg) - 1]) {
+		strcat(arglist, arg + 1);
+		arglist[strlen(arglist) - 1] = '\0';
+	} else if (NULL == index(arg, '!'))
+		strcat(arglist, arg);
+	else if (strcmp(filesite(arg), cmdsite) == 0) {
+		strcat(arglist, filepath(arg));
+	} else if (strlen(filesite(arg)) == 0) {
+		seq = getseq(cmdsite);
+		if (debug)
+			fprintf(stderr, "seq is %s\n", seq);
+		sprintf(subdirectory, "%s/%s", directory, cmdsite);
+		if (!ckdir(subdirectory)) {
+			fprintf(stderr, "Unable to create directory %s\n",
+				subdirectory);
+			exit (1);
+		}
+		sprintf(name, "D.%.*s%c%04d", SITESIG, mysite, grade, seq);
+		sprintf(spoolname, "%s/%s/%s", directory, cmdsite, name);
+		if (!trylink || link(filepath(arg), spoolname) < 0) {
+			if (NULL == (data = fopen(spoolname, "w"))
+			|| NULL == (source = fopen(filepath(arg), "r"))) {
+				fprintf(stderr,
+				"uux: can't copy %s to spool directory\n",
+				filepath(arg));
+				exit(1);
+			}
+			while(EOF != (c = getc(source)))
+				putc(c, data);
+			fclose(data);
+			fclose(source);
+		}
+		if (local == 0)  {
+			fprintf(commandfile,
+			"S %s %s %s - %s 0666\n", filepath(arg), name,
+			luser, name);
+		}
+		fprintf(execfile, "F %s %s\n", name, basename(filepath(arg)));
+		strcat(arglist, basename(filepath(arg)));
+	} else {
+		char	*fs, *fp;
+		if (arg[0] == '>') {
+			fprintf(stderr, "Argument is an output argument\n");
+			output = 1;
+			arg++;
+		} else if (arg[0] == '<') {
+			fprintf(stderr, "Argument is an input argument\n");
+			input = 1;
+			arg++;
+		}
+		fs = filesite(arg);
+		fp = filepath(arg);
+		fprintf(stderr, "To handle transfer for site %s, file %s\n",
+			fs, fp);
+	}
+	strcat(arglist, " ");
+}
+
+char *filesite(name)
+char *name;
+{
+	static char site[SITELEN];
+	char	*oname;
+	char *p;
+	char *q;
+
+	oname = name;
+	if (NULL == (p = index(name, '!')))
+		p = NULL;
+	else {
+		q = site;
+		while(name < p)
+			*q++ = *name++;
+		*q = '\0';
+		p = site;
+	}
+	if (debug) 
+		fprintf(stderr, "filesite(%s) : %s.\n", oname, p);
+	return p;
+	
+}
+
+char *filepath(name)
+char *name;
+{
+	char *p;
+
+	if (NULL == (p = rindex(name, '!')))
+		p = NULL;
+	else
+		p = p + 1;
+	if (debug)
+		fprintf(stderr, "filepath(%s) : %s\n", name, p);
+	return p;
+}
+
+char *basename(name)
+char *name;
+{
+	char *p;
+	if (NULL == (p = rindex(name, '/')))
+		return name;
+	else
+		return p + 1;
+}
+@
+
+
+1.2
+log
+@changes by epstein
+@
+text
+@d216 2
+a217 2
+		sprintf(scratch, "%s/%s/C.%s%c%04d",
+			directory, cmdsite, cmdsite, grade, seq);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d74 1
+a74 1
+	while((c = getopt(argc, argv, "a:bcCg:jnprS:s:x:z")) != EOF) {
+d115 3
+@

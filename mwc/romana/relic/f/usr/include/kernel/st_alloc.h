@@ -1,0 +1,198 @@
+#ifndef __KERNEL_ST_ALLOC_H__
+#define	__KERNEL_ST_ALLOC_H__
+
+/*
+ *-IMPORTS:
+ *	<common/ccompat.h>
+ *		__CONST__
+ *		__PROTO__
+ *		__VOID__
+ *		__PROTO ()
+ *	<common/xdebug.h>
+ *		__LOCAL__
+ */
+
+#include <limits.h>
+#include <common/ccompat.h>
+#include <common/xdebug.h>
+#include <common/_size.h>
+
+
+/*
+ * Definitions/declarations for the quick arena manager.
+ *
+ * The quick arena manager's basic algorithm utilizes a heap (in the sense
+ * defined below) to implement a binary-searchable index of block buckets
+ * ordered by size.
+ *
+ * The primariy characteristic of this algorithm is its' speed ; the growth
+ * rate of the execution time is O (log W), where W is the number of words in
+ * the arena being managed. 
+ *
+ * This implementation is directly derived from the article in which this
+ * algorithm first appeared;
+ *
+ *	"Efficient Implementation of the First-Fit Strategy for Dynamic
+ *	 Storage Allocation"
+ *	R. P. Brent, Australian National University
+ *	ACM Transactions on Programming Languages and Systems
+ *	Volume 11, No. 3, July 1989 pp 388-403.
+ */
+
+
+/*
+ * This source code deviates somewhat from the terminology used in the
+ * article, due to the large number of ambiguous terms here. The following
+ * definitions are used exclusively in the commentary and selection of
+ * identifiers within this source code :
+ *
+ *	heap		a balanced binary tree with implicit links, esp.
+ *			used to perform max/min calculations or binary search
+ *
+ *	arena		the memory area being managed
+ *
+ *	block		a single unit of contiguous allocated or free memory
+ *
+ *	bucket		a subsection of the heap containing zero or more
+ *			blocks
+ */
+
+
+/*
+ * Definition of the type of an underlying machine address for each one of
+ * the pointer types used in the arena control structure.
+ *
+ * An interesting question : what type should be being used for the heap
+ * control words, short or long? If a short is used for the size of a
+ * control word, then we are limited to 64k bytes for the size of a single
+ * allocation arena.
+ */
+
+typedef int			_ST_WORD_T;
+
+#if	INT_MAX > SHRT_MAX
+#define	_ST_SIZE_MASK		0x7FFFFFFF
+#define	_ST_FREE_MASK		0x80000000
+#else
+#define	_ST_SIZE_MASK		0x7FFF
+#define	_ST_FREE_MASK		0x8000
+#endif
+
+typedef _ST_WORD_T	      *	_ST_ADDR_T;
+
+#define	_ST_HEAP_ADDR(q,a)	(a)
+#define	_ST_HEAP_BUCKET(q,a)	(((char *) (a) - (char *) (q)->_arena_base) / ((q)->_words_per_bucket * sizeof (_ST_WORD_T)))
+
+
+/*
+ * For the control word of a block, it is *vital* that all used blocks
+ * compare as "<" with a free block, and that free blocks test as normal
+ * integers.
+ */
+
+#define	_ST_BLOCK_CONTROL(q,a)		(* _ST_HEAP_ADDR (q, (a)))
+#define	_ST_BLOCK_SIZE(c)		((c) & _ST_SIZE_MASK)
+#define	_ST_BLOCK_FREE(c)		(((c) & _ST_FREE_MASK) == 0)
+#define	_ST_BLOCK_SET_FREE(q,a,n)	(void) (_ST_BLOCK_CONTROL (q, (a)) = (n) & ~ _ST_FREE_MASK)
+#define	_ST_BLOCK_SET_USED(q,a,n)	(void) (_ST_BLOCK_CONTROL (q, (a)) = (n) | _ST_FREE_MASK)
+
+
+#define	_ST_HEAP_BIGGEST(q,s)	((q)->_bucket_biggest [s])
+#define	_ST_HEAP_FIRST(q,s)	((q)->_bucket_first [s])
+
+#define	_ST_BUCKET_SIBLING(b)	(b ^ 1)
+#define	_ST_BUCKET_PARENT(b)	(b >>= 1)
+
+#define	_ST_HEAP_NEXT(a,c)	((_ST_ADDR_T) ((a) + _ST_BLOCK_SIZE (c)))
+#define	_ST_HEAP_NEXT_RAW(a,c)	((_ST_ADDR_T) ((a) + (c)))
+
+#define	_ST_SET_ERROR(q,e)	((q)->_heap_error = (e))
+#define	_ST_HEAP_ERROR(q)	((q)->_heap_error)
+
+
+/*
+ * Help clients initialise the arena.
+ */
+
+#define	_ST_HEAP_CONTROL_SIZE(segs)\
+	(sizeof (struct _st_heap_control) + \
+		(segs) * (2 * sizeof (_ST_WORD_T) + sizeof (_ST_ADDR_T)))
+
+/*
+ * Allocation control block. This block is normally followed by vectors
+ * containing a maximum block size heap and a vector defining the first free
+ * block in an allocation bucket.
+ */
+
+struct _st_heap_control {
+
+	int		_buckets_inuse;		/* number of active buckets */
+	int		_buckets_maximum;	/* maximum possible buckets */
+	int		_words_per_bucket;	/* memory words per bucket */
+	size_t		_arena_size;		/* total bytes in arena */
+
+	_ST_WORD_T    *	_bucket_biggest;	/* bucket size ordered heap */
+	_ST_ADDR_T    *	_bucket_first;		/* address of first block */
+	_ST_ADDR_T	_arena_base;
+						/*
+						 * base address of the first
+						 * word in the arena, same as
+						 * _bucket_first [0]
+						 */
+	_ST_ADDR_T	_arena_end;
+						/*
+						 * Address of last word in
+						 * the arena +1
+						 */
+	__CONST__ char * _heap_error;
+						/*
+						 * If this heap is corrupt,
+						 * points to a string that
+						 * describes the problem
+						 */
+};
+
+typedef struct _st_heap_control _ST_HEAP_CONTROL, * _ST_HEAP_CONTROL_P;
+
+
+/*
+ * As an additional check, we can make clients of st_disp () pass in the
+ * size of the block to free as (i) an additional assertion check against
+ * bugs, and (ii) because a faster/less overhead implementation of the
+ * algorithm might be possible where there is no header for allocated blocks
+ * (the free blocks contain a size and a pointer to the next free block).
+ */
+
+#define	USE_ST_SIZE
+
+#ifdef	USE_ST_SIZE
+#define	ST_FREE_SIZE(x)		, x
+#else
+#define	ST_FREE_SIZE(x)
+#endif
+
+
+/*
+ * Public function prototypes
+ */
+
+__EXTERN_C_BEGIN__
+
+int		st_assert	__PROTO ((_ST_HEAP_CONTROL_P _q));
+__VOID__      *	st_alloc	__PROTO ((_ST_HEAP_CONTROL_P _q,
+					  size_t _size));
+int		st_free		__PROTO ((_ST_HEAP_CONTROL_P _q,
+					  __VOID__ * _a
+					  ST_FREE_SIZE (size_t _size)));
+__VOID__      *	st_realloc	__PROTO ((_ST_HEAP_CONTROL_P _q,
+					  __VOID__ * _a, size_t _newsize
+					  ST_FREE_SIZE (size_t _oldsize)));
+void		st_init		__PROTO ((_ST_HEAP_CONTROL_P _q));
+void		st_ctor		__PROTO ((_ST_HEAP_CONTROL_P _q, int _segs,
+					  size_t _arensize,
+					  _ST_ADDR_T _arenabase));
+size_t		st_maxavail	__PROTO ((_ST_HEAP_CONTROL_P _q));
+
+__EXTERN_C_END__
+
+#endif	/* ! defined (__KERNEL_ST_ALLOC_H__) */

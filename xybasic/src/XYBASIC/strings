@@ -1,0 +1,675 @@
+;STRINGS 11/1/79
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979 by Mark Williams Company, Chicago
+;string routines and functions
+
+	if	strng
+
+;String space consists of RAM from (MEMT)+1 to (STRT).  String variables are
+;stored from (MEMT)+1 to (STRPT), and (STRPT)+1 to (STRP2) is used for
+;temporary string storage.  The string temporaries at STEMP contain the
+;addresses of ESTACK string entries, as the strings may move during garbage
+;collection.
+
+;ATEMP assigns the ESTACK location in HL to a string temporary.
+;The temporary is freed when the string value is FETCHed.
+;Retn:	A	clobbered
+;	BCDEHL	preserved
+atemp:	push	d
+	xchg			;location to DE
+	lxi	h,stemp		;temp base addr to HL
+	mov	a,m		;fetch # temps in use
+	inr	a		;and bump
+	cpi	stmax		;compare to # available
+	jnc	sterr		;too many, fatal ST error
+	mov	m,a		;store new # in use
+	add	a		;# * 2 bytes per temp
+	call	adahl		;+ base = bottom of new temp
+	mov	m,d
+	dcx	h
+	mov	m,e		;location to temp
+	xchg			;restore loc to HL
+	pop	d		;and restore DE
+	ret
+sterr:	error	f, S, T		;fatal ST error
+
+;SCOPY copies a new string to string temp space for GET$, CHR$, and STR$.
+;Call:	C	string length
+;	DE	string location
+;Retn:	B	preserved
+;	C	string length
+;	DE	string location (in string space)
+;	HL	top of string temp space used
+;SCOP0 is called from concatenation (SADD) and assignment (SCOPV) to
+;fetch the string value addressed by HL and then copy to string space.
+scop0:	call	fetcs		;fetch string arg
+scopy:	mov	a,c
+	call	stfre		;assure sufficient free space
+	mov	a,c
+	ora	a
+	rz			;null string, just return
+	push	b		;save length
+	call	bcde		;length to E, location to BC
+	inx	h		;next available location to HL
+	push	h		;save location
+	call	movd0		;copy string to string space
+	dcx	h
+	shld	strp2		;new top of string temp space used
+	pop	d		;restore location
+	pop	b		;and length
+	ret
+
+;SCOPV copies the value addressed by HL to string space for string assignment.
+scopv:	push	h
+	inx	h
+	mov	a,m		;fetch length
+	lhld	strpt
+	shld	strp2		;clear string temp spacce
+	call	stfre		;assure sufficient free space
+	pop	h		;restore value pointer
+	push	h
+	call	scop0		;fetch the value and copy to string space
+	shld	strpt		;and reset string space var pointer
+	pop	h		;restore the value pointer
+	push	h
+	inx	h
+	inx	h
+	mov	m,e
+	inx	h
+	mov	m,d		;new location to value entry
+	pop	h		;restore HL
+	mov	a,m		;and restore type
+	ret
+
+;STFRE assures that (A) bytes of string space is availfable.
+;Garbage collection is performed if required, and an OS error if insufficient.
+;Call:	A	amount of string space needed
+;Retn:	BC,DE	preserved
+;	HL	top of used string space (STRP2)
+stfre:	push	b
+	push	d
+	mov	c,a
+	mvi	b,0		;desired space to BC
+	lhld	strt
+	xchg			;top of string space to DE
+	lhld	strp2		;current used string space top to HL
+	push	h		;and saved
+	dad	b		;current top + desired amount to HL
+	cnc	cmdhu		;compare top to needed
+	jnc	pop3		;top >= needed, restore and return
+	pop	h
+	push	b		;save desired
+	call	garbg		;garbage collect
+	xchg
+	pop	b
+	push	h		;save used top
+	dad	b
+	cnc	cmdhu		;compare top to needed
+	jnc	pop3		;ok after garbage collection
+	error	f, O, S		;fatal OS error
+
+;GARBG is the string space garbage collector.  All strings referenced by
+;string variables or temporaries are compacted to the base of string space.
+;Retn:	DE	top of used string space (STRPT)
+;	HL	top of string space (STRT)
+garbg:	lhld	memt
+	inx	h		;point to first byte of string space
+	shld	gcmin		;min value to accept
+;First the string with the minimum location >= GCMIN is found.
+;GCLST contains the least so far, and GCLOC the location of the least.
+garb1:	lxi	h,-1
+	shld	gclst		;string space loc of least string found
+	lhld	symta
+	push	h
+garb2:	pop	d		;set initial values for NXTST
+	call	nxtst		;find next symbol table string var
+	jc	garb4		;no more string entries
+	push	d
+	push	h
+	mov	d,b
+	mov	e,c		;next string location to DE
+	call	gccmp		;compare to min and least
+	pop	h		;restore next entry pointer to HL
+	jc	garb2		;< min or >= least, try next
+	xchg
+	shld	gclst		;else current becomes new least
+	xchg
+	shld	gcloc		;and gcloc stores its address
+	jmp	garb2		;and try next
+;All strings checked, must check if least was found.
+garb4:	lhld	gclst
+	mov	a,h
+	ana	l
+	inr	a
+	jz	garb5		;no least found, string var compacting done
+;Move the least string to the top of available string space.
+	lhld	gcloc
+	dcx	h
+	dcx	h
+	dcx	h		;point to length byte
+	call	tpmov		;move string temps pointing within string
+	call	stmov		;move the string
+	jmp	garb1		;and continue compacting
+;String vars compacted, now compact the string temps.
+garb5:	lhld	gcmin
+	dcx	h
+	shld	strpt		;store new string var pointer
+	lhld	strt
+	shld	gclst		;set GCLST for GCCMP
+	lxi	h,stemp
+	mov	a,m		;fetch # temps in use
+garb6:	dcr	a
+	jm	garb7		;all temps moved, garbage collection done
+	push	psw		;save # temps still to move
+	call	modem		;fetch temp loc to DE
+	push	h
+	push	d		;save temp loc
+	xchg
+	call	modem		;fetch loc of temporary to DE
+	call	gccmp		;compare to min and least
+	pop	h		;temp loc to HL
+	cnc	stmov		;move temp to base of avail space
+	pop	h
+	pop	psw
+	jmp	garb6		;and look for more temps
+garb7:	lhld	gcmin
+	dcx	h
+	shld	strp2		;store new top of string temp space
+	xchg
+	lhld	strt		;and return string space top in HL
+	ret
+gccmp:	lhld	gcmin
+	call	cmdhu
+	rc			;location < min, try next
+	lhld	gclst
+	call	cmdhu
+	cmc			;location >= least, try next
+	ret
+
+;STMOV moves a string during garbage collection.
+;Call:	HL	pointer to string length byte
+;	(GCMIN)	destination
+;Retn:	(GCMIN)	next unused location in string space
+stmov:	mov	e,m		;length to E
+	inx	h
+	push	h		;save location address
+	mov	c,m
+	inx	h
+	mov	b,m		;location to BC
+	lhld	gcmin		;destination to HL
+	push	h		;and saved
+	call	movd0		;move string in string space
+	shld	gcmin		;and store new min
+	pop	d
+	pop	h
+	mov	m,e
+	inx	h
+	mov	m,d		;and copy new loc to value
+	ret
+
+;TPMOV moves temporaries during garbage collection.
+tpmov:	lxi	d,stemp
+	ldax	d		;fetch # temps in use
+tpmo1:	dcr	a
+	rm			;no more temps to check
+	push	h		;save string value location
+	push	h
+	xchg
+	call	modem		;fetch ESTACK location of temp to DE
+	xthl			;save STEMP pointer, string value ptr to HL
+	push	psw		;save # temps still to check
+	push	h		;and string value ptr
+	xchg			;ESTACK temp loc to HL
+	call	modem		;fetch temp loc to DE
+	xthl			;save string temp pointer, value ptr to HL
+	push	d		;and save temp loc
+	mov	c,m		;length to C
+	call	modem		;location to DE
+	mvi	b,0
+	call	cplde		;- loc to DE
+	pop	h		;temp loc to HL
+	dad	d		;temp loc - source loc
+	jnc	tpmo2		;temp loc < source
+	xchg			;offset to DE
+	dcx	b		;length - 1 to BC
+	call	cmbdu
+	jc	tpmo2		;length <= offset
+	lhld	gcmin
+	dad	d		;destination + offset = new loc
+	xchg			;to DE
+	pop	h
+	mov	m,d
+	dcx	h
+	mov	m,e		;and to temp
+	push	h
+tpmo2:	pop	h
+	pop	psw		;# temps still unchecked
+	pop	d		;temp pointer
+	pop	h		;value pointer
+	jmp	tpmo1		;and check the next temp
+
+;NXTST is used during garbage collection to find locations of nonnull strings.
+;Call:	DE	next symbol table entry addr (initially SYMTA)
+;	HL	next length byte in current entry (initially SYMTA)
+;Retn:	Carry	Set iff no more nonnull strings
+;	A	length of next nonnull string
+;	BC	location of string
+;	DE	next entry addr
+;	HL	next length byte
+nxtst:	call	cmdhu
+	jnz	nxts3		;more in current entry
+nxts1:	call	stnxt		;address next symbol table entry
+	rc			;no more
+	ldax	d		;fetch type byte
+	ani	1FH		;mask to type
+	cpi	strst
+	jnz	nxts1		;not a string
+	xchg			;next entry addr to DE
+nxts2:	inx	h		;point to next name byte
+	ora	m
+	jp	nxts2		;scan past name
+	inx	h		;point to # dims
+	mov	c,m		;# dims to C
+	mvi	b,0
+	inx	h
+	dad	b
+	dad	b		;point to first length byte
+nxts3:	mov	a,m		;fetch length
+	call	mobcm		;fetch location to BC
+	inx	h		;point to next
+	ora	a
+	rnz			;return unless null
+	jmp	nxtst		;else try next
+
+;EVUNQ gets a string value for READ or INPUT.  If the next item scanned
+;EVALuates to a string value, its value is passed.  Otherwise the item is
+;considered to be an unquoted string starting at the first nonblank and
+;delimited by the next comma or cr, and a pointer to it is returned.
+;Retn:	Carry	Set iff next nonblank char is delimiter
+;	C, DE	length, location of string
+evunq:	call	gtcha		;fetch first nonblank
+	cpi	'"'
+	jz	gtlis		;quoted string literal
+	call	bakup		;let HL and TEXTP point to first
+	call	dtst1
+	cmc
+	rc			;first nonblank is delimiter, return Carry
+	mov	d,h
+	mov	e,l		;first nonblank loc to DE
+evun1:	cpi	','
+	jz	gtls1		;done if next is comma
+	call	dtst1
+	jnc	gtls1		;or if next is cr or '
+	call	read1		;else read the current
+	mov	a,m		;and fetch next
+	jmp	evun1		;and continue scanning
+
+;CMSTR compares two strings.
+;Call:	B	length of string 2
+;	C	length of string 1
+;	DE	location of string 1
+;	HL	location of string 2
+;Retn:	Carry	Set iff string 1 < string 2
+;	Zero	Set iff string 1 = string 2
+cmstr:	mov	a,c
+	ora	a
+	jz	cmst1		;end of string 1
+	mov	a,b
+	ora	a
+	jz	cmst2		;end of string 2
+	ldax	d		;else fetch string 1 char
+	cmp	m		;compare to string 2
+	rnz			;unequal
+	dcr	b
+	dcr	c		;decrement lengths
+	inx	d
+	inx	h		;increment pointers
+	jmp	cmstr		;and continue checking
+cmst1:	cmp	b
+	ret
+cmst2:	ori	1		;clear Carry and Zero
+	ret
+
+;SIARG is called by LEFT$, RIGHT$ and MID$ to manipulate arguments.
+;Call:	BC,DE	arg1 (string), arg2 (integer) pointers
+;Retn:	A	arg2, 0 if < 0 and 255 if > 255 (with nonfatal FC error)
+;	C, DE	string length and location
+;SIAR0 is called by INST3 and MID3 to fetch integer arg 0 <= arg <= 255.
+siar0:	call	cnvbi		;force to integer and fetch
+	mov	h,b
+	mov	l,c
+	jmp	siar1		;force 0 <= arg <= 255 to A
+siarg:	push	d		;save integer arg2
+	call	fetbc		;fetch string arg1 to C, DE
+	jnc	tmerr		;fatal TM error if nonstring
+	pop	h		;arg2 to HL
+siar1:	mov	a,h		;MID3 entry point
+	ora	a
+	mov	a,l		;lsbyte of arg2 to A
+	rz			;done if 0 <= arg2 <= 255
+	call	fcern		;else issue nonfatal FC error
+	mov	a,h
+	ora	a
+	mvi	a,0
+	rm			;and return 0 if < 0
+	dcr	a		;else return 255
+	ret
+
+
+;string functions follow
+
+;Concatenation (+): <string> x <string> --> <string>
+sadd:	mov	a,b
+	ora	a
+	jz	sadd3		;string 2 null, return s1
+	mov	a,c
+	ora	a
+	jz	sadd2		;string 1 null, return s2
+	add	b		;else find length of concatenation
+	jnc	sadd1		;not too long
+	error	n, L, S		;issue nonfatal LS error
+	mov	a,c
+	cma
+	mov	b,a		;useable length of s2 = 255 - length of s1
+	add	c		;length of concatenation to A
+sadd1:	push	psw		;save length
+	lxi	h,stemp
+	inr	m
+	inr	m		;reassign string temporaries
+	call	stfre		;assure sufficient space available
+	lhld	estkp
+	inx	h		;address s1 ESTACK entry
+	push	h
+	call	scop0		;fetch and copy to string space
+	pop	h
+	push	d		;save location of copied s1
+	lxi	d,vbyts+2
+	dad	d		;address s2 ESTACK entry
+	call	scop0		;fetch and copy to string space
+	pop	d		;result location to DE
+	pop	psw
+	mov	c,a		;result length to C
+	mvi	a,strst		;result type to A
+	ret
+sadd2:	mov	c,b		;length of s2 to C
+	xchg			;and loc to DE
+sadd3:	mvi	a,strst
+	ret
+
+;INSTR: [<integer> x] <string> x <string> --> <integer>
+instr:	lxi	h,1		;default arg0 value to HL
+inst0:	push	h		;save first to test -- INST3 entry point
+	dcx	h
+	push	h		;save first-1
+	call	ambop		;fetch matching args
+	jnc	tmerr		;nonstrings
+	xthl			;save s1 location, first-1 to HL
+	xchg
+	dad	d		;s2 loc + first - 1 = s2 remaining loc to HL
+	mov	a,c
+	mov	c,b
+	sub	e		;s2 length + first - 1 = s2 remaining length
+	pop	d
+	jc	inst2		;s2 too short, return 0
+	jz	inst2		;s2 rem null, return 0
+	mov	b,a		;s2 rem len to B
+;At INST1 B=s2 rem len, C=s1 len, DE=s1 loc, HL=s2 rem loc, stack=result
+inst1:	mov	a,b
+	cmp	c
+	jc	inst2		;remaining part of s2 too short, return 0
+	push	b
+	push	d
+	push	h
+	mov	b,c		;set lengths equal for string compare
+	call	cmstr		;compare s1 to LEFT$(rem s2,LEN(s1))
+	pop	h
+	pop	d
+	pop	b
+	jz	pop1		;matched, pop result to BC and return
+	dcr	b		;else decr s2 rem len
+	inx	h		;and incr s2 rem loc
+	xthl
+	inx	h		;and incr proto result
+	xthl
+	jmp	inst1		;and try again
+inst2:	pop	b
+	lxi	b,0
+	ret
+;INST3 executes ternary INSTR.
+inst3:	push	d		;save arg2
+	push	h		;and arg3
+	call	siar0		;force 0 <= arg3 <= 255 to A
+	mov	l,a
+	mvi	h,0		;arg3 to HL
+	ora	a
+	cz	inxh		;fudge value 0 to 1
+	pop	d
+	pop	b		;restore args
+	call	inst0		;perform INSTR
+	mvi	a,intst		;and return type integer
+	ret
+
+;BIN$:	<integer> --> <string>
+binfn:	lxi	h,(16 shl 8) or 1	;16 digits, 1 bit each
+	jmp	hexf0
+
+;HEX$:	<integer> --> <string>
+hexfn:	lxi	h,(4 shl 8) or 4	;4 digits, 4 bits each
+;HEXF0 is called by BIN$ and OCT$ to convert to string.
+;	BC	integer value to convert
+;	H	max digit count
+;	L	nummber of bits per digit
+hexf0:	lxi	d,bufad+1	;destination to DE
+	push	b		;save arg
+	mov	b,h		;remaining digit count to B
+	mvi	h,0		;to suppress leading 0s
+hexf1:	mov	c,l		;shift count to C -- OCT$ entry point
+	xthl			;save status & count, get value
+	xra	a		;build result digit in A
+hexf2:	dad	h		;shift arg left
+	ral			;Carry to A0
+	dcr	c
+	jnz	hexf2		;shift more bits
+	adi	90H		;90H, ..., 99H, 9AH, ..., 9FH
+	daa			;90H, ..., 99H, 00H+C,...,05H+C
+	aci	40H		;D0H, ..., D9H, 41H, ..., 46H
+	daa			;30H, ..., 39H, 41H, ..., 46H
+	stax	d		;store ASCII digit
+	inx	d
+	dcr	b
+	jz	hexf4		;done
+	xthl			;save value, get status
+	sui	'0'		;Zero set iff digit is 0
+	ora	h		;Zero set iff leading 0
+	mov	h,a		;save leading 0 status
+	jnz	hexf1		;not a leading 0, do not suppress
+	dcx	d		;suppress it
+	jmp	hexf1
+hexf4:	pop	b		;discard saved status
+	lxi	h,bufad
+	mvi	m,' '		;store first char = <space>
+	xchg			;first loc to DE, last+1 to HL
+	mov	a,l
+	sub	e		;compute length
+	mov	c,a		;length to C
+	jmp	scopy		;copy to string space and return
+
+;OCT$:	<integer> --> <string>
+octfn:	mov	h,b
+	mov	l,c		;arg to HL
+	dad	h		;shift left one bit, Carry iff leading 1
+	mov	b,h
+	mov	c,l		;shifted arg to BC
+	lxi	h,(5 shl 8) or 3	;5 digits, 3 bits each
+	jnc	hexf0		;high bit 0, so just do as in HEX$
+	lxi	d,bufad+1
+	mvi	a,'1'
+	stax	d		;store leading ASCII 1
+	inx	d
+	push	b		;save arg
+	mov	b,h		;repeat count to B
+	jmp	hexf1		;leave H nonzero to retain 0s
+
+;STR$: {<integer> | <floating>} --> <string>
+strs:	if	float		;<floating> --> <string>
+	call	fout		;convert floating value to string
+	else			;<integer> --> <string>
+	mov	a,b
+	ora	a
+	mvi	a,0
+	jp	strs1		;convert to string with no leading char if +
+	call	iumin		;else negate the arg
+	mvi	a,'-'
+strs1:	call	cvtis		;convert integer to string
+	endif
+	jmp	scopy		;copy to string space and return
+
+;VAL: <string> --> {<integer> | <floating>}
+val:	call	fetbc		;fetch the arg
+	inr	c		;bump length
+	jnz	val1
+	dcr	c		;length was 255, unincrement
+val1:	call	scopy		;make new copy with extra char
+	mvi	m,cr		;last char is cr
+	xchg			;location to HL
+	shld	txtp2		;and to TXTP2 for FLIP
+	call	flip		;let TEXTP scan the string
+	call	gtlit		;look for a literal
+	push	psw
+	push	b
+	push	d		;and save result of GTLIT
+	call	gtcha		;get first char after literal
+	call	flip		;restore TEXTP
+	mov	h,a		;first char after lit to H
+	pop	d
+	pop	b
+	pop	psw		;recover result of GTLIT
+	mov	l,a
+	mov	a,h
+	cpi	cr		;check if next after lit was cr
+	mov	a,l
+	jnz	fcer0		;FC error if not
+	cpi	intst		;check if type integer
+	rz			;yes, return
+	if	float
+	cpi	sngst
+	jnz	fcer0		;not floating nor integer, FC error
+	lxi	h,temp
+	mov	e,m		;restore saved value for A to E if floating
+	ret
+	endif
+
+;ASC: <string> --> <integer>
+asc:	call	len		;fetch string arg, 0 to B
+	mov	a,c		;length to A
+	ora	a		;check length
+	jz	fcer0		;null, nonfatal FC error and return 0
+	ldax	d		;else fetch character
+	mov	c,a
+	ret
+
+;LEN: <string> --> <integer>
+len:	call	fetbc		;fetch string arg
+	mvi	b,0		;return length in BC
+	ret
+
+;CHR$: <integer> --> <string>
+chrs:	call	isbyt		;arg must be byte expr
+	mov	a,c		;value to A
+chrs1:	lxi	d,temp
+	stax	d		;save in TEMP
+	mvi	c,1		;length is 1
+	jmp	scopy		;and copy to string space
+
+;LEFT$: <string> x <integer> --> <string>
+lefts:	call	siarg		;args to A, CDE
+left1:	cmp	c
+	rnc			;arg >= length, return unchanged
+	mov	c,a		;else arg becomes new length
+	ret
+
+;RIGHT$: <string> x <integer> --> <string>
+right:	call	siarg
+righ1:	cmp	c
+	rnc			;arg >= length, return unchanged
+	dcr	c
+	inx	d		;else chop off head char
+	jmp	righ1		;and try again
+
+;MID$: <string> x <integer> [x <integer>] --> <string>
+mids:	mvi	a,255		;default arg3 value to A
+mid0:	push	psw		;MID3 entry point
+	call	siarg
+	pop	h		;arg3 to H
+	ora	a
+	jz	mid2		;arg2 is 0, just do LEFT$
+	inr	c
+	dcx	d		;add bogus head char
+mid1:	inx	d
+	dcr	c		;lop off head
+	rz			;return if null
+	dcr	a		;and decrease arg2
+	jnz	mid1
+mid2:	mov	a,h
+	jmp	left1		;and do a LEFT$ with arg3
+mid3:	push	b		;save arg1
+	mov	b,d
+	mov	c,e		;arg2 to BC
+	call	cnvbi		;convert to integer and fetch
+	push	b		;and save arg2
+	mov	b,h
+	mov	c,l
+	call	siar0		;force 0 <= arg3 <= 255 to A
+	pop	d		;arg2 value to DE
+	pop	b		;and arg1 addr to BC
+	call	mid0		;do the MID$
+	mvi	a,strst		;and return type string
+	ret
+
+	if	realt
+;TIME$: --> <string>
+;TIME$ returns the current time as string "hh:mm:ss".
+timed:	lxi	d,timex+3	;DE addresses hours count
+	lxi	h,bufad		;HL addresses string being built
+	push	h		;save for result
+	di			;disable so clock does not tick during fetch
+	ldax	d		;fetch hours-24
+	adi	24		;hours
+	call	time1		;convert hours, fetch minutes
+	call	time1		;convert minutes, fetch seconds
+	ei			;all fetched, renable
+	call	time1		;convert seconds
+	pop	d		;recover string address
+time0:	mvi	c,8		;length = 8 for hh:mm:ss
+	jmp	scopy		;copy to string space and return
+;TIME1 adds two ASCII decimal digits and a colon to result string.
+;Call:	A	desired value (hours, minutes or seconds)
+;	DE	count location
+;	HL	string destination
+;Retn:	A	next count (from (DE)-1)
+;	DE	decremented
+;	HL	next location = HL + 3
+time1:	mvi	m,'0'		;store tens digit
+time2:	cpi	10
+	jc	time3		;tens digit is now correct
+	inr	m		;else bump tens digit
+	sui	10		;and subtract from count
+	jmp	time2		;and try again
+time3:	adi	'0'		;make remainder ASCII
+	inx	h
+	mov	m,a		;and add to string
+	inx	h
+	mvi	m,':'		;and add colon
+	inx	h		;point to next available
+	dcx	d
+	ldax	d		;fetch next count
+	adi	60		;add negative bias
+	ret
+	endif			;end of REALT conditional
+
+
+	endif			;end of STRNG conditional
+
+
+;end of STRINGS
+	page

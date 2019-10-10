@@ -1,0 +1,152 @@
+/*
+ * uniq [-udc] [-n] [+n] [input [output]]
+ *
+ * Report repeated lines in a file.
+ */
+
+#include <stdio.h>
+
+#define	MAXLINE	200		/* Longest line allowed */
+
+char	lines[2][MAXLINE];
+char	*prevline = lines[0];
+char	*currline = lines[1];
+
+int	cflag;		/* Counts */
+int	uflag;		/* non-repeated lines */
+int	dflag;		/* print one copy of repeated lines */
+int	nfield;		/* Fields to skip */
+int	nchar;		/* Chars to skip */
+int	count;		/* Repeat count */
+
+FILE	*ifp, *ofp;
+
+char	*input();
+
+main(argc, argv)
+char *argv[];
+{
+	register char *ap;
+
+#ifdef MSDOS
+	msdoscvt("uniq", &argc, &argv);
+#endif
+	if (argc > 1)
+		while (*argv[1]=='-' || *argv[1]=='+') {
+			if (*argv[1] == '-') {
+				ap = &argv[1][1];
+				if (*ap>='0' && *ap<='9')
+					nfield = atoi(ap);
+				else
+					for (; *ap; ap++)
+					switch (*ap) {
+					case 'c':
+						cflag = 1;
+						break;
+	
+					case 'd':
+						dflag = 1;
+						break;
+	
+					case 'u':
+						uflag = 1;
+						break;
+	
+					default:
+						usage();
+					}
+			} else
+				nchar = atoi(&argv[1][1]);
+			argc--;
+			argv++;
+		} /* end while */
+	if (cflag == 0 && dflag==0 && uflag==0)
+		dflag = uflag = 1;
+	ofp = stdout;
+	ifp = stdin;
+	if (argc > 3)
+		usage();
+	if (argc == 3)
+		if ((ofp = fopen(argv[2], "w")) == NULL) {
+			fprintf(stderr, "Cannot open output %s\n", argv[2]);
+			exit(1);
+		}
+	if (argc > 1)
+		if ((ifp = fopen(argv[1], "r")) == NULL) {
+			fprintf(stderr, "Cannot open input %s\n", argv[1]);
+			exit(1);
+		}
+	uniq();
+	exit(0);
+}
+
+/*
+ * Actually do the work of checking for uniqueness.
+ */
+uniq()
+{
+	register indx;
+	register char *pl = prevline;
+	register char *cl = currline;
+
+	indx = 1;
+	if ((pl = input(prevline)) == NULL)
+		return;
+	for (count = 1; (cl = input(currline)) != NULL; count++) {
+		if (strcmp(pl, cl) != 0) {
+			output(prevline);
+			prevline = currline;
+			pl = cl;
+			indx ^= 1;
+			currline = lines[indx];
+			count = 0;
+		}
+	}
+	output(prevline);
+}
+
+/*
+ * Output line according to the various formats
+ */
+output(line)
+char *line;
+{
+	if (cflag)
+		fprintf(ofp, "%d: %s", count, line);
+	else if ((uflag && count==1) || (dflag && count>1))
+		fprintf(ofp, "%s", line);
+}
+
+/*
+ * Input lines, doing field and character skipping.
+ */
+char *
+input(lp)
+register char *lp;
+{
+	register nf, nc;
+
+	if (fgets(lp, MAXLINE, ifp) == NULL)
+		return (NULL);
+	nf = nfield;
+	nc = nchar;
+	while (nf--) {
+		while (*lp==' ' || *lp=='\t')
+			lp++;
+		while (*lp!=' ' && *lp!='\t' && *lp!='\n' && *lp!='\0')
+			lp++;
+	}
+	if (nfield)
+		while (*lp==' ' || *lp=='\t')
+			lp++;
+	for (; nc--; lp++)
+		if (*lp=='\n' || *lp=='\0')
+			break;
+	return (lp);
+}
+
+usage()
+{
+	fprintf(stderr, "Usage: uniq [-udc] [+n] [-n] [ input [ output ] ]\n");
+	exit(1);
+}

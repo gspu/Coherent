@@ -1,0 +1,664 @@
+head     1.9;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.9;
+comment  @ * @;
+
+
+1.9
+date     93.06.25.10.22.18;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     92.12.16.13.16.28;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.11.03.11.12.21;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.10.29.14.39.16;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.05.26.20.12.54;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.05.28.23.56.44;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.04.29.21.47.49;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.02.06.18.44.16;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.06.18.43.52;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 2/6/91
+Initial MWC RCS revision.
+@
+
+
+1.9
+log
+@Steve: added ftime()
+@
+text
+@/*
+ * libc/gen/ctime.c
+ * Convert time to ASCII representation.
+ *
+ * Pseudo system-5, employs TIMEZONE environment for gmt offset,
+ * timezone abbreviations, and daylight savings time information.
+ *	TIMEZONE=SSS:mmm:DDD:n.d.m:n.d.m:h:m
+ * SSS - Standard timezone abbreviation up to 31 characters long
+ * mmm - minutes west of GMT
+ * DDD - Daylight timezone abbreviation also 31 characters
+ * n.d.m - n'th occurrence of d'th day of week in m'th month of
+ *	start and end of daylight savings time.  Negative n indicates
+ *	counting backwards from end of month.  Zero n indicates absolute date,
+ *	d'th day of m'th month.  Days and months from 1 to n.
+ * h - Hour of change from standard to daylight.
+ * m - Minutes of adjustment at change.
+ * Example - Central standard in current US conventions:
+ *	TIMEZONE=CST:3600:CDT:-1.1.4:-1.1.10:2:60
+ * Only the first two fields are required.
+ * If no daylight timezone is specified, then no daylight conversion is done.
+ * If no dates for daylight are given, they default to 83-05-10 US standard.
+ * If no hour of daylight time change is specified, it defaults to 2AM.
+ * If no minutes of adjustment is specified, it defaults to 60.
+ * These defaults can be changed by overwriting tzdstdef[].
+ */
+
+
+#include <time.h>
+#if	0
+/* Required for ftime(), now conditionalized out, cf. comments below. */
+#include <sys/timeb.h>
+#endif
+
+#define	FEB	1
+#define	NWDAY	7		/* Number of weekdays */
+#define	NMON	12		/* Number of months */
+#define	todigit(c) ((c)+'0')
+#define	NTZNAME	31		/* max time zone name size */
+
+/* Static data. */
+static	char	daynames[3*NWDAY+1] = "SunMonTueWedThuFriSat";
+static	char	dpm[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+static	int	dstadjust = 60*60;	/* In seconds */
+static	char	dsthour = 2;
+static	struct	dsttimes {
+	char dst_occur, dst_day, dst_month;
+} dsttimes[2] = { 
+	{  1, 0, 3 },			/* First Sunday in April */
+	{ -1, 0, 9 }			/* Last Sunday in October */
+};
+static	char	months[3*NMON+1] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+static	char	timestr[] = "AAA AAA DD DD:DD:DD DDDD\n";
+static	struct	tm	tm;
+static	char	tz0[NTZNAME+1] = "GMT";
+static	char	tz1[NTZNAME+1] = "";
+
+/* Global data. */
+long	timezone = 0L;
+char	*tzname[2] = { tz0, tz1 };
+char	tzdstdef[] = "1.1.4:-1.1.10:2:60......";
+
+/* Set the timezone parameters, once is enough */
+void
+settz()
+{
+	extern char *getenv();
+	register char *cp1, *cp2;
+	static int settz = 0;
+
+	if (settz++ > 0)
+		return;
+	if ((cp1 = getenv("TIMEZONE")) == ((char *)0))
+		return;
+	timezone = 0;
+
+	/* Read primary timezone name and nul terminate */
+	cp2 = tzname[0];
+	while (*cp1 && *cp1 != ':' && cp2 < &tzname[0][NTZNAME])
+		*cp2++ = *cp1++;
+	*cp2++ = '\0';
+	while (*cp1 && *cp1++ != ':');
+
+	/* Read timezone offset and convert to seconds */
+	timezone = (long)atoi(cp1) * 60L;
+	while (*cp1 && *cp1++ != ':');
+
+	/* Read daylight timezone name and nul terminate */
+	cp2 = tzname[1];
+	while (*cp1 && *cp1 != ':' && cp2 < &tzname[1][NTZNAME])
+		*cp2++ = *cp1++;
+	*cp2++ = '\0';
+	while (*cp1 && *cp1++ != ':');
+
+	/* Exit if no daylight time */
+	if (tzname[1][0] == '\0')
+		return;
+
+	/* Set default dst parameters */
+	setdst(tzdstdef);
+
+	/* Set supplied dst parameters */
+	setdst(cp1);
+}
+
+/* Parse and set dst parameters */
+static
+setdst(cp1) register char *cp1;
+{
+	/* Get optional start of daylight time */
+	if (*cp1) {
+		dsttimes[0].dst_occur = atoi(cp1);
+		while (*cp1 && *cp1++ != '.');
+		dsttimes[0].dst_day = atoi(cp1)-1;
+		while (*cp1 && *cp1++ != '.');
+		dsttimes[0].dst_month = atoi(cp1)-1;
+		while (*cp1 && *cp1++ != ':');
+	}
+
+	/* Get optional end of daylight time */
+	if (*cp1) {
+		dsttimes[1].dst_occur = atoi(cp1);
+		while (*cp1 && *cp1++ != '.');
+		dsttimes[1].dst_day = atoi(cp1)-1;
+		while (*cp1 && *cp1++ != '.');
+		dsttimes[1].dst_month = atoi(cp1)-1;
+		while (*cp1 && *cp1++ != ':');
+	}
+
+	/* Get optional hour of daylight time advance */
+	if (*cp1) {
+		dsthour = atoi(cp1);
+		while (*cp1 && *cp1++ != ':');
+	}
+
+	/* Get optional minutes of adjustment */
+	if (*cp1)
+		dstadjust = atoi(cp1) * 60;
+}
+
+#if	0
+/*
+ * This ftime() is not required for COH 4.0.1r78 or later,
+ * it is now a system call using the stub generated by sys/i386/scall.s5.
+ */
+/*
+ * ftime()
+ */
+ftime (tb) struct timeb *tb;
+{
+	time_t t;
+
+	tb->time = time(&t);
+	settz();	
+	localtime(&t);
+	tb->millitm = 0;
+	tb->timezone = (short)(timezone / 60L);
+       	tb->dstflag = isdaylight();
+}
+#endif
+
+/*
+ * Most common interface, returns a static string
+ * which is a printable version of the time and date.
+ */
+char *
+ctime(tp)
+long *tp;
+{
+	return asctime(localtime(tp));
+}
+
+/*
+ * Do what gmtime does for the local timezone.
+ * And correct for daylight time.
+ */
+struct tm *
+localtime(tp)
+long *tp;
+{
+	long ltime;
+
+	settz();
+	ltime = *tp - timezone;
+	gmtime(&ltime);
+
+	/*
+	 * If necessary, adjust for daylight saving time.
+	 */
+	if (isdaylight()) {
+		ltime = *tp - timezone + dstadjust;
+		gmtime(&ltime);
+		tm.tm_isdst = 1;
+	} else
+		tm.tm_isdst = 0;
+	return &tm;
+}
+
+/*
+ * Returns a printable version of the time
+ * which has been broken down as in the tm structure.
+ */
+char *
+asctime(tmp)
+struct tm *tmp;
+{
+	register char *cp, *xp;
+	register unsigned i;
+
+	cp = timestr;
+	/*
+	 * Day of week
+	 */
+	if ((i = tmp->tm_wday) >= NWDAY)
+		i = 0;
+	xp = &daynames[i*3];
+	*cp++ = *xp++;
+	*cp++ = *xp++;
+	*cp++ = *xp++;
+	*cp++ = ' ';
+	/*
+	 * Month
+	 */
+	if ((i = tmp->tm_mon) >= NMON)
+		i = 0;
+	xp = &months[i*3];
+	*cp++ = *xp++;
+	*cp++ = *xp++;
+	*cp++ = *xp++;
+	*cp++ = ' ';
+	/*
+	 * Day of month
+	 */
+	if ((i = tmp->tm_mday) >= 10)
+		*cp++ = todigit(i/10);
+	else
+		*cp++ = ' ';
+	*cp++ = todigit(i%10);
+	*cp++ = ' ';
+	/*
+	 * Hours:mins:seconds
+	 */
+	*cp++ = todigit((i = tmp->tm_hour)/10);
+	*cp++ = todigit(i%10);
+	*cp++ = ':';
+	*cp++ = todigit((i = tmp->tm_min)/10);
+	*cp++ = todigit(i%10);
+	*cp++ = ':';
+	*cp++ = todigit((i = tmp->tm_sec)/10);
+	*cp++ = todigit(i%10);
+	*cp++ = ' ';
+	/*
+	 * Year
+	 */
+	i = tmp->tm_year + 1900;
+	*cp++ = todigit(i/1000);
+	i = i%1000;
+	*cp++ = todigit(i/100);
+	i = i%100;
+	*cp++ = todigit(i/10);
+	*cp++ = todigit(i%10);
+	*cp++ = '\n';
+	*cp++ = '\0';
+	return timestr;
+}
+
+/*
+ * Do conversions for Greenwich Mean Time to
+ * the tm structure.
+ */
+struct tm *
+gmtime(tp)
+long *tp;
+{
+	long xtime;
+	unsigned days;
+	long secs;
+	int year;
+	int ydays;
+	int wday;
+	register char *mp;
+
+	if ((xtime = *tp) < 0)
+		xtime = 0;
+	days = xtime/(60L*60L*24L);
+	secs = xtime%(60L*60L*24L);
+	tm.tm_hour = secs/(60L*60L);
+	secs = secs%(60L*60L);
+	tm.tm_min = secs/60;
+	tm.tm_sec = secs%60;
+	/*
+	 * Start at Thursday (wday=4) Jan 1, 1970 (the Epoch)
+	 * and calculate from there.
+	 */
+	wday = (4+days)%NWDAY;
+	year = 1970;
+	for (;;) {
+		ydays = isleap(year) ? 366 : 365;
+		if (days < ydays)
+			break;
+		year++;
+		days -= ydays;
+	}
+	tm.tm_year = year-1900;
+	tm.tm_yday = days;
+	tm.tm_wday = wday;
+	/*
+	 * Setup february's #days now.
+	 */
+	if (isleap(year))
+		dpm[FEB] = 29;
+	else
+		dpm[FEB] = 28;
+	for (mp = &dpm[0]; mp < &dpm[NMON] && days >= *mp; mp++)
+		days -= *mp;
+	tm.tm_mon = mp-dpm;
+	tm.tm_mday = days+1;
+	return &tm;
+}
+
+/*
+ * Return 1 on leap years; 0 otherwise.
+ */
+static
+isleap(yr)
+register yr;
+{
+	if (yr%4000 == 0)
+		return 0;
+	return (yr%400==0 || (yr%100!=0 && yr%4==0));
+}
+
+/*
+ * Check for daylight savings time.
+ * Watch out for the Southern Hemisphere, where start month > end month.
+ * This does not do the case where start == end correctly for all cases.
+ */
+static
+isdaylight()
+{
+	register int month, start, end, xday;
+
+	if (tzname[1][0] == 0)
+		return 0;			/* No name, no daylight time */
+	month = tm.tm_mon;
+	start = dsttimes[0].dst_month;
+	end = dsttimes[1].dst_month;
+	if ((start <= end && (month < start || month > end))
+	 || (start >  end && (month < start && month > end)))
+		return 0;			/* current month is never DST */
+	else if (month == start) {		/* DST starts this month */
+		xday = nthday(&dsttimes[0]);	/* DST starts on xday */
+		if (tm.tm_mday != xday)
+			return (tm.tm_mday > xday);
+		return (tm.tm_hour >= dsthour);
+	} else if (month == end) {		/* DST ends this month */
+		xday = nthday(&dsttimes[1]);	/* DST ends on xday */
+		if (tm.tm_mday != xday)
+			return (tm.tm_mday < xday);
+		return (tm.tm_hour < dsthour-1);
+	} else
+		return 1;			/* current month is always DST */
+}
+
+static
+nthday(dp)
+register struct dsttimes *dp;
+{
+	register int nthday;
+	register int nth;
+
+	if ((nth = dp->dst_occur) == 0)
+		return dp->dst_day;
+	nthday = tm.tm_mday - tm.tm_wday + dp->dst_day;
+	if (nth > 0) {
+		while (nthday > 0)
+			nthday -= 7;
+		do
+			nthday += 7;
+		while (--nth > 0);
+	} else {
+		while (nthday < dpm[tm.tm_mon])
+			nthday += 7;
+		do
+			nthday -= 7;
+		while (++nth < 0);
+	}
+	return nthday;
+}
+
+/* end of ctime.c */
+@
+
+
+1.8
+log
+@steve 12/16/92
+Restored initialization to dsttimes[] after fixing the member order.
+@
+text
+@d29 2
+d32 1
+d140 1
+d142 4
+d159 1
+@
+
+
+1.7
+log
+@steve 11/3/92
+Modified isdaylight() after user Richard Lindner reported that it
+is incorrect in the Southern Hemisphere.
+@
+text
+@a30 1
+
+d43 5
+a47 2
+	char dst_month, dst_day, dst_occur;
+} dsttimes[2];
+@
+
+
+1.6
+log
+@steve 10/29/92
+Modified "char tzname[2][32];" to "char *tzname[2];", in keeping with iBCS2.
+Minor cosmetic changes.
+@
+text
+@d38 5
+a42 5
+long	timezone = 0L;
+static	char	tz0[NTZNAME+1] = "GMT";
+static	char	tz1[NTZNAME+1] = "";
+char	*tzname[2] = { tz0, tz1 };
+char	tzdstdef[] = "1.1.4:-1.1.10:2:60......";
+d45 2
+a46 5
+} dsttimes[2] = {
+	{  1, 0, 3 },	/* First sunday in april */
+	{ -1, 0, 9 }	/* Last sunday in october */
+};
+static	char	dsthour = 2;
+a47 4
+static char daynames[3*NWDAY+1] = "SunMonTueWedThuFriSat";
+static char months[3*NMON+1] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+static char dpm[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+static	int	dstadjust = 60*60;	/* In seconds */
+d49 2
+d52 5
+d323 2
+d329 1
+a329 1
+	register int xday;
+d331 10
+a340 6
+	if (tzname[1][0] == 0)		/* No name, no daylight time */
+		return 0;
+	if (tm.tm_mon < dsttimes[0].dst_month)
+		return 0;
+	else if (tm.tm_mon == dsttimes[0].dst_month) {
+		xday = nthday(&dsttimes[0]);
+d344 2
+a345 4
+	} else if (tm.tm_mon < dsttimes[1].dst_month)
+		return 1;
+	else if (tm.tm_mon == dsttimes[1].dst_month) {
+		xday = nthday(&dsttimes[1]);
+d349 2
+a350 2
+	}
+	return 0;
+@
+
+
+1.5
+log
+@steve 5/26/92
+Added ftime(), modified slightly from source provided by michael.
+@
+text
+@d2 2
+a3 1
+ * Convert time to ascii representation
+d36 1
+d39 3
+a41 1
+char	tzname[2][32] = { "GMT", "" };
+d73 1
+a73 1
+	while (*cp1 && *cp1 != ':' && cp2 < &tzname[0][31])
+d75 1
+a75 1
+	*cp2++ = 0;
+d84 1
+a84 1
+	while (*cp1 && *cp1 != ':' && cp2 < &tzname[1][31])
+d86 1
+a86 1
+	*cp2++ = 0;
+d90 1
+a90 1
+	if (tzname[1][0] == 0)
+d158 1
+a158 1
+	return (asctime(localtime(tp)));
+d174 1
+d181 1
+a181 1
+		tm.tm_isdst = (dstadjust != 0);
+d184 1
+a184 1
+	return (&tm);
+d252 1
+a252 1
+	return (timestr);
+d306 1
+a306 1
+	return (&tm);
+d317 2
+a318 4
+		return (0);
+	if (yr%400==0 || (yr%100!=0 && yr%4==0))
+		return (1);
+	return (0);
+d330 1
+a330 1
+		return (0);
+d332 1
+a332 1
+		return (0);
+d339 1
+a339 1
+		return (1);
+d346 1
+a346 1
+	return (0);
+d372 1
+a372 1
+	return (nthday);
+d374 2
+@
+
+
+1.4
+log
+@steve 5/28/91
+Changed code setting tm_isdst field to set it to 0 or 1, not 0 or 3600.
+The latter caused the date command to core dump with previous object.
+@
+text
+@d132 15
+@
+
+
+1.3
+log
+@steve 4/29/91
+Changed first field of tzdstdef[] from "-1.1.4" to "1.1.4"
+(i.e., from last Sunday in April to first Sunday in April),
+and changed following structure initializer similarly.
+The new values are consistent with the published documentation.
+@
+text
+@d161 1
+a161 1
+		tm.tm_isdst = dstadjust;
+@
+
+
+1.2
+log
+@steve 2/6/91
+Corrected array dimension daynames[3*NWDAY] to daynames[3*NWDAY+1].
+Correced <timeb.h> to <sys/timeb.h>.
+@
+text
+@d38 1
+a38 1
+char	tzdstdef[] = "-1.1.4:-1.1.10:2:60......";
+d42 1
+a42 1
+	{ -1, 0, 3 },	/* Last sunday in april */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d28 1
+a28 1
+#include <timeb.h>
+d47 1
+a47 1
+static char daynames[3*NWDAY] = "SunMonTueWedThuFriSat";
+@

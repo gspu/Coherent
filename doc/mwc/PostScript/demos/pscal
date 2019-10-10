@@ -1,0 +1,717 @@
+#!/bin/sh
+#
+# NAME:
+#	pscal
+#
+# SYNOPSIS:
+#	pscal [-Pprinter] [other option flags] month year
+#
+# DESCRIPTION:
+#	`Pscal' is a PostScript program to print calendars.
+#
+#	The file $HOME/.holiday is read and used to print short messages
+#	on specified days.  The .holiday file should consist of lines of
+#	the form 
+#		month:day:message string
+#	Messages should be 20 characters or less, with no more than 6
+#	messages per day.  No spaces should appear from the beginning
+#	of a line until after the second colon.
+#	Month and day should be numbers in the obvious ranges.
+#	12/89 - The holiday checking has been loosened up in that the
+#	following takes place:
+#		1. The Shell Variable EFILE is used preferentially
+#		2. Then the file Events in the current directory is used
+#		3. Finally the $HOME/.holiday file is used.
+#	The whole process can be turned off by setting EFILE=/dev/null.
+#
+# OPTIONS:
+#	Any argument whose first character is '-' is passed on to lpr.
+#	The shell variables BANNER, LFOOT, CFOOT, and RFOOT become a
+#	top centered banner, and left, centered, or right justified
+#	footers respectively.  As in:
+#
+#		BANNER="Schedule 1"; CFOOT=Preliminary; pscal 4 90
+#
+# AUTHOR:
+#	Patrick Wood
+#	Copyright (C) 1987 by Pipeline Associates, Inc.
+#	Permission is granted to modify and distribute this free of charge.
+# 
+# HISTORY:
+#	@Original From: patwood@unirot.UUCP (Patrick Wood)
+#	@Shell stuff added 3/9/87 by King Ables
+#	@Made pretty by tjt 1988
+#	@Holiday and printer flag passing hacks added Dec 1988 
+#	@  by smann@june.cs.washington.edu 
+#	@Used the better looking version with 5 rows of days rather than 6
+#	@  hacked together with holiday and banner/footnotes added
+#	@  by Joe (No Relation) Wood, 12/89, jlw@lzga.ATT.COM
+#	@Fixed "-R" (didn't work at all; now it at least works on 8.5x11)
+#	@Also fixed handling of unrecognized arguments
+#	@  by Jeff Mogul, 1/90, mogul@decwrl.dec.com
+#       @Moon routines added; 1000 changed to 400 in isleap and startday;
+#       @  fixed bug involving printing events on isdouble 30,31 days.
+#       @  by Mark Hanson, 2/90, cs62a12@wind.ucsd.edu
+#
+# BUGS:
+#	`Pscal' doesn't work for months before 1753 (weird stuff happened
+#	in September, 1752).
+#
+#	A better format for the dates of holidays would be nice.
+#	An escape to allow holiday messages to be raw PostScript would
+#	also be nice.
+#	The holiday messages should be handled more intelligently (ie,
+#	the messages should be clipped to the day).
+#
+USAGE="Usage: pscal [ -Rrtm ] [ -F hfont ] [ -f font ] [ month [ year ] ]"
+
+TFONT=Times-Bold
+DFONT=Helvetica-Bold
+EFONT=NewCenturySchlbk-BoldItalic
+
+ROTATE=90
+SCALE="1.0 1.0"
+TRANSLATE="50 -120"
+MOON="false"
+
+LPR="hpr -B"  # here you should put whatever you need to direct the output to
+	   # a laser printer; or you can replace it with "cat" or use the
+	   # -t option if you want the the code to go to standard output.
+
+while test $# != 0
+do
+    case $1 in
+	-m) MOON="true"; shift;;
+	-P) test $# -lt 2 && { echo "$USAGE" 1>&2; exit 1; }
+	    eval ENVAR="$1$2"; shift 2;;
+	-P*) eval ENVAR=$1; shift 1;;
+	-F) test $# -lt 2 && { echo "$USAGE" 1>&2; exit 1; }
+	    TFONT="$2"; shift 2;;
+	-F*) TFONT=`echo $1 | sed -n 1s/-.//p`; shift 1;;
+	-f) test $# -lt 2 && { echo "$USAGE" 1>&2; exit 1; }
+	    DFONT="$2"; shift 2;;
+	-f*) DFONT=`echo $1 | sed -n 1s/-.//p`; shift 1;;
+	-t) LPR="cat"; shift 1;;
+	-r) ROTATE=90; shift 1;;
+	-R) ROTATE=0; SCALE="0.75 0.75"; TRANSLATE="50 900"; shift 1;;
+	--|-) break;;
+	-*) eval ENVAR=\"$ENVAR $1\"; shift 1;;
+	*) break
+    esac
+done
+
+test $# -gt 2 && { echo "$USAGE" 1>&2; exit 1; }
+
+case $# in
+    0)	set `date`; YEAR=$6
+	MONTH=`case $2 in Jan) echo 1;;Feb) echo 2;;Mar) echo 3;;Apr) echo 4;;
+		May) echo 5;;Jun) echo 6;;Jul) echo 7;;Aug) echo 8;;
+		Sep) echo 9;;Oct) echo 10;;Nov) echo 11;;Dec) echo 12;;esac`;;
+    1)	MONTH=$1; set `date`; YEAR=$6;;
+    2)	MONTH=$1 YEAR=$2;;
+esac
+
+if [ -n "$EFILE" -a -r "$EFILE" ]
+then
+	Files=$EFILE
+elif [ -r Events ]
+then
+	Files=Events
+elif [ -r $HOME/.holiday ]
+then
+	Files=$HOME/.holiday
+else
+	Files=/dev/null
+fi
+
+holidays=`cat $Files | grep \^$MONTH: | awk -F: '{printf("%s ( %s",$2,$3); for(i = 4; i <= NF; i++) printf(":%s", $i);printf(")\n"); }'`
+
+test $YEAR -lt 100 && YEAR=`expr $YEAR + 1900`
+
+$LPR $ENVAR <<END-OF-CALENDAR
+%!
+% PostScript program to draw calendar
+% Copyright (C) 1987 by Pipeline Associates, Inc.
+% Permission is granted to modify and distribute this free of charge.
+%
+% The number after /month should be set to a number from 1 to 12.
+% The number after /year should be set to the year you want.
+% You can change the title and date fonts, if you want.
+% We figure out the rest.
+% This program won't produce valid calendars before 1800 due to the switch
+% from Julian to Gregorian calendars in September of 1752 wherever English
+% was spoken.
+
+/month $MONTH def
+/year $YEAR def
+/titlefont /$TFONT def
+/dayfont /$DFONT def
+/eventfont /$EFONT def
+/holidays [ $holidays ] def
+/Bannerstring ($BANNER) def
+/Lfootstring ($LFOOT) def
+/Rfootstring ($RFOOT) def
+/Cfootstring ($CFOOT) def
+
+% calendar names - change these if you don't speak english
+% "August", "April" and "February" could stand to be kerned even if you do
+
+/month_names
+[ (January) (February) (March) (April) (May) (June) (July)
+(August) (September) (October) (November) (December) ]
+def
+
+/day_names
+[ (Sunday) (Monday) (Tuesday) (Wednesday) (Thursday) (Friday) (Saturday) ]
+def
+
+% layout parameters - you can change these, but things may not look nice
+
+/daywidth 100 def
+/dayheight 95 def
+
+/titlefontsize 48 def
+/weekdayfontsize 12 def
+/datefontsize 30 def
+/footfontsize 20 def
+
+/topgridmarg 35 def
+/leftmarg 35 def
+/daytopmarg 10 def
+/dayleftmarg 5 def
+
+% layout constants - don't change these, things probably won't work
+
+/rows 5 def
+/subrows 6 def
+
+% calendar constants - change these if you want a French revolutionary calendar
+
+/days_week 7 def
+
+/days_month [ 31 28 31 30 31 30 31 31 30 31 30 31 ] def
+
+/isleap {				% is this a leap year?
+        /theyear exch def
+	theyear 4 mod 0 eq		% multiple of 4
+	theyear 100 mod 0 ne 		% not century
+	theyear 400 mod 0 eq or and	% unless it's divisible by 400
+} def
+
+/ndays {				% number of days in this month
+        /themonth exch def
+	/theyear exch def
+	days_month themonth 1 sub get
+	month 2 eq			% February
+	theyear isleap and
+	{
+		1 add
+	} if
+} def
+
+/weekday {				% weekday (range 0-6) for integer date
+	days_week mod
+} def
+
+/startday {				% starting day-of-week for this month
+	/off year 2000 sub def		% offset from start of "epoch"
+	off
+	off 4 idiv add			% number of leap years
+	off 100 idiv sub		% number of centuries
+	off 400 idiv add		% number of extra weird days
+	6 add weekday days_week add 	% offset from Jan 1 2000
+	/off exch def
+	1 1 month 1 sub {
+		/idx exch def
+		days_month idx 1 sub get
+		idx 2 eq
+		year isleap and
+		{
+			1 add
+		} if
+		/off exch off add def
+	} for
+	off weekday			% 0--Sunday, 1--monday, etc.
+} def
+
+/prtevent {		% event-string day prtevent
+			%  print out an event
+	/start startday def
+	/day 2 1 roll def
+	day start add 1 sub 7 mod daywidth mul
+	day start add 1 sub 7 div truncate dayheight neg mul 
+	-5    % offset
+	numevents day start add get -10 mul add
+	numevents day start add 
+	numevents day start add get 1 add put
+	add moveto  % move DOWN appropriate amount
+	isdouble {                  % go UP some if it's double and 30 or 31 
+   	    { 0 dayheight numevents day 7 sub start add get 10 mul sub rmoveto 
+	      ( /*) show }
+	    { ( */) show }  % give a hint as to what day the event is on
+	  ifelse 
+	} if   
+	show
+} def
+
+/drawevents {		% read in a file full of events; print
+			%  the events for this month
+	/numevents
+	[0 0 0 0 0 0 0
+	 0 0 0 0 0 0 0
+	 0 0 0 0 0 0 0
+	 0 0 0 0 0 0 0
+	 0 0 0 0 0 0 0
+	 0 0 0 0 0 0 0] def 
+	 eventfont findfont 9 scalefont setfont
+	 0 2 holidays length 2 sub {
+		dup
+		1 add holidays 2 1 roll get       % loads string
+		2 1 roll holidays 2 1 roll get    % loads day
+		prtevent
+	} for
+} def
+
+% ------------------------------------------------------------------------
+
+/prtnum { 3 string cvs show } def
+
+/center {				% center string in given width
+	/width exch def
+	/str exch def width str 
+	stringwidth pop sub 2 div 0 rmoveto str show
+} def
+
+/centernum { exch 3 string cvs exch center } def
+
+/drawgrid {				% draw calendar boxes
+	titlefont findfont weekdayfontsize scalefont setfont
+	currentpoint /y0 exch def /x0 exch def
+	0 1 days_week 1 sub {
+		submonth 0 eq
+		{
+			x0 y0 moveto
+			dup dup daywidth mul 40 rmoveto
+			day_names exch get
+			daywidth center
+		} if
+		x0 y0 moveto
+		daywidth mul topgridmarg rmoveto
+		1.0 setlinewidth
+		submonth 0 eq
+		{
+			/rowsused rows 1 sub def
+		}
+		{
+			/rowsused rows def
+		}
+		ifelse
+		0 1 rowsused {
+			gsave
+			daywidth 0 rlineto 
+			0 dayheight neg rlineto
+			daywidth neg 0 rlineto
+			closepath stroke
+			grestore
+			0 dayheight neg rmoveto
+		} for
+	} for
+} def
+
+/drawnums {				% place day numbers on calendar
+	dayfont findfont datefontsize
+	submonth 0 ne
+	{
+		2.5 mul
+	} if scalefont setfont
+	/start startday def
+	/days year month ndays def
+	start daywidth mul dayleftmarg add daytopmarg rmoveto
+	submonth 0 ne
+	{
+		dayleftmarg neg dayheight -2 div rmoveto
+	} if
+	1 1 days {
+		/day exch def
+		gsave
+		day start add weekday 0 eq
+		{
+			submonth 0 eq
+			{
+				.7 setgray
+			} if
+		} if
+		day start add weekday 1 eq
+		{
+			submonth 0 eq
+			{
+				.7 setgray
+			} if
+		} if
+		submonth 0 eq
+		{
+			isdouble
+			{
+				day prtdouble
+			}
+			{
+				day prtnum
+			} ifelse
+		}
+		{
+			day daywidth centernum
+		} ifelse
+		grestore
+		day start add weekday 0 eq
+		{
+			currentpoint exch pop dayheight sub 0 exch moveto
+			submonth 0 eq
+			{
+				dayleftmarg 0 rmoveto
+			} if
+		}
+		{
+			daywidth 0 rmoveto
+		} ifelse
+	} for
+} def
+
+/isdouble {				% overlay today with next/last week?
+	days start add rows days_week mul gt
+	{
+		day start add rows days_week mul gt
+		{
+			true true
+		}
+		{
+			day start add rows 1 sub days_week mul gt
+			day days_week add days le and
+			{
+				false true
+			}
+			{
+				false
+			} ifelse
+		} ifelse
+	}
+	{
+		false
+	} ifelse
+} def
+
+/prtdouble {
+	gsave
+	  dayfont findfont datefontsize 2 mul 3 div scalefont setfont
+	  exch
+	  {
+		(23/) stringwidth pop dayheight rmoveto
+		prtnum
+	  }
+	  {
+		0 datefontsize 5 div rmoveto
+		prtnum
+		0 datefontsize -5 div rmoveto
+		gsave
+		  dayfont findfont datefontsize scalefont setfont
+		  (/) show
+		grestore
+	  } ifelse
+	grestore
+} def
+
+/drawfill {				% place fill squares on calendar
+	/start startday def
+	/days year month ndays def
+	currentpoint /y0 exch def /x0 exch def
+	submonth 0 eq
+	{
+		usefirst
+		{
+			/fillstart 2 def
+		}
+		{
+			/fillstart 0 def
+		}
+		ifelse
+	}
+	{
+		/fillstart 0 def
+	}
+	ifelse
+	fillstart daywidth mul topgridmarg rmoveto
+	1.0 setlinewidth
+	fillstart 1 start 1 sub {
+		gsave
+		.9 setgray
+		daywidth 0 rlineto 
+		0 dayheight neg rlineto
+		daywidth neg 0 rlineto
+		closepath fill
+		grestore
+		daywidth 0 rmoveto
+	} for
+	x0 y0 moveto
+	submonth 0 ne
+	{
+		/lastday rows 1 add days_week mul def
+		days_week 1 sub daywidth mul -440 rmoveto
+	}
+	{
+		/lastday rows days_week mul 2 sub fillstart add def
+		days_week 3 sub fillstart add daywidth mul
+		-440 dayheight add rmoveto
+	} ifelse
+	lastday -1 year month ndays start 1 add add
+	{
+		/day exch def
+		gsave
+		.9 setgray
+		daywidth 0 rlineto 
+		0 dayheight neg rlineto
+		daywidth neg 0 rlineto
+		closepath fill
+		grestore
+		day weekday 1 eq
+		{
+			x0 y0 moveto
+			days_week 1 sub daywidth mul -440 dayheight add rmoveto
+		}
+		{
+			daywidth neg 0 rmoveto
+		} ifelse
+	} for
+} def
+
+/usefirst {				% are last two boxes used by days?
+	start year month ndays add rows days_week mul 3 sub gt
+	start 2 ge and
+	
+} def
+
+/calendar
+{
+	titlefont findfont titlefontsize scalefont setfont
+	0 60 moveto
+	/month_name month_names month 1 sub get def
+	month_name show
+	/yearstring year 10 string cvs def
+	daywidth days_week mul yearstring stringwidth pop sub 60 moveto
+	yearstring show
+
+	eventflag {
+   		                  % Show a centered Banner if any at the Top
+		daywidth days_week mul 2 div
+		Bannerstring stringwidth pop 2 div sub
+		60 moveto
+		Bannerstring show
+		                           % Show footnotes left-center-right
+		eventfont findfont footfontsize scalefont setfont
+		/bottomrow { dayheight rows mul 5 sub neg } def
+		0 bottomrow moveto
+		Lfootstring show
+		daywidth days_week mul Rfootstring stringwidth pop sub
+		bottomrow moveto
+		Rfootstring show
+		daywidth days_week mul Cfootstring stringwidth pop sub 2 div
+		bottomrow moveto
+		Cfootstring show
+		
+	} if
+
+	0 -5 moveto
+	drawnums
+
+	0 -5 moveto
+	drawfill
+
+	eventflag {
+		0 0 moveto
+		drawevents
+	} if
+
+	0 -5 moveto
+	drawgrid
+} def
+
+/doy {                 % year month day doy -> returns the number of the day 
+  /theday   exch def   % of the year
+  /themonth exch def
+  /theyear  exch def
+  /dayofyear 0 def
+  themonth 1 ne {
+    1 1 themonth .5 sub {
+      /mo exch cvi def
+      /dayofyear theyear mo ndays dayofyear add def
+    } for
+  } if
+  dayofyear theday add 
+} def                    % doy
+    
+/findphase {            % find the difference between any day and the reference
+  /thisday   exch def   % day of the full moon
+  /thismonth exch def   % will probably be one off if the reference is leap yr.
+  /thisyear  exch def
+  /daysdiff  thisyear thismonth thisday doy
+             fullyear fullmonth fullday doy sub 
+	     longer mul def      % try to be accurate about it
+  /yearsdiff thisyear fullyear sub def
+  yearsdiff 0 ne {
+    /daysdiff daysdiff yearsdiff daysperyear mul
+              yearsdiff 100 idiv yearsdiff 400 idiv sub sub add def
+  } if
+  daysdiff  % return difference in days
+} def       % findphase
+
+/shrink { 2 sqrt div } def
+
+/transmogrify { 10000 mul cvi         % take a real number and 'mod it down'
+                period 10000 mul cvi  % so it is in the range 0->period
+                mod                   % or -period->0
+                10000 div } def       % the 10000's preserve the accuracy
+
+/domoon {           % draw the moon at the current phase
+  /phase exch def
+
+  0 0 radius                           % might as well push these on now
+  0 0 radius 
+  phase halfperiod lt
+    { 270 90 arc stroke                % line on right, fill on left
+      0 radius neg moveto
+      270 90 arcn 
+    }
+    { 90 270 arc stroke                % line on left, fill on right
+      0 radius neg moveto
+      270 90 arc 
+      /phase phase halfperiod sub def  % get rid of top halfperiod
+    }
+  ifelse
+
+  /phase phase quartperiod sub      % scale it down to -r(root2) -> r(root2)
+         rect mul
+   def
+
+  phase                 % x1
+  phase abs shrink      % y1 need abs!
+  phase                 % x2 
+  phase abs shrink neg  % y2 need abs!
+  0                     % x3
+  radius neg            % y3 
+  curveto 
+  fill
+} def    % domoon
+
+/shiftdo {
+  startphase day longer mul add
+  transmogrify neg period add domoon 
+} def
+
+/drawmoons {
+  {
+    /fullyear       1990 def      % these are the dates of a full moon,
+    /fullmonth      2 def         % any date should work if it is that
+    /fullday        9 def         % of a full moon, but I haven't tried many
+    % I wouldn't make this reference date fall in a leap year, wierdness
+    % will probably happen in findphase. You will probably gain or lose a day
+    % somewhere. MBH
+
+    /period         29.5306 def
+    /daysperyear    365.2422 def
+    /longer         daysperyear 365 div def
+    /halfperiod     period 2 div def
+    /quartperiod    period 4 div def
+    /radius         13 def
+    /rect           radius 2 sqrt mul quartperiod div def
+    /startphase     year month 0 findphase transmogrify 
+	    	    dup 0 lt { period add } if def
+    /start          startday def
+    /days           year month ndays def
+
+    gsave
+    0.1 setlinewidth
+    newpath
+    daywidth radius sub 3 sub 15 translate
+    start daywidth mul 0 translate
+    1 1 days {
+	/day exch def
+        isdouble 
+          { % true if 30,31 - false if 23,24 (left on the stack after isdouble)
+	      { gsave
+	        radius 2 div dayheight radius 2 div sub translate
+	        0.5 0.5 scale
+	        shiftdo
+	        grestore }
+	      { gsave
+	        radius 2 div neg radius 2 div translate
+	        0.5 0.5 scale
+	        shiftdo
+	        grestore } 
+            ifelse }
+	  { shiftdo }
+	ifelse
+	day start add 1 sub weekday 6 eq
+	  { daywidth 6 mul neg dayheight neg translate }
+	  { daywidth 0 translate }
+        ifelse
+    } for
+    grestore
+  } if         % don't do anything if the argument is false
+} def          % drawmoons
+
+%
+% Main Program 
+%
+/eventflag true def
+$SCALE	scale
+$ROTATE rotate
+$TRANSLATE translate
+/submonth 0 def
+calendar
+$MOON drawmoons 
+/eventflag false def
+month 1 sub 0 eq
+{
+	/lmonth 12 def
+	/lyear year 1 sub def
+}
+{
+	/lmonth month 1 sub def
+	/lyear year def
+} ifelse
+month 1 add 13 eq
+{
+	/nmonth 1 def
+	/nyear year 1 add def
+} 
+{
+	/nmonth month 1 add def
+	/nyear year def
+} ifelse
+usefirst
+{
+	0 30 translate
+}
+{
+	days_week 2 sub daywidth mul -350 translate
+}
+ifelse
+/submonth 1 def
+/year lyear def
+/month lmonth def
+gsave
+.138 .138 scale
+12 -120 translate
+calendar
+grestore
+
+/submonth 1 def
+/year nyear def
+/month nmonth def
+daywidth 0 translate
+gsave
+.138 .138 scale
+12 -120 translate
+calendar
+grestore
+
+showpage
+END-OF-CALENDAR

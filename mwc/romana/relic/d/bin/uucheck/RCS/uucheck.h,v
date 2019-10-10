@@ -1,0 +1,129 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.06.07.18.22.18;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by piggy for v3.2
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@#include <stdio.h>
+#include <sys/stat.h>
+
+#ifndef EXTERN
+#	ifdef MAIN
+#		define EXTERN
+#		define EQUALS(v)	= v
+#	else
+#		define EXTERN	extern
+#		define EQUALS(v)
+#	endif
+#endif EXTERN
+
+#define TRUE	(1==1)
+#define FALSE	(1==2)
+
+typedef	int boolean;
+
+#define BIG	1024	/* Max size of a big string.  */
+
+/* Handy macros.  */
+#define MESSAGE(m)	if(!silent) { printf(m); }
+#define WARNING(m)	warning=TRUE;if (!silent) { printf("Warning: "); printf(m); }
+#define ERROR(m)	error=TRUE;if (!silent) { printf("ERROR: "); printf(m); }
+#define VERBOSE(m)	if (!silent && verbose) { printf(m); }
+#define REALLYVERBOSE(m)	if (!silent && reallyverbose) { printf(m); }
+#define FIX(c)		if (fix) {MESSAGE("Fixing...\n"); c}
+
+/*
+ * For both RETURN and EXIT, 0 means no error, 1 means warning,
+ * 2 means error detected, 3 means fatal error (cannot recover at all),
+ * and 255 means internal error.
+ * Error codes 3 and 255 are sent immediately to exit.
+ */
+#define RETURN 	return(error?2:(warning?1:0))
+#define EXIT 	exit(error?2:(warning?1:0))
+#define FATAL(m,d)	fprintf(stderr, "FATAL: ");fprintf(stderr, m, d);exit(3);
+#define CHECK_RETURN(c)	switch (c) {  case 0: break; case 1: warning=TRUE; break; case 2: error=TRUE; break; default: FATAL("uucheck: Invalid return value in %s\n", #c); }
+
+#define USAGE "uucheck: usage: uucheck [-s[ilent]] [-v[erbose]] [-f[ix]]\n"
+
+/* Constants */
+#define NAMEFILE "/etc/uucpname"   /* Where to find the official site name.  */
+#define MAX_NAME	14	/* 14 characters is maximum length for a uucp sitename.*/
+#define MAX_UNIQUE	7	/* Name must be unique within first 7 characters.  */
+#define LIB	"/usr/lib/uucp"	/* Most non-spool uucp files live here.  */
+#define BIN	"/usr/bin"	/* Where to find the rest of the uucp executables. */
+#define SPOOL	"/usr/spool/uucp" /* All uucp spool files live under this directory. */
+
+#define TMP_FILE	"/tmp/uuckXXXXXX"	/* Temp file for general use.  */
+#define CONTROL_FILES	"L-devices L.sys Permissions"
+#define LDEV		"L-devices"
+#define LSYS		"L.sys"
+#define PERMISSIONS	"Permissions"
+#define PASSWD	"/etc/passwd"
+
+/* File permissions stuff.  */
+
+/* Standard minimal mode is normal file, readable by owner.  */
+#define MODE_READABLE	S_IFREG|S_IREAD
+
+struct filestruct {
+	char *name;
+	char *uid;
+	char *gid;
+	int mode;
+};
+
+
+/* Flags to activate different portions of the test system.  */
+EXTERN boolean do_sitename;
+EXTERN boolean do_lockfiles;
+EXTERN boolean do_fileperms;
+EXTERN boolean do_devices;
+EXTERN boolean do_sys;
+EXTERN boolean do_permissions;
+EXTERN boolean do_log;
+
+/* Error condition flags.  */
+EXTERN boolean warning;
+EXTERN boolean error;
+
+/* Mode flags set by command line arguments.  */
+EXTERN boolean silent;	/* Generate no output if set.  Overrides verbose.  */
+EXTERN boolean verbose; /* Generate verbose output if set.  */
+		/* Verbose output generally includes recommended fixes.  */
+EXTERN boolean reallyverbose; /* Generate really verbose output if set.  */
+		/* Really verbose output tells what is being checked.  */
+EXTERN boolean fix;	/* Attempt to fix problems if set.  */
+
+EXTERN char bigbuf[BIG];
+EXTERN char command[BIG];
+
+/* Function declarations.  */
+void parse_args();
+int chk_sitename();
+int chk_lockfiles();
+int chk_fileperms();
+int chk_Ldevices();
+int chk_Lsys();
+int chk_Permissions();
+int chk_Log();
+int statfile();
+int createfile();
+@

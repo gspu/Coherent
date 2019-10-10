@@ -1,0 +1,188 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5;
+comment  @ * @;
+
+
+1.5
+date     92.07.02.12.57.29;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.05.08.08.20.49;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.12.11.11.50.33;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.11.04.15.09.10;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.11.18.02.44;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver pulled from mango
+@
+
+
+1.5
+log
+@execute uuxqt before exit on hup signal trap
+@
+text
+@/*
+ * dcpmisc.c
+ *
+ * Miscellaneous Support Routines for uucico
+ */
+
+#include "dcp.h"
+
+usage()
+{
+	fatal("\n\
+Usage:  uucico [-xn] [-r0]		slave mode\n\
+	uucico [-xn] [-r1] -{sS}host 	call host\n\
+	uucico [-xn] [-r1] -{sS}all	call all known hosts\n\
+	uucico [-xn] [-r1] -{c}all	call known hosts only if files pending\n\
+	uucico [-xn] -r1		call uutouch queued hosts\n\
+");
+}
+
+fatal(x)
+{
+	printmsg(M_LOG, "%r", &x);
+	if ( lockexist(rmtname) )
+		lockrm(rmtname);
+	if ( lockttyexist(rdevname) ) {
+		if(role == MASTER){
+			dcpundial();
+		}else{
+			close(1);  /* see comments for catchhup() */
+			close(2);
+			close(3);
+		}
+		if(unlocktty(rdevname) == -1){
+			printmsg(M_LOG,"fatal: could not remove lock file");
+			plog(M_CALL,"fatal: could not remove lock file");
+		}
+	}
+	close_logfile();
+	exec_xqt();
+	exit(1);
+}
+
+catchhup()
+{
+	plog(M_LOG, "Call terminated by hangup.");
+
+	if ( lockexist(rmtname) ){
+		lockrm(rmtname);
+	}
+	if ( lockttyexist(rdevname) ) {
+		lockrm(rdevname);
+	}
+
+	if(role==MASTER){
+		dcpundial();
+	}else{
+		/* if we're a slave, then our read and write
+		 * devices are stdin & stdout. We're closing
+		 * stderr also as a precaution
+		 */
+		close(1);
+		close(2);
+		close(3);
+	}
+	exec_xqt();
+	exit(1);
+
+}
+
+catchquit()
+{
+	fatal("Call terminated by quit signal");
+}
+
+catchterm()
+{
+	fatal("Call terminated by local signal");
+}
+
+catchsegv()
+{
+	fatal("Segmentation violation--Call aborted");
+}
+@
+
+
+1.4
+log
+@bob h - modified catchhup() and fatal() to properly close slave ports
+@
+text
+@d39 1
+d65 2
+a67 2
+	exit(1);
+
+@
+
+
+1.3
+log
+@bob h and piggy added code and comments for port locking support.
+Also added was a -c option to check for queded files before firing off a call.
+@
+text
+@d15 1
+d26 7
+a32 1
+		dcpundial();
+d45 22
+a66 2
+	terminatelevel++;
+	abort_cico = 1;
+@
+
+
+1.2
+log
+@Bob H. changes: changed devname to rdevname to indicate that 322 uucico
+locking scheme now works on Ldev REMOTE devices, not Ldev LOCAL
+devices.
+@
+text
+@d24 1
+a24 1
+	if ( lockexist(rdevname) ) {
+d26 4
+a29 1
+		lockrm(rdevname);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d24 1
+a24 1
+	if ( lockexist(devname) ) {
+d26 1
+a26 1
+		lockrm(devname);
+@

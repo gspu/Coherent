@@ -1,0 +1,50 @@
+export PATH=/u1/gnu/bin:$PATH
+
+:
+: full - generate {sorted} full file list
+:
+# Usage: full <cd-device>
+#
+# Written by Rich Morin, CFCL, 1992
+
+if [ $# -ne 1 ]; then
+  echo 'Usage: full <cd-device>'
+  exit 1
+fi
+
+cd_files $1							|
+tr '[A-Z]' '[a-z]'						|
+awk '
+  BEGIN { m[16] = "." }
+
+  NF == 0 { next }
+
+  NF == 3 {
+   dir[$1 "," $2] = this = $3
+   next
+  }
+
+  $1 == "."  {
+    a_d = $3
+    next
+  }
+
+  $1 == ".." {
+    a_dd = $3
+    m[a_d] = m[a_dd] "/" this
+    tmp = m[a_d]
+    gsub(/^[\.\/]/, "", tmp)
+    print m[a_d] "/"
+    next
+  }
+
+  {
+    if ($2 != "<dir>") {
+      tmp = m[a_d]
+      gsub(/^[\.\/]/, "", tmp)
+      printf ("%-60s %8s %8s\n", m[a_d] "/" $1, $3, $2)
+    }
+  }
+'								|
+sed 's@^[\.\/]*@@'						|
+sort

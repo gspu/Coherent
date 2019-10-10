@@ -1,0 +1,104 @@
+.TH link() "" "" "System Call (libc)"
+.PC "Create a link"
+.B "#include <unistd.h>"
+\fBlink(\fIold, new\^\fB)\fR
+\fBchar *\fIold, *new\^\fB;\fR
+.PP
+A
+.I link
+to a file is another name for the file.
+All attributes of the file appear identical among all links.
+.PP
+.B link()
+creates a link called
+.I new
+to an existing file named
+.IR old .
+.PP
+For administrative reasons,
+it is an error for users other than the superuser
+to create a link to a directory.
+Such links can make the file system no longer tree structured
+unless carefully controlled, posing problems for commands such as
+.BR find .
+.SH Examples
+The first example, called
+.BR lock.c ,
+demonstrates how
+.B link()
+can be used to perform intertask locking.
+With this technique, a program
+can start a process in the background and stop any other user from
+starting the identical process.
+.DM
+#include <unistd.h>
+main()
+{
+	if(link("lock.c", "lockfile") == -1) {
+		printf("Cannot link\en");
+		exit(1);
+	}
+.DE
+.DM
+	sleep(50);	/* do nothing for 50 seconds */
+	unlink("lockfile");
+	printf("done\en");
+	exit(EXIT_SUCCESS);
+}
+.DE
+.PP
+The second example demonstrates how to use
+.B link()
+and
+.B unlink()
+to rename a file.
+.DM
+#include <stdio.h>
+#include <unistd.h>
+main(argc, argv) int argc; char *argv[];
+{
+	register char *old, *new;
+.DE
+.DM
+	if (argc != 3) {
+		fprintf(stderr, "Usage: rename old new\en");
+		exit(EXIT_FAILURE);
+	}
+	old = argv[1];
+	new = argv[2];
+.DE
+.DM
+	if (link(old, new) == -1) {
+		fprintf(stderr, "rename: link(%s, %s) failed\en", old, new);
+		exit(EXIT_FAILURE);
+	} else if (unlink(old) == -1) {
+		fprintf(stderr, "rename: unlink(%s) failed\en", old);
+		exit(EXIT_FAILURE);
+	}
+	exit(EXIT_SUCCESS);
+}
+.DE
+.SH "See Also"
+.Xr "find," find
+.Xr "libc," libc
+.Xr "ln," ln
+.Xr "rename()," rename
+.Xr "unlink()," unlink
+.Xr "unistd.h" unistd.h
+.br
+\*(PX Standard, \(sc5.3.4
+.SH Diagnostics
+.B link()
+returns zero when successful.
+It returns \-1 on errors, e.g.,
+.I old
+does not exist,
+.I new
+already exists,
+attempt to link across file systems,
+or no permission to create
+.I new
+in the target directory.
+.SH Notes
+Because each mounted file system is
+a self-contained entity, links between different mounted file systems fail.

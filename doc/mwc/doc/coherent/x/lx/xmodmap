@@ -1,0 +1,377 @@
+.TH xmodmap "" "" "X Utility"
+.PC "Modify X keymaps"
+\fBxmodmap [\-\fIoption ...\^\fB] [\fIfilename\^\fB]\fR
+.PP
+.HS
+.IC \fIfilename\fR
+This names a file of
+.B xmodmap
+expressions to execute;
+.B \-
+indicates the standard input
+.IC \fB\-display \fIdisplay\fR"
+Run
+.B xmodmap
+on
+.I display 
+.IC "\fB\-e \fIexpression\fR"
+Execute
+.IR expression ,
+as if it were read from a script
+.IC \fB\-grammar\fR
+Print on the standard error
+a help message that describes the grammar of
+.BR xmodmap 's
+expressions
+.IC \fB\-help\fR
+Print on the standard error a description of command-line arguments
+.IC \fB\-n\fR
+Print the actions to perform, but do not actually change the mappings
+.IC \fB\-pk\fR
+Print on the standard output the current keymap table
+.IC \fB\-pke\fR
+Print on the standard output the current keymap table
+in the form of expressions that can be fed back to
+.B xmodmap
+.IC \fB\-pm\fR
+Print on the standard output the current modifier map
+.IC \fB\-pp\fR
+Print on the standard output the current mapping of the mouse (pointer) buttons
+.IC \fB\-quiet\fR
+Turn off the verbose logging
+.IC \fB\-verbose\fR
+Print logging information As
+.B xmodmap
+parses its input
+.HE
+.B xmodmap
+edits and displays the keyboard's
+.I "modifier map"
+and
+.I "keymap table"
+that client applications use to convert event keycodes into keysyms.
+It works by executing one or more expressions that you either pass to it
+either through a script or enter from your keyboard.
+.B xmodmap
+usually is invoked from within a user's startup script,
+to execute a script that configures the keyboard to his taste.
+.SH Options
+.B xmodmap
+recognizes the following command-line options:
+.II .xmodmaprc
+.IP \fIfilename\fR 0.75i
+Name a file of
+.B xmodmap
+expressions to execute.
+This file is usually kept in a user's home directory and given a name like
+.BR .xmodmaprc .
+A
+.I filename
+of
+.B \-
+tells
+.B xmodmap
+to read the standard input.
+.IP "\fB\-display \fIdisplay\fR"
+Run
+.B xmodmap
+on
+.IR display .
+.IP "\fB\-e \fIexpression\fR"
+Execute
+.IR expression ,
+as if it were read from a script.
+The command line can hold an indefinite number of
+.B \-e
+options.
+.IP \fB\-grammar\fR
+Print on the standard error a help message that describes the grammar of
+.BR xmodmap 's
+expressions.
+.IP \fB\-help\fR
+Print on the standard error a brief description of the command-line arguments.
+.B xmodmap
+does this whenever it encounters an option that it does not recognize
+on its command line.
+.IP \fB\-n\fR
+Print the actions to perform, but do not actually change the mappings.
+Use this option to help debug a script.
+.IP \fB\-pk\fR
+Print on the standard output the current keymap table.
+.IP \fB\-pke\fR
+Print on the standard output the current keymap table
+in the form of expressions that can be fed back to
+.BR xmodmap .
+Use this to prepare a template script that you can modify to suit your
+preferences.
+.IP \fB\-pm\fR
+Print on the standard output the current modifier map.
+.IP \fB\-pp\fR
+Print on the standard output the current mapping of the mouse (pointer) buttons.
+.IP \fB\-quiet\fR
+Turn off the verbose logging.
+This is the default.
+.IP \fB\-verbose\fR
+Print logging information as
+.B xmodmap
+parses its input.
+.SH "Expression Grammar"
+.B xmodmap
+parses all of its expressions before it executes any of them.
+This lets it refer in a natural way to keysyms that are being redefined,
+without having to worry about name conflicts.
+.PP
+The following summarizes the expressions that
+.B xmodmap
+recognizes:
+.IP "\fBadd \fImodifiername\fB = \fIkeysymname ...\fR"
+Add to the indicated modifier map
+all keys contain that the given keysyms.
+.B xmodmap
+evaluates the keysym names after it has read all input expressions;
+this makes it easier for
+.B xmodmap
+to write expressions to swap keys.
+.IP "\fBclear \fImodifiername\fR"
+Remove all entries in the modifier map for
+.IR modifiername ,
+which must be one of the following strings:
+.BR Shift ,
+.BR Lock ,
+.BR Control ,
+.BR Mod1 ,
+.BR Mod2 ,
+.BR Mod3 ,
+.BR Mod4 ,
+or
+.BR Mod5 .
+Case does not matter in modifier names, although it does matter for all other
+names.
+For example, the expression
+.DM
+	clear Lock
+.DE
+.IP
+removes all keys that are bound to the shift-lock modifier.
+.IP "\fBkeycode \fInumber\fB = \fIkeysymname ...\fR"
+Assign each
+.I keysymname
+to keycode
+.IR number ,
+which may be specified in decimal, hexadecimal, or octal.
+If you need a table of keycodes, run the program
+.BR xev .
+.IP "\fBkeysym \fIkeysymname\fB = \fIkeysymname ...\fR"
+Link each
+.I keysymname
+to the right of the equal sign to the keycode that is represented by the
+.I keysymname
+to the left of the equal sign.
+The list of keysym names are kept in files
+.B /usr/X11/include/X11/keysymdef.h
+and
+.BR /usr/X11/lib/XKeysymDB .
+If a keysym is bound to multiple keys,
+the expression is executed for each matching keycode.
+.IP "\fBpointer = default\fR"
+Remap the mouse (pointer) buttons to their default settings
+(i.e., button 1 generates a code of 1, button 2 generates a 2, etc.).
+.IP "\fBpointer = \fIcode ...\fR"
+Map the mouse (pointer) buttons to the the indicated button codes.
+This expressions maps each
+.I code
+to the corresponding physical button, counting from left to right.
+.IP "\fBremove \fImodifiername\fB = \fIkeysymname ...\fR"
+Remove every key that contains the given keysyms from the indicated
+modifier map.
+Unlike
+.BR add ,
+.B xmodmap
+evaluates the keysym names as it reads the line.
+This lets you remove keys from a modifier without having to worry
+about whether they have been reassigned.
+.PP
+.B xmodmap
+treats as a comment every line that begins with an exclamation point `!':
+If you want to change the binding of a modifier key, you must also remove it
+from the appropriate modifier map.
+.SH Examples
+Many mice are designed so that the first button is leftmost,
+where it can be pressed by the index finger of the right hand.
+People who are left-handed frequently find
+it more comfortable to reverse the button codes,
+so that the first button is pressed by the index finger of the left hand.
+The first example reverses the button mapping on a three-button mouse:
+.DM
+	xmodmap -e "pointer = 3 2 1"
+.DE
+.PP
+Many editor applications support the notion of
+.B Meta
+keys.
+These resemble
+.B Control
+keys except that
+.B <esc>
+is held down instead of
+.BR <ctrl> .
+However, some servers do not have a
+.B Meta
+keysym in their default keymap tables, so you must add one by hand.
+The following command attach
+.B Meta
+to the Multi-language key (sometimes labeled
+.BR "Compose Character" ).
+It also takes advantage of the fact that
+applications that need a
+.B Meta
+key simply need to get the keycode and do not
+require the keysym to be in the first column of the keymap table.
+This means that an application that is looking for a
+.B Multi_key
+(including the default modifier map) will not notice any change:
+.DM
+	xmodmap -e "keysym Multi_key = Multi_key Meta_L"
+.DE
+.PP
+One of the simpler, yet more convenient, uses of
+.B xmodmap
+is to set the keyboard's
+.I rubout
+key to generate an alternate keysym.
+This frequently
+involves exchanging
+.B Backspace
+with
+.B Delete
+to be more comfortable to the user.
+If the resource
+.B ttyModes
+in
+.B xterm
+is set as well, every terminal-emulator
+window will use the same key for erasing characters:
+.DM
+	xmodmap -e "keysym BackSpace = Delete"
+	echo "XTerm*ttyModes:  erase ^?" | xrdb -merge
+.DE
+.PP
+Some keyboards do not automatically generate the characters `<' and `>'
+characters when the \fK(,)\fR and \fK(.)\fR keys are shifted.
+The following script remedies this
+to reset the bindings for the comma and period:
+.DM
+	!
+	! make shift-, be < and shift-. be >
+	!
+	keysym comma = comma less
+	keysym period = period greater
+.DE
+.PP
+One of the more irritating differences between keyboards is the location of the
+\fK(ctrl)\fR and \fK(Caps_Lock)\fR keys.
+The following script swaps them:
+.DM
+	!
+	! Swap Caps_Lock and Control_L
+	!
+	remove Lock = Caps_Lock
+	remove Control = Control_L
+	keysym Control_L = Caps_Lock
+	keysym Caps_Lock = Control_L
+	add Lock = Caps_Lock
+	add Control = Control_L
+.DE
+.PP
+.BR xmodmap 's
+command
+.B keycode
+is useful for assigning the same keysym to multiple keycodes.
+Although unportable, it also permits you to write
+scripts that can reset the keyboard to a known state.
+The following script sets the
+\fK(Backspace)\fR
+key to generate
+.B Del
+(as shown above), flushes all existing bindings for the
+\fK(Caps_Lock)\fR key,
+makes the \fK(Caps_Lock)\fR key be a control key,
+makes \fK(F5)\fR generate
+.BR Escape ,
+and makes the \fK(Break)\fR key be a shift lock:
+.DM
+	!
+	! On the HP, the following keycodes have key caps as listed:
+	!
+	!     101  Backspace
+	!      55  Caps
+	!      14  Ctrl
+	!      15  Break/Reset
+	!      86  Stop
+	!      89  F5
+	!
+	keycode 101 = Delete
+	keycode 55 = Control_R
+	clear Lock
+	add Control = Control_R
+	keycode 89 = Escape
+	keycode 15 = Caps_Lock
+	add Lock = Caps_Lock
+.DE
+.SH Example
+For an example of how to use
+.B xmodmap
+to reconfigure a keyboard, see the file
+.BR /usr/X11/lib/.Xmodmap.ger .
+This reconfigures the keyboard for an
+.B xterm
+or
+.B xvt
+session to follow the German keyboard layout.
+.SH Environment
+.B xmodmap
+reads the environmental variable
+.B DISPLAY
+to find the number of the host and display.
+.SH "See Also"
+.B
+xev,
+X utilities
+.R
+.br
+\*(CO Lexicon:
+.B
+keyboard tables,
+nkb
+.R
+.SH Notes
+Every time
+.B xmodmap
+evaluates a
+.B keycode
+expression, the server generates a
+.B MappingNotify
+event on every client.
+This can cause some thrashing.
+You should batch all changes and do them at once.
+Clients that receive keyboard input and ignore
+.B MappingNotify
+events will not notice any changes made to keyboard mappings.
+.PP
+.B xmodmap
+should generate
+.B add
+and
+.B remove
+expressions automatically
+whenever a keycode that is already bound to a modifier is changed.
+.PP
+Copyright \(co 1988, 1989, 1990 Massachusetts Institute of Technology.
+Copyright \(co 1987 Sun Microsystems, Inc.
+.PP
+.II "Fulton, Jim"
+.II "Rosenthal, David"
+.B xmodmap
+was written by Jim Fulton of MIT X Consortium, based on an earlier version by
+David Rosenthal of Sun Microsystems.
+

@@ -1,0 +1,403 @@
+# Generated automatically from Makefile.in by configure.
+# This is the Makefile for Taylor UUCP
+#
+# The file Makefile.in should be processed by configure to generate
+# Makefile.  If you want to generate Makefile by hand, you must find
+# all variables surrounded by @ and replace them with the correct
+# value (e.g. cc must be replaced by something like cc or gcc).
+#
+# Once you have done that, you should check the definitions at the top
+# of this file to make sure that they are reasonable for your system.
+
+# Prefix directory for installation directories.
+prefix = /usr
+
+# The user name that should own the resulting executables, several of
+# which are suid.
+owner = uucp
+
+# Where to install uucico, uuxqt, uuchk and uuconv.  If you use this
+# definition, $(prefix)/lib must exist.
+sbindir = $(prefix)/lib/uucp
+
+# Where to install uucp, uux, uustat, uuname, uulog, uuto, uupick and
+# cu.
+bindir = $(prefix)/bin
+
+# Where to install man pages.  Section 1 for user programs, 8 for daemons.
+man1dir = $(prefix)/man/man1
+man1ext = .1
+man8dir = $(prefix)/man/man8
+man8ext = .8
+
+# Where to install the info files.
+infodir = $(prefix)/info
+
+# The directory to look in for new style configuration files (when
+# using HAVE_TAYLOR_CONFIG).  Note that by default this is different
+# from sbindir, unlike traditional UUCP packages.
+newconfigdir = $(prefix)/lib/uucp
+
+# The directory to look in for BNU (when using HAVE_BNU_CONFIG) or
+# V2 (when using HAVE_V2_CONFIG) style configuration files.
+oldconfigdir = /usr/lib/uucp
+
+# If you don't want to compile tstuu, which requires BSD style ptys
+# and the Taylor configuration files, comment out the following line
+# The tstuu program is only used to test the package; it is described
+# further in the documentation.
+TSTUU = tstuu
+
+#
+# The next few lines are set up by the configuration script.  You may
+# want to look them over.
+#
+
+# If you do not have the mkdir system call, undefine the following three
+# lines.  This will install uudir as an suid root program.  This is
+# necessary because invoking /bin/mkdir from an suid program will
+# leave the directories owned by the wrong user.
+# UUDIR = uudir
+# uudirdir = $(sbindir)/util
+# UUDIRFLAGS = -DUUDIR_PROGRAM=\"$(uudirdir)/$(UUDIR)\"
+
+# Source directory and, if necessary, VPATH
+srcdir = .
+VPATH = .
+
+# Define programs and flags
+CC = cc
+CFLAGS =-O -f
+LDFLAGS = 
+LIBS = 
+
+INSTALL = cp
+INSTALL_PROGRAM = $(INSTALL)
+INSTALL_DATA = $(INSTALL)
+
+RANLIB = ranlib
+
+LN_S = ln
+
+MAKEINFO = makeinfo
+TEXI2DVI = texi2dvi
+DVITPS = dvips
+
+#
+# Nothing else to configure
+#
+
+SHELL = /bin/sh
+
+VERSION = 1.04
+
+MORECFLAGS = -I$(srcdir) -I. -DMWCBBS -DSBINDIR=\"$(sbindir)\" -DOWNER=\"$(owner)\" -DVERSION=\"$(VERSION)\" $(UUDIRFLAGS)
+
+MDEFINES = CC='$(CC)' CFLAGS='$(CFLAGS)' RANLIB='$(RANLIB)' LN_S='$(LN_S)' newconfigdir='$(newconfigdir)' oldconfigdir='$(oldconfigdir)' owner='$(owner)' sbindir='$(sbindir)' UUDIRFLAGS='$(UUDIRFLAGS)' VERSION='$(VERSION)'
+
+PROGRAMS = uucico uuxqt uux uucp uuchk uuconv uustat uuname uusched \
+	uulog uuto uupick cu
+
+UUOBJS = uucico.o trans.o send.o rec.o xcmd.o prot.o protg.o protf.o \
+	prott.o prote.o proti.o protj.o protz.o time.o log.o chat.o \
+	conn.o tcp.o tli.o util.o copy.o
+XQTOBJS = uuxqt.o util.o log.o copy.o
+UUXOBJS = uux.o util.o log.o copy.o
+UUCPOBJS = uucp.o util.o log.o copy.o
+UUSTATOBJS = uustat.o util.o log.o copy.o
+UUNAMEOBJS = uuname.o log.o
+UULOGOBJS = uulog.o log.o
+UUPICKOBJS = uupick.o log.o copy.o
+CUOBJS = cu.o prot.o log.o chat.o conn.o tcp.o tli.o copy.o
+UUCHKOBJS = uuchk.o
+UUCONVOBJS = uuconv.o
+TSTOBJS = tstuu.o
+
+ALLOBJS = uucico.o uuxqt.o uux.o uucp.o uuchk.o uuconv.o uustat.o \
+	uuname.o uulog.o uupick.o cu.o uudir.o tstuu.o trans.o send.o \
+	rec.o xcmd.o prot.o protg.o protf.o prott.o prote.o proti.o \
+	protj.o protz.o util.o time.o log.o chat.o conn.o tcp.o tli.o \
+	copy.o
+
+UULIBS = unix/libunix.a uuconf/libuuconf.a lib/libuucp.a
+
+all: $(PROGRAMS) $(TSTUU) $(UUDIR)
+
+install: $(PROGRAMS) $(UUDIR)
+	if test -d $(sbindir); then true; else mkdir $(sbindir); fi
+	if test -d $(bindir); then true; else mkdir $(bindir); fi
+	-if test -f $(sbindir)/uucico.old; then rm -f $(sbindir)/uucico; else mv $(sbindir)/uucico $(sbindir)/uucico.old; fi
+	-if test -f $(sbindir)/uuxqt.old; then rm -f $(sbindir)/uuxqt; else mv $(sbindir)/uuxqt $(sbindir)/uuxqt.old; fi
+	-if test -f $(sbindir)/uusched.old; then rm -f $(sbindir)/uusched; else mv $(sbindir)/uusched $(sbindir)/uusched.old; fi
+	$(INSTALL_PROGRAM) uucico $(sbindir)/uucico
+	$(INSTALL_PROGRAM) uuxqt $(sbindir)/uuxqt
+	$(INSTALL_PROGRAM) uuchk $(sbindir)/uuchk
+	$(INSTALL_PROGRAM) uuconv $(sbindir)/uuconv
+	$(INSTALL_PROGRAM) uusched $(sbindir)/uusched
+	chown $(owner) $(sbindir)/uucico $(sbindir)/uuxqt
+	chmod 4555 $(sbindir)/uucico $(sbindir)/uuxqt
+	chown $(owner) $(sbindir)/uuchk $(sbindir)/uuconv
+	if test "$(UUDIR)X" != "X"; then \
+	  if test -d $(uudirdir); then \
+	    true \
+	  else \
+	    mkdir $(uudirdir); \
+	  fi; \
+	  chown $(owner) $(uudirdir); \
+	  chmod 100 $(uudirdir); \
+	  $(INSTALL_PROGRAM) uudir $(uudirdir)/uudir; \
+	  chown root $(uudirdir)/uudir; \
+	  chmod 4555 $(uudirdir)/uudir; \
+	else \
+	  true; \
+	fi
+	-for i in uux uucp uustat uuname uulog uuto uupick cu; do \
+	  if test -f $(bindir)/$$i.old; then \
+	    rm -f $(bindir)/$$i; \
+	  else \
+	    mv $(bindir)/$$i $(bindir)/$$i.old; \
+	  fi; \
+	  $(INSTALL_PROGRAM) $$i $(bindir)/$$i; \
+	done
+	chown $(owner) $(bindir)/uux $(bindir)/uucp $(bindir)/uustat 
+	chown $(owner) $(bindir)/uuname $(bindir)/cu
+	chmod 4555 $(bindir)/uux $(bindir)/uucp $(bindir)/uustat 
+	chmod 4555 $(bindir)/uuname $(bindir)/cu
+	$(INSTALL_DATA) $(srcdir)/uucico.8 $(man8dir)/uucico$(man8ext)
+	$(INSTALL_DATA) $(srcdir)/uuxqt.8 $(man8dir)/uuxqt$(man8ext)
+	$(INSTALL_DATA) $(srcdir)/uux.1 $(man1dir)/uux$(man1ext)
+	$(INSTALL_DATA) $(srcdir)/uucp.1 $(man1dir)/uucp$(man1ext)
+	$(INSTALL_DATA) $(srcdir)/uustat.1 $(man1dir)/uustat$(man1ext)
+	$(INSTALL_DATA) $(srcdir)/cu.1 $(man1dir)/cu$(man1ext)
+	@echo Use \"make install-info\" to install the info pages.
+
+uninstall:
+	rm -f $(sbindir)/uucico $(sbindir)/uuxqt $(sbindir)/uusched
+	-cp $(sbindir)/uucico.old $(sbindir)/uucico
+	-cp $(sbindir)/uuxqt.old $(sbindir)/uuxqt
+	-cp $(sbindir)/uusched.old $(sbindir)/uusched
+	-chown $(owner) $(sbindir)/uucico $(sbindir)/uuxqt
+	-chmod 4555 $(sbindir)/uucico $(sbindir)/uuxqt
+	-chown $(owner) $(sbindir)/uuchk $(sbindir)/uuconv
+	rm -f $(bindir)/uux $(bindir)/uucp $(bindir)/uustat
+	rm -f $(bindir)/uuname $(bindir)/uulog $(bindir)/uuto
+	rm -f $(bindir)/uupick $(bindir)/cu
+	-cp $(bindir)/uux.old $(bindir)/uux
+	-cp $(bindir)/uucp.old $(bindir)/uucp
+	-cp $(bindir)/uustat.old $(bindir)/uustat
+	-cp $(bindir)/uuname.old $(bindir)/uuname
+	-cp $(bindir)/uulog.old $(bindir)/uulog
+	-cp $(bindir)/uuto.old $(bindir)/uuto
+	-cp $(bindir)/uupick.old $(bindir)/uupick
+	-cp $(bindir)/cu.old $(bindir)/cu
+	-chown $(owner) $(bindir)/uux $(bindir)/uucp $(bindir)/uustat 
+	-chown $(owner) $(bindir)/uuname $(bindir)/cu
+	-chmod 4555 $(bindir)/uux $(bindir)/uucp $(bindir)/uustat 
+	-chmod 4555 $(bindir)/uuname $(bindir)/cu
+
+uucico: $(UUOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uucico $(UUOBJS) $(UULIBS) $(LIBS)
+
+uuxqt: $(XQTOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uuxqt $(XQTOBJS) $(UULIBS) $(LIBS)
+
+uux: $(UUXOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uux $(UUXOBJS) $(UULIBS) $(LIBS)
+
+uucp: $(UUCPOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uucp $(UUCPOBJS) $(UULIBS) $(LIBS)
+
+uustat: $(UUSTATOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uustat $(UUSTATOBJS) $(UULIBS) $(LIBS)
+
+uuname: $(UUNAMEOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uuname $(UUNAMEOBJS) $(UULIBS) $(LIBS)
+
+uulog: $(UULOGOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uulog $(UULOGOBJS) $(UULIBS) $(LIBS)
+
+uusched: uusched.in Makefile
+	-rm -f uusched
+	sed 's,@SBINDIR@,$(sbindir),' < $(srcdir)/uusched.in > uusched
+	chmod 0555 uusched
+
+uuto: uuto.in Makefile
+	-rm -f uuto
+	sed 's,@BINDIR@,$(bindir),' < $(srcdir)/uuto.in > uuto
+	chmod 0555 uuto
+
+uupick: $(UUPICKOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uupick $(UUPICKOBJS) $(UULIBS) $(LIBS)
+
+cu: $(CUOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o cu $(CUOBJS) $(UULIBS) $(LIBS)
+
+uuchk: $(UUCHKOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uuchk $(UUCHKOBJS) $(UULIBS) $(LIBS)
+
+uuconv: $(UUCONVOBJS) $(UULIBS)
+	$(CC) $(LDFLAGS) -o uuconv $(UUCONVOBJS) $(UULIBS) $(LIBS)
+
+tstuu: $(TSTOBJS) $(UULIBS)
+	$(CC) -f $(LDFLAGS) -o tstuu $(TSTOBJS) $(UULIBS) $(LIBS)
+
+uudir: uudir.o $(UULIBS)
+	$(CC) $(LDFLAGS) -o uudir uudir.o $(UULIBS) $(LIBS)
+
+.c.o:
+	$(CC) -c $(CFLAGS) $(MORECFLAGS) $<
+
+uuconv.o: uuconv.c
+	$(CC) -c $(CFLAGS) $(MORECFLAGS) -I$(srcdir)/uuconf -Iuuconf $(srcdir)/uuconv.c
+
+sysdep.h: sysh.unx
+	rm -f sysdep.h
+	$(LN_S) $(srcdir)/sysh.unx sysdep.h || cp $(srcdir)/sysh.unx sysdep.h
+
+uuconf/libuuconf.a: FORCE
+	(cd uuconf; $(MAKE) $(MDEFINES) libuuconf.a)
+
+unix/libunix.a: FORCE sysdep.h
+	(cd unix; $(MAKE) $(MDEFINES) libunix.a)
+
+lib/libuucp.a: FORCE
+	(cd lib; $(MAKE) $(MDEFINES) libuucp.a)
+
+FORCE:;
+
+clean:
+	(cd unix; $(MAKE) $(MDEFINES) clean)
+	(cd uuconf; $(MAKE) $(MDEFINES) clean)
+	(cd lib; $(MAKE) $(MDEFINES) clean)
+	rm -f $(ALLOBJS) $(PROGRAMS) tstuu sysdep.h
+	rm -f uucp-$(VERSION).tar.Z
+	rm -rf uucp-$(VERSION)
+
+distclean:
+	(cd unix; $(MAKE) $(MDEFINES) distclean)
+	(cd uuconf; $(MAKE) $(MDEFINES) distclean)
+	(cd lib; $(MAKE) $(MDEFINES) distclean)
+	rm -f $(ALLOBJS) $(PROGRAMS) tstuu sysdep.h
+	rm -f uucp-$(VERSION).tar.Z
+	rm -rf uucp-$(VERSION)
+	rm -f Makefile conf.h config.status
+
+mostlyclean: clean
+
+realclean: distclean
+
+# The distribution targets are mostly for my own use; they are not
+# expected to work on all other systems.
+
+dist:
+	-rm -rf uucp-$(VERSION)
+	-rm -f uucp-$(VERSION).tar uucp-$(VERSION).tar.Z
+	mkdir uucp-$(VERSION)
+	ln `cat MANIFEST` uucp-$(VERSION)
+	rm -f uucp-$(VERSION)/policy.h uucp-$(VERSION)/Makefile.in
+	cp policy.h Makefile.in uucp-$(VERSION)
+	chmod 0644 uucp-$(VERSION)/policy.h uucp-$(VERSION)/Makefile.in
+	chmod 0644 uucp-$(VERSION)/uucp.texi
+	mkdir uucp-$(VERSION)/contrib
+	ln contrib/* uucp-$(VERSION)/contrib
+	mkdir uucp-$(VERSION)/sample
+	ln sample/* uucp-$(VERSION)/sample
+	(cd unix; $(MAKE) $(MDEFINES) dist)
+	(cd uuconf; $(MAKE) $(MDEFINES) dist)
+	(cd lib; $(MAKE) $(MDEFINES) dist)
+	tar -cvf uucp-$(VERSION).tar uucp-$(VERSION)
+	compress uucp-$(VERSION).tar
+
+doc-dist: uucp.texi uucp.info uucp.dvi uucp.ps
+	-rm -rf uucp-doc-$(VERSION) uucp-doc-dist
+	-rm -f uucp-doc-$(VERSION).tar uucp-doc-$(VERSION).tar.Z
+	mkdir uucp-doc-$(VERSION)
+	ln README-DOC uucp-doc-$(VERSION)
+	ln $(srcdir)/uucp.texi uucp-doc-$(VERSION)
+	for i in uucp.info*; do ln $$i uucp-doc-$(VERSION); done
+	ln uucp.dvi uucp-doc-$(VERSION)
+	ln uucp.cp uucp.fn uucp.aux uucp-doc-$(VERSION)
+	ln texinfo.tex uucp-doc-$(VERSION)
+	mkdir uucp-doc-dist
+	mv uucp-doc-$(VERSION) uucp-doc-dist/uucp-$(VERSION)
+	cd uucp-doc-dist; tar -cvf ../uucp-doc-$(VERSION).tar uucp-$(VERSION)
+	compress uucp-doc-$(VERSION).tar
+	-rm -rf uucp-doc-dist
+
+info: uucp.info
+
+uucp.info: uucp.texi
+	$(MAKEINFO) $<
+
+install-info: uucp.info
+	for i in uucp.info*; do \
+	  $(INSTALL_DATA) $$i $(infodir)/$$i; \
+	done
+
+dvi: uucp.dvi
+
+uucp.dvi: uucp.texi
+	$(TEXI2DVI) $<
+
+ps: uucp.ps
+
+uucp.ps: uucp.dvi
+	$(DVITPS) -o uucp.ps $<
+
+# Having Makefile depend on conf.h.in insures that conf.h will get
+# rebuilt when conf.h.in changes.  We don't want conf.h to change
+# unnecessarily, nor do we want to run config.status unnecessarily.
+# This won't work on versions of make that don't check dependencies
+# for Makefile, but I'm the only person likely to change conf.h.in
+# anyhow.
+Makefile: config.status Makefile.in conf.h.in
+	sh config.status
+
+config.status: configure
+	configure --no-create
+
+configure: configure.in
+	autoconf
+
+TAGS:
+	etags *.h *.c
+
+# Header file dependencies.  These are maintained by hand.
+
+$(ALLOBJS): uucp.h conf.h policy.h
+
+uucico.o: uudefs.h uuconf.h system.h prot.h conn.h trans.h getopt.h
+uuxqt.o: uudefs.h uuconf.h system.h getopt.h
+uux.o: uudefs.h uuconf.h system.h getopt.h sysdep.h
+uucp.o: uudefs.h uuconf.h system.h getopt.h
+uustat.o: uudefs.h uuconf.h system.h getopt.h
+uuname.o: uudefs.h uuconf.h system.h getopt.h
+uulog.o: uudefs.h uuconf.h system.h getopt.h
+uupick.o: uudefs.h uuconf.h system.h getopt.h
+cu.o: cu.h uudefs.h uuconf.h sysdep.h conn.h prot.h system.h getopt.h
+uuchk.o: uuconf.h getopt.h
+uuconv.o: $(srcdir)/uuconf/uucnfi.h uuconf.h getopt.h
+uudir.o: sysdep.h
+tstuu.o: sysdep.h getopt.h system.h
+trans.o: uudefs.h uuconf.h system.h prot.h trans.h
+send.o: uudefs.h uuconf.h system.h prot.h trans.h
+rec.o: uudefs.h uuconf.h system.h prot.h trans.h
+xcmd.o: uudefs.h uuconf.h system.h prot.h trans.h
+prot.o: uudefs.h system.h prot.h conn.h
+protg.o: uudefs.h uuconf.h prot.h conn.h system.h trans.h
+protf.o: uudefs.h uuconf.h prot.h conn.h system.h trans.h
+prott.o: uudefs.h uuconf.h prot.h conn.h system.h trans.h
+prote.o: uudefs.h uuconf.h prot.h conn.h system.h trans.h
+proti.o: uudefs.h uuconf.h prot.h conn.h system.h trans.h
+protj.o: uudefs.h prot.h conn.h system.h trans.h
+protz.o: uudefs.h uuconf.h prot.h conn.h system.h trans.h
+log.o: uudefs.h uuconf.h system.h
+chat.o: uudefs.h uuconf.h system.h prot.h conn.h
+conn.o: uudefs.h uuconf.h conn.h
+tcp.o: uudefs.h uuconf.h conn.h sysdep.h system.h
+tli.o: uudefs.h uuconf.h conn.h sysdep.h system.h
+time.o: uudefs.h uuconf.h
+util.o: uudefs.h uuconf.h system.h
+copy.o: uudefs.h system.h sysdep.h
+
+.NOEXPORT:

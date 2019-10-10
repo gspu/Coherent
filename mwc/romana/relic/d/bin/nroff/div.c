@@ -1,0 +1,242 @@
+/*
+ * div.c
+ * Nroff/Troff.
+ * Traps and diversions.
+ */
+
+#include "roff.h"
+
+/*
+ * Given a name, create and initialize a new diversion.
+ * For troff, the processed text in the diversion assumes the current font;
+ * if the current font is different when the diversion is read back (executed),
+ * the character widths will be wrong.
+ * Therefore the diversion starts with a font change to the current font.
+ */
+newdivn(name)
+char name[2];
+{
+	register DIV *dp;
+
+	dp = (DIV *) nalloc(sizeof (DIV));
+	dp->d_next = cdivp;
+	dp->d_name[0] = name[0];
+	dp->d_name[1] = name[1];
+	dp->d_rpos = 0;
+	dp->d_nspm = 0;
+	dp->d_maxh = 0;
+	dp->d_maxw = 0;
+	dp->d_seek = tmpseek;
+	dp->d_macp = NULL;
+	dp->d_stpl = NULL;
+	dp->d_trap = NULL;
+	dp->d_ctpp = NULL;
+	cdivp = dp;
+	if (name[0] != '\0')
+		dev_font(curfont);
+	dprint3(DBGDIVR, "create diversion %c%c\n", name[0], name[1]);
+}
+
+/*
+ * End a diversion.
+ * The diverted text may have changed the current font,
+ * but because it was diverted the output writer's notion of the current
+ * font remains unchanged.
+ * Therefore this writes a change to the current font after the diversion.
+ */
+enddivn()
+{
+	register REG *rp;
+	register DIV *dp;
+
+	if ((dp = cdivp) == mdivp) {
+		printe("cannot end diversion");
+		return;
+	}
+	if ((rp = findreg(dp->d_name, RTEXT)) != (REG *)NULL) {
+		rp->t_reg.r_maxh = cdivp->d_maxh;
+		rp->t_reg.r_maxw = cdivp->d_maxw;
+	}
+	nrdnreg->n_reg.r_nval = cdivp->d_maxh;
+	nrdlreg->n_reg.r_nval = cdivp->d_maxw;
+	cdivp = cdivp->d_next;
+	dprint3(DBGDIVR, "ended diversion %c%c\n", dp->d_name[0], dp->d_name[1]);
+	nfree((char *)dp);
+	dev_font(curfont);
+}
+
+/*
+ * Append the given buffer onto the end of the current diversion.
+ */
+flushd(buffer, bufend)
+CODE *buffer, *bufend;
+{
+	register DIV *dp;
+	register MAC *mp;
+	register unsigned n;
+
+	if((dp = cdivp) == NULL)
+		panic("flushd -- current diversion null");
+	dprint3(DBGDIVR, "flushing diversion %c%c\n", dp->d_name[0], dp->d_name[1]);
+	mp = dp->d_macp;
+	if (mp->t_div.m_type!=MDIVN || dp->d_seek!=tmpseek) {
+		dp->d_macp = dp->d_macp->t_div.m_next = mp = 
+			(MAC *)nalloc(sizeof *mp);
+		mp->t_div.m_next = NULL;
+		mp->t_div.m_type = MDIVN;
+		mp->t_div.m_size = 0;
+		mp->t_div.m_core = NULL;
+		mp->t_div.m_seek = tmpseek;
+	}
+	n = bufend - buffer;
+	nwrite((char *)buffer, (unsigned)sizeof (CODE), n);
+	mp->t_div.m_size += n;
+	dp->d_seek = tmpseek;
+	if ((n=tmpseek%DBFSIZE) != 0)
+		nwrite(miscbuf, 1, DBFSIZE-n);
+}
+
+/*
+ * Space the required distance after a line has been put out.
+ * If we sprung a trap, execute it.
+ */
+lspace(n)
+{
+	register DIV *dp;
+	register TPL *tp;
+
+#if	0
+	fprintf(stderr, "lspace(%d)\n", n);
+#endif
+	dp = cdivp;
+	tp = dp->d_ctpp;
+	if (tp!=NULL && dp->d_rpos+n<tp->t_apos)
+		tp = NULL;
+	scroll(dp, n);
+	if (tp != NULL)
+		execute(tp->t_name);
+}
+
+/*
+ * Space to the end of the current page.
+ */
+pspace()
+{
+	register DIV *dp;
+	register TPL *tp;
+	int lpct;
+	register int npos;
+
+#if	0
+	fprintf(stderr, "pspace()\n");
+#endif
+	dp = mdivp;
+	lpct = pct;
+	while (lpct == pct) {
+		npos = pgl;
+		tp = dp->d_ctpp;
+		if (tp!=NULL && npos>=tp->t_apos)
+			npos = tp->t_apos;
+		if (mdivp==dp && npos>=pgl) {
+			scroll(dp, (int)pgl-dp->d_rpos);
+			npos = dp->d_rpos;
+			tp = dp->d_trap;
+		}
+		scroll(dp, npos-dp->d_rpos);
+		if (tp!=NULL && dp->d_rpos==tp->t_apos)
+			execute(tp->t_name);
+	}
+}
+
+/*
+ * Space the distance 'n'.  If a trap is encountered, spring the
+ * trap and stop.
+ */
+sspace(n)
+{
+	register DIV *dp;
+	register TPL *tp;
+	register int npos;
+
+#if	0
+	fprintf(stderr, "sspace(%d)\n", n);
+#endif
+	dp = cdivp;
+	tp = dp->d_ctpp;
+	npos = dp->d_rpos + n;
+	if (npos < 0)
+		npos = 0;
+	if (tp!=NULL && npos>=tp->t_apos)
+		npos = tp->t_apos;
+	if (mdivp==dp && npos>=pgl) {
+		scroll(dp, (int)pgl-dp->d_rpos);
+		npos = dp->d_rpos;
+		tp = dp->d_trap;
+	}
+	scroll(dp, npos-dp->d_rpos);
+	if (tp!=NULL && dp->d_rpos==tp->t_apos)
+		execute(tp->t_name);
+}
+
+/*
+ * Space down the given distance, resetting page information
+ * if we pass a page boundary.  'dp' is a pointer to the
+ * diversion we are using.
+ */
+scroll(dp, n)
+register DIV *dp;
+{
+	CODE code[1];
+	register TPL *tp;
+	char *s;
+
+#if	0
+	fprintf(stderr, "scroll(..., %d)\n", n);
+#endif
+	code[0].l_arg.c_code = DSPAR;
+	code[0].l_arg.c_iarg = n;
+	if (dp == mdivp)
+		flushl(code, &code[1]);
+	else
+		flushd(code, &code[1]);
+	if ((cdivp->d_rpos+=n) > cdivp->d_maxh)
+		cdivp->d_maxh = cdivp->d_rpos;
+	while (cdivp->d_rpos >= pgl) {
+		if (byeflag) {
+#if	ZKLUDGE
+			dev_close();
+#endif
+			s = (lflag) ? POST_L : POST_P;
+			if (lib_file(s, 0) == 0 & ntroff == TROFF)
+				printe("file \"%s\" not found", s);
+			leave(0);
+		}
+		pct++;
+		pno = npn++;
+		cdivp->d_rpos -= pgl;
+		cdivp->d_maxh = cdivp->d_rpos;
+		cdivp->d_ctpp = cdivp->d_trap;
+	}
+	tp = dp->d_ctpp;
+	while (tp!=NULL && tp->t_apos<=dp->d_rpos)
+		tp = tp->t_next;
+	dp->d_ctpp = tp;
+}
+
+/*
+ * Execute a macro, given the name.
+ */
+execute(name)
+char name[2];
+{
+	register REG *rp;
+
+	dprint3(DBGMACX, "execute macro %c%c\n", name[0], name[1]);
+	if ((rp=findreg(name, RTEXT)) != (REG *)NULL) {
+		adstreg(rp);
+		strp->x1.s_eoff = 1;
+		process();
+	}
+}
+
+/* end of div.c */

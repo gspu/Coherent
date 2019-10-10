@@ -1,0 +1,364 @@
+/*
+ * C compiler.
+ * Symbol table routines.
+ */
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * Compare a token to id[] for equality.
+ */
+ideq(tp) TOK *tp;
+{
+	register int *ip1, *ip2, n;
+	ip1 = tp->t_id;
+	ip2 = id;
+	n = (idsize+2)>>1;
+	while (--n >= 0)
+		if (*ip1++ != *ip2++)
+			return 0;
+	return 1;
+}
+
+/*
+ * Create a new token with id[]
+ * and return a pointer.
+ */
+TOK *newtoken()
+{
+	register TOK *tp;
+
+	tp = (TOK *)new(sizeof(TOK) + ((idsize+2)&~1));
+	tp->t_tp = NULL;
+	tp->t_sym = NULL;
+	strncpy(tp->t_id, id, (idsize+2)&~1);
+	return tp;
+}
+
+/*
+ * Allocate a new symbol node.
+ */
+SYM *newsym()
+{
+	register SYM	*sp;
+
+	sp = (SYM *) new(sizeof(SYM));
+	zero(sp, sizeof(SYM));
+	sp->s_seg = SANY;
+	sp->s_id = idp->t_id;
+	return (sp);
+}
+
+/*
+ * Allocate a new cpp symbol
+ */
+CPPSYM *newcpp(narg, value, nval) int narg; char *value; int nval;
+{
+	register CPPSYM *sp;
+
+	sp = (CPPSYM *) new(sizeof(CPPSYM)+nval);
+	sp->s_slevel = SL_CPP;
+	sp->s_narg = narg;
+	sp->s_value = narg >= 0 ? XUSERA : XUSER;
+	strcpy(sp->s_body, value);
+	return (sp);
+}
+
+/*
+ * Search a symbol list for a symbol pointer
+ */
+SYM *memberp(sp, splist) register SYM *sp, *splist;
+{
+	while (splist != NULL)
+		if (sp == splist)
+			return splist;
+		else
+			splist = splist->s_sp;
+	return splist;
+}
+
+/*
+ * Look up the name in 'id' in a reference context.
+ * The name may appear at any lexic level.
+ */
+SYM *reflookup(ls) register int ls;
+{
+	register SYM	*sp;
+
+	for (sp = idp->t_sym; sp != NULL; sp = sp->s_sp)
+		if (sp->s_slevel < ls)
+			continue;
+		else if (sp->s_slevel == ls)
+			return sp;
+		else
+			break;
+	return(NULL);
+}
+
+/*
+ * Look up the identifier in 'id' in the context of a declaration.
+ * If the symbol is not found, it is created.
+ * The argument 'll' is the lexic level to search in.
+ * The argument 'ls' is the symbol class to search.
+ */
+SYM *deflookup(ls, ll) int ls, ll;
+{
+	register SYM *sp, **spp;
+
+	for (spp = &idp->t_sym; (sp = *spp) != NULL; spp = &sp->s_sp)
+		if (sp->s_slevel < ls)
+			continue;
+		else if (sp->s_slevel == ls) {
+			if (sp->s_level == ll)
+				return (sp);
+			else if (sp->s_level < ll) {
+				if (sp->s_level == LL_ARG && ll >= LL_AUTO)
+					cwarn("parameter \"%s\" redeclared as automatic",
+						sp->s_id);
+				break;
+			} else
+				continue;
+		} else
+			break;
+	*spp = newsym();
+	(*spp)->s_sp = sp;
+	sp = *spp;
+	sp->s_slevel = ls;
+	sp->s_level = ll;
+	return (sp);
+}
+
+/*
+ * Look up a member of a structure.
+ */
+SYM *moslookup(tp) TREE *tp;
+{
+	INFO *ip;
+	register SYM *sp, *sp2;
+	register int i;
+
+	sp = idp->t_sym;
+	/* First search using info of left hand context */
+	if ((tp->t_type==T_STRUCT || tp->t_type==T_UNION)
+	 && (ip=tp->t_ip)!=NULL) {
+		for (i=0; i<ip->i_nsp; i+=1) {
+			sp2 = ip->i_sp[i];
+			if (memberp(sp2, sp))
+				return (sp2);
+		}
+	}
+	/* Now search for unambiguous reference */
+	for (sp2 = NULL; sp != NULL; sp = sp->s_sp) {
+		if (sp->s_slevel < SL_MOS)
+			continue;
+		if (sp2 == NULL) {
+			sp2 = sp;
+			continue;
+		}
+		if (sp->s_value!=sp2->s_value
+		 || sp->s_offset!=sp2->s_offset
+		 || sp->s_width!=sp2->s_width) {
+			cerror("ambiguous reference to \"%s\"", id);
+			break;
+		}
+	}
+	return (sp2);
+}
+
+/*
+ * Try to find a structure tag, given a pointer to an info structure.
+ * Used to hunt up the name of the structure
+ * when doing strict structure member checks.
+ */
+SYM *taglookup(ip) register INFO *ip;
+{
+	register SYM	*sp;
+	register TOK	*tp;
+	register int	i;
+
+	for (i=0; i<NHASH; ++i)
+	for (tp = hash0[i]; tp != NULL; tp = tp->t_tp) {
+		for (sp = tp->t_sym; sp != NULL; sp = sp->s_sp) {
+			if (sp->s_slevel != SL_TAG)
+				continue;
+			if (istag(sp->s_class) && sp->s_ip==ip)
+				return (sp);
+		}
+	}
+	return (NULL);
+}
+
+/*
+ * Fake a definition.
+ * Put the name into the hash table with the specified flags.
+ * Set the type to int.
+ * The class will be auto or member, depending on the flags.
+ */
+SYM *fakedef(ls) int ls;
+{
+	register SYM	*sp;
+
+	sp = deflookup(ls, llex);
+	sp->s_type = T_INT;
+	sp->s_class = (ls == SL_MOS) ? C_MOS : C_AUTO;
+	sp->s_flag |= S_USED;
+	return (sp);
+}
+
+/*
+ * 'sp' is a symbol pointer for an external function
+ * which was entered at local lexical level
+ * because no "extern" appeared in the declaration.
+ * Return a symbol pointer at the correct lexical level.
+ * This is a pathological case, not worth optimizing.
+ */
+SYM *fixlevel(sp) register SYM *sp;
+{
+	register SYM **tsp;
+
+	/* Chase the chain for this identifier */
+	setid(sp->s_id);
+	for (tsp = &idp->t_sym; *tsp != sp; tsp = &(*tsp)->s_sp)
+		if (*tsp == NULL) cbotch("bad fixlevel");
+	*tsp = sp->s_sp;
+	free(sp);
+	if ((sp = reflookup(SL_VAR)) == NULL)
+		sp = deflookup(SL_VAR, LL_EXT);
+	return sp;
+}
+
+/*
+ * Sweep through the symbol table,
+ * backplugging the structure data for any
+ * structures waiting for the definition
+ * of structure tag "tsp".
+ */
+backplug(tsp)
+register SYM	*tsp;
+{
+	register SYM	*sp;
+	register int	t;
+	register TOK	*tp;
+	register int	i;
+
+	for (i=0; i<NHASH; ++i)
+	for (tp = hash0[i]; tp != NULL; tp = tp->t_tp) {
+		for (sp = tp->t_sym; sp != NULL; sp = sp->s_sp) {
+			if (sp->s_slevel < SL_VAR)
+				continue;
+			t = sp->s_type;
+			if ((t==T_FSTRUCT || t==T_FUNION || t==T_FENUM)
+			&&   sp->s_ip==tsp) {
+				--sp->s_type;		  /* Magic */
+				sp->s_ip = tsp->s_ip;
+				++tsp->s_ip->i_refc;
+			}
+		}
+	}
+}
+
+/*
+ * The lexic level has decremented.
+ * Delete symbol table entries associated with the old level.
+ * Look for undefined forward referenced labels
+ * and put out diagnostics for them.
+ */
+downlex()
+{
+	register SYM	*sp, **spp;
+	register TOK	*tp;
+	register int	c, i;
+
+	dbdown();
+	for (i=0; i<NHASH; ++i)
+	for (tp = hash0[i]; tp != NULL; tp = tp->t_tp) {
+		for (spp = &tp->t_sym; (sp = *spp) != NULL; ) {
+			if (sp->s_slevel < SL_VAR) {
+				spp = &sp->s_sp;
+				continue;
+			}
+			c = sp->s_class;
+			if (c==C_FREF && llex==LL_EXT)
+				cerror("label \"%s\" undefined", tp->t_id);
+			if (sp->s_level <= llex) {
+				spp = &sp->s_sp;
+				continue;
+			}
+			if ((c!=C_LAB && c!=C_FREF) || llex==LL_EXT) {
+				if (llex >= LL_EXT)
+					usedcheck(sp);
+				*spp = sp->s_sp;
+				free((char *) sp);
+				continue;
+			}
+			spp = &sp->s_sp;
+		}
+	}
+}
+
+/*
+ * Put out the required warning if used checking is enabled.
+ */
+usedcheck(sp) register SYM *sp;
+{
+	register char	*lp, *tp;
+	char		lb[32];
+
+	if ((sp->s_flag&S_USED) != 0)
+		return;
+	if (isvariant(VSUVAR)
+	|| (isvariant(VSUREG) && sp->s_class==C_REG)) {
+		switch (sp->s_class) {
+		default:
+			tp = "variable";
+			break;
+		case C_REG:
+			tp = "register variable";
+			break;
+		case C_TYPE:
+			tp = "type definition";
+			break;
+		case C_LAB:
+			tp = "label";
+			break;
+		case C_NONE:			/* for forward references */
+		case C_GREF:
+		case C_MOS:
+		case C_MOU:
+		case C_MOE:
+		case C_STAG:
+		case C_UTAG:
+		case C_ETAG:
+			return;
+		}
+		lp = "";
+		if (sp->s_dline != 0)
+			sprintf(lp = lb, " (line %d)", sp->s_dline);
+		cstrict("%s \"%s\"%s is not used", tp, sp->s_id, lp);
+	}
+}
+
+/*
+ * Copy 'n' bytes.
+ */
+copy(t, f, n)
+register char	*t, *f;
+register int	n;
+{
+	while (--n >= 0)
+		*t++ = *f++;
+}
+
+/*
+ * Zero 'n' bytes.
+ */
+zero(p, n)
+register char	*p;
+register int	n;
+{
+	while (--n >= 0)
+		*p++ = 0;
+}

@@ -1,0 +1,1961 @@
+aass -- Command
+
+i80386 assembler
+aass [-oo _o_u_t_f_i_l_e] [-bbffggllnnppwwxxXX] _i_n_f_i_l_e
+
+The 80386 version of aass, the COHERENT assembler, assembles programs written
+in  any of  several  different dialects  of assembly  language into  object
+modules in  COFF format, which  can be linked  with objects written  by the
+COHERENT C  compiler.  This  version of  aass contains numerous  features not
+available with the COHERENT 286 assembler:
+
+-> It  serves as  a  flexible base  for  writing programs  in native  80386
+   assembly language.
+
+-> It  assembles programs  written in  older  flavors of  COHERENT assembly
+   language.
+
+-> It assembles programs written in UNIX assembly language.
+
+-> Unlike the old COHERENT assembler and the UNIX assembler, 80386 aass comes
+   with full macro faculities.
+
+-> It  is  also designed  to  detect  many of  the  common  errors made  by
+   assembly-language programmers.
+
+The COHERENT  system also includes  the command aassffiixx,  which updates files
+written in  the COHERENT 286 assembler.  aassffiixx  changes local and character
+symbols to the new format.
+
+_I_n_v_o_k_i_n_g _t_h_e _A_s_s_e_m_b_l_e_r
+aass permits file names and options to be interspersed upon the command line.
+It recognizes the following command-line options:
+
+-DD_n_a_m_e=_s_t_r_i_n_g
+     Initialize string variable _n_a_m_e to _s_t_r_i_n_g.  For example, the option
+
+         -Dname=some_string
+
+     is equivalent to:
+
+         name    .define some_string
+
+-EE_n_a_m_e=_v_a_l_u_e
+     Initialize variable _n_a_m_e to _v_a_l_u_e.  For example, the option
+
+         -Ename=17
+
+     is equivalent to:
+
+         name    .equ    17
+
+-aa   Set alignment for data objects.  For example, when this option is used
+     the express
+
+         .long 5
+
+     is  automatically  aligned  to  a  four-byte  boundary,  but  is  left
+     unaligned without it.
+
+-bb   Reverse  bracket sense;  that is,  use () for  expressions and  [] for
+     code.  For example:
+
+          movl $[2 * 5], (%eax)/ without -b
+          movl $(2 * 5), [%eax]/ with -b
+
+-ff   Reverse the order of the operands, from UNIX-assembler form to that of
+     the Intel documentation or the 80286 version of aass.
+
+-gg   Make undefined symbols .gglloobbll.
+
+-ll   Generate an output listing.
+
+-nn   This option turns off the aass  mechanism for handling bugs in the 80386
+     chip.  aass  tries to  cope with  known 80386 bugs  by changing  code at
+     appropriate points  in its output.   If these changes  create problems
+     with your code, you can turn off the aass bug-handler mechanism by using
+     the -nn option to aass.
+
+-oo _o_u_t_f_i_l_e.oo
+     Write the output into _o_u_t_f_i_l_e.oo.   Note that the suffix .oo must appear
+     in the  output file's name, or  the assembler will exit  with an error
+     message.  The default output file is _i_n_f_i_l_e.oo.
+
+-pp   Don't use `%' on register names; e.g., use aaxx, not %aaxx.
+
+-QQ   Quiet: Suppress all error messages,  no matter how awful an error they
+     indicate.
+
+-ww   Disable warning messages.
+
+-xx   Remove all non-global symbols from the common symbol output.
+
+-XX   Remove all non-global symbols  starting with .LL from the common symbol
+     output.
+
+aass reads the environmental variables AASSHHEEAADD and AASSTTAAIILL and appends them to,
+respectively, the  beginning and the  end of its command  line.  By setting
+these variables,  you can ensure that aass always  executes with the switches
+that you want.  For example, to  ensure that aass always executes with the -gg
+switch set, insert the following into your .pprrooffiillee:
+
+    export ASHEAD=-g
+
+_L_e_x_o_g_r_a_p_h_y
+A symbol consists  of from one to 256 characters.   The assembler defines a
+_c_h_a_r_a_c_t_e_r as being  an alphabetic character, question mark, period, percent
+sign, or underscore.  XXyyzz, .2200, and hhii_tthheerree are legal symbols; whereas 8855ii
+is not.
+
+Like C, the aass assembly language is case sensitive.
+
+Local  symbols begin  with  a question  mark.  These  are recognizable  (or
+_v_i_s_i_b_l_e) only between nonlocal symbols.  For example:
+
+/    ?loop invisible here
+abc  mov  $10, %cx
+?loop     add            $1, %bx/ ?loop visible here
+     jcxz xyz
+     jmp  ?loop
+xyz:
+/    ?loop invisible here
+
+An octal  number is defined  just as in  the C language: it  consists of an
+initial 00 plus  two other numerals between 0 and  7.  For example, 007777 is a
+legal octal number.
+
+A  hexadecimal number  consists  of an  initial  00xx or  00XX  plus two  other
+numerals: 0 through 9, a through  f, or A through F.  For example, 00xx00FF and
+00XXaa33 are legal hexadecimal numbers.
+
+A binary  number consists of an  intial 00bb or 00BB  followed by an indefinite
+number 0's and 1's.  For example, 00bb0011000011001100 is a legal binary number.
+
+A  decimal number  begins  with a  numeral  other than  0,  followed by  an
+indefinite number of numerals between 0 and 9.  For example, 110099 is a legal
+decimal number.
+
+A floating-point number begins is a string of numerals, 0 through 9, with a
+period or  ee within or  at the end  of it.  It  is like a  C floating-point
+number, except  that it  cannot begin  with a period  because a  symbol may
+begin with  a period.  For  example, 112233.445566, 112233445566., and  1177ee2266 are legal
+floating-point numbers, but .112233445566 is not.
+
+A  character  constant  is  enclosed  between  apostrophes, as  in  C.   aass
+recognizes  the same  escape sequences  as  C.  See  the Lexicon  article CC
+llaanngguuaaggee for a table of these constants.
+
+String  constants  are  enclosed  between  quotation  marks, as  in  the  C
+language, and use the same escape  sequences as C.  See the Lexicon article
+CC llaanngguuaaggee for a table of these sequences.
+
+_P_s_e_u_d_o-_O_p_c_o_d_e_s
+aass recognizes  a rich set of pseudo-opcodes.  These  are not true assembly-
+language opcodes,  but are interpreted by the  assembler; they are designed
+to  help  make your  life  easier.  The  following  briefly summarizes  the
+pseudo-opcodes.
+
+.1166.......16-bit mode
+.22bbyyttee....Make unaligned short variables
+.3322.......32-bit mode
+.44bbyyttee....Make unaligned long variables
+.aalliiggnn....Increment location counter to two- or four-byte aligned spot
+.aalliiggnnooffff.Turn alignment off
+.aalliiggnnoonn..Turn alignment on
+.bbllkkbb.....Set tag in .ddaattaa
+.bbrraacckkeettnnoorrmmNormal bracket sense -- see -bb option
+.bbrrcckkeettrreevvReverse bracket sense -- see -bb option
+.bbssss......Set tag in .bbssss
+.bbssssdd.....Set tag in .bbssss
+.bbyyttee.....Make byte variables
+.ccoommmm.....Set label as common
+.ddaattaa.....Change segment to .ddaattaa
+.ddeeff......Reserved to set auxiliary symbol entries in a later release
+.ddeeffiinnee...Define string constant
+.ddiimm......Reserved to set auxiliary symbol entries in a later release
+.ddoouubbllee...Make double variables
+.eejjeecctt....Force a page break
+.eellssee.....Connected to .iiff
+.eennddeeff....Reserved to set auxiliary symbol entries in a later release
+.eennddii.....End .iiff
+.eennddmm.....End .mmaaccrroo definition
+.eennddww.....End .wwhhiillee
+.eeqquu......Define numeric constant
+.eerrrraattaaooffffTurn off chip errata fixes
+.eerrrraattaaoonn.Turn on chip errata fixes
+.eevveenn.....Increment location counter to byte-aligned spot
+.ffaaiill.....Print error message
+.ffiillee.....Reserved to set auxiliary symbol entries in a later release
+.ffllooaatt....Make ffllooaatt variables
+.gglloobbll....Declare names as visible to linker
+.iiddeenntt.....iiddeenntt string
+.iiff.......Compile-time conditional
+.iinncclluuddee..Include a file
+.iinntteelloorrddeerrIntel operand order -- see -ff option
+.llccoommmm....Set name up as common
+.lliinnee.....Reserved to set auxiliary symbol entries in a later release
+.lliisstt.....Turn on listing (assumes -ll option)
+.lllleenn.....Set print line length
+.llnn.......Reserved to set auxiliary symbol entries in a later release
+.lloonngg.....Make long variables
+.mmaaccrroo....Define a macro name
+.mmeexxiitt....Exit current macro expansion
+.mmlliisstt....Toggle listing of macro expansion
+.nnoolliisstt...Turn off listing (assumes -ll option)
+.nnooppaaggee...Turn off page breaks and titles
+.nnuummbbeerr...Convert a string to a number.
+.oorrgg......Change location counter
+.ppaaggee.....Turn on page breaks and titles
+.pplleenn.....Set page length
+.pprreevviioouuss.Go to section before previous .sseeccttiioonn command
+.pprrvvdd.....Change segment to .ddaattaa
+.pprrvvii.....Change segment to .tteexxtt
+.ssccll......Reserved to set auxiliary symbol entries in a later release
+.sseeccttiioonn..Go to named section
+.sseett......Makes name equal to expr
+.sshhiifftt....Shift macro parameters
+.sshhrrdd.....Change segment to .ddaattaa
+.sshhrrii.....Change segment to .tteexxtt
+.ssiizzee.....Reserved to set auxiliary symbol entries in a later release
+.ssttrriinngg...Convert a floating-point expression to a string
+.ssttrrnn.....Change segment to .ddaattaa
+.ttaagg......Reserved to set auxiliary symbol entries in a later release
+.tteexxtt.....Change segment to .tteexxtt
+.ttttll......Set page titles
+.ttyyppee.....Reserved to set auxiliary symbol entries in a later release
+.uunnddeeff....Free string, numeric constant, or opcode
+.uunniixxoorrddeerrReturn normal order of operands; undoes .iinntteelloorrddeerr
+.vvaall......Reserved to set auxiliary symbol entries in a later release
+.vvaalluuee....Make short variables
+.vveerrssiioonn..Comment string
+.wwaarrnn.....Print a warning message
+.wwaarrnnooffff..Turn off warning messages
+.wwaarrnnoonn...Turn on warning messages
+.wwhhiillee....Compile-time loop control
+.wwoorrdd.....Make short variables
+.zzeerroo.....Create zero-filled memory
+
+Each pseudo-opcode is described in the following sections.
+
+_I_n_p_u_t _F_o_r_m_a_t
+An  assembly-language  program  consists of  a  series  of  lines with  the
+following format:
+
+[#][label][opcode] [operands] [/ comment]
+
+The optional `#'  at the beginning of the line  tells aass not to replace any
+.ddeeffiinnee symbols  within the line.   (These are described  below.) Normally,
+the assembler replaces all .ddeeffiinnee symbols  in a line before it parses that
+line.   Without this  option, a  series of .ddeeffiinnees  could lead  to awkward
+results.
+
+For example, the code
+
+#%ecx   .define xx
+#xx .define (%ecx)
+    mov $3, %ecx
+
+results in:
+
+    mov $3, (%ecx)
+
+Like the  C compiler, aass will  not go into an infinite  loop if two .ddeeffiinnee
+statements mirror each other.
+
+A comment begins  with a slash `/' and may  include the entire line.  Blank
+lines are also legal.
+
+Extra operands are not assumed to be comments.  This is to tighten up error
+checking  for  the  convenience  of  new  and  part-time  assembly-language
+programmers.
+
+_E_x_p_r_e_s_s_i_o_n _F_o_r_m_a_t
+The aass macro assembler has mostly  the same operators and precedence as the
+C  preprocessor.  The  exceptions are  ?:, &&,  ||, :,  and `,'  (which are
+missing), `/' (which is spelled .ddiivv), and `%' (which is spelled .rreemm).
+
+In  addition,  the  macro  assembler  includes  the  following  directives:
+.ddeeffiinneedd,  .ssiizzeeooff,  .sseeggmmeenntt, .ppaarrmmcctt,  .llooccaattiioonn,  .ssttrriinngg, .nnuummbbeerr,  and
+.ffllooaatt.
+
+Expression bracketing  is normally done  by [], because  () is used  by the
+operand format.  This may be reversed by the -bb option, described above.
+
+The unary operators have the following priority:
+
+.ffllooaatt .nnuummbbeerr .ssttrriinnggConversion
+.ddeeffiinneedd .ssiizzeeooff
+.llooccaattiioonn .sseeggmmeennttInquiry
+-                 Negation
+!                 Logical negation
+
+The binary operators have the following priority:
+
+[]
+* .ddiivv .rreemm       Multiply, divide, remainder
++ -               Add, subtract.
+>> <<             Left shift , right shift
+< > <= >= == !=   Comparison
+&                 AND
+^                 Exclusive OR
+|                 OR
+#                 Repeat
+
+Most binary operators should be familiar to C programmers; the exception is
+the #, which repeats an instruction _N times.  For example, the expression
+
+    .byte   5 # 3
+
+produces five copies of byte 3, whereas the expression
+
+    .long   7 # 4
+
+produces seven  copies of the  long `4'.  Note  that this operator  has the
+lowest precedence of all binary operators.
+
+You can  use an expression  wherever you can  use a number.   This includes
+address displacements, constants,  and .iiff and .wwhhiillee statements.  Integers
+are internally 32 bits, floats are internally C doubles.
+
+Like C, comparison operators return one for true and zero for false.
+
+In addition, aass provides string operators.   Like C, the first element of a
+string is indexed as zero.  Unlike  C, however, attempts to access past the
+end of a string gives all zeroes.  The following summarizes the aass suite of
+string operators:
+
+_s_t_r_i_n_g + _s_t_r_i_n_g
+     Concatenate two strings.  For example, "1122" + "3344" yields "11223344".
+
+_s_t_r_i_n_g [ _e_x_p_r_1, _e_x_p_r_2 ]
+     Address a substring  from _e_x_p_r_1 to _e_x_p_r_2.  For example, "11223344556677"[11,33]
+     yields "223344"; and "112233"[11,1100] yields "2233".
+
+_s_t_r_i_n_g [ _e_x_p_r ]
+     Address a substring  from _e_x_p_r to the end of  the string.  For example
+     "11223344556677"[55] yields "6677".
+
+.ssttrriinngg _e_x_p_r
+     Convert a  numeric expression to  a string.  For  example, .ssttrriinngg 112233
+     gives "112233".
+
+.ssttrriinngg _f_l_o_a_t
+     Convert a floating-point expression to a string.  For example, .ssttrriinngg
+     00.55 * 33 gives "11.55"
+
+.ffllooaatt _s_t_r_i_n_g
+     Convert a string to a floating-point number.
+
+.ffllooaatt _e_x_p_r
+     Convert a numeric expression to a floating-point number.
+
+.nnuummbbeerr _s_t_r_i_n_g
+     Convert a string to a number.
+
+.nnuummbbeerr _f_l_o_a_t
+     Convert a floating-point number to a number.
+
+.ssttrriinngg ( _e_x_p_r )
+     Return character at position  _e_x_p_r as a number.  For example, "112233"(11)
+     gives two.
+
+_s_t_r_i_n_g_1 @ _s_t_r_i_n_g_2
+     Return  the position  at  which _s_t_r_i_n_g_2  begins  within _s_t_r_i_n_g_1.   For
+     example,  "1122334455"  @ "2233"  returns  one;  and "112233"  @  "jjjj" gives  -1
+     (because ``jj'' does not appear within ``123'').
+
+The unary operator : creates a  label equal to the current location.  It is
+generally not needed.  For example, the expression
+
+    connected   .long 5
+
+builds an  aligned lloonngg,  initializes it  to five, and  gives it  the label
+ccoonnnneecctteedd. However, the expression
+
+    unconnected:    .long 5
+
+builds  the  label uunnccoonnnneecctteedd  at  the current  location,  then builds  an
+aligned lloonngg with  a value of five.  Note that  the label ccoonnnneecctteedd will be
+on the five,  whereas the label uunnccoonnnneecctteedd may be  somewhere else if there
+was alignment.  For example, the expression
+
+        .align  4
+    lab1: lab2: lab3: .long 5
+
+puts llaabb11, llaabb22, and llaabb33 on the lloonngg because it is already aligned.
+
+_M_a_c_r_o_s _a_n_d _C_o_n_d_i_t_i_o_n_a_l _C_o_m_p_i_l_a_t_i_o_n
+The aass directive .mmaaccrroo lets you declare a macro that you can use through a
+program.  The directive .eennddmm marks the end of a macro declaration.
+
+A macro has the following form:
+
+_n_a_m_e    .mmaaccrroo  _p_a_r_a_m_s
+    _b_o_d_y _o_f _m_a_c_r_o
+    .eennddmm
+
+The following example creates and uses the macro ssttoorree:
+
+store     .macro         xy,xz/ declare "store" with two parms: xy and xz
+     movl xy,%ecx
+     movl %ecx,(%eax)
+     movl xz,%ecx
+     movl %ecx,4(%eax)
+     .endm               / end of macro
+
+     store               5,10/ moves 5 and 10 to where %eax points.
+
+Macros can  contain .iiff statements, and can even  define other macros.  For
+example:
+
+def  .macro              .name, to/ macro for defining other macros
+name .macro
+     movl from, to
+     .endm
+     .endm
+
+     def  frog, %eax, %ebx/ define the macro frog
+     frog                / movel%eax, %ebx
+
+aass increments a count every time  you expand any macro, and associates that
+number with the macro.  When the  keyword .mmaaccnnoo is used within a macro, aass
+translates it  into that  number.  Thus, .mmaaccnnoo  is a unique  number within
+each macro expansion.  This allows the generation of unique labels internal
+to macros.  For example:
+
+stradd    .macro         str
+     .data
+L\.macno  .byte str, 0   / create a data item
+     .text
+     movl L\.macno, %eax / put its address into %eax
+     .endm
+
+LL\.mmaaccnnoo becomes  something like L51.   Note that a `\'  before any defined
+symbol or macro name vanishes in the expansion pass.
+
+To permit macros with indefinite parameter counts, the assembler offers the
+reserved word .ppaarrmmcctt and the  command .sshhiifftt.  The former holds the number
+of parameters passed  to a macro, and the latter  shifts the parameters one
+position to the left.  For example:
+
+kall .macro              fun, parm
+     .while .parmct > 1  / while more than one parm remains
+     push parm
+     .shift              / parm 3 becomes parm 2, parm 4 parm 3 etc
+     call fun
+     .endm
+
+The operators  .iiff, .eellssee, and .eennddii allow a  program to implement compile-
+time decisions.   These may be inside  or outside of macros.   When a macro
+exits, the assembler automatically  closes  all .iiff statments that had been
+started within it.  For example:
+
+defy .macro
+     .if .defined y      / if y has been defined true
+     .mexit              / exits closing any if statements
+     .else
+y    .equ 1              / define y as 1
+/ For UNIX compatibility
+/    .set y, 1
+/ produces the same result
+     .endm
+
+When used  with a label,  the operator .ddeeffiinneedd  is true if  that label had
+been defined  in this pass.   If the label  is defined later,  .ddeeffiinneedd can
+still  be  used with  it,  but causes  a  phase error,  as  occurs in  some
+assemblers.
+
+The operator .ffaaiill permits the flagging of errors.  For example:
+
+    .if ! .defined y
+    .fail   y is not defined
+    .endi
+
+The operator .iinncclluuddee permits the inclusion of files.  For example:
+
+    .include    somefile.h
+
+_U_n_d_e_f_i_n_i_n_g _S_y_m_b_o_l_s _o_r _O_p_c_o_d_e_s
+aass  Some software  (e.g.,  the GNU  C  compiler) requires  that opcodes  be
+recognized on  column one  and that opcodes  be replacable by  macros.  The
+command .uunnddeeff un-defines all macros and opcodes.  Once you have un-defined
+an identifier, you  can re-use it to name a  macro or other data item.  For
+example,  to use  mmoovv  (which names  an  opcode) to  name a  macro, do  the
+following:
+
+    .undef  mov
+mov .macro  foo, bar
+    movl    foo, bar
+    .endm
+
+_D_a_t_a-_D_e_f_i_n_i_t_i_o_n _O_p_e_r_a_t_o_r_s
+The following describes the data-definition operators that aass supports.
+
+.bbyyttee _e_x_p_r
+     Define _e_x_p_r as an array of  single bytes.  _e_x_p_r can take any number of
+     forms, as shown by the following examples:
+
+          .byte               5, 2/ defines 2 bytes 0x05 and 0x02
+          .byte               "Hello World", 0/ a zero-terminated Hello World
+          .byte               10 # 1/ 10 repetitions of 0x01
+
+.wwoorrdd _e_x_p_r
+     Define _e_x_p_r as a word, that is, as a two-byte integer.  For example:
+
+          .word               .sizeof xx/ a short the size of xx
+          .word               50 * 50/ a short of 100
+     / For UNIX compatability
+     /    .value              50 * 10
+     / produces the same result.
+
+.lloonngg   _e_x_p_r
+     Define _e_x_p_r as a long (four-byte) integer.  For example:
+
+          .long               10/ a long of 10
+
+.ccoommmm _n_a_m_e, _l_e_n_g_t_h
+     Define a common variable named  _n_a_m_e, that is _l_e_n_g_t_h bytes long.  (See
+     the  entry for  .llccoommmm, below,  for a discussion  of what  segment the
+     variable is  stored.) If _n_a_m_e is linked with  another module that also
+     declares _n_a_m_e  but sets it  to another length, the  linker creates one
+     such variable and gives it the greater length of the two.
+
+     The linker deduces the alignment of a common variable from its length:
+     if the  length of a  common is divisible  by four, it is  aligned on a
+     four-byte boundary; if it is divisible by two, it is aligned on a two-
+     byte boundary.  Otherwise, it  is assumed to be unaligned.  The linker
+     supports  only three  classes of  alignment: four-byte,  two-byte, and
+     unaligned.
+
+     A common  variable is aligned  according to its  most strongly aligned
+     contributor.  For example, if one module contributes a common variable
+     named xxyyzz  whose length is four bytes, and  another contributes an xxyyzz
+     whose length  is five bytes,  the resulting xxyyzz  is given a  length of
+     eight bytes to satisfy the  length requirement (at least five) and the
+     alignment requirement (four-byte boundary).
+
+     After the  first linker pass,  all common variables are  placed at the
+     end of  the .bbssss segment: first  the four-byte-aligned variables, then
+     the two-byte-aligned, then the unaligned.
+
+     By  default, aass  does not  align its  data objects.   The command-line
+     option -aa instructs aass to align all data objects automatically.
+
+.llccoommmm _l_a_b_e_l, _l_e_n_g_t_h
+     Same as ccoommmm, described above.
+
+     Please note  that on a  COFF-based system, it  is not possible  to put
+     common data  into the  .ddaattaa section,  even though the  UNIX assembler
+     documentation  claims that  .ccoommmm does  this.   Both .ccoommmm  and .llccoommmm
+     place data into the .bbssss.
+
+     The problem  is that COFF format for common  variables leaves no place
+     for  information  about   alignment  or  segment.   This  creates  two
+     problems.  First, the  lack of information about alignment forces COFF
+     to  adopt the  complex  strategy of  deducing  alignment from  length.
+     Second, the  lack of information  about segment compels  COFF to store
+     all common variables in one segment, .bbssss being chosen.
+
+.ffllooaatt _e_x_p_r
+     Define _e_x_p_r as a single-precision floating-point number.  For example:
+
+          .float              1.5/ a float of 1.5
+
+.ddoouubbllee _e_x_p_r
+     Define _e_x_p_r as a double-precision floating-point number.  For example:
+
+          .double 3.0 * 0.5   / a double of 1.5
+
+_R_e_s_e_t_t_i_n_g _t_h_e _L_o_c_a_t_i_o_n _C_o_u_n_t_e_r
+The instructions .oorrgg and .aalliiggnn reset the location counter.  For example:
+
+     .org .+5            / Location counter to here plus 5
+     .org                / Location counter to top of current section
+     .align              2/ Up to nearest two-byte boundary
+
+The pseudo-opcodes .aalliiggnnoonn and .aalliiggnnooffff respectively turn aligning on and
+off.
+
+As noted above,  the command-line option -aa instructs aass  to align all data
+objects automatically.
+
+The instructions  .tteexxtt, .ddaattaa, and .bbssss reset the  location counter to the
+corresponding  sections.  Instructions  are  placed in  the .tteexxtt  section,
+initialized  data  in the  .ddaattaa  section,  and the  .bbssss  is reserved  for
+unitialized data.  Placing information into the .bbssss results in an error.
+
+_D_y_n_a_m_i_c _L_i_n_k_i_n_g
+The Intel  Binary Compatibility Standard dictates the  way that aass computes
+addresses, to permit dynamic linking of objects.
+
+In object  files, all .ddaattaa addresses must follow  all .tteexxtt addresses, and
+all  .bbssss address  must follow  all .ddaattaa  addresses.  This  allows dynamic
+linking of  object files, in which  the object file is  mapped, not read in
+pieces.
+
+In the aass  assembly language, .ddaattaa and .tteexxtt addresses  are started from 0
+for each module.  At the end of assembly, during the output phase, aass fixes
+these addresses to make .ddaattaa follow .tteexxtt, and so on.
+
+For example, if you have a conditional like
+
+    .if some_data_address > 0x300
+
+aass calculates the  address for the .iiff statement from  the beginning of its
+segment;  and the  address is  only  corrected in  the final  output.  Such
+statements may appear to be working incorrectly.
+
+_L_i_s_t_i_n_g _C_o_m_m_a_n_d_s
+aass  prints a  listing if  you use  its -ll  option.  The  following commands
+modify the form of this listing.
+
+.ttttll _s_t_r_i_n_g
+     Print _s_t_r_i_n_g as the title to the command page.  For example:
+
+         .ttl    This is a page title
+
+     If you do  not use this command, the assembler  uses the file name for
+     the title.  The first .ttttll encountered  in the assembly pass 0 is used
+     to  set the  first title.   Subsequent .ttttll  commands reset  the title
+     before printing.
+
+.nnooppaaggee
+     Turn off page breaks and titles.
+
+.ppaaggee
+     Turn on page breaks and titles.
+
+.eejjeecctt
+     Force a page break.
+
+.nnoolliisstt
+     Turn off the listing.
+
+.lliisstt
+     Turn the listing back on.
+
+.mmlliisstt ooffff
+     Turn off the listing of macro expansions.
+
+.mmlliisstt oonn
+     Turn on the listing of macro expansions.
+
+_A_d_d_r_e_s_s_i_n_g _M_o_d_e_s
+aass recognizes two modes of addressing:  _1_6-_b_i_t _m_o_d_e and _3_2-_b_i_t _m_o_d_e. In 16-
+bit mode, the  address type and operand mode default  to 16 bits; in 32-bit
+mode they default to 32 bits.  For example:
+
+     .16
+     movw %ax, (%si)# Is generated without escapes.
+     movl %eax, (%esi)# Has two escapes, address and operand
+     .32
+     movw %ax, (%si)# Has two escapes, address and operand
+     movl %eax, (%esi)# Is generated without escapes.
+
+In 16-bit mode, the 16-bit addressing  forms in table 17-2 of the _I_n_t_e_l _3_8_6
+_P_r_o_g_r_a_m_m_e_r'_s  _M_a_n_u_a_l are  generated where they  fit; otherwise,  an address
+escape is built and the 32-bit  forms in tables 17-3 and 17-4 are used.  In
+32 bit mode, this is reversed.
+
+aass uses the following grammar in its addressing modes:
+
+EEiigghhtt-bbiitt rreeggiisstteerrss
+
+         r8  : %al | %cl | %dl | %bl | %ah | %ch | %dh | %bh;
+
+1166-bbiitt rreeggiisstteerrss
+
+         r16 : %ax | %cx | %dx | %bx | %sp | %bp | %si | %di;
+
+3322-bbiitt rreeggiisstteerrss
+
+         r32 : %eax | %ecx | %edx | %ebx | %esp | %ebp | %esi | %edi;
+
+SSeeggmmeenntt rreeggiisstteerrss
+
+         sreg : %es | %cs | %ss | %ds | %fs | %gs;
+
+CCoonnttrrooll rreeggiisstteerrss
+
+         ctlreg : %cr0 | %cr2 | %cr3;
+
+DDeebbuugg rreeggiisstteerrss
+
+         dbreg : %dr0 | %dr1 | %dr2 | %dr3 | %dr6 | %dr7;
+
+TTeesstt rreeggiisstteerrss
+
+         testreg : %tr6 | %tr7;
+
+mm1166  These addresses can have a segment prefix:
+
+         m16 : m16b | sreg ':' m16b;
+
+mm3322  These addresses can have a segment prefix:
+
+         m32 : m32b | sreg ':' m32b;
+
+rrmm1166 These addresses can have a segment prefix or may be rr1166:
+
+         rm16 : rm16b | sreg ':' rm16b;
+
+rrmm3322 These addresses can have a segment prefix or may be rr3322:
+
+         rm32 : r32 | rm32b | sreg ':' rm32b;
+
+rrmm88  These addresses can be rrmm3322, rrmm1166, or rr88:
+
+         rm8  : r8 | rm16b | sreg ':' rm16b | rm32b | sreg ':' rm32b;
+
+rrmm1166bb
+
+         displacement | (vx, vy) | displacement(vx, vy) |
+             displacement(vw) | (vz);
+         vx : %bx | %si;
+         vy : %si | %di;
+         vz : %si | %di | %bx;
+
+rrmm3322bb
+
+         (va) | displacement(vb) | (, vb, scale) | (vb, scale)
+              | displacement(vb, scale) | (vb, vb, scale)
+              | displacement(vb, vb, scale);
+         va : %eax | %ecx | %edx | %ebx | %esi | %edi;
+         vb : %eax | %ecx | %edx | %ebx | %ebp | %esi | %edi;
+         vb : %eax | %ecx | %edx | %ebx | %ebp | %esp | %esi | %edi;
+         scale : 0 | 1 | 2 | 4 | 8;
+
+mmeemm3322
+     A 32-bit memory address.
+
+mmeemm1166
+     A 16-bit memory address.
+
+rreellii Expand to eight-, 16-, or 32-bit relative addresses.
+
+rreell88 Eight-bit relative addresses.
+
+rreell1166
+     Sixteen- or 32-bit relative addresses.
+
+_U_s_i_n_g _a_s _T_o _C_r_e_a_t_e _D_e_b_u_g _I_n_f_o_r_m_a_t_i_o_n
+Some UNIX languages, such as ggcccc and ggcc++, produce assembly language rather
+than  object  code.   The following  documents  how  to  use  aass with  such
+compilers.   Note  that  error checking  is  minimal,  and  that bad  debug
+information can  corrupt the generated  COFF output.  This  section must be
+read with  a listing of  the header file  ccooffff.hh for reference;  or see the
+Lexicon article ccooffff.hh.
+
+The compiler  starts with type and  line information in a  format much like
+that of the desired COFF output  files.  It must break this down into lines
+to  ship through  the assembler,  and the assembler  then must  rebuild the
+information into COFF format for output.
+
+.ffiillee _f_i_l_e_n_a_m_e
+     This connects  the object file to the original  source file.  If used,
+     this should be the first statement  in the file.  It produces a SSYYMMEENNTT
+     of _n__s_c_l_a_s_s = _C__F_I_L_E and an AAUUXXEENNTT with _a_e__f_n_a_m_e = _f_i_l_e_n_a_m_e.
+
+.ddeeff _s_y_m_b_o_l_N_a_m_e
+     This  instruction initializes  SSYYMMEENNTT  with _n__n_a_m_e  = _s_y_m_b_o_l_N_a_m_e.   If
+     there  is a  symbol by  that name on  the assembler's  internal symbol
+     table, it is marked to prevent  output to the symbol table.  Any RREELLOOCC
+     references point to this table  entry, so its _n__v_a_l_u_e must be correct.
+     Because we assume  that code of this kind is  result of a compiler, we
+     assume  it is  correct.  The  following commands  up to  and including
+     .eennddeeff refer to this SSYYMMEENNTT.
+
+.ttyyppee _n_u_m_b_e_r
+     This sets this SSYYMMEENNTT's _n__t_y_p_e _n_u_m_b_e_r. If _n_u_m_b_e_r indicates a function,
+     DDTT_FFCCNN, a LLIINNEENNOO record is built pointing at this SSYYMMEENNTT.
+
+.vvaall [_s_y_m_b_o_l] [_n_u_m_b_e_r]
+     This sets this SSYYMMEENNTT's _n__v_a_l_u_e. If it is a _s_y_m_b_o_l, it sets _n__s_c_n_u_m to
+     the symbol's section number.
+
+.ssccll _n_u_m_b_e_r
+     This sets this SSYYMMEENNTT's _n__s_c_l_a_s_s to _n_u_m_b_e_r.
+
+.ddiimm _n_u_m_b_e_r [, _n_u_m_b_e_r [, _n_u_m_b_e_r [, _n_u_m_b_e_r]]]
+     This sets  up to  four entries in  an AAUUXXEENNTT's _a_e__d_i_m_e_n.  It describes
+     multidimensioned  arrays to  COFF.   This command  supports only  four
+     dimensions because  the COFF  specifications are reliable  only though
+     four dimensions.
+
+.ssiizzee _n
+     This sets this AAUUXXEENNTT _a_e__s_i_z_e to _n.
+
+.ttaagg _n_a_m_e
+     This scans  backwards on the SSYYMMEENNTTs for a  matching _n__n_a_m_e. It points
+     this _a_e__t_a_g_n_d_x to that name's  symbol number and that _a_e__e_n_d_n_d_x to the
+     next symbol _n_u_m_b_e_r.
+
+     A  good example  is a  ssttrruucctt: It  would start with  a SSYYMMEENNTT  of type
+     TT_SSTTRRUUCCTT, then  then have SSYYMMEENNTTs for its members.   At the end, there
+     would be  a CC_EEOOSS (end of  structure) with a tag that  gets us back to
+     the symbol's name.  .ttaagg connects the forward and backward pointers.
+
+.lliinnee _n
+     This sets the AAUUXXEENNTT's _a_e__l_n_n_o to _n.
+
+.eennddeeff
+     This marks  the end of  a SSYYMMEENNTT started  by .ddeeff. If  the _n__s_c_l_a_s_s ==
+     CC_EEFFCCNN  (end  of  function),  it  builds  the functions  _a_e__f_s_i_z_e  and
+     _a_e__e_n_d_n_d_x and  does not output this SSYYMMEENNTT. If  any AAUUXXEENNTT fields were
+     set, an AAUUXXEENNTT record follows this SSYYMMEENNTT.
+
+.llnn _n_u_m_b_e_r
+     This builds a  LLIINNEENNOO record with ll_llnnnnoo = _n  and ll_aaddddrr.ll_ppaaddddrr = the
+     current location.
+
+_I_n_s_t_r_u_c_t_i_o_n_s
+In matching instructions, aass first looks up the name of the instruction.  A
+number  of actual  instructions will  match that  name.  For  example, bbttssww
+matches 0xab and 0x0fab /5, and  bbttss matches anything that matches bbttssww and
+bbttssll.
+
+aass attempts to match operands to the instruction until a form is found that
+will accept  all the  operands.  If  no form matches  all the  operands, aass
+prints the error message
+
+    Illegal combination of opcode and operands
+
+The assembler  at that point cannot  say which operand is  wrong because of
+the nature of the 80386 instruction set.
+
+If you  see a great number  of these messages, aass's  command-line option -ff
+may be  in the wrong sense:  although the opcode is  valid and the operands
+are valid,  there is no  form of this  opcode that takes  these operands in
+this order.
+
+aass  first attempts  to match  opcodes that do  not require  an operand-mode
+escape: that is, in 80386  mode it attempts to match long-mode instructions
+first, then short-mode instructions.
+
+_R_e_g_i_s_t_e_r _U_s_a_g_e
+The  COHERENT C  compiler uses  the following  save/restore sequence  for a
+function, to set the frame  pointer when the function contains no automatic
+variables:
+
+    push    %ebp
+    movl    %ebp, %esp
+
+If _n bytes of autos are required, then it uses the following sequence:
+
+    enter   $n, $0
+
+It then executes the code
+
+    push    %esi
+    push    %edi
+    push    %ebx
+
+to preserve register variables  _a_s _r_e_q_u_i_r_e_d: they are not saved/restored if
+the function  does not touch them.   (This is why they  are saved after the
+frame adjust, not before).  To restore register variables, it executes
+
+    pop %ebx
+    pop %edi
+    pop %esi
+
+as required, followed by
+
+    leave
+    ret
+
+Routines  written in  assembly language must  preserve registers  eebbpp, eessii,
+eeddii, and eebbxx; they may overwrite eeaaxx, eeccxx, and eeddxx.
+
+_A_b_s_o_l_u_t_e _S_y_m_b_o_l_s
+aass can create what COFF calls ``absolute symbols.'' For example
+
+    .globl  x
+x   .equ    10
+x   .equ    x * x   / The last value of x in the module
+
+leaves on the  symbol table an absolute symbol for  xx of 100.  For internal
+reason, the .gglloobbll must preceed any .eeqquu.
+
+_O_p_c_o_d_e_s
+The following gives a table of  the opcodes recognized by aass. Note that the
+opcode is  sometimes followed by  a slash and  a number, or  a letter.  For
+example,
+
+    D0 /4   salb    con1, rm8
+
+means opcode  is 0xD0 place  4 in the  register/opcode field of  the mmooddrr/mm
+byte.
+
+    58 +r   popl    r32
+
+means add the register number to 0x58.
+
+_O_p_c_o_d_e    _I_n_s_t_r_u_c_t_i_o_n         _O_p_e_r_a_n_d_s_D_e_s_c_r_i_p_t_i_o_n
+
+37        aaaaaa                 Adjust after addition
+D5 0A     aaaadd                 Adjust AX before division
+D4 0A     aaaamm                 Adjust AX after multiply
+3F        aaaass                 Adjust AL after subtraction
+
+          aaddcc                 Add with carry
+83 /2     aaddccll      _i_m_m_8_s,_r_m_3_2
+83 /2     aaddccww      _i_m_m_8_s,_r_m_1_6
+14        aaddccbb      _i_m_m_8,_a_l
+15        aaddccww      _i_m_m_1_6,_a_x
+15        aaddccll      _i_m_m_3_2,_e_a_x
+15        aaddccll      _i_m_m_3_2
+80 /2     aaddccbb      _i_m_m_8,_r_m_8
+81 /2     aaddccww      _i_m_m_1_6,_r_m_1_6
+81 /2     aaddccll      _i_m_m_3_2,_r_m_3_2
+12 /r     aaddccbb      _r_m_8,_r_8
+13 /r     aaddccww      _r_m_1_6,_r_1_6
+13 /r     aaddccll      _r_m_3_2,_r_3_2
+10 /r     aaddccbb      _r_8,_r_m_8
+11 /r     aaddccww      _r_1_6,_r_m_1_6
+11 /r     aaddccll      _r_3_2,_r_m_3_2
+
+          aadddd                 Add
+83 /0     aaddddll      _i_m_m_8_s,_r_m_3_2
+83 /0     aaddddww      _i_m_m_8_s,_r_m_1_6
+04        aaddddbb      _i_m_m_8,_a_l
+05        aaddddww      _i_m_m_1_6,_a_x
+05        aaddddll      _i_m_m_3_2,_e_a_x
+05        aaddddll      _i_m_m_3_2
+80 /0     aaddddbb      _i_m_m_8,_r_m_8
+81 /0     aaddddww      _i_m_m_1_6,_r_m_1_6
+81 /0     aaddddll      _i_m_m_3_2,_r_m_3_2
+02 /r     aaddddbb      _r_m_8,_r_8
+03 /r     aaddddww      _r_m_1_6,_r_1_6
+03 /r     aaddddll      _r_m_3_2,_r_3_2
+00 /r     aaddddbb      _r_8,_r_m_8
+01 /r     aaddddww      _r_1_6,_r_m_1_6
+01 /r     aaddddll      _r_3_2,_r_m_3_2
+
+          aanndd                 Logical AND
+83 /4     aannddll      _i_m_m_8_s,_r_m_3_2
+83 /4     aannddww      _i_m_m_8_s,_r_m_1_6
+24        aannddbb      _i_m_m_8,_a_l
+25        aannddww      _i_m_m_1_6,_a_x
+25        aannddll      _i_m_m_3_2,_e_a_x
+25        aannddll      _i_m_m_3_2
+80 /4     aannddbb      _i_m_m_8,_r_m_8
+81 /4     aannddww      _i_m_m_1_6,_r_m_1_6
+81 /4     aannddll      _i_m_m_3_2,_r_m_3_2
+22 /r     aannddbb      _r_m_8,_r_8
+23 /r     aannddww      _r_m_1_6,_r_1_6
+23 /r     aannddll      _r_m_3_2,_r_3_2
+20 /r     aannddbb      _r_8,_r_m_8
+21 /r     aannddww      _r_1_6,_r_m_1_6
+21 /r     aannddll      _r_3_2,_r_m_3_2
+
+63 /r     aarrppll      _r_1_6,_r_m_1_6  Adjust RPL field of selector
+
+          bboouunndd               Check if register is within bounds
+62 /r     bboouunnddww    _m_1_6,_r_1_6
+62 /r     bboouunnddll    _m_3_2,_r_3_2
+
+          bbssff                 Bit scan forward
+0F BC     bbssffww      _r_m_1_6,_r_1_6
+0F BC     bbssffll      _r_m_3_2,_r_3_2
+
+          bbssrr                 Bit scan reverse
+0F BD     bbssrrww      _r_m_1_6,_r_1_6
+0F BD     bbssrrll      _r_m_3_2,_r_3_2
+
+          bbtt                  Save bit in carry flag
+0F A3     bbttww       _r_1_6,_r_m_1_6
+0F A3     bbttll       _r_3_2,_r_m_3_2
+0F BA /4  bbttww       _i_m_m_8,_r_m_1_6
+0F BA /4  bbttll       _i_m_m_8,_r_m_3_2
+
+          bbttcc                 Bit test and complement
+0F BB     bbttccww      _r_1_6,_r_m_1_6
+0F BB     bbttccll      _r_3_2,_r_m_3_2
+0F BA /7  bbttccww      _i_m_m_8,_r_m_1_6
+0F BA /7  bbttccll      _i_m_m_8,_r_m_3_2
+
+          bbttrr                 Bit test and reset
+0F B3     bbttrrww      _r_1_6,_r_m_1_6
+0F B3     bbttrrll      _r_3_2,_r_m_3_2
+0F BA /6  bbttrrww      _i_m_m_8,_r_m_1_6
+0F BA /6  bbttrrll      _i_m_m_8,_r_m_3_2
+
+          bbttss                 Bit test and set
+0F AB     bbttssww      _r_1_6,_r_m_1_6
+0F AB     bbttssll      _r_3_2,_r_m_3_2
+0F BA /5  bbttssww      _i_m_m_8,_r_m_1_6
+0F BA /5  bbttssll      _i_m_m_8,_r_m_3_2
+
+E8        ccaallll      _r_e_l_i      Call Procedure
+98        ccbbttww                Sign extend AL
+98        ccbbww                 Sign extend AL
+99        ccddqq                 Double word to quad word
+F8        ccllcc                 Clear carry
+FC        cclldd                 Clear direction Flag
+FA        ccllii                 Clear interrupt Flag
+99        ccllttdd                Double word to quad word
+0F 06     ccllttss                Clear task-switched flag in CR0
+F5        ccmmcc                 Complement carry flag
+
+          ccmmpp                 Compare
+83 /7     ccmmppll      _i_m_m_8_s,_r_m_3_2
+83 /7     ccmmppww      _i_m_m_8_s,_r_m_1_6
+3C        ccmmppbb      _i_m_m_8,_a_l
+3D        ccmmppww      _i_m_m_1_6,_a_x
+3D        ccmmppll      _i_m_m_3_2,_e_a_x
+3D        ccmmppll      _i_m_m_3_2
+80 /7     ccmmppbb      _i_m_m_8,_r_m_8
+81 /7     ccmmppww      _i_m_m_1_6,_r_m_1_6
+81 /7     ccmmppll      _i_m_m_3_2,_r_m_3_2
+3A /r     ccmmppbb      _r_m_8,_r_8
+3B /r     ccmmppww      _r_m_1_6,_r_1_6
+3B /r     ccmmppll      _r_m_3_2,_r_3_2
+38 /r     ccmmppbb      _r_8,_r_m_8
+39 /r     ccmmppww      _r_1_6,_r_m_1_6
+39 /r     ccmmppll      _r_3_2,_r_m_3_2
+
+A6        ccmmppssbb               Compare bytes
+A7        ccmmppssll               Compare long
+A7        ccmmppssww               Compare words
+99        ccwwdd                 Word to double word
+98        ccwwddee                Sign extend AX
+99        ccwwttdd                Word to double word
+98        ccwwttll                Sign extend AX
+27        ddaaaa                 Decimal adjust after addition
+2F        ddaass                 Decimal adjust after subtraction
+
+          ddeecc                 Decrement by 1
+48 +r     ddeeccww      _r_1_6
+48 +r     ddeeccll      _r_3_2
+FE /1     ddeeccbb      _r_m_8
+FF /1     ddeeccww      _r_m_1_6
+FF /1     ddeeccll      _r_m_3_2
+
+          ddiivv                 Unsigned divide
+F6 /6     ddiivvbb      _r_m_8,_a_l
+F6 /6     ddiivvbb      _r_m_8
+F7 /6     ddiivvww      _r_m_1_6,_a_x
+F7 /6     ddiivvww      _r_m_1_6
+F7 /6     ddiivvll      _r_m_3_2,_e_a_x
+F7 /6     ddiivvll      _r_m_3_2
+
+C8        eenntteerr     _i_m_m_8,_i_m_m_1_6Make stack frame for procedure
+D9 F0     ff22xxmm11               ST = 2 ** ST - 1
+D9 E1     ffaabbss                ST = abs(ST)
+
+          ffaadddd                Floating add
+D8 /0     ffaaddddss     _m_3_2
+DC /0     ffaaddddll     _m_6_4
+D8 C0 +r  ffaadddd      _f_p_r_e_g,_s_t_0
+D8 C0 +r  ffaadddd      _f_p_r_e_g
+DE C1     ffaadddd
+DC C0 +r  ffaadddd      _s_t_0,_f_p_r_e_g
+
+          ffaaddddpp               Floating add and pop
+DE C0 +r  ffaaddddpp     _s_t_0,_f_p_r_e_g
+DE C0 +r  ffaaddddpp     _f_p_r_e_g
+DE C1     ffaaddddpp
+
+DF /4     ffbblldd      _m_8_0       Load Binary Coded Decimal
+DF /6     ffbbssttpp     _m_8_0       Store Binary Coded Decimal and Pop
+D9 E0     ffcchhss                Change Floating Sign
+9B DB E2  ffcclleexx               Clear floating point exception flags
+
+          ffccoomm                Floating Compare
+D8 /2     ffccoommss     _m_3_2
+DC /2     ffccoommll     _m_6_4
+D8 D0 +r  ffccoomm      _f_p_r_e_g,_s_t_0
+D8 D0 +r  ffccoomm      _f_p_r_e_g
+D8 D1     ffccoomm
+
+          ffccoommpp               Floating Compare and Pop
+D8 /3     ffccoommppss    _m_3_2
+DC /3     ffccoommppll    _m_6_4
+D8 D8 +r  ffccoommpp     _f_p_r_e_g
+D8 D9     ffccoommpp
+
+DE D9     ffccoommpppp              Floating Compare and pop twice
+D9 FF     ffccooss                Cosine
+D9 F6     ffddeeccssttpp             Decrement Stack Top Pointer
+
+          ffddiivv                Floating divide
+D8 /6     ffddiivvss     _m_3_2
+DC /6     ffddiivvll     _m_6_4
+D8 F0 +r  ffddiivv      _f_p_r_e_g,_s_t_0
+D8 F0 +r  ffddiivv      _f_p_r_e_g
+DE F1     ffddiivv
+DC F0 +r  ffddiivv      _s_t_0,_f_p_r_e_g
+
+          ffddiivvpp               Floating divide and pop
+DE F0 +r  ffddiivvpp     _s_t_0,_f_p_r_e_g
+DE F0 +r  ffddiivvpp     _f_p_r_e_g
+DE F1     ffddiivvpp
+
+          ffddiivvrr               Reverse floating divide
+D8 /7     ffddiivvrrss    _m_3_2
+DC /7     ffddiivvrrll    _m_6_4
+D8 F8 +r  ffddiivvrr     _f_p_r_e_g,_s_t_0
+D8 F8 +r  ffddiivvrr     _f_p_r_e_g
+DE F9     ffddiivvrr
+DC F8 +r  ffddiivvrr     _s_t_0,_f_p_r_e_g
+
+          ffddiivvrrpp              Reverse floating divide and pop
+DE F8 +r  ffddiivvrrpp    _s_t_0,_f_p_r_e_g
+DE F8 +r  ffddiivvrrpp    _f_p_r_e_g
+DE F9     ffddiivvrrpp
+
+DD C0 +r  ffffrreeee     _f_p_r_e_g     Free Floating Point Register
+
+          ffiiaadddd               Add integer to float
+DA /0     ffiiaaddddll    _m_3_2
+DE /0     ffiiaaddddss    _m_1_6
+
+          ffiiccoomm               Compare float to integer
+DA /2     ffiiccoommll    _m_3_2
+DE /2     ffiiccoommss    _m_1_6
+
+          ffiiccoommpp              Compare float to integer and pop
+DA /3     ffiiccoommppll   _m_3_2
+DE /3     ffiiccoommppss   _m_1_6
+
+          ffiiddiivv               Divide float by integer
+DA /6     ffiiddiivvll    _m_3_2
+DE /6     ffiiddiivvss    _m_1_6
+
+          ffiiddiivvrr              Reverse divide integer by float
+DA /7     ffiiddiivvrrll   _m_3_2
+DE /7     ffiiddiivvrrss   _m_1_6
+
+          ffiilldd                Load integer
+DB /0     ffiillddll     _m_3_2
+DF /0     ffiillddss     _m_1_6
+DF /5     ffiillddllll    _m_6_4
+
+          ffiimmuull               Multiply integer to float
+DA /1     ffiimmuullll    _m_3_2
+DE /1     ffiimmuullss    _m_1_6
+
+D9 F7     ffiinnccssttpp             Increment Stack Top Pointer
+9B DB E3  ffiinniitt               Initialize Floating Point Unit
+
+          ffiisstt                Store integer
+DB /2     ffiissttll     _m_3_2
+DF /2     ffiissttss     _m_1_6
+
+          ffiissttpp               Store integer and pop
+DB /3     ffiissttppll    _m_3_2
+DF /3     ffiissttppss    _m_1_6
+DF /7     ffiissttppllll   _m_3_2
+
+          ffiissuubb               Subtract integer from float
+DA /4     ffiissuubbll    _m_3_2
+DE /4     ffiissuubbss    _m_1_6
+
+          ffiissuubbrr              Reverse subtract integer from float
+DA /5     ffiissuubbrrll   _m_3_2
+DE /5     ffiissuubbrrss   _m_1_6
+
+          fflldd                 Load Real
+D9 C0 +r  fflldd       _f_p_r_e_g
+D9 /0     ffllddss      _m_3_2
+DD /0     ffllddll      _m_3_2
+DB /5     ffllddtt      _m_6_4
+
+D9 E8     fflldd11                Load Constant 1
+D9 /5     ffllddccww     _m_3_2       Load Floating Point Control Word
+D9 /4     ffllddeennvv    _m_3_2       Load FPU Environment
+D9 EA     ffllddll22ee              Load Constant log(e) base 2
+D9 E9     ffllddll22tt              Load Constant log(10) base 2
+D9 EC     ffllddllgg22              Load Constant log(2) base 10
+D9 ED     ffllddllnn22              Load Constant log(2) base e
+D9 EB     ffllddppii               Load Constant pi
+D9 EE     ffllddzz                Load Constant 0.0
+
+          ffmmuull                Floating multiply
+D8 /1     ffmmuullss     _m_3_2
+DC /1     ffmmuullll     _m_6_4
+D8 C8 +r  ffmmuull      _f_p_r_e_g,_s_t_0
+D8 C8 +r  ffmmuull      _f_p_r_e_g
+DE C9     ffmmuull
+DC C8 +r  ffmmuull      _s_t_0,_f_p_r_e_g
+
+          ffmmuullpp               Floating multiply and pop
+DE C8 +r  ffmmuullpp     _s_t_0,_f_p_r_e_g
+DE C8 +r  ffmmuullpp     _f_p_r_e_g
+DE C9     ffmmuullpp
+
+DB E2     ffnncclleexx              Clear floating point exception flags no wait
+DB E3     ffnniinniitt              Initialize Floating Point Unit no wait
+D9 D0     ffnnoopp                No Operation
+DD /6     ffnnssaavvee    _m_3_2       Store FPU State no wait
+D9 /7     ffnnssttccww    _m_3_2       Store Control Word no wait
+D9 /6     ffnnsstteennvv   _m_3_2       Store FPU Environment no wait
+
+          ffnnssttssww              Store Status Word no wait
+DD /7     ffnnssttssww    _m_1_6
+DF E0     ffnnssttssww    _a_x
+
+D9 F3     ffppaattaann              Partial Arctangent
+D9 F8     ffpprreemm               Partial Remainder toward 0
+D9 F5     ffpprreemm11              Partial Remainder < 1/2 modulus
+D9 F2     ffppttaann               Partial Tangent
+D9 FC     ffrrnnddiinntt             Round To Integer
+DD /4     ffrrssttoorr    _m_3_2       Resore FPU State
+DB F4     ffrrssttppmm              set 287XL real mode (nop for 387/486)
+9B DD /6  ffssaavvee     _m_3_2       Store FPU State
+D9 FD     ffssccaallee              Scale
+DB E4     ffsseettppmm              set 287 protected mode (nop for 387/486)
+D9 FE     ffssiinn                Sine
+D9 FB     ffssiinnccooss             Sine and Cosine
+D9 FA     ffssqqrrtt               Square Root
+
+          ffsstt                 Store Real
+DD D0 +r  ffsstt       _f_p_r_e_g
+D9 /2     ffssttss      _m_3_2
+DD /2     ffssttll      _m_6_4
+
+9B D9 /7  ffssttccww     _m_3_2       Store Control Word
+9B D9 /6  ffsstteennvv    _m_3_2       Store FPU Environment
+
+          ffssttpp                Store Real and pop
+DD D8 +r  ffssttpp      _f_p_r_e_g
+D9 /3     ffssttppss     _m_3_2
+DD /3     ffssttppll     _m_6_4
+DB /7     ffssttpptt     _m_8_0
+
+          ffssttssww               Store Status Word
+9B DD /7  ffssttssww     _m_1_6
+9B DF E0  ffssttssww     _a_x
+
+          ffssuubb                Floating subtract
+D8 /4     ffssuubbss     _m_3_2
+DC /4     ffssuubbll     _m_6_4
+D8 E0 +r  ffssuubb      _f_p_r_e_g,_s_t_0
+D8 E0 +r  ffssuubb      _f_p_r_e_g
+DE E1     ffssuubb
+DC E0 +r  ffssuubb      _s_t_0,_f_p_r_e_g
+
+          ffssuubbpp               Floating subtract and pop
+DE E0 +r  ffssuubbpp     _s_t_0,_f_p_r_e_g
+DE E0 +r  ffssuubbpp     _f_p_r_e_g
+DE E1     ffssuubbpp
+
+          ffssuubbrr               Reverse floating subtract
+D8 /5     ffssuubbrrss    _m_3_2
+DC /5     ffssuubbrrll    _m_6_4
+D8 E8 +r  ffssuubbrr     _f_p_r_e_g,_s_t_0
+D8 E8 +r  ffssuubbrr     _f_p_r_e_g
+DE E9     ffssuubbrr
+DC E8 +r  ffssuubbrr     _s_t_0,_f_p_r_e_g
+
+          ffssuubbrrpp              Reverse floating subtract and pop
+DE E8 +r  ffssuubbrrpp    _s_t_0,_f_p_r_e_g
+DE E8 +r  ffssuubbrrpp    _f_p_r_e_g
+DE E9     ffssuubbrrpp
+
+D9 E4     ffttsstt                Test
+
+          ffuuccoomm               Unordered compare real
+DD E0 +r  ffuuccoomm     _s_t_0,_f_p_r_e_g
+DD E0 +r  ffuuccoomm     _f_p_r_e_g
+DD E1     ffuuccoomm
+
+          ffuuccoommpp              Unordered compare real and pop
+DD E8 +r  ffuuccoommpp    _s_t_0,_f_p_r_e_g
+DD E8 +r  ffuuccoommpp    _f_p_r_e_g
+DD E9     ffuuccoommpp
+
+DA E9     ffuuccoommpppp             Unordered compare %st %st1 and pop twice
+9B        ffwwaaiitt               Wait for coprocessor
+D9 E5     ffxxaamm                Examine
+
+          ffxxcchh                Floating exchange
+D9 C8 +r  ffxxcchh      _s_t_0,_f_p_r_e_g
+D9 C8 +r  ffxxcchh      _f_p_r_e_g,_s_t_0
+D9 C8 +r  ffxxcchh      _f_p_r_e_g
+D9 C9     ffxxcchh
+
+D9 F4     ffxxttrraacctt             Extract Exponent and Significand
+D9 F1     ffyyll22xx               %st1 * log(%st) base 2
+D9 F9     ffyyll22xxpp11             %st1 * log(%st + 1.0) base 2
+F4        hhlltt                 Halt
+FF /2     iiccaallll     _r_m_3_2      Call indirect
+
+          iiddiivv                Signed divide
+F6 /7     iiddiivvbb     _r_m_8,_a_l
+F6 /7     iiddiivvbb     _r_m_8
+F7 /7     iiddiivvww     _r_m_1_6,_a_x
+F7 /7     iiddiivvww     _r_m_1_6
+F7 /7     iiddiivvll     _r_m_3_2,_e_a_x
+F7 /7     iiddiivvll     _r_m_3_2
+
+FF /4     iijjmmpp      _r_m_3_2      Jump indirect
+FF /3     iillccaallll    _m_3_2       Long call indirect
+FF /5     iilljjmmpp     _m_3_2       Long jump indirect
+
+          iimmuull                Signed multiply
+F6 /5     iimmuullbb     _r_m_8,_a_l
+F6 /5     iimmuullbb     _r_m_8
+F7 /5     iimmuullww     _r_m_1_6,_a_x
+F7 /5     iimmuullww     _r_m_1_6
+F7 /5     iimmuullll     _r_m_3_2,_e_a_x
+F7 /5     iimmuullll     _r_m_3_2
+0F AF /r  iimmuullww     _r_m_1_6,_r_1_6
+0F AF /r  iimmuullll     _r_m_3_2,_r_3_2
+6B        iimmuullww     _i_m_m_8_s,_r_m_1_6,_r_1_6
+6B        iimmuullll     _i_m_m_8_s,_r_m_3_2,_r_3_2
+6B /r     iimmuullww     _i_m_m_8_s,_r_1_6
+6B /r     iimmuullll     _i_m_m_8_s,_r_3_2
+69        iimmuullww     _i_m_m_1_6,_r_m_1_6,_r_1_6
+69        iimmuullll     _i_m_m_3_2,_r_m_3_2,_r_3_2
+69 /r     iimmuullww     _i_m_m_1_6,_r_1_6
+69 /r     iimmuullll     _i_m_m_3_2,_r_3_2
+
+          iinn                  Input from port
+E4        iinnbb       _i_m_m_8
+E5        iinnww       _i_m_m_8
+E5        iinnll       _i_m_m_8
+EC        iinnbb       (_d_x)
+ED        iinnww       (_d_x)
+ED        iinnll       (_d_x)
+
+          iinncc                 Increment by one
+40 +r     iinnccww      _r_1_6
+40 +r     iinnccll      _r_3_2
+FE /0     iinnccbb      _r_m_8
+FF /0     iinnccww      _r_m_1_6
+FF /0     iinnccll      _r_m_3_2
+
+6C        iinnssbb                Input byte from port into ES:(E)DI
+6C        iinnssbb      (_d_x)      Input byte from port into ES:(E)DI
+6D        iinnssll                Input long from port into ES:(E)DI
+6D        iinnssll      (_d_x)      Input long from port into ES:(E)DI
+6D        iinnssww                Input word from port into ES:(E)DI
+6D        iinnssww      (_d_x)      Input word from port into ES:(E)DI
+CC        iinntt       _c_o_n_3      Interrupt 3
+CD        iinntt       _i_m_m_8      Interrupt
+CE        iinnttoo                Int 4 if overflow is 1
+CF        iirreett                Interrupt return
+CF        iirreettdd               Different mode different opcode ?
+07        jjaa        _r_e_l_i      Jump if above
+03        jjaaee       _r_e_l_i      Jump if above or equal
+02        jjbb        _r_e_l_i      Jump if below
+06        jjbbee       _r_e_l_i      Jump if below or equal
+02        jjcc        _r_e_l_i      Jump if carry
+E3        jjccxxzz      _r_e_l_8      Jump if CX is zero
+04        jjee        _r_e_l_i      Jump if equal
+E3        jjeeccxxzz     _r_e_l_8      Jump if CX is zero
+0F        jjgg        _r_e_l_i      Jump if greater
+0D        jjggee       _r_e_l_i      Jump if greater or equal
+0C        jjll        _r_e_l_i      Jump if less
+0E        jjllee       _r_e_l_i      Jump if less or equal
+E9        jjmmpp       _r_e_l_i      Jump absolute
+06        jjnnaa       _r_e_l_i      Jump if not above
+02        jjnnaaee      _r_e_l_i      Jump if not above or equal
+03        jjnnbb       _r_e_l_i      Jump if not below
+07        jjnnbbee      _r_e_l_i      Jump if not below or equal
+03        jjnncc       _r_e_l_i      Jump if no carry
+05        jjnnee       _r_e_l_i      Jump if not equal
+0E        jjnngg       _r_e_l_i      Jump if not greater
+0C        jjnnggee      _r_e_l_i      Jump if not greater or equal
+0D        jjnnll       _r_e_l_i      Jump if not less
+0F        jjnnllee      _r_e_l_i      Jump if not less or equal
+01        jjnnoo       _r_e_l_i      Jump if not overflow
+0B        jjnnpp       _r_e_l_i      Jump if not parity
+09        jjnnss       _r_e_l_i      Jump if not sign
+05        jjnnzz       _r_e_l_i      Jump if not zero
+00        jjoo        _r_e_l_i      Jump if overflow
+0A        jjpp        _r_e_l_i      Jump if parity
+0A        jjppee       _r_e_l_i      Jump if parity even
+0B        jjppoo       _r_e_l_i      Jump if parity odd
+08        jjss        _r_e_l_i      Jump if sign
+04        jjzz        _r_e_l_i      Jump if zero
+04        jjzz        _r_e_l_i      Jump if zero
+9F        llaahhff                Load flags into AH register
+
+          llaarr                 Load access rights byte
+0F 02 /r  llaarrww      _r_m_1_6,_r_1_6
+0F 02 /r  llaarrll      _r_m_3_2,_r_3_2
+
+9A        llccaallll     _i_m_m_1_6_x,_i_m_m_3_2Long call
+
+          llddss                 load full pointer DS:r16
+C5 /r     llddssww      _m_1_6,_r_1_6
+C5 /r     llddssll      _m_3_2,_r_3_2
+
+          lleeaa                 Load effective address
+8D /r     lleeaaww      _m_1_6,_r_1_6
+8D /r     lleeaall      _m_3_2,_r_3_2
+
+C9        lleeaavvee               High level procedure exit
+
+          lleess                 Load full pointer ES:r16
+C4 /r     lleessww      _m_1_6,_r_1_6
+C4 /r     lleessll      _m_3_2,_r_3_2
+
+          llffss                 Load full pointer FS:r16
+0F B4 /r  llffssww      _m_1_6,_r_1_6
+0F B4 /r  llffssll      _m_3_2,_r_3_2
+
+          llggddtt                Load m into DGTR
+0F 01 /2  llggddttww     _m_1_6
+0F 01 /2  llggddttll     _m_3_2
+
+          llggss                 Load full pointer GS:r16
+0F B5 /r  llggssww      _m_1_6,_r_1_6
+0F B5 /r  llggssll      _m_3_2,_r_3_2
+
+          lliiddtt                Load m into IDTR
+0F 01 /3  lliiddttww     _m_1_6
+0F 01 /3  lliiddttll     _m_3_2
+
+EA        lljjmmpp      _i_m_m_1_6_x,_i_m_m_3_2Long jump
+0F 00 /2  llllddtt      _r_m_1_6      Load local descriptor table register
+0F 01 /6  llmmssww      _r_m_1_6      Load machine status word
+F0        lloocckk                Assert lock signal for next instruction
+AC        llooddssbb               Load string operand byte
+AD        llooddssll               Load string operand long
+AD        llooddssww               Load string operand word
+E2        lloooopp      _r_e_l_8      Dec count jmp if count <> 0
+E1        llooooppee     _r_e_l_8      Dec count jmp if count <> 0 and ZF = 1
+E0        llooooppnnee    _r_e_l_8      Dec count jmp if count <> 0 and ZF = 0
+E0        llooooppnnzz    _r_e_l_8      Dec count jmp if count <> 0 and ZF = 0
+E1        llooooppzz     _r_e_l_8      Dec count jmp if count <> 0 and ZF = 1
+CB        llrreett                Far return
+CA        llrreett      _i_m_m_1_6     Far return pop imm16 bytes of parms
+
+          llssll                 Load segment limit
+0F 03 /r  llssllww      _r_m_1_6,_r_1_6
+0F 03 /r  llssllll      _r_m_3_2,_r_3_2
+
+          llssss                 Load full pointer SS:r16
+0F B2 /r  llssssww      _m_1_6,_r_1_6
+0F B2 /r  llssssll      _m_3_2,_r_3_2
+
+0F 00 /3  llttrr       _r_m_1_6      Load task register
+
+          mmoovv                 Move data
+A0        mmoovvbb      _m_o_f_f_s,_a_l
+A1        mmoovvww      _m_o_f_f_s,_a_x
+A1        mmoovvll      _m_o_f_f_s,_e_a_x
+A2        mmoovvbb      _a_l,_m_o_f_f_s
+A3        mmoovvww      _a_x,_m_o_f_f_s
+A3        mmoovvll      _e_a_x,_m_o_f_f_s
+8A /r     mmoovvbb      _r_m_8,_r_8
+8B /r     mmoovvww      _r_m_1_6,_r_1_6
+8B /r     mmoovvll      _r_m_3_2,_r_3_2
+88 /r     mmoovvbb      _r_8,_r_m_8
+89 /r     mmoovvww      _r_1_6,_r_m_1_6
+89 /r     mmoovvll      _r_3_2,_r_m_3_2
+8C /r     mmoovvww      _s_r_e_g,_r_m_1_6
+8E /r     mmoovvww      _r_m_1_6,_s_r_e_g
+B0 +r     mmoovvbb      _i_m_m_8,_r_8
+B8 +r     mmoovvww      _i_m_m_1_6,_r_1_6
+B8 +r     mmoovvll      _i_m_m_3_2,_r_3_2
+C6        mmoovvbb      _i_m_m_8,_r_m_8
+C7        mmoovvww      _i_m_m_1_6,_r_m_1_6
+C7        mmoovvll      _i_m_m_3_2,_r_m_3_2
+0F 20 /r  mmoovvll      _c_t_l_r_e_g,_r_3_2
+0F 22 /r  mmoovvll      _r_3_2,_c_t_l_r_e_g
+0F 21 /r  mmoovvll      _d_b_r_e_g,_r_3_2
+0F 23 /r  mmoovvll      _r_3_2,_d_b_r_e_g
+0F 24 /r  mmoovvll      _t_r_e_g,_r_3_2
+0F 26 /r  mmoovvll      _r_3_2,_t_r_e_g
+
+A4        mmoovvssbb               Move bytes
+A5        mmoovvssll               Move longs
+A5        mmoovvssww               Move words
+
+          mmoovvssxx               Move with sign extend
+0F BE /r  mmoovvssxxbb    _r_m_8,_r_1_6
+0F BE /r  mmoovvssxxbb    _r_m_8,_r_3_2
+0F BF /r  mmoovvssxxww    _r_m_1_6,_r_3_2
+0F BE /r  mmoovvssbbww    _r_m_8,_r_1_6
+0F BE /r  mmoovvssbbll    _r_m_8,_r_3_2
+0F BF /r  mmoovvsswwll    _r_m_1_6,_r_3_2
+
+          mmoovvzzxx               Move with zero extend
+0F B6 /r  mmoovvzzxxbb    _r_m_8,_r_1_6
+0F B6 /r  mmoovvzzxxbb    _r_m_8,_r_3_2
+0F B7 /r  mmoovvzzxxww    _r_m_1_6,_r_3_2
+0F B6 /r  mmoovvzzbbww    _r_m_8,_r_1_6
+0F B6 /r  mmoovvzzbbll    _r_m_8,_r_3_2
+0F B7 /r  mmoovvzzwwll    _r_m_1_6,_r_3_2
+
+          mmuull                 Unsigned multiply
+F6 /4     mmuullbb      _r_m_8,_a_l
+F6 /4     mmuullbb      _r_m_8
+F7 /4     mmuullww      _r_m_1_6,_a_x
+F7 /4     mmuullww      _r_m_1_6
+F7 /4     mmuullll      _r_m_3_2,_e_a_x
+F7 /4     mmuullll      _r_m_3_2
+
+          nneegg                 Negate
+F6 /3     nneeggbb      _r_m_8
+F7 /3     nneeggww      _r_m_1_6
+F7 /3     nneeggll      _r_m_3_2
+
+90        nnoopp                 No operation
+
+          nnoott                 Invert bits
+F6 /2     nnoottbb      _r_m_8
+F7 /2     nnoottww      _r_m_1_6
+F7 /2     nnoottll      _r_m_3_2
+
+          oorr                  Logical inclusive OR
+83 /1     oorrll       _i_m_m_8_s,_r_m_3_2
+83 /1     oorrww       _i_m_m_8_s,_r_m_1_6
+0C        oorrbb       _i_m_m_8,_a_l
+0D        oorrww       _i_m_m_1_6,_a_x
+0D        oorrll       _i_m_m_3_2,_e_a_x
+0D        oorrll       _i_m_m_3_2
+80 /1     oorrbb       _i_m_m_8,_r_m_8
+81 /1     oorrww       _i_m_m_1_6,_r_m_1_6
+81 /1     oorrll       _i_m_m_3_2,_r_m_3_2
+0A /r     oorrbb       _r_m_8,_r_8
+0B /r     oorrww       _r_m_1_6,_r_1_6
+0B /r     oorrll       _r_m_3_2,_r_3_2
+08 /r     oorrbb       _r_8,_r_m_8
+09 /r     oorrww       _r_1_6,_r_m_1_6
+09 /r     oorrll       _r_3_2,_r_m_3_2
+
+          oouutt                 Output from port
+E6        oouuttbb      _i_m_m_8
+E7        oouuttww      _i_m_m_8
+E7        oouuttll      _i_m_m_8
+EE        oouuttbb      (_d_x)
+EF        oouuttww      (_d_x)
+EF        oouuttll      (_d_x)
+
+6E        oouuttssbb               Output byte to port into ES:(E)DI
+6F        oouuttssll               Output long to port into ES:(E)DI
+6F        oouuttssww               Output word to port into ES:(E)DI
+
+          ppoopp                 Pop a word from the stack
+58 +r     ppooppww      _r_1_6
+58 +r     ppooppll      _r_3_2
+1F        ppooppww      _d_s
+07        ppooppww      _e_s
+17        ppooppww      _s_s
+0F A1     ppooppww      _f_s
+0F A9     ppooppww      _g_s
+8F /0     ppooppww      _m_1_6
+8F /0     ppooppll      _m_3_2
+
+          ppooppaa                Pop all
+61        ppooppaaww
+61        ppooppaall
+
+          ppooppff                Pop stack into flags
+9D        ppooppffww
+9D        ppooppffll
+
+          ppuusshh                Push a word on the stack
+50 +r     ppuusshhww     _r_1_6
+50 +r     ppuusshhll     _r_3_2
+6A        ppuusshhbb     _i_m_m_8_s
+68        ppuusshhww     _i_m_m_1_6
+68        ppuusshhll     _i_m_m_3_2
+0E        ppuusshhww     _c_s
+1E        ppuusshhww     _d_s
+06        ppuusshhww     _e_s
+16        ppuusshhww     _s_s
+0F A0     ppuusshhww     _f_s
+0F A8     ppuusshhww     _g_s
+FF /6     ppuusshhww     _m_1_6
+FF /6     ppuusshhll     _m_3_2
+
+          ppuusshhaa               Push all
+60        ppuusshhaaww
+60        ppuusshhaall
+
+          ppuusshhff               Push flags
+9C        ppuusshhffww
+9C        ppuusshhffll
+
+          rrccll                 Rotate carry left
+D0 /2     rrccllbb      _c_o_n_1,_r_m_8
+D0 /2     rrccllbb      _r_m_8
+D2 /2     rrccllbb      _c_l,_r_m_8
+C0 /2     rrccllbb      _i_m_m_8,_r_m_8
+D1 /2     rrccllww      _c_o_n_1,_r_m_1_6
+D1 /2     rrccllww      _r_m_1_6
+D3 /2     rrccllww      _c_l,_r_m_1_6
+C1 /2     rrccllww      _i_m_m_8,_r_m_1_6
+D1 /2     rrccllll      _c_o_n_1,_r_m_3_2
+D1 /2     rrccllll      _r_m_3_2
+D3 /2     rrccllll      _c_l,_r_m_3_2
+C1 /2     rrccllll      _i_m_m_8,_r_m_3_2
+
+          rrccrr                 Rotate carry right
+D0 /3     rrccrrbb      _c_o_n_1,_r_m_8
+D0 /3     rrccrrbb      _r_m_8
+D2 /3     rrccrrbb      _c_l,_r_m_8
+C0 /3     rrccrrbb      _i_m_m_8,_r_m_8
+D1 /3     rrccrrww      _c_o_n_1,_r_m_1_6
+D1 /3     rrccrrww      _r_m_1_6
+D3 /3     rrccrrww      _c_l,_r_m_1_6
+C1 /3     rrccrrww      _i_m_m_8,_r_m_1_6
+D1 /3     rrccrrll      _c_o_n_1,_r_m_3_2
+D1 /3     rrccrrll      _r_m_3_2
+D3 /3     rrccrrll      _c_l,_r_m_3_2
+C1 /3     rrccrrll      _i_m_m_8,_r_m_3_2
+
+F3        rreepp                 rep following instruction CX times
+F3        rreeppee                repe following instruction CX times or eq
+F2        rreeppnnee               repne following instruction CX times or ne
+F2        rreeppnnzz               alternate name for repnz
+F3        rreeppzz                alternate name for repe
+C3        rreett                 Return
+C2        rreett       _i_m_m_1_6     Return pop imm16 bytes of parms
+
+          rrooll                 Rotate left
+D0 /0     rroollbb      _c_o_n_1,_r_m_8
+D0 /0     rroollbb      _r_m_8
+D2 /0     rroollbb      _c_l,_r_m_8
+C0 /0     rroollbb      _i_m_m_8,_r_m_8
+D1 /0     rroollww      _c_o_n_1,_r_m_1_6
+D1 /0     rroollww      _r_m_1_6
+D3 /0     rroollww      _c_l,_r_m_1_6
+C1 /0     rroollww      _i_m_m_8,_r_m_1_6
+D1 /0     rroollll      _c_o_n_1,_r_m_3_2
+D1 /0     rroollll      _r_m_3_2
+D3 /0     rroollll      _c_l,_r_m_3_2
+C1 /0     rroollll      _i_m_m_8,_r_m_3_2
+
+          rroorr                 Rotate right
+D0 /1     rroorrbb      _c_o_n_1,_r_m_8
+D0 /1     rroorrbb      _r_m_8
+D2 /1     rroorrbb      _c_l,_r_m_8
+C0 /1     rroorrbb      _i_m_m_8,_r_m_8
+D1 /1     rroorrww      _c_o_n_1,_r_m_1_6
+D1 /1     rroorrww      _r_m_1_6
+D3 /1     rroorrww      _c_l,_r_m_1_6
+C1 /1     rroorrww      _i_m_m_8,_r_m_1_6
+D1 /1     rroorrll      _c_o_n_1,_r_m_3_2
+D1 /1     rroorrll      _r_m_3_2
+D3 /1     rroorrll      _c_l,_r_m_3_2
+C1 /1     rroorrll      _i_m_m_8,_r_m_3_2
+
+9E        ssaahhff                Store AH into flags
+
+          ssaall                 Shift arithmetic left
+D0 /4     ssaallbb      _c_o_n_1,_r_m_8
+D0 /4     ssaallbb      _r_m_8
+D2 /4     ssaallbb      _c_l,_r_m_8
+C0 /4     ssaallbb      _i_m_m_8,_r_m_8
+D1 /4     ssaallww      _c_o_n_1,_r_m_1_6
+D1 /4     ssaallww      _r_m_1_6
+D3 /4     ssaallww      _c_l,_r_m_1_6
+C1 /4     ssaallww      _i_m_m_8,_r_m_1_6
+D1 /4     ssaallll      _c_o_n_1,_r_m_3_2
+D1 /4     ssaallll      _r_m_3_2
+D3 /4     ssaallll      _c_l,_r_m_3_2
+C1 /4     ssaallll      _i_m_m_8,_r_m_3_2
+
+          ssaarr                 Shift arithmetic right
+D0 /7     ssaarrbb      _c_o_n_1,_r_m_8
+D0 /7     ssaarrbb      _r_m_8
+D2 /7     ssaarrbb      _c_l,_r_m_8
+C0 /7     ssaarrbb      _i_m_m_8,_r_m_8
+D1 /7     ssaarrww      _c_o_n_1,_r_m_1_6
+D1 /7     ssaarrww      _r_m_1_6
+D3 /7     ssaarrww      _c_l,_r_m_1_6
+C1 /7     ssaarrww      _i_m_m_8,_r_m_1_6
+D1 /7     ssaarrll      _c_o_n_1,_r_m_3_2
+D1 /7     ssaarrll      _r_m_3_2
+D3 /7     ssaarrll      _c_l,_r_m_3_2
+C1 /7     ssaarrll      _i_m_m_8,_r_m_3_2
+
+          ssbbbb                 Subtract with borrow
+83 /3     ssbbbbll      _i_m_m_8_s,_r_m_3_2
+83 /3     ssbbbbww      _i_m_m_8_s,_r_m_1_6
+1C        ssbbbbbb      _i_m_m_8,_a_l
+1D        ssbbbbww      _i_m_m_1_6,_a_x
+1D        ssbbbbll      _i_m_m_3_2,_e_a_x
+1D        ssbbbbll      _i_m_m_3_2
+80 /3     ssbbbbbb      _i_m_m_8,_r_m_8
+81 /3     ssbbbbww      _i_m_m_1_6,_r_m_1_6
+81 /3     ssbbbbll      _i_m_m_3_2,_r_m_3_2
+1A /r     ssbbbbbb      _r_m_8,_r_8
+1B /r     ssbbbbww      _r_m_1_6,_r_1_6
+1B /r     ssbbbbll      _r_m_3_2,_r_3_2
+18 /r     ssbbbbbb      _r_8,_r_m_8
+19 /r     ssbbbbww      _r_1_6,_r_m_1_6
+19 /r     ssbbbbll      _r_3_2,_r_m_3_2
+
+AE        ssccaassbb               Compare string bytes
+AF        ssccaassll               Compare string longs
+AF        ssccaassww               Compare string words
+0F 97     sseettaa      _r_m_8       Set byte if above
+0F 93     sseettaaee     _r_m_8       Set byte if above or equal
+0F 92     sseettbb      _r_m_8       Set byte if below
+0F 96     sseettbbee     _r_m_8       Set byte if below or equal
+0F 92     sseettcc      _r_m_8       Set byte if carry
+0F 94     sseettee      _r_m_8       Set byte if equal
+0F 9F     sseettgg      _r_m_8       Set byte if greater
+0F 9D     sseettggee     _r_m_8       Set byte if greater or equal
+0F 9C     sseettll      _r_m_8       Set byte if less
+0F 9E     sseettllee     _r_m_8       Set byte if less or equal
+0F 96     sseettnnaa     _r_m_8       Set byte if not above
+0F 92     sseettnnaaee    _r_m_8       Set byte if not above or equal
+0F 93     sseettnnbb     _r_m_8       Set byte if not below
+0F 97     sseettnnbbee    _r_m_8       Set byte if not below or equal
+0F 93     sseettnncc     _r_m_8       Set byte if no carry
+0F 95     sseettnnee     _r_m_8       Set byte if not equal
+0F 9E     sseettnngg     _r_m_8       Set byte if not greater
+0F 9C     sseettnnggee    _r_m_8       Set byte if not greater or equal
+0F 9D     sseettnnll     _r_m_8       Set byte if not less
+0F 9F     sseettnnllee    _r_m_8       Set byte if not less or equal
+0F 91     sseettnnoo     _r_m_8       Set byte if not overflow
+0F 9B     sseettnnpp     _r_m_8       Set byte if not parity
+0F 99     sseettnnss     _r_m_8       Set byte if not sign
+0F 95     sseettnnzz     _r_m_8       Set byte if not zero
+0F 90     sseettoo      _r_m_8       Set byte if overflow
+0F 9A     sseettpp      _r_m_8       Set byte if parity
+0F 9A     sseettppee     _r_m_8       Set byte if parity even
+0F 9B     sseettppoo     _r_m_8       Set byte if parity odd
+0F 98     sseettss      _r_m_8       Set byte if sign
+0F 94     sseettzz      _r_m_8       Set byte if zero
+0F 94     sseettzz      _r_m_8       Set byte if zero
+0F 01 /0  ssggddtt      _m_e_m_3_2     Store gdtr
+
+          sshhll                 Shift arithmetic left
+D0 /4     sshhllbb      _c_o_n_1,_r_m_8
+D0 /4     sshhllbb      _r_m_8
+D2 /4     sshhllbb      _c_l,_r_m_8
+C0 /4     sshhllbb      _i_m_m_8,_r_m_8
+D1 /4     sshhllww      _c_o_n_1,_r_m_1_6
+D1 /4     sshhllww      _r_m_1_6
+D3 /4     sshhllww      _c_l,_r_m_1_6
+C1 /4     sshhllww      _i_m_m_8,_r_m_1_6
+D1 /4     sshhllll      _c_o_n_1,_r_m_3_2
+D1 /4     sshhllll      _r_m_3_2
+D3 /4     sshhllll      _c_l,_r_m_3_2
+C1 /4     sshhllll      _i_m_m_8,_r_m_3_2
+
+          sshhlldd                Shift double precision left
+0F A4     sshhllddww     _i_m_m_8,_r_1_6,_r_m_1_6
+0F A4     sshhllddll     _i_m_m_8,_r_3_2,_r_m_3_2
+0F A5     sshhllddww     _c_l,_r_1_6,_r_m_1_6
+0F A5     sshhllddll     _c_l,_r_3_2,_r_m_3_2
+
+          sshhrr                 Shift right
+D0 /5     sshhrrbb      _c_o_n_1,_r_m_8
+D0 /5     sshhrrbb      _r_m_8
+D2 /5     sshhrrbb      _c_l,_r_m_8
+C0 /5     sshhrrbb      _i_m_m_8,_r_m_8
+D1 /5     sshhrrww      _c_o_n_1,_r_m_1_6
+D1 /5     sshhrrww      _r_m_1_6
+D3 /5     sshhrrww      _c_l,_r_m_1_6
+C1 /5     sshhrrww      _i_m_m_8,_r_m_1_6
+D1 /5     sshhrrll      _c_o_n_1,_r_m_3_2
+D1 /5     sshhrrll      _r_m_3_2
+D3 /5     sshhrrll      _c_l,_r_m_3_2
+C1 /5     sshhrrll      _i_m_m_8,_r_m_3_2
+
+          sshhrrdd                Shift double precision right
+0F AC     sshhrrddww     _i_m_m_8,_r_1_6,_r_m_1_6
+0F AC     sshhrrddll     _i_m_m_8,_r_3_2,_r_m_3_2
+0F AD     sshhrrddww     _c_l,_r_1_6,_r_m_1_6
+0F AD     sshhrrddll     _c_l,_r_3_2,_r_m_3_2
+0F AD     sshhrrddww     _r_1_6,_r_m_1_6
+0F AD     sshhrrddll     _r_3_2,_r_m_3_2
+
+0F 01 /1  ssiiddtt      _m_e_m_3_2     Store idtr
+0F 00 /0  ssllddtt      _r_m_1_6      Store ldtr to EA word
+0F 01 /4  ssmmssww      _r_m_1_6      Store machine status to EA word
+F9        ssttcc                 Set carry flag
+FD        ssttdd                 Clear direction flag
+FB        ssttii                 Set interrupt flag
+AA        ssttoossbb               Store string byte
+AB        ssttoossll               Store string long
+AB        ssttoossww               Store string word
+0F 00 /1  ssttrr                 Store task register
+
+          ssuubb                 Subtract
+83 /5     ssuubbll      _i_m_m_8_s,_r_m_3_2
+83 /5     ssuubbww      _i_m_m_8_s,_r_m_1_6
+2C        ssuubbbb      _i_m_m_8,_a_l
+2D        ssuubbww      _i_m_m_1_6,_a_x
+2D        ssuubbll      _i_m_m_3_2,_e_a_x
+2D        ssuubbll      _i_m_m_3_2
+80 /5     ssuubbbb      _i_m_m_8,_r_m_8
+81 /5     ssuubbww      _i_m_m_1_6,_r_m_1_6
+81 /5     ssuubbll      _i_m_m_3_2,_r_m_3_2
+2A /r     ssuubbbb      _r_m_8,_r_8
+2B /r     ssuubbww      _r_m_1_6,_r_1_6
+2B /r     ssuubbll      _r_m_3_2,_r_3_2
+28 /r     ssuubbbb      _r_8,_r_m_8
+29 /r     ssuubbww      _r_1_6,_r_m_1_6
+29 /r     ssuubbll      _r_3_2,_r_m_3_2
+
+          tteesstt                Logical compare
+A8        tteessttbb     _i_m_m_8,_a_l
+A9        tteessttww     _i_m_m_1_6,_a_x
+A9        tteessttll     _i_m_m_3_2,_e_a_x
+A9        tteessttll     _i_m_m_3_2
+F6 /0     tteessttbb     _i_m_m_8,_r_m_8
+F7 /0     tteessttww     _i_m_m_1_6,_r_m_1_6
+F7 /0     tteessttll     _i_m_m_3_2,_r_m_3_2
+84 /r     tteessttbb     _r_8,_r_m_8
+85 /r     tteessttww     _r_1_6,_r_m_1_6
+85 /r     tteessttll     _r_3_2,_r_m_3_2
+
+0F 00 /4  vveerrrr      _r_m_1_6      Verify segment for read
+0F 00 /5  vveerrww      _r_m_1_6      Verify segment for write
+9B        wwaaiitt                Wait for coprocessor
+
+          xxcchhgg                Exchange register
+90 +r     xxcchhggww     _r_1_6,_a_x
+90 +r     xxcchhggww     _a_x,_r_1_6
+90 +r     xxcchhggll     _r_3_2,_e_a_x
+90 +r     xxcchhggll     _r_3_2
+90 +r     xxcchhggll     _e_a_x,_r_3_2
+86 /r     xxcchhggbb     _r_m_8,_r_8
+87 /r     xxcchhggww     _r_m_1_6,_r_1_6
+87 /r     xxcchhggll     _r_m_3_2,_r_3_2
+86 /r     xxcchhggbb     _r_8,_r_m_8
+87 /r     xxcchhggww     _r_1_6,_r_m_1_6
+87 /r     xxcchhggll     _r_3_2,_r_m_3_2
+
+D7        xxllaatt                Table lookup translation
+D7        xxllaattbb               Table lookup translation
+
+          xxoorr                 Logical exclusive OR
+83 /6     xxoorrll      _i_m_m_8_s,_r_m_3_2
+83 /6     xxoorrww      _i_m_m_8_s,_r_m_1_6
+34        xxoorrbb      _i_m_m_8,_a_l
+35        xxoorrww      _i_m_m_1_6,_a_x
+35        xxoorrll      _i_m_m_3_2,_e_a_x
+35        xxoorrll      _i_m_m_3_2
+80 /6     xxoorrbb      _i_m_m_8,_r_m_8
+81 /6     xxoorrww      _i_m_m_1_6,_r_m_1_6
+81 /6     xxoorrll      _i_m_m_3_2,_r_m_3_2
+32 /r     xxoorrbb      _r_m_8,_r_8
+33 /r     xxoorrww      _r_m_1_6,_r_1_6
+33 /r     xxoorrll      _r_m_3_2,_r_3_2
+30 /r     xxoorrbb      _r_8,_r_m_8
+31 /r     xxoorrww      _r_1_6,_r_m_1_6
+31 /r     xxoorrll      _r_3_2,_r_m_3_2
+
+_U_s_i_n_g _C _t_o _P_r_o_t_o_t_y_p_e _A_s_s_e_m_b_l_y _L_a_n_g_u_a_g_e
+The COHERENT C compiler includes a  switch, -SS, that translates C code into
+COHERENT assembly  language.  The assembly  language it produces  cannot be
+directly assembled,  but you can examine  it to see just  what the compiler
+does under given  circumstances; and you can use it  to prototype a routine
+in assembly language.
+
+Suppose, for  example, that  you wish  to write a  function that  takes two
+parameters: an  integer, which  gives a  port number to  read from;  and an
+address where the  data should go.  Start by writing  a C function with the
+correct calling sequence.  For example, the following function is in a file
+called pprroottoo.cc:
+
+readstuff(addr, port)
+register char *addr;
+int port;
+{
+    register int dx = port;
+    char *foo = addr;
+}
+
+Compile it with the following command line:
+
+    cc -S proto.c
+
+This produces file pprroottoo.ss, which contains the following:
+
+/   module name foo
+    .alignoff
+
+    .text
+    .globl readstuff
+readstuff:
+    push    %ebp
+    movl    %ebp, %esp
+    push    %esi
+    push    %edi
+    push    %ebx
+    movl    %ebx, 8(%ebp)
+    movl    %esi, 12(%ebp)
+    movl    %edi, %ebx
+    pop %ebx
+    pop %edi
+    pop %esi
+    leave
+    ret
+    .align  4
+
+This is your  prototype.  You can easily modify it  into what you want; for
+example:
+
+/   This will only work if you install it as a driver.
+/   As the operating system will protect itself if
+/   Ordinary users try to access ports. Ask about our
+/   Device driver kits.
+
+     .text
+     .globl readstuff
+readstuff:
+     push    %ebp
+     movl    %ebp, %esp
+     push    %edi             / Save the edi for the caller
+     movl    %edx, 8(%ebp)    / Get the port number
+     movl    %edi, 12(%ebp)   / Get the user address
+
+     insb                     / Read port (%dx) to %es:%edi
+
+     pop     %edi             / See 386 calling conventions
+     leave
+     ret
+
+_E_x_a_m_p_l_e
+The following example echoes strings onto your screen.
+
+/ sstatic void foo(i) { printf("Parm is %d\n", i); }
+
+     .text
+.L2: .byte   "Parm is %d0, 0
+
+foo:
+     push    %ebp             / set up stack frame
+     movl    %ebp, %esp
+     push    8(%ebp)          / push parms from right to left
+     push    $.L2
+     call    printf
+     leave                    / %esp <- %ebp; pop %ebp
+     ret
+
+/ main() { foo(5); }
+
+     .globl main
+main:
+     push    %ebp
+     movl    %ebp, %esp
+     push    $5
+     call    foo
+     leave
+     ret
+
+_S_e_e _A_l_s_o
+aassffiixx, ccaalllliinngg ccoonnvveennttiioonnss, cccc, ccddmmpp, ccoommmmaannddss
+Intel Corporation:  _3_8_6 _D_X _P_r_o_g_r_a_m_m_e_r'_s _R_e_f_e_r_e_n_c_e  _M_a_n_u_a_l. Santa Clara, CA:
+Intel Corporation, 1990.  _H_i_g_h_l_y _r_e_c_o_m_m_e_n_d_e_d.
+
+_N_o_t_e_s
+We have designed  aass to ease porting of programs  written in other dialects
+of  UNIX 386  assembly  language, as  well  as to  be a  powerful tool  for
+development  of new  programs.  We  think  you will  find the  features and
+documentation  of  our   assembler  considerably  more  complete  than  are
+available anywhere else.  However, we have chosen _n_o_t to duplicate behavior
+of other assemblers that leads  to inefficient or incorrect output, or that
+generates code without warning when given questionable input.  We have also
+chosen to  support operator precedence rather  than perpetuating antiquated
+left-to-right evaluation schemes seen elsewhere.  _C_a_v_e_a_t _u_t_i_l_i_t_o_r.
+
+In the course  of writing this assembler, we have  discovered that the UNIX
+implementation of ffddiivv, ffddiivvrr,  ffssuubb, and ffssuubbrr differs from that described
+in  the  Intel documents.   The  COHERENT assembler  conforms  to the  UNIX
+standard by default.  You should be very careful with the order of operands
+to these instructions.  Once again, _c_a_v_e_a_t _u_t_i_l_i_t_o_r.

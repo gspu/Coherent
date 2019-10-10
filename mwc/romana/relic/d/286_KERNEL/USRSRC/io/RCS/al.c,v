@@ -1,0 +1,1049 @@
+head     1.12;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.12
+date     92.02.14.10.12.27;  author bin;  state Exp;
+branches ;
+next     1.11;
+
+1.11
+date     92.01.13.08.55.26;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     91.12.20.14.32.20;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     91.12.10.08.01.11;  author hal;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     91.12.05.09.35.25;  author hal;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     91.12.02.19.22.00;  author hal;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     91.09.16.18.07.44;  author hal;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.08.15.15.12.30;  author hal;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.07.31.16.06.33;  author hal;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.02.22.16.05.43;  author root;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.02.21.11.21.28;  author hal;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.21.11.07.36;  author hal;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.12
+log
+@update by hal (post 321)
+@
+text
+@/* (-lgl
+ * 	COHERENT Device Driver Kit version 1.2.0
+ * 	Copyright (c) 1982, 1991 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ *
+ * $Log:	al.c,v $
+ * Revision 1.11  92/01/13  08:37:52  hal
+ * alclose() - decrement open count in alx.c
+ * 
+ * Revision 1.10  91/12/20  14:09:50  hal
+ * Don't use loopback during chip sense.
+ * 
+ * Revision 1.9  91/12/10  08:01:11  hal
+ * Set ALCNT automatically.
+ * Set interrupt vector before calling uart_sense().
+ * 
+ * Revision 1.8  91/12/05  09:35:25  hal
+ * Working 16550A code.  Nfg on GeeSee.
+ * 
+ * Revision 1.7  91/12/02  19:22:00  hal
+ * Last version before FIFO testing.
+ * 
+ -lgl) */
+/*
+ * Driver for an IBM PC asyncronous
+ * line, using interrupts. The interface
+ * uses a Natty/WD 8250 chip.
+ */
+
+#include <sys/coherent.h>
+#ifndef _I386
+#include <sys/i8086.h>
+#endif
+#include <sys/con.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/tty.h>
+#include <sys/uproc.h>
+#include <sys/clist.h>
+#include <sys/ins8250.h>
+#include <sys/sched.h>
+#include <sys/al.h>
+#include <sys/devices.h>
+
+#define	minor_st(dev)	(dev & 0x0f)	/* up to 16 ports per driver */
+#define	DEV_TTY		(alttab[minor_st(dev)])
+#define ALPORT		(((COM_DDP *)(DEV_TTY.t_ddp))->port)
+#define TESTBAUD	0x03A5
+
+/*
+ * This driver can be compiled to drive any possible
+ * async port by appropriate definitions of:
+ *	ALPORT[ab]	the io port address(es)
+ *	ALNUM[ab]	com index number (0..3 for com[1..4])
+ *	ALINT	the interrupt level
+ *	ALNAME	the xxcon name
+ *	ALMAJ	the major device number
+ *      ALCNT	number of ports sharing the interrupt
+ *
+ *	NOTE:	if ALCNT is changed, alttab and alintr will need hacking
+ * Common code for the different ports is handled by alx.c
+ */
+
+#ifdef ALCOM1			/* COM1_3 definitions */
+#define ALPORTa	0x3F8		/* Base of com1 port */
+#define ALPORTb	0x3E8		/* Base of com3 port */
+#define ALNUMa	0		/* com1 has com number of 0 */
+#define ALNUMb	2		/* com3 has com number of 2 */
+#define ALINT	4		/* Interrupt level of com1_3 ports */
+#define	ALNAME	a0con		/* CON name of com1_3 ports */
+#define ALMAJ	AL0_MAJOR	/* Major number of com1_3 port */
+#define ALCNT	A0CNT		/* Number of ports for this IRQ */
+#define ALSPEEDa C1BAUD		/* Name of patchable variable for com1 speed */
+#define ALSPEEDb C3BAUD		/* Name of patchable variable for com3 speed */
+#endif
+
+#ifdef ALCOM2			/* COM2_4 definitions */
+#define ALPORTa	0x2F8		/* Base of com2 port */
+#define ALPORTb	0x2E8		/* Base of com4 port */
+#define ALNUMa	1		/* com2 has com number of 1 */
+#define ALNUMb	3		/* com4 has com number of 3 */
+#define ALINT	3		/* Interrupt level of com2_4 ports */
+#define ALNAME	a1con		/* CON name of com2_4 ports */
+#define ALMAJ	AL1_MAJOR	/* Major number of com2_4 ports */
+#define ALCNT	A1CNT		/* Number of ports for this IRQ */
+#define ALSPEEDa C2BAUD		/* Name of patchable variable for com2 speed */
+#define ALSPEEDb C4BAUD		/* Name of patchable variable for com4 speed */
+#endif
+
+/*
+ * Functions.
+ */
+int	alxopen();
+int	alxclose();
+int	alxioctl();
+int	alxtimer();
+int	alxparam();
+int	alxcycle();
+int	alxstart();
+int	alxbreak();
+
+int	alintr();
+int	alopen();
+int	alclose();
+int	alread();
+int	alwrite();
+int	alioctl();
+int	alload();
+int	alunload();
+int	alpoll();
+int	nulldev();
+int	nonedev();
+static int uart_sense();
+
+/*
+ * Configuration table.
+ */
+CON ALNAME ={
+	DFCHR|DFPOL,			/* Flags */
+	ALMAJ,				/* Major index */
+	alopen,				/* Open */
+	alclose,			/* Close */
+	nulldev,			/* Block */
+	alread,				/* Read */
+	alwrite,			/* Write */
+	alioctl,			/* Ioctl */
+	nulldev,			/* Powerfail */
+	alxtimer,			/* Timeout */
+	alload,				/* Load */
+	alunload,			/* Unload */
+	alpoll				/* Poll */
+};
+
+/*
+ * Terminal structures.
+ */
+static COM_DDP	* ddp;
+static TTY	* alttab;
+static TTY	* irqtty;  /* point to alttab entry which is IRQ-enabled */
+
+/*
+ * to change default speeds - patch kernel variables C1BAUD..C4BAUD
+ *   new value should be one of B0..B9600 in /usr/include/sgtty.h
+ */
+int ALSPEEDa = B9600;
+int ALSPEEDb = B9600;
+
+/*
+ * to enable com[34], patch here
+ *	A0CNT should be 2 if you want com3, 1 otherwise
+ *	A1CNT should be 2 if you want com4, 1 otherwise
+ */
+int ALCNT = 2;
+
+static
+alload()
+{
+	register int s;
+	static int init;
+	extern int albaud[];
+	int port, i;
+	int usa, usb;
+
+	/*
+	 * Set interrupt vector early in case uart_sense() causes bogus irpts.
+	 */
+	setivec(ALINT, alintr);     /* set interrupt vector */
+	usa = uart_sense(ALPORTa);
+	usb = uart_sense(ALPORTb);
+	if (usa == US_NONE && usb == US_NONE) {
+		ALCNT = 0;
+	} else {
+		if (usb == US_NONE)
+			ALCNT = 1;
+		else
+			ALCNT = 2;
+	}
+	if (init == 0 && ALCNT
+	  && (alttab = (TTY *)kalloc(ALCNT * sizeof(TTY)))
+	  && (ddp = (COM_DDP *)kalloc(ALCNT * sizeof(COM_DDP)))) {
+		kclear(alttab, ALCNT*sizeof(TTY));
+		kclear(ddp, ALCNT*sizeof(COM_DDP));
+		++init;
+
+		s = sphi();
+		alttab[0].t_dispeed = alttab[0].t_dospeed = ALSPEEDa;
+		alttab[0].t_ddp = (char *)&ddp[0];
+		tp_table[ALNUMa] = alttab; /* set TTY pointers for polling */
+		ddp[0].port = ALPORTa;
+		ddp[0].com_num = ALNUMa;
+		com_usage[ALNUMa].uart_type = usa;
+
+		if (ALCNT > 1) {
+			alttab[1].t_dispeed = alttab[1].t_dospeed = ALSPEEDb;
+			alttab[1].t_ddp = (char *)&ddp[1];
+			tp_table[ALNUMb] = alttab+1;
+			ddp[1].port = ALPORTb;
+			ddp[1].com_num = ALNUMb;
+			com_usage[ALNUMb].uart_type = usb;
+		}
+
+		for (i = 0;  i < ALCNT; i++) {
+			int speed = alttab[i].t_dospeed;
+
+			/* port = base I/O address */
+			port = ((COM_DDP *)(alttab[i].t_ddp))->port;
+			outb(port+IER, 0);	/* disable port interrupts */
+			outb(port+MCR, 0);  /* hangup port */
+			outb(port+LCR, LC_DLAB);
+			outb(port+DLL, albaud[speed]);
+			outb(port+DLH, albaud[speed] >> 8);
+			outb(port+LCR, LC_CS8);
+			alttab[i].t_start = alxstart;
+			alttab[i].t_param = alxparam;
+			alttab[i].t_cs_sel= cs_sel();
+		}
+
+		spl(s);
+	} else {	/* Load failed - no ports or no RAM available! */
+		clrivec(ALINT);
+	}
+	return;	
+}
+
+static
+alunload()
+{
+	int port, i;
+
+	for (i = 0;  i < ALCNT; i++) {
+		port = ((COM_DDP *)(alttab[i].t_ddp))->port;
+		outb(port+IER, 0);	/* disable port interrupts */
+		outb(port+MCR, 0);	/* hangup port */
+		timeout(alttab[i].t_rawtim, 0, NULL, 0);/* cancel timer */
+	}
+	if (ALCNT) {
+		clrivec(ALINT);		/* release interrupt vector */
+		kfree(alttab);
+		kfree(ddp);
+	}
+}
+
+static
+alopen(dev, mode)
+dev_t	dev;
+int	mode;
+{
+	if (minor_st(dev) < ALCNT) {
+		alxopen(dev, mode, &DEV_TTY, &irqtty);
+	} else
+		u.u_error = ENXIO;
+}
+
+static
+alclose(dev, mode)
+dev_t	dev;
+int	mode;
+{
+	/*
+	 * The real work is in alx.c.
+	 */
+	alxclose(dev, mode, &DEV_TTY);
+}
+
+static
+alread(dev, iop)
+dev_t	dev;
+IO	*iop;
+{
+	ttread(&DEV_TTY, iop, 0);
+}
+
+static
+alwrite(dev, iop)
+dev_t	dev;
+register IO	*iop;
+{
+	register int c;
+
+	/*
+	 * Treat user writes through tty driver.
+	 */
+	if (iop->io_seg != IOSYS) {
+		ttwrite(&DEV_TTY, iop, 0);
+		return;
+	}
+
+	/*
+	 * Treat kernel writes by blocking on transmit buffer.
+	 */
+	while ((c = iogetc(iop)) >= 0) {
+		/*
+		 * Wait until transmit buffer is empty.
+		 * Check twice to prevent critical race with interrupt handler.
+		 */
+		for (;;) {
+			if (inb(ALPORT+LSR) & LS_TxRDY)
+				if (inb(ALPORT+LSR) & LS_TxRDY)
+					break;
+		}
+
+		/*
+		 * Output the next character.
+		 */
+		outb(ALPORT+DREG, c);
+	}
+}
+
+static
+alioctl(dev, com, vec)
+dev_t	dev;
+struct sgttyb *vec;
+{
+	alxioctl(dev, com, vec, &DEV_TTY);
+}
+
+static
+alpoll(dev, ev, msec)
+dev_t dev;
+int ev;
+int msec;
+{
+	return ttpoll(&DEV_TTY, ev, msec);
+}
+
+static
+alintr()
+{
+	alxintr(irqtty);
+}
+
+/*
+ * uart_sense()
+ *
+ * Given port address, return what type of 8250-family chip is found there.
+ *
+ * 0 - no chip
+ * 1 - 8250 or 8250B
+ * 2 - 8250A or 16450
+ * 3 - 16550
+ * 4 - 16550A
+ *
+ * Only the last of these has usable on-chip FIFO.
+ */
+static int uart_sense(port)
+int port;
+{
+	int ret;
+	unsigned ch;
+	short testbaud;
+
+	/*
+	 * See if UART is detected at port address.
+	 * UART should have IER = 0000 xxxx
+	 *                  MCR = 000x xxxx
+	 *                  IIR = xx00 xxxx
+	 * and should be write and read back the baud rate regs.
+	 */
+	if (inb(port+IER) & 0xF0
+	  || inb(port+MCR) & 0xE0
+	  || inb(port+IIR) & 0x30) {
+		ret = US_NONE;
+		goto done;
+	}
+	outb(port+LCR, LC_DLAB);
+	outb(port+DLL, TESTBAUD & 0xFF);
+	outb(port+DLH, TESTBAUD >> 8);
+	testbaud = inb(port+DLL) | inb(port+DLH) << 8;
+	outb(port+LCR, LC_CS8);
+	if (testbaud != TESTBAUD){
+		ret = US_NONE;
+		goto done;
+	}
+
+	/*
+	 * Scratch register NOT found on 8250/8250B.
+	 */
+	outb(port+SCR, 0x55);
+	ch = inb(port+SCR);
+	if (ch != 0x55) {
+		ret = US_8250;
+		goto done;
+	}
+
+	/*
+	 * After trying to turn on FIFO mode,
+	 * If IIR is 00xx xxxx, it's 8250A/16450 (no FIFO).
+	 * If IIR is 10xx xxxx, it's 16550 (broken FIFO).
+	 * If IIR is 11xx xxxx, it's 16550A (usable FIFO).
+	 */
+	outb(port+FCR, 0x01);
+	ch = inb(port+FCR);
+	switch (ch & 0xC0) {
+	case 0x00:
+		ret = US_16450;
+		break;
+	case 0x80:
+		ret = US_16550;
+		break;
+	case 0xC0:
+		ret = US_16550A;
+		break;
+	}
+	outb(port+FCR, 0x00);
+done:
+if (ret == US_NONE)
+	goto really_done;	
+switch(port){
+case 0x3F8:
+	printf("com1 ");
+	break;
+case 0x2F8:
+	printf("com2 ");
+	break;
+case 0x3E8:
+	printf("com3 ");
+	break;
+case 0x2E8:
+	printf("com4 ");
+	break;
+}
+printf("port %x: ", port);	
+switch (ret) {
+case US_NONE:
+	printf("no UART\n");
+	break;
+case US_8250:
+	printf("8250/8250B\n");
+	break;
+case US_16450:
+	printf("8250A/16450\n");
+	break;
+case US_16550:
+	printf("16550 - no FIFO\n");
+	break;
+case US_16550A:
+	printf("16550A - FIFO\n");
+	break;
+}
+really_done:
+	return ret;
+}
+@
+
+
+1.11
+log
+@Hal's latest fixes for 321 kernel.
+@
+text
+@d31 1
+d33 1
+@
+
+
+1.10
+log
+@changes by hal to correct problem with internal TB PC
+@
+text
+@d7 6
+d257 5
+a261 1
+	register int s;
+a262 7
+	if (--DEV_TTY.t_open == 0) {	/* Last open */
+		s = sphi();
+		alxclose(dev, mode, &DEV_TTY);
+		spl(s);
+	}
+}
+
+@
+
+
+1.9
+log
+@Set ALCNT automatically.
+Set interrupt vector before calling uart_sense().
+@
+text
+@d7 4
+d40 1
+d344 2
+a345 1
+	unsigned char mcr_save, ch;
+d347 10
+a356 4
+	mcr_save = inb(port+MCR);
+	outb(port+MCR, 0x0A | MC_LOOP);
+	ch = inb(port + MSR);
+	if ((ch & 0xF0) != 0x90) {
+d360 13
+d379 7
+a400 1
+	outb(port+MCR, mcr_save);
+@
+
+
+1.8
+log
+@Working 16550A code.  Nfg on GeeSee.
+@
+text
+@d7 3
+d151 4
+d159 5
+a163 1
+		goto end_load;
+d165 1
+a165 5
+	if (usb == US_NONE)
+		ALCNT = 1;
+	else
+		ALCNT = 2;
+	if (init == 0
+a169 1
+		s = sphi();
+d172 1
+a204 1
+		setivec(ALINT, alintr);     /* set interrupt vector */
+d206 2
+a208 1
+end_load:
+d223 5
+a227 3
+	clrivec(ALINT);			/* release interrupt vector */
+	kfree(alttab);
+	kfree(ddp);
+@
+
+
+1.7
+log
+@Last version before FIFO testing.
+@
+text
+@d6 4
+a9 1
+ * $Log$
+d146 1
+d148 11
+a158 1
+	if ( init == 0
+d171 1
+a171 1
+		com_usage[ALNUMa].uart_type = uart_sense(ALPORTa);
+d179 1
+a179 1
+			com_usage[ALNUMb].uart_type = uart_sense(ALPORTb);
+d182 1
+a182 1
+		for ( i = 0;  i < ALCNT; i++ ) {
+d188 5
+a192 7
+			if ( inb(port+IER) == 0 ) {
+				outb(port+MCR, 0);  /* hangup port */
+				outb(port+LCR, LC_DLAB);
+				outb(port+DLL, albaud[speed] );
+				outb(port+DLH, albaud[speed] >> 8 );
+				outb(port+LCR, LC_CS8 );
+			}
+d199 1
+a199 1
+		spl( s );
+d201 2
+d210 1
+a210 1
+	for ( i = 0;  i < ALCNT; i++ ) {
+d216 1
+a216 1
+	clrivec( ALINT );			/* release interrupt vector */
+d227 1
+a227 3
+		alload();
+		alxcycle( &DEV_TTY );
+		alxopen( dev, mode, &DEV_TTY, &irqtty);
+d241 1
+a241 1
+		alxclose( dev, mode, &DEV_TTY );
+d264 2
+a265 2
+	if ( iop->io_seg != IOSYS ) {
+		ttwrite( &DEV_TTY, iop, 0 );
+d272 1
+a272 1
+	while ( (c = iogetc(iop)) >= 0 ) {
+d278 2
+a279 2
+			if ( inb(ALPORT+LSR) & LS_TxRDY )
+				if ( inb(ALPORT+LSR) & LS_TxRDY )
+d286 1
+a286 1
+		outb( ALPORT+DREG, c );
+d299 1
+a299 1
+alpoll( dev, ev, msec )
+d304 1
+a304 1
+	return ttpoll( &DEV_TTY, ev, msec );
+a356 2
+	default:
+		ret = US_UNKNOWN;	
+d361 17
+a377 1
+printf("Port %x: ", port);	
+d383 1
+a383 1
+	printf("8250\n");
+d386 1
+a386 1
+	printf("16450\n");
+d389 1
+a389 1
+	printf("16550\n");
+a393 3
+case US_UNKNOWN:
+	printf("unknown\n");
+	break;
+d395 1
+@
+
+
+1.6
+log
+@Allow 16, not 64, ports per driver, in minor_st.
+@
+text
+@d5 2
+d13 1
+d94 1
+d157 1
+d165 1
+d300 74
+@
+
+
+1.5
+log
+@Drop 3rd arg from ttread/ttwrite.  Delete spaces.
+@
+text
+@d2 2
+a3 2
+ * 	COHERENT Driver Kit Version 1.1.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+a4 11
+ *
+ * $Log:	al.c,v $
+ * Revision 1.4  91/07/31  16:06:33  hal
+ * Change include usage.  Use AL[01]_MAJOR.
+ * 
+ * Revision 1.2	91/02/21  11:21:28	hal
+ * Used in COH Release 3.1.0 - add COM3/COM4 and polling
+ * 
+ * Revision 1.1	91/02/21  11:07:36	hal
+ * Used in COH Release 3.0.0 - no COM3/COM4
+ * 
+d24 1
+a24 1
+#define	minor_st(dev)	(dev & 0x3f)
+d140 1
+a140 1
+	if (init == 0
+d162 1
+a162 1
+		for (i = 0;  i < ALCNT; i++) {
+d168 1
+a168 1
+			if (inb(port+IER) == 0) {
+d171 3
+a173 3
+				outb(port+DLL, albaud[speed]);
+				outb(port+DLH, albaud[speed] >> 8);
+				outb(port+LCR, LC_CS8);
+d181 1
+a181 1
+		spl(s);
+d190 1
+a190 1
+	for (i = 0;  i < ALCNT; i++) {
+d196 1
+a196 1
+	clrivec(ALINT);			/* release interrupt vector */
+d208 2
+a209 2
+		alxcycle(&DEV_TTY);
+		alxopen(dev, mode, &DEV_TTY, &irqtty);
+d223 1
+a223 1
+		alxclose(dev, mode, &DEV_TTY);
+d233 1
+a233 1
+	ttread(&DEV_TTY, iop);
+d246 2
+a247 2
+	if (iop->io_seg != IOSYS) {
+		ttwrite(&DEV_TTY, iop);
+d254 1
+a254 1
+	while ((c = iogetc(iop)) >= 0) {
+d260 2
+a261 2
+			if (inb(ALPORT+LSR) & LS_TxRDY)
+				if (inb(ALPORT+LSR) & LS_TxRDY)
+d268 1
+a268 1
+		outb(ALPORT+DREG, c);
+d281 1
+a281 1
+alpoll(dev, ev, msec)
+d286 1
+a286 1
+	return ttpoll(&DEV_TTY, ev, msec);
+@
+
+
+1.4
+log
+@Change include usage.  Use AL[01]_MAJOR.
+@
+text
+@d6 4
+a9 1
+ * $Log:	/usr/src/sys/i8086/drv/RCS/al.c,v $
+d151 1
+a151 1
+	if ( init == 0
+d173 1
+a173 1
+		for ( i = 0;  i < ALCNT; i++ ) {
+d179 1
+a179 1
+			if ( inb(port+IER) == 0 ) {
+d182 3
+a184 3
+				outb(port+DLL, albaud[speed] );
+				outb(port+DLH, albaud[speed] >> 8 );
+				outb(port+LCR, LC_CS8 );
+d192 1
+a192 1
+		spl( s );
+d201 1
+a201 1
+	for ( i = 0;  i < ALCNT; i++ ) {
+d207 1
+a207 1
+	clrivec( ALINT );			/* release interrupt vector */
+d219 2
+a220 2
+		alxcycle( &DEV_TTY );
+		alxopen( dev, mode, &DEV_TTY, &irqtty);
+d234 1
+a234 1
+		alxclose( dev, mode, &DEV_TTY );
+d244 1
+a244 1
+	ttread(&DEV_TTY, iop, 0);
+d257 2
+a258 2
+	if ( iop->io_seg != IOSYS ) {
+		ttwrite( &DEV_TTY, iop, 0 );
+d265 1
+a265 1
+	while ( (c = iogetc(iop)) >= 0 ) {
+d271 2
+a272 2
+			if ( inb(ALPORT+LSR) & LS_TxRDY )
+				if ( inb(ALPORT+LSR) & LS_TxRDY )
+d279 1
+a279 1
+		outb( ALPORT+DREG, c );
+d292 1
+a292 1
+alpoll( dev, ev, msec )
+d297 1
+a297 1
+	return ttpoll( &DEV_TTY, ev, msec );
+@
+
+
+1.3
+log
+@alxintr():  add irq_mode argument;  use alx.c 1.5
+@
+text
+@d19 3
+a21 3
+#include <coherent.h>
+#include <i8086.h>
+#include <con.h>
+d23 8
+a30 7
+#include <stat.h>
+#include <tty.h>
+#include <uproc.h>
+#include <clist.h>
+#include <ins8250.h>
+#include <sched.h>
+#include <al.h>
+d57 1
+a57 1
+#define ALMAJ	5		/* Major number of com1_3 port */
+d70 1
+a70 1
+#define ALMAJ	6		/* Major number of com2_4 ports */
+d300 1
+a300 1
+	alxintr(irqtty, 1);
+@
+
+
+1.2
+log
+@Used in COH Release 3.1.0 - add COM3/COM4 and polling
+@
+text
+@d7 3
+d299 1
+a299 1
+	alxintr(irqtty);
+@
+
+
+1.1
+log
+@Used in COH Release 3.0.0 - no COM3/COM4
+@
+text
+@d1 4
+a4 8
+/* $Header: /usr/src/sys/i8086/drv/RCS/al.c,v 2.2 89/03/31 16:16:50 src Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+d6 4
+a9 4
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+a14 37
+ *
+ * $Log$
+ * Revision 2.2	89/03/31  16:16:50 	src
+ * Bug:	Did not cancel timed functions during an unload.  This could result
+ * 	in a system panic.
+ * Fix:	Now cancels timed functions during an unload. (ABC)
+ * 
+ * Revision 2.1	88/09/03  06:02:24 	src
+ * *** empty log message ***
+ * 
+ * Revision 1.1	88/03/24  17:04:07	src
+ * Initial revision
+ * 
+ * 88/01/23	Allan Cornish		/usr/src/sys/i8086/drv/al.c
+ * Unload function added to support loadable device drivers.
+ *
+ * 86/12/12	Allan Cornish		/usr/src/sys/i8086/drv/al.c
+ * Added 3rd argument to alpoll() to support non-blocking poll.
+ *
+ * 86/11/24	Allan Cornish		/usr/src/sys/i8086/drv/al.c
+ * The new tty struct raw input and output buffers are now used.
+ * Moved alstart() to alx.c/alxstart().
+ * Replaced altime() by alxcycle().
+ *
+ * 86/11/19	Allan Cornish		/usr/src/sys/i8086/drv/al.c
+ * Added support for non-blocking read/write, and System V.3 compatible polls.
+ * alintr() now uses defer() rather than timeout() to delay call to altime().
+ * Increased raw input buffer size from 48 to 64 bytes.
+ *
+ * 86/07/27	Allan Cornish		/usr/src/sys/i8086/drv/al.c
+ * Made alload() disable interrupts, and verify hardware existence.
+ * Revised to use ins8250.h header file rather than wd8250.h.
+ *
+ * 85/06/27	Allan Cornish		/usr/src/sys/i8086/drv/al.c
+ * Made alintr() recognize received XOFF characters immediately,
+ * rather than deferring recognization through timeout() to altime().
+ * This is necessary to avoid input buffer overflow in some printers.
+d26 1
+d28 4
+d35 2
+a36 1
+ *	ALPORT	the io port address
+d40 3
+d46 11
+a56 5
+#ifdef ALCOM1		/* COM1 definitions */
+#define ALPORT	0x3F8		/* Base of com1 port */
+#define ALINT	4		/* Interrupt level of com1 port */
+#define	ALNAME	a0con		/* CON name of com1 port */
+#define ALMAJ	5		/* Major number of com1 port */
+d59 11
+a69 5
+#ifdef ALCOM2		/* COM2 definitions */
+#define ALPORT	0x2F8		/* Base of com2 port */
+#define ALINT	3		/* Interrupt level of com2 port */
+#define ALNAME	a1con		/* CON name of com2 port */
+#define ALMAJ	6		/* Major number of com2 port */
+a71 7
+#ifdef ALCOM3		/* COM3 definitions */
+#define ALPORT	0x2F0		/* Base of com3 port */
+#define ALINT	2		/* Interrupt level of com3 port */
+#define ALNAME	a2con		/* CON name of com3 port */
+#define ALMAJ	3		/* Major number of com3 port */
+#endif
+
+d116 1
+a116 1
+ * Terminal structure.
+d118 3
+a120 1
+static TTY	altty = { {0}, {0}, ALPORT, alxstart, alxparam, B9600, B9600 };
+d122 14
+d142 1
+d144 6
+a149 3
+	s = sphi();
+	if ( init == 0 ) {
+		outb(ALPORT+IER, 0);	    /* disable port interrupts */
+d151 13
+a163 7
+		if ( inb(ALPORT+IER) == 0 ) {
+			outb(ALPORT+MCR, MC_OUT2);  /* hangup port */
+			outb(ALPORT+LCR, LC_DLAB);
+			outb(ALPORT+DLL, albaud[B9600] );
+			outb(ALPORT+DLH, albaud[B9600] >> 8 );
+			outb(ALPORT+LCR, LC_CS8 );
+			setivec(ALINT, alintr);     /* set interrupt vector */
+d165 21
+a186 1
+	spl( s );
+d192 8
+d201 2
+a202 3
+	outb(ALPORT+IER, 0);			/* disable port interrupts */
+	outb(ALPORT+MCR, MC_OUT2);		/* hangup port */
+	timeout( &altty.t_rawtim, 0, NULL, 0 );	/* cancel cyclic timer */
+d210 6
+a215 3
+	alload();
+	alxcycle( &altty );
+	alxopen( dev, mode, &altty );
+d225 1
+a225 1
+	if (--altty.t_open == 0) {	/* Last open */
+d227 1
+a227 1
+		alxclose( dev, mode, &altty );
+d237 1
+a237 1
+	ttread(&altty, iop, 0);
+d251 1
+a251 1
+		ttwrite( &altty, iop, 0 );
+a258 1
+
+d281 1
+a281 1
+	alxioctl(dev, com, vec, &altty);
+d290 1
+a290 1
+	return ttpoll( &altty, ev, msec );
+d296 1
+a296 1
+	alxintr( &altty );
+@

@@ -1,0 +1,805 @@
+.TH libmisc "" "" "Library"
+.PC "Library of miscellaneous functions"
+.PP
+.II "library^miscellaneous functions"
+.B libmisc
+is a library of miscellaneous C functions.
+These functions perform such useful tasks as
+handling such programming tasks as allocation of memory,
+copying strings, displaying variables from C with COBOL-like
+``picture'' descriptions, and supporting virtual arrays via
+secondary storage.
+.PP
+Source code for
+.B libmisc
+is kept in the compressed
+.B tar
+archive
+.BR /usr/src/misc.tar.Z .
+To extract the files into a new subdirectory called
+.BR misc ,
+type the command:
+.DM
+	zcat /usr/src/misc.tar.Z | tar xvf -
+.DE
+.PP
+To build the library, type the following:
+.DM
+	cd misc
+	make
+.DE
+.PP
+This compiles the
+.B libmisc
+routines and builds the library
+.BR libmisc.a .
+.PP
+Archive
+.B misc.tar
+also includes the header file
+.B misc.h ,
+which protypes these functions, and declares the
+global variables and constants they use.
+You must include this header file in any program that uses any of the
+.B libmisc
+functions.
+.SH Functions
+The following summarizes the functions in
+.BR libmisc.a :
+.IP "\fBchar * alloc(\fIn\^\fB) unsigned \fIn\^\fB;\fR"
+.II alloc()
+.B malloc()
+.I n
+bytes and initialize them to zero.
+Abort on failure.
+.II approx()
+.IP "\fBint approx(\fIa\^\fB, \fIb\^\fB) double \fIa\^\fB, \fIb\^\fB;\fR"
+If
+.I a
+and
+.I b
+are within epsilon,
+return one; otherwise, return zero.
+epsilon is a visable
+.BR double .
+.IP "\fBchar *ask(\fIreply\^\fB, \fImsg\^\fB, ...) char *\fIreply\^\fB, *\fImsg\^\fB;\fR"
+.II ask()
+Print a message and retrieve the user's reply.
+.I msg
+is a
+.BR printf() -style
+format string that formats the text pointed to by any trailing arguments.
+.B ask()
+constructs the prompt message from
+.I msg
+and prints it on the standard output; then
+reads a line from stdin, stores it in the place pointed to by
+.IR reply ,
+and returns its address.
+.I reply
+must point to enough space to hold the user's reply.
+.IP
+For example,
+.DM
+	sscanf(ask(buff, "%d numbers", 3), &a, &b, &c);
+.DE
+.IP
+prints the message
+.DM
+	Enter: 3 numbers
+.DE
+.sp \n(pDu
+writes the user's reply into
+.BR buff ,
+and hands its address to
+.BR sscanf() .
+.IP "\fBvoid banner(\fIword\^\fB, \fIpad\^\fB) char *\fIword\^\fB; int \fIpad\^\fB;\fR"
+.II banner()
+Print
+.I word
+on stdout as a banner, preceded by
+.I pad
+spaces.
+Each letter of the banner is fashioned from many occurrences of itself.
+This is especially useful if you wish your listings to look like truly
+professional, mainframe printouts.
+.IP "\fBbedaemon()\fR"
+.II bedaemon()
+.II daemon^definition
+.B bedaemon()
+turns the calling program into a daemon.
+A
+.I daemon
+is a process that executes in the background, without the usual
+connections to standard I/O streams and terminals.
+Examples are
+.B cron
+and
+.BR uuxqt .
+To ensure proper operation in connection with other system
+software, any program that you intend to run as a daemon should call
+.B bedaemon()
+as its first step.
+This call closes all inherited, open-file descriptors,
+detaches the process from its inherited process group and controlling terminal,
+sets current directory to `/', and sets
+.B umask
+to zero.
+For further information on daemon processes, see
+\fIUnix Network
+Programming\fR by W. Richard Stevens (Englewood Cliffs, NJ, Prentice-Hall Inc,
+1990), \(sc2.6.
+.IP "\fBunsigned short crc16(\fIp\^\fB) char *\fIp\^\fB;\fR"
+.II crc16()
+Compute the 16-bit cyclic redundency check (crc16)
+of the string pointed to by
+.IR p ,
+and return it.
+This function is very useful for building hash tables or checking differences
+between strings.
+.IP "\fBvoid fatal(\fImsg\^\fB, ...) char *\fImsg\^\fB;\fR"
+.II fatal()
+Print an error message and call
+.BR exit(1) .
+.I msg
+is a
+.BR printf() -style
+format string; trailing arguments must to point to data.
+.IP "\fBchar *getline(\fIifp\^\fB, \fIlineno\^\fB) FILE *\fIifp\^\fB; int *\fIlineno\^\fB;\fR"
+.II getline()
+Get a line from the input file pointed to by
+.IR ifp .
+This function returns the address of the line,
+or NULL to indicate the end of file.
+.B getline()
+calls
+.B malloc()
+to acquire space for the line, and allows lines to be continued with
+a \e-whitespace.
+It also implements
+.BR lineno .
+.IP
+.B getline()
+recognizes the following escape sequences:
+.DS
+	\fB#\fR	to end of line is passed
+	\fB\e\fP	whitespace through end of line is passed
+	\fB\en\fR	newline
+	\fB\ep\fR	literal `#'
+	\fB\ea\fR	alarm
+	\fB\eb\fR	backspace
+	\fB\er\fR	carrage return
+	\fB\ef\fR	form feed
+	\fB\et\fR	tab
+	\fB\e\e\fR	backslash
+	\fB\e\fIddd\fR	octal number
+.DE
+.IP
+All other \e sequences are errors that
+.B getline()
+reports on stderr.
+.II "Julian date"
+.II jday_to_tm()
+.IP "\fBtm_t *jday_to_tm(\fIjd\^\fB) jday_t \fIjd\^\fB;\fR"
+Turn a Julian date to \fBtm\fR (time) structure.
+The Julian date is the number of days since the beginning of the Julian
+calendar, January 1, 4713 B.C.; it is a good way to store dates in a
+system-independent manner, such as in a data base.
+Structure \fBjday_t\fR is defined in \fBmisc.h\fR.
+Structure
+.B tm
+is defined in
+.BR <time.h> .
+.II jday_to_time()
+.IP "\fBtime_t jday_to_time(\fIjd\^\fB) jday_t \fIjd\^\fB;\fR"
+Turn Julian date structure to \*(CO time.
+Type
+.B time_t
+is defined in header file
+.BR <sys/types.h> .
+.IP "\fBvoid splitter(\fIofp\^\fB, \fIline\^\fB, \fIlimit\^\fB) FILE *\fIofp\^\fB; char *\fIline\^\fB; int \fIlimit\^\fB;\fR"
+.II splitter()
+Write
+.I line
+into file
+.IR ofp ,
+splitting it into chunks less than
+.I limit
+bytes long.
+.B splitter()
+inserts a \e between chunks, and attempts to do this
+on white-space boundaries.
+.B splitter()
+produces a long line rather than split on non-whitespace.
+If
+.I line
+does not end in a newline,
+.B splitter()
+adds one.
+This is the inverse of
+.BR getline() .
+.IP "\fBint is_fs(\fIspecial\^\fB) char *\fIspecial\^\fB;\fR"
+.II is_fs()
+Check whether
+.I special
+names a well-formed file system.
+Users should never put file systems on
+.BR /dev/ram1 ,
+but for multi-system software, like
+.BR compress ,
+it is smart to test.
+.IP
+.B is_fs()
+returns \-1 if
+.I special
+is not a device, or if
+.BR open() ,
+.BR read() ,
+or
+.B seek()
+fails.
+It returns zero if no file system was found, or one if
+.I special
+names a legal file system.
+.IP "\fBchar *lcase(\fIst\^\fB) char *\fIstr\^\fB;\fR"
+.II lcase()
+Convert every character in
+.I str
+to lower case.
+Note that this works only with the U.S. dialect of English;
+it does not work with German or other languages that use characters in the
+upper half of the ASCII table.
+.IP "\fBchar *match(\fIstring\^\fB, \fIpattern\^\fB, \fIfin\^\fB) char *\fIstring\^\fB, *\fIpattern\^\fB, **\fIfin\^\fB;\fR"
+.II match()
+.B match()
+resembles
+.BR pnmatch() ,
+except that it returns the address of the pattern matched.
+.I fin
+is aimed past the end of the pattern found; that is,
+.B match()
+finds a pattern and tells you where it is.
+.IP "\fBchar *metaphone(\fIword\^\fB) char *\fIword\^\fB;\fR"
+.II metaphone()
+.II soundex
+.II "Knuth, Donald"
+Translate
+.I word
+into a short phonetic equivalent for easy lookup.
+It resembles Knuth's
+.B soundex
+method, except that it uses a superior algorithm.
+.IP "\fBchar *newcpy(\fIstr\^\fB) char *\fIstr\^\fB;\fR"
+.II newcpy()
+Create a NUL-terminated copy of
+.I str
+and return its address.
+Call
+.B fatal()
+if there is no space.
+.IP "\fBchar *pathn(\fIname\^\fB, \fIenvpath\^\fB, \fIdeflpath\^\fB, \fIaccess\^\fB)\fR"
+.IS "\fBchar *\fIname\^\fB, *\fIenvpath\^\fB, *\fIdeflpath\^\fB, *\fIaccess\^\fB;\fR"
+.II pathn()
+.B pathn()
+looks for file
+.IR name .
+It searches the directories named in the environmental variable
+.IR envpath .
+If the user has not set
+.IR envpath ,
+or if it is NULL,
+.B pathn()
+searches the default path
+.IR deflpath .
+.I name
+must have
+.I access
+permission.
+.B pathn()
+returns the full path to the file found.
+.II LIBPATH
+For example:
+.DM
+	pathn("helpfile", "LIBPATH", "/lib", "r")
+.DE
+.IP
+searches the directories named in
+.B LIBPATH
+for file
+.BR helpfile ,
+for which the user must have read permission.
+If
+.B LIBPATH
+is not set,
+.B pathn()
+searches
+.B /lib
+for
+.BR helpfile .
+.IP "\fB#include <regexp.h>\fR"
+.II regexp()
+.IS "\fBregexp *regcomp(\fIexp\^\fB)\fR \fBchar *\fIexp\^\fB;\fR"
+.II regexec()
+.IS "\fBint regexec(\fIprog\^\fB, \fIstring\^\fB) regexp *\^\fBprog\^\fB; char *\fIstring\^\fB;\fR"
+.II regsub()
+.IS "\fBregsub(\fIprog\^\fB, \fIsource\^\fB, \fIdest\^\fB) regexp *\fIprog\^\fB; char *\fIsource\^\fB; char *\fIdest\^\fB;\fR"
+.II regerror()
+.IS "\fBregerror(\fImsg\^\fB) char *\fImsg\^\fB;\fR"
+.II regexp.h
+.II "regular expression"
+.II pattern
+These functions implement a standard method for parsing regular expressions.
+.B regcomp()
+turns a regular expression into a structure of type
+.B regexp
+and returns a pointer to it.
+.B regexec()
+matches
+.I string
+against the regular expression in \fIprog\fR.
+It returns one if
+.I string
+matches
+.IR exp ,
+and zero if it does not.
+.B regsub()
+copies \fIsource\fR to \fIdest\fR, and makes substitutions according to the
+most recent \fBregexec()\fR performed using \fIprog\fR.
+.B regerror()
+is called whenever an error is detected in \fBregcomp()\fR, \fBregexec()\fR,
+or
+.BR regsub() .
+See
+.B regexp.doc
+for details.
+.IP "\fBlong randl()\fR"
+.II randl()
+Return a long random number uniformly distributed between
+1 and 2,147,483,562.
+This comes from
+.IR "Communications of the ACM" ,
+volume 31, number 6.
+See
+.BR srandl() ,
+below.
+.IP "\fBchar *replace(\fIs1\^\fB, \fIpat\^\fB, \fIs3\^\fB, \fIall\^\fB, \fImatcher\^\fB) char *\fIs1\^\fB, *\fIpat\^\fB, *\fIs3\^\fB, (\fImatcher\^\fB)();\fR"
+.II replace()
+Replace one or all occurrences of
+.I pat
+in string
+.I s1
+by
+.IR s3 ,
+and return the result.
+The definition of match is set by
+.IR matcher .
+This calls the user-defined function
+.DS
+	\fBmatcher(\fIsw\^\fB, \fIpat\^\fB, &\fIfin\^\fB).\fR
+.DE
+.IP
+The
+.I matcher
+must return the address of the pattern match and
+its end in \fB&\fIfin\fB.\fR
+.B match()
+is a valid example of
+.IR matcher .
+It replaces the first occurrence, or all occurrences of the
+pattern, and returns the new pattern.
+The new pattern has been \fBalloc()\fR'd.
+.IP "\fBshowflag(\fIdata\^\fB, \fIflags\^\fB, \fIoutput\^\fB) long \fIdata\^\fB; char *\fIflags\^\fB, *\fIoutput\^\fB;\fR"
+.II showflag()
+Turn the bits in
+.I data
+to the flags in
+.I flags
+or `-' in the string
+.IR output ,
+which must be as long as
+.IR flags .
+.IP "\fBchar *skip(\fIs1\^\fB, \fImatcher\^\fB, \fIfin\^\fB) char *\fIs1\^\fB, **\fIfin\^\fB; int (*\fImatcher\^\fB)();\fR"
+.II skip()
+Skip all initial characters in string
+.I s1
+that fail when examined
+.IR matcher .
+.I matcher
+is usually a character function, e.g.,
+.BR isdigit() .
+It returns the first character skipped.
+.B skip()
+points
+.I fin
+at the character after the skip.
+.IP "\fBchar *span(\fIs1\^\fB, \fImatcher\^\fB, \fIfin\^\fB) char *\fIs1\^\fB, **\fIfin\^\fB; int (*\fImatcher\^\fB)();\fR"
+.II span()
+Span all initial characters in string
+.I s1
+that match when examined by
+.IR matcher .
+.I matcher
+is usually a character function, e.g.,
+.BR isdigit() .
+It returns the first character spanned.
+.B span()
+points
+.I fin
+at the character after the span.
+.IP "\fBsrandl(\fIseed1\^\fB, \fIseed2\^\fB) long \fIseed1\^\fB, \fIseed2\^\fB;\fR"
+.II srandl()
+.B randl()
+needs two seeds;
+.B srandl()
+sets them.
+Use it only if you need to repeat a random-number sequence.
+.IP "\fBstrchtr(\fIfrom\^\fB, \fIto\^\fB, \fIc\^\fB, \fIdef\^\fB)\fR"
+.IS "\fBchar *\fIfrom\^\fB, *\fIto\^\fB; int \fIc\^\fB, \fIdef\^\fB;\fR"
+.II strchtr()
+Look up the character
+.I c
+in the string
+.IR from .
+Return the corresponding character in the string
+.I to
+if it is found; otherwise, return the default character
+.IR def .
+.IP
+For example, consider the call:
+.DM
+	strchtr("ab", "xy", c, d);
+.DE
+.IP
+If variable
+.I c
+equals `a', then
+.B strchtr()
+returns `x'; if
+.I c
+equals `b', then it returns `y'; otherwise, it returns the value of
+.I d .
+.IP "\fBstrcmpl(\fIs1\^\fB, \fIs2\^\fB)\fR
+.II strcmpl()
+Case-insensitive string comparison.
+Resembles
+.BR strcmp() .
+.IP "\fBjday_t time_to_jday(\fItime\^\fB) time_t \fItime\^\fB;\fR"
+.II time_to_jday()
+Turn \*(CO time to Julian date structure.
+The Julian date is the number of days since the beginning of the Julian
+calendar, January 1, 4713 B.C.
+The structure \fBjday_t\fR is defined in \fBmisc.h\fR.
+Type
+.B time_t
+is defined in
+.BR <sys/types.h> .
+.IP "\fBjday_t tm_to_jday(\fItm\^\fB) tm_t *\fItm\^\fB;\fR"
+.II tm_to_jday()
+Turn the time structure \fBtm\fR date into Julian date structure.
+Structure
+.B tm
+is defined in
+.BR <time.h> .
+.IP "\fBchar *trim(\fIs\^\fB) char *\fIs\^\fB;\fR"
+.II trim()
+Remove trailing whitespace from string
+.IR s .
+.IP "\fBucase(\fIs\^\fB) char *\fIs\^\fB;\fR"
+.II ucase()
+Convert a string to upper case.
+.IP "\fBusage(\fIs\^\fB) char *\fIs\^\fB;\fR"
+.II usage()
+Print string
+.I s
+and call
+.BR exit(1) .
+.IP "\fBxdump(\fIp\^\fB, \fIlength\^\fB) char *\fIp\^\fB;\fR"
+.II xdump()
+Print on stdout a vertical hexadecimal dump of string
+.IR p .
+.IP
+A vertical hexadecimal dump prints as three lines.
+The top line is the display character, or `.' if the character cannot
+be displayed cleanly.
+The next two lines are the hexadecimal numerals.
+The data are blocked into groups of four bytes.
+.IP "\fBxopen(\fIfilename\^\fB, \fIacs\^\fB) char *\fIfilename\^\fB, *\fIacs\^\fB;\fR"
+.II xopen()
+Like
+.BR fopen() ,
+but call
+.B fatal()
+if the open fails.
+.IP "\fByn(\fIquestion\^\fB, ...) char *\fIquestion\^\fB;\fR"
+.II yn()
+Ask a question and retrieve a `Y' or `N' answer.
+.I question
+is a
+.BR printf() -style
+format string; any trailing parameters should point to data used in
+.IR question .
+.B yn()
+returns one if the user answers `Y' or `y', and returns zero if she
+answers `N' or `n'.
+.SH "Virtual Memory"
+The following functions are part of a virtual memory system for \*(CO 286.
+Occasionally, users port programs like
+.B compress
+to \*(CO 286 that use a small number of very large arrays.
+Because \*(CO 286 is a SMALL-model operating system,
+special provision must be made for arrays too large to fit into a
+64-kilobyte data segment.
+The following functions enable programs that are to be run under \*(CO 286
+use very large arrays:
+.IP "\fBvoid vinit(\fIfilename\^\fB, \fIram\^\fB) char *\fIfilename\^\fB; unsigned \fIram\^\fB;\fR"
+.II vinit()
+Initialize the virtual-memory system, using
+.I filename
+for work.
+.I filename
+may be a raw device, such as
+.IR /dev/rram1 .
+.I ram
+is the amount of buffer space to give the system \(em the more, the better.
+.IP "\fBvoid vshutdown()\fR"
+.II vshutdown()
+Shut the virtual-memory system, and make it restartable.
+.IP "\fBunsigned vopen(\fIamt\^\fB) unsigned long \fIamt\^\fB;\fR"
+.II vopen()
+Set up a virtual-memory object.
+For example,
+if you want to emulate having a 100,000-byte array and a 50,000-byte array,
+use the call
+.DM
+	vid1 = vopen(100000L); vid2 = vopen(50000L);
+.DE
+.IP
+This does some checking and tells the system that any reference to
+.I vid2
+will be between 100,000 and 150,000 in the virtual file.
+.IP "\fBchar *vfind(\fIvid\^\fB, \fIdisp\^\fB, \fIdirty\^\fB)\fR"
+.IS "\fBunsigned \fIvid\^\fB, \fIdirty\^\fB; unsigned long \fIdisp\^\fB;\fR"
+.II vfind()
+Find a character in the virtual system,
+mark the block's dirty bit if the access is to write.
+Given the example in
+.BR vopen() ,
+if you want to find the 1,000th byte in
+.IR vdi1 ,
+use the call:
+.DM
+	c = *(vfind(vdi1, 1000L, 0));
+.DE
+.IP
+To change the 2000th byte in
+.I vid2 to
+.BR d ,
+use the call
+.DM
+	*(vfind(vid2, 2000L, 1)) = d;
+.DE
+.IP
+Note that the dirty indicator tells the system of the change so
+that the block will be written back before it is read over.
+Blocks are 512 bytes long, so
+.BR int 's
+or
+.BR long 's
+can be read or written without multiple accesses to
+.BR vfind() .
+.SH "File Locking"
+.B libmisc
+holds a number of routines with which you can lock and unlock files and
+devices.
+It is adapted from the mechanism used by the \*(CO implementation of \*(UU.
+.PP
+.II "LCK files"
+.II "lock files"
+Lock files are created in
+.BR $SPOOLDIR .
+A lock file is given the name \fBLCK..\fIresource\fR.
+It contains a decimal representation of the process identifier (pid) of
+the process that created the lock.
+.PP
+You can provide an alternate pid by using one of the `n'
+routines \(em i.e.,
+.BR locknrm() ,
+.BR lockntty() ,
+and
+.BR unlockntty() .
+The unlocking routines regard a pid of zero as an override \(em they
+remove the lock regardless of which process created the lock.
+.PP
+For a tty device,
+.I resource
+is a string that consists of a
+decimal representation of its major number, a decimal point,
+and the lower five bits of its minor number.
+.PP
+Each routine takes a string that names the resource to lock or unlock.
+The ``tty'' routines (i.e.,
+.BR lockntty() ,
+.BR locktty() ,
+.BR unlockntty() ,
+and
+.BR unlocktty() )
+want the base name of the tty to be locked
+(without the
+.B /dev/
+part).
+.PP
+Every lock routine returns zero on failure and one on success.
+.IP "\fBlockit(\fIresource\^\fB)\fR char *\fIresource\^\fB;\fR"
+.II lockit()
+Use a resource string to lock a tty.
+.IP "\fBlockexist(\fIresource\^\fB)\fR char *\fIresource\^\fB;\fR"
+.II lockexist()
+Check whether a lock file exists for the tty with \fIresource\fR.
+.IP "\fBlocknrm(\fIresource\^\fB, \fIpid\^\fB) char *\fIresource\^\fB; int \fIpid\^\fB;\fR"
+.II locknrm()
+Remove a lock file for a tty owned by process \fIpid\fR.
+.IP "\fBlockntty(\fItty\^\fB, \fIpid\^\fB) char *\fItty\^\fB; int \fIpid\^\fB;\fR"
+.II lockntty()
+Lock a tty for process \fIpid\fR.
+.IP "\fBlockrm(\fIresource\^\fB)\fR char *\fIresource\^\fB;\fR"
+.II lockrm()
+Remove a lock file for tty with \fIresource\fR.
+.IP "\fBlocktty(\fItty\^\fB) char *\fItty\^\fB;\fR"
+.II locktty()
+Lock a tty.
+.IP "\fBlockttyexist(\fItty\^\fB) char *\fItty\^\fB;\fR"
+.II lockttyexist()
+Check whether a given tty is locked.
+.IP "\fBunlockntty(\fItty\^\fB, \fIpid\^\fB) char *\fItty\^\fB; int \fIpid\^\fB;\fR"
+.II unlockntty()
+Unlock a tty for process \fIpid\fR.
+Unlocking always succeeds.
+.IP "\fBunlocktty(\fItty\^\fB) char *\fItty\^\fB;\fR"
+.II unlocktty()
+Unlock a tty that the current process owns.
+.IP "\fBunlockit(\fIresource\^\fB, \fIpid\^\fB) char *\fIresource\^\fB; int \fIpid\^\fB;\fR"
+.II unlockit()
+Unlock something for process \fIpid\fR.
+.SH "Templates and Pictures"
+.II picture()
+.B libmisc
+includes a function,
+.BR picture() ,
+for formatting numeric strings.
+It has the following syntax:
+.DS
+	\fBdouble picture(\fIdble\^\fB, \fIformat\^\fB, \fIoutput\^\fB)\fR
+	\fBdouble \fIdble\^\fB; char *\fIformat\^\fB, *\fIoutput\^\fB;\fR
+.DE
+.PP
+.B picture()
+performs numeric formatting under C.
+It resembles masking functions built into COBOL and BASIC,
+but is superior to either.
+.I dble
+gives the number to format;
+.I format
+gives the format mask; and
+.I output
+points to the area into which the formatted number is written.
+.I output
+must be at least as large as
+.IR format .
+If
+.I dble
+overflows the picture,
+.B picture()
+returns the overflow.
+.PP
+The following summarizes the values that can appear in the
+.I format
+string.
+Note that throughout, the symbol
+.B <sp>
+indicates a space character, not the literal string ``<sp>''.
+.IP \fB9\fR 0.3i
+Provide a slot for a number.
+Passing 5.000 through a mask of
+.B "999 CR"
+gives ``005''.
+Passing \-5.000 through a mask of
+.B "999 CR"
+yields ``005 CR''.
+Note that
+.B picture()
+does not recognize the characters `C' and `R'
+as being special.
+Trailing non-special characters print only if the number is negative.
+.IP \fBZ\fR
+Provide a slot for a number, but suppress leading zeroes.
+For example,
+passing 1034.000 through a mask of
+.B ZZZ,ZZZ
+gives ``<sp><sp>1,034''.
+Note that
+.B picture()
+does not recognize a comma as being a special character.
+.B picture()
+prints embedded non-special characters
+only if they are preceeded by significant digits.
+.IP \fBJ\fR
+Provide a slot for a number, but shrink out leading zeros.
+For example, passing 1034.000 through a mask of
+.B JJJ,JJJ
+yields ``1,034''.
+.IP \fBK\fR
+Provide a slot for a number, but shrink out any zeros.
+For example, passing
+70884.000 through a mask of
+.B K9/K9/K9
+yields ``7/8/84''.
+.IP \fB$\fR
+Float a dollar sign to the left of the displayed number.
+For example, passing
+105.000 through a mask of
+.B $ZZZ,ZZZ
+yields ``<sp><sp><sp><sp>$105''.
+.IP \fB.\fR
+Separate the number between decimal and integer portions.
+For example, passing 105.670 through a mask of
+.B Z,ZZZ.999
+yields ``<sp><sp>105.670''.
+.IP \fBT\fR
+Provide a slot for a number, but suppress trailing zeroes.
+For example, passing 105.670 through a mask of
+.B Z,ZZ9.9TT
+yields ``<sp><sp>105.67<sp>''.
+.IP \fBS\fR
+Provide a slot for a number, but shrink out trailing zeroes.
+For example, passing 105.670 through a mask of
+.B Z,ZZ9.9SS
+yields ``<sp><sp>105.67''.
+.IP \fB\-\fR
+Float a negative sign in front of negitive numbers.
+For example, passing 105.000 through a mask of \fB\-Z,ZZZ\fR
+yields ``<sp><sp><sp<105'', whereas passing \-105.000 through a mask of
+\fB\-Z,ZZZ\fR yields ``<sp><sp>\-105''.
+.IP \fB(\fR
+Acts like \fB\-\fR, but prints a parenthesis.
+For example, passing 105.000 through a mask of \fB(ZZZ)\fR
+yields ``<sp>105<sp>'', whereas passing \-5.000
+through a mask of \fB(ZZZ)\fR yields ``<sp><sp>(5)''.
+.IP \fB+\fR
+Float a \fB+\fR or \fB\-\fR
+in front of the number, depending on its sign.
+For example, pasing 5.000 through a mask of \fB+ZZZ\fR
+yields ``<sp><sp>+5'', whereas passing \-5.000
+through a mask of \fB+ZZZ\fR
+yields ``<sp><sp>\-5''.
+.IP \fB*\fR
+Fill all spaces to right with asterisks.
+For example, passing
+104.100 through a mask of \fB*ZZZ,ZZZ.99\fR
+yields ``*****104.10''; whereas passing
+104.100 through a mask of \fB*$ZZZ,ZZZ.99\fR
+yields ``*****$104.10''.
+.RE
+.B picture()
+returns any overflow as a
+.BR double .
+For example, passing \-1234.000 through a mask of \fB(ZZZ)\fR
+yields ``(234)'' with an overflow of \-1.0; passing
+123.400 through a mask of
+.B 99
+yields ``23'' with an overflow of 1.0; and passing
+1200.000 through a mask of
+.B ZZ
+yields ``00'' with an overflow of 12.0.
+.SH Files
+\fB/usr/src/misc.tar.Z\fR \(em Compressed \fBtar\fR archive of sources
+.SH "See Also"
+.Xr "libraries," libraries
+.Xr "tar," tar
+.Xr "zcat" zcat
+.SH Notes
+The
+.B misc
+library is provided on an
+.I as-is
+basis only.
+.I "Caveat utilitor!"

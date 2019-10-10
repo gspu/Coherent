@@ -1,0 +1,996 @@
+head     2.0;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.0;
+comment  @ * @;
+
+
+2.0
+date     93.07.16.20.07.17;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+2.0
+log
+@*** empty log message ***
+@
+text
+@#define	_DDI_DKI	1
+#define	_SYSV4		1
+
+
+/*
+ * Functions related to device polling support in the DDI/DKI.
+ */
+/*
+ *-IMPORTS:
+ *	<common/ccompat.h>
+ *		__USE_PROTO__
+ *		__ARGS ()
+ *	<kernel/ddi_cpu.h>
+ *		ddi_cpu_data ()
+ *	<kernel/ddi_glob.h>
+ *		ddi_global_data ()
+ *	<kernel/ddi_lock.h>
+ *		pollglob_hierarchy
+ *		pollglob_priority
+ *		pollhead_hierarchy
+ *		pollhead_priority
+ *		pollwait_hierarchy
+ *		pollwait_priority
+ *	<sys/debug.h>
+ *		ASSERT ()
+ *	<sys/kmem.h>
+ *		KM_SLEEP
+ *		kmem_alloc ()
+ *		kmem_free ()
+ *	<sys/ksynch.h>
+ *		lkinfo_t
+ *		LOCK ()
+ *		LOCK_ALLOC ()
+ *		LOCK_DEALLOC ()
+ *		SV_ALLOC ()
+ *		SV_DEALLOC ()
+ *		SV_WAIT_SIG ()
+ *		UNLOCK ()
+ *	<sys/errno.h>
+ *		EAGAIN
+ */
+
+#include <common/ccompat.h>
+#include <kernel/ddi_cpu.h>
+#include <kernel/ddi_glob.h>
+#include <kernel/ddi_lock.h>
+#include <sys/debug.h>
+#include <sys/kmem.h>
+#include <sys/ksynch.h>
+#include <sys/errno.h>
+
+#include <sys/inline.h>
+#include <stddef.h>
+#include <limits.h>
+
+#include <common/_poll.h>
+#include <sys/poll.h>
+#include <poll.h>
+#include <stropts.h>
+
+
+/*
+ * The definition of the "pollhead" structure is kept private to this source
+ * file to avoid the temptation for other code to look at its members or
+ * allocate their own.
+ *
+ * Since we want to keep things fast, we use a circular-list scheme here,
+ * unlike most other places lists are maintained. For the DDI/DKI polling
+ * system, this is not a problem because list head items are allocated via
+ * phalloc (), which ensures that they are properly set up. For the old-style
+ * Coherent versions, we hope that they have been initialised to NULL and try
+ * and detect when they need setting up properly.
+ *
+ * The 'event_t' structure used in old-style Coherent polling is defined in
+ * <sys/poll.h>.
+ */
+
+typedef	struct pollwait	pwait_t;
+typedef	struct pollev	pevent_t;
+typedef	struct pollhead	phead_t;
+
+
+/*
+ * For DDI/DKI polling, drivers get to deal in terms of a head of a list of
+ * events.
+ */
+
+struct pollhead {
+	poll_t		ph_node;
+	lock_t	      *	ph_lock;
+};
+
+
+/*
+ * Structure of a polled event for DDI/DKI polling. Since these structures are
+ * allocated from a pool in the "pollwait" structure, there is no explicit
+ * per-process linkage between events.
+ */
+
+struct pollev {
+	poll_t		pe_node;
+	pwait_t	      *	pe_pwait;
+	phead_t	      *	pe_head;
+	short		pe_events;
+};
+
+
+#if	_OLD_COH_POLLING
+
+/*
+ * For old-style polling, we need a cell per event being waited on; however,
+ * since old-style polling only supported POLLIN, POLLOUT, and POLLPRI there
+ * is a small upper bound on the number we need.
+ */
+
+typedef	struct old_poll	o_event_t;
+
+struct old_poll {
+	poll_t		op_node;
+	pwait_t	      *	op_pwait;
+};
+
+#endif	/* _OLD_COH_POLLING */
+
+
+/*
+ * A polling process allocates a 'pollwait' structure and goes to sleep on it
+ * after checking with all the items being polled. The 'pollwait' structure
+ * records if any events have been triggered after being checked but before
+ * the process has actually gone to sleep (ie, when it is checking other
+ * devices).
+ */
+
+enum {
+	PW_POLLING,
+	PW_SLEEPING,
+	PW_WOKEN
+};
+
+
+struct pollwait {
+	lock_t	      *	pw_lock;
+	sv_t	      *	pw_sleep;
+	int		pw_sleeping;
+
+	pevent_t      *	pw_events;
+	int		pw_nevents;
+
+	size_t		pw_size;	/* allocated size of structure */
+
+#if	_OLD_COH_POLLING
+	/*
+	 * The old-style events are allocated down from the top of the same
+	 * chunk of memory used for the new-style events. 'pw_oevents' is the
+	 * current base and is moved down each time a new entry is allocated.
+	 */
+
+	o_event_t     *	pw_oevents;
+	int		pw_noevents;
+#endif	/* _OLD_COH_POLLING */
+};
+
+
+/*
+ * Declare the lock information structures at file scope.
+ */
+
+__LOCAL__ lkinfo_t _pollhead_lkinfo = {
+	"polling pollhead lock", INTERNAL_LOCK
+};
+
+__LOCAL__ lkinfo_t _pollwait_lkinfo = {
+	"polling pollwait lock", INTERNAL_LOCK
+};
+
+
+/*
+ * Utility routine to initialize a 'pnode' for use as a circular list head.
+ */
+
+#define	INIT_PNODE(pnp)	((pnp)->pn_next = (pnp)->pn_prev = (pnp))
+
+
+/*
+ * Currently, we store the user's "pollwait" structure in the per-CPU data
+ * area. However, it seems prudent to encapsulate this fact. Note that the
+ * case to "pwait_t *" in GET_POLLWAIT () exists to satisfy PC-Lint's notion
+ * of strong typing.
+ */
+
+#define	GET_POLLWAIT()		((pwait_t *) ddi_cpu_data ()->dc_pollwait)
+#define	SET_POLLWAIT(pw)	(void) (ddi_cpu_data ()->dc_pollwait = (pw))
+
+
+/*
+ * Some macros to save typing given the long, descriptive names of the lock-
+ * related constants.
+ */
+
+#define	POLLWAIT_LOCK(pw)	LOCK ((pw)->pw_lock, pollwait_priority)
+#define	POLLWAIT_UNLOCK(pw,p)	UNLOCK ((pw)->pw_lock, (p))
+
+#define	POLLHEAD_LOCK(ph)	LOCK ((ph)->ph_lock, pollhead_priority)
+#define	POLLHEAD_UNLOCK(ph,p)	UNLOCK ((ph)->ph_lock, (p))
+
+#define	POLL_GLOBAL_LOCK()	LOCK (ddi_global_data ()->dg_polllock, \
+				      poll_global_priority)
+#define	POLL_GLOBAL_UNLOCK(p)	UNLOCK (ddi_global_data ()->dg_polllock, (p))
+
+
+#if	1
+
+/*
+ * Utility routine to fetch the address of the 'pollwait' structure allocated
+ * by the currently polling process, with extra checking.
+ */
+
+#if	__USE_PROTO__
+__LOCAL__ pwait_t * (GET_POLLWAIT) (void)
+#else
+__LOCAL__ pwait_t *
+GET_POLLWAIT __ARGS (())
+#endif
+{
+	pwait_t	      *	pwaitp;
+
+	/*
+	 * Since the current 'pollwait' value is recorded in the per-CPU data
+	 * area, no locking is really necessary to ensure atomic access to the
+	 * data. Actually, this might not be true for some CPUs such as Intel
+	 * 80x86's, but access to the value is only defined within certain
+	 * limited contexts anyway.
+	 *
+	 * Note that we cast from a "struct pollwait *" to a "pwait_t *" in
+	 * order to be able to satisfy PC-lint's strong typing.
+	 */
+
+	pwaitp = GET_POLLWAIT ();
+
+	ASSERT (pwaitp != NULL);
+
+	return pwaitp;
+}
+
+#undef	GET_POLLWAIT
+
+#endif
+
+
+/*
+ * Utility routine to deal with signalling an event to a process that has
+ * begun polling (but may not have gone to sleep yet).
+ */
+
+#if	__USE_PROTO__
+void (POLL_WAKE) (pwait_t * pwaitp)
+#else
+void
+POLL_WAKE __ARGS ((pwaitp))
+pwait_t	      *	pwaitp;
+#endif
+{
+	pl_t		prev_pl;
+
+	prev_pl = POLLWAIT_LOCK (pwaitp);
+
+	if (pwaitp->pw_sleeping == PW_SLEEPING)
+		SV_SIGNAL (pwaitp->pw_sleep, 0);
+
+	pwaitp->pw_sleeping = PW_WOKEN;
+
+	POLLWAIT_UNLOCK (pwaitp, prev_pl);
+}
+
+
+#if	_OLD_COH_POLLING
+/*
+ * The original Coherent polling system allocated event records at the time of
+ * the first call to pollopen () based on a patchable variable. If the
+ * patchable value was 0, then more event cells would be allocated (in blocks
+ * of 32) on demand and added to the event cell pool.
+ *
+ * In the new system, event cells are allocated at the time of entry to the
+ * poll () system call, meaning that there is some fixed allocation overhead
+ * per system call but that the event cells will be returned to a general
+ * pool.
+ */
+
+
+/*
+ * This function (called by old-style device drivers) requests an association
+ * between the polling process and the device's list of polling processes. The
+ * contents of the list head and the method of association are opaque, except
+ * for the "e_procp" member of the event cell and the fact that the list head
+ * structure is used directly in data structure declarations in the driver
+ * rather than being managed by constructor/destructor routines.
+ *
+ * To get around the initialization problems, we must assume that such driver
+ * structures will be initially zero-filled.
+ *
+ * Callable ONLY from base level within a Coherent old-style device-driver
+ * poll () entry point.
+ */
+
+#if	__USE_PROTO__
+void (pollopen) (event_t * elistp)
+#else
+void
+pollopen __ARGS ((elistp))
+event_t	      *	elistp;
+#endif
+{
+	pwait_t	      *	pwaitp = GET_POLLWAIT ();
+	o_event_t     *	eventp;
+	pl_t		prev_pl;
+
+	/*
+	 * Detect a zero-filled (hence uninitialised) list head. We use the
+	 * circular list property to detect initialization.
+	 */
+
+	if (elistp->e_node.pn_next == NULL)
+		INIT_PNODE (& elistp->e_node);
+
+	/*
+	 * Take an event from the 'pollwait' structure.
+	 */
+
+	eventp = -- pwaitp->pw_oevents;
+	pwaitp->pw_noevents ++;
+
+	ASSERT ((pevent_t *) eventp > & pwaitp->pw_events [pwaitp->pw_nevents]);
+
+	/*
+	 * String it all together. We use interrupt priority level to protect
+	 * the insertion, because code that uses this code isn't going to be
+	 * multiprocessor-safe anyway.
+	 */
+
+	eventp->op_pwait = pwaitp;	/* link to polling process */
+
+	prev_pl = splhi ();
+
+	eventp->op_node.pn_next = elistp->e_node.pn_next;
+	eventp->op_node.pn_prev = & elistp->e_node;
+	eventp->op_node.pn_next->pn_prev = & eventp->op_node;
+	elistp->e_node.pn_next = & eventp->op_node;
+
+	/*
+	 * Set the magic flag.
+	 */
+
+	elistp->e_procp = (__VOID__ *) 1;
+
+	(void) splx (prev_pl);
+}
+
+
+/*
+ * This routine signals all the polling processes that have been queued on
+ * this event list by pollopen () that an event they are interested in has
+ * occurred.
+ */
+
+#if	__USE_PROTO__
+void (pollwake) (event_t * elistp)
+#else
+void
+pollwake __ARGS ((elistp))
+event_t	      *	elistp;
+#endif
+{
+	poll_t	      *	pnodep;
+
+	/*
+	 * Since we have to maintain the magic header flag, we may as well use
+	 * it as well.
+	 */
+
+	if (elistp->e_procp == 0)
+		return;
+
+	elistp->e_procp = 0;
+
+
+	/*
+	 * Service circularly-linked polls on device queue. It may be that the
+	 * driver's circular list has not yet been initialized.
+	 *
+	 * We don't take out a lock because this system doesn't support them,
+	 * and we don't need to manipulate interrupts because we don't modify
+	 * the structure.
+	 */
+
+	if ((pnodep = elistp->e_node.pn_next) != NULL) {
+		/*
+		 * We detect the end of the list when the circular walk has
+		 * taken us back to the list head.
+		 */
+
+		while (pnodep != & elistp->e_node) {
+			/*
+			 * Downcast from the node to the queued event cell,
+			 * and wake the process.
+			 */
+
+			POLL_WAKE (__DOWNCAST (o_event_t, op_node,
+					       pnodep)->op_pwait);
+
+			pnodep = pnodep->pn_next;
+		}
+	}
+}
+
+
+/*
+ * This routine cleans up any old-style events.
+ */
+
+#if	__USE_PROTO__
+__LOCAL__ void (oldpollclean) (o_event_t * oevents, int noevents)
+#else
+__LOCAL__ void
+oldpollclean __ARGS ((oevents, noevents))
+o_event_t     *	oevents;
+int		noevents;
+#endif
+{
+	pl_t		prev_pl;
+
+	ASSERT (oevents != NULL);
+
+	/*
+	 * Iterate over the list of queued old-style events and dequeue each
+	 * one.
+	 */
+
+	prev_pl = splhi ();
+
+	while (noevents > 0) {
+
+		oevents->op_node.pn_next->pn_prev = oevents->op_node.pn_prev;
+		oevents->op_node.pn_prev->pn_next = oevents->op_node.pn_next;
+
+		noevents --;
+		oevents ++;
+	}
+
+	splx (prev_pl);
+}
+
+#endif	/* _OLD_COH_POLLING */
+
+
+/*
+ *-STATUS:
+ *	DDI/DKI
+ *
+ *-NAME:
+ *	phalloc		Allocate and initialize a pollhead structure.
+ *
+ *-SYNOPSIS:
+ *	#include <sys/poll.h>
+ *	#include <sys/kmem.h>
+ *
+ *	struct pollhead * phalloc (int flag);
+ *
+ *-ARGUMENTS:
+ *	flag		Specifies whether the caller is willing to sleep
+ *			waiting for memory. If "flag" is set to "KM_SLEEP",
+ *			the caller will sleep if necessary until sufficient
+ *			memory is available. If "flag" is set to "KM_NOSLEEP",
+ *			the caller will not sleep, but phalloc () will return
+ *			NULL if sufficient memory is not immediately
+ *			available.
+ *
+ *-DESCRIPTION:
+ *	phalloc () allocates and initializes a "pollhead" structure for use by
+ *	non-STREAMS character drivers that wish to support polling. The "flag"
+ *	argument indicates whether the caller is willing to sleep waiting for
+ *	memory as described above.
+ *
+ *-RETURN VALUE:
+ *	Upon successful completion, phalloc () returns a pointer to the newly
+ *	allocated "pollhead" structure. If "KM_NOSLEEP" is specified and
+ *	sufficient memory is not immediately available, phalloc () returns a
+ *	NULL pointer.
+ *
+ *-LEVEL:
+ *	Base only if "flag" is set to "KM_SLEEP". Base or interrupt if "flag"
+ *	is set to "KM_NOSLEEP".
+ *
+ *-NOTES:
+ *	May sleep if slag is set to "KM_SLEEP".
+ *
+ *	Driver-defined basic locks and read/write locks may be held across
+ *	calls to this function if "flag" is "KM_NOSLEEP" but may not be held
+ *	if "flag" is "KM_SLEEP".
+ *
+ *	Driver-defined sleep locks may be held across calls to this function
+ *	regardless of the value of "flag".
+ *
+ *	DDI/DKI conforming drivers may only use "pollhead" structures which
+ *	have been allocated and initialized using phalloc (). Use of
+ *	"pollhead" structures which have been obtained by any other means is
+ *	prohibited.
+ *
+ *-SEE ALSO:
+ *	phfree (), pollwakeup ()
+ */
+
+#if	__USE_PROTO__
+struct pollhead * (phalloc) (int flag)
+#else
+struct pollhead *
+phalloc __ARGS ((flag))
+int		flag;
+#endif
+{
+	struct pollhead * php;
+
+	if ((php = (struct pollhead *) kmem_alloc (sizeof (* php), flag))
+	    != NULL) {
+
+		if ((php->ph_lock = LOCK_ALLOC (pollhead_hierarchy,
+						pollhead_priority,
+						& _pollhead_lkinfo,
+						flag)) == NULL) {
+			kmem_free (php, sizeof (* php));
+			return NULL;
+		}
+
+		INIT_PNODE (& php->ph_node);
+	}
+
+	return php;
+}
+
+
+/*
+ *-STATUS:
+ *	DDI/DKI
+ *
+ *-NAME:
+ *	phfree		Free a pollhead structure.
+ *
+ *-SYNOPSIS:
+ *	#include <sys/poll.h>
+ *
+ *	void phfree (struct pollhead * php);
+ *
+ *-ARGUMENTS:
+ *	php		Pointer to the "pollhead" structure to be freed. The
+ *			structure pointed to by "php" must have been
+ *			previously allocated by a call to phalloc ().
+ *
+ *-DESCRIPTION:
+ *	phfree () frees the "pollhead" structure specified by "php".
+ *
+ *-RETURN VALUE:
+ *	None.
+ *
+ *-LEVEL:
+ *	Base or interrupt.
+ *
+ *-NOTES:
+ *	Does not sleep.
+ *
+ *	Driver-defined basic locks, read/write locks, and sleep locks may be
+ *	held across calls to this function.
+ *
+ *	DDI/DKI conforming drivers may only use "pollhead" structures which
+ *	have been allocated and initialized using phalloc (). Use of
+ *	"pollhead" structures which have been obtained by any other means is
+ *	prohibited.
+ *
+ *-SEE ALSO:
+ *	phalloc (), pollwakeup ()
+ */
+
+#if	__USE_PROTO__
+void (phfree) (struct pollhead * php)
+#else
+void
+phfree __ARGS ((php))
+struct pollhead * php;
+#endif
+{
+	poll_t	      *	pnodep;
+	poll_t	      *	next;
+
+	ASSERT (php != NULL);
+
+	/*
+	 * Since phalloc () and phfree () are not constrained to be used only
+	 * in driver open/close routines, the possibility exists for a poll
+	 * head structure to be deallocated while processes are waiting on it.
+	 * This isn't very desirable, but it seems to be legal.
+	 *
+	 * After acquiring the global lock, we request a lock on the pollhead
+	 * structure to ensure that all activity on the structure has
+	 * completed before we begin to tear it down. Since the caller has
+	 * requested deallocation of the structure, the caller should be
+	 * confident that no-one will try and access it after any current
+	 * activity has ceased.
+	 *
+	 * We engage in some subterfuge here in order to create a situation
+	 * where we can detect any mistaken access.
+	 */
+
+
+	{
+		pl_t		prev_pl;
+		lock_t	      *	lock = php->ph_lock;
+
+		prev_pl = POLL_GLOBAL_LOCK ();
+		(void) LOCK (lock, pollhead_priority);
+
+		php->ph_lock = NULL;
+
+		POLL_GLOBAL_UNLOCK (pollhead_priority);
+		UNLOCK (lock, prev_pl);
+
+		LOCK_DEALLOC (lock);
+	}
+
+
+	/*
+	 * Walking over an entire circular list removing all the queue nodes
+	 * allows a few simple optimizations; because we will be touching
+	 * *every* node an dequeueing it, we don't need to engage in any
+	 * real manipulation of the first/next nodes. In fact, since we almost
+	 * immediately deallocate the structure, we don't have to touch the
+	 * list head at all.
+	 */
+
+	next = php->ph_node.pn_next;
+
+	while ((pnodep = next) != & php->ph_node) {
+		/*
+		 * Doing this ensures that multiple attempts to dequeue this
+		 * node (such as from the process polling cleanup routine)
+		 * will have no effect. We could use the "pe_events" member of
+		 * the event structure for this, but that would need a
+		 * downcast and probably wouldn't result in higher
+		 * performance.
+		 */
+
+		next = pnodep->pn_next;
+		pnodep->pn_prev = pnodep->pn_next = pnodep;
+	}
+
+	kmem_free (php, sizeof (* php));
+}
+
+
+/*
+ *-STATUS:
+ *	DDI/DKI
+ *
+ *-NAME:
+ *	pollwakeup	Inform polling process that an event has occurred.
+ *
+ *-SYNOPSIS:
+ *	#include <sys/poll.h>
+ *
+ *	void pollwakeup (struct pollhead * php, short event);
+ *
+ *-ARGUMENTS:
+ *	php		Pointer to a "pollhead" structure.
+ *
+ *	event		Event to notify the process about.
+ *
+ *-DESCRIPTION:
+ *	The pollwakeup () function provides non-STREAMS character drivers with
+ *	a way to notify processes polling for the occurrence of an event.
+ *	pollwakeup () should be called from the driver for each occurrence of
+ *	an event.
+ *
+ *	The "pollhead" structure will usually be associated with the driver's
+ *	private data structure for the particular minor device where the event
+ *	has occurred.
+ *
+ *-RETURN VALUE:
+ *	None.
+ *
+ *-LEVEL:
+ *	Base or interrupt.
+ *
+ *-NOTES:
+ *	Does not sleep.
+ *
+ *	Driver-defined basic locks, read/write locks, and sleep locks may be
+ *	held across calls to this function.
+ *
+ *	pollwakeup () should only be called with one event at a time.
+ *
+ *-SEE ALSO:
+ *	phalloc (), phfree ()
+ */
+
+#if	__USE_PROTO__
+void (pollwakeup) (struct pollhead * php, short event)
+#else
+void
+pollwakeup __ARGS ((php, event))
+struct pollhead * php;
+short		event;
+#endif
+{
+	poll_t	      *	pnodep;
+	poll_t	      *	next;
+	pl_t		prev_pl;
+
+	ASSERT (php != NULL);
+	ASSERT (event == POLLIN || event == POLLPRI || event == POLLOUT ||
+		event == POLLRDNORM || event == POLLWRNORM ||
+		event == POLLRDBAND || event == POLLWRBAND ||
+		event == POLLERR || event == POLLHUP);
+
+	/*
+	 * Acquire a lock on the pollhead structure after getting a global
+	 * lock on the polling system.
+	 */
+
+	prev_pl = POLL_GLOBAL_LOCK ();
+
+	POLLHEAD_LOCK (php);
+
+	POLL_GLOBAL_UNLOCK (pollhead_priority);
+
+
+	/*
+	 * Scan the list of queued processes and wake up (and dequeue) any
+	 * that are waiting for the event being signalled.
+	 */
+
+	next = php->ph_node.pn_next;
+
+	while ((pnodep = next) != & php->ph_node) {
+		pevent_t      *	eventp;
+
+		next = pnodep->pn_next;
+		eventp = __DOWNCAST (pevent_t, pe_node, pnodep);
+
+		if ((eventp->pe_events & event) != 0) {
+
+			POLL_WAKE (eventp->pe_pwait);
+
+			/*
+			 * Perform a full general dequeue, and also change
+			 * the node pointers so that a second request to
+			 * dequeue the node has no effect.
+			 */
+
+			next->pn_prev = pnodep->pn_prev;
+			pnodep->pn_prev->pn_next = next;
+
+			pnodep->pn_prev = pnodep->pn_next = pnodep;
+		}
+	}
+
+	POLLHEAD_UNLOCK (php, prev_pl);
+}
+
+
+/*
+ * This internal function allocates and initializes a 'pollwait' structure on
+ * behalf of a process that wants to perform polling operations. The 'fds'
+ * argument specifies the number of devices/streams that are being polled.
+ *
+ * The newly-allocated structure is recorded in the per-CPU DDI/DKI data area,
+ * so that it is an error for the caller to sleep between a call to pwalloc ()
+ * and a call to pwsleep ().
+ *
+ * The return value is 0 on success, or an error number on failure (due to
+ * insufficient kernel memory). This function may sleep for memory to become
+ * available. Callable from base level only.
+ */
+
+#define	_max(a,b)		((a) < (b) ? (b) : (a))
+
+enum {
+#if	_OLD_COH_POLLING
+	cellsize = _max (sizeof (pevent_t), 3 * sizeof (o_event_t))
+#else
+	cellsize = sizeof (pevent_t)
+#endif
+};
+
+#if	__USE_PROTO__
+int (pwalloc) (int fds)
+#else
+int
+pwalloc __ARGS ((fds))
+int		fds;
+#endif
+{
+	size_t		size;
+	pwait_t	      *	pwaitp;
+
+	ASSERT (fds >= 0 && fds < INT_MAX / cellsize);
+	ASSERT (GET_POLLWAIT () == NULL);
+
+	/*
+	 * How much memory to allocate; we assume that at most three old-style
+	 * event cells could be allocated per stream, or one new event cell.
+	 */
+
+	size = fds * cellsize + sizeof (pwait_t);
+
+	if ((pwaitp = (pwait_t *) kmem_alloc (size, KM_SLEEP)) != NULL) {
+
+		if ((pwaitp->pw_lock =
+				LOCK_ALLOC (pollwait_hierarchy,
+					    pollwait_priority,
+					    & _pollwait_lkinfo,
+					    KM_SLEEP)) != NULL) {
+			if ((pwaitp->pw_sleep = SV_ALLOC (KM_SLEEP))
+			    != NULL) {
+
+				ASSERT (GET_POLLWAIT () == NULL);
+
+				pwaitp->pw_sleeping = PW_POLLING;
+				pwaitp->pw_events = (pevent_t *) (pwaitp + 1);
+				pwaitp->pw_nevents = 0;
+				pwaitp->pw_size = size;
+#if	_OLD_COH_POLLING
+				pwaitp->pw_oevents = (o_event_t *)
+					((char *) pwaitp + size);
+				pwaitp->pw_noevents = 0;
+#endif
+				SET_POLLWAIT (pwaitp);
+                                return 0;
+			}
+
+			LOCK_DEALLOC (pwaitp->pw_lock);
+		}
+
+		kmem_free (pwaitp, size);
+	}
+
+	return EAGAIN;
+}
+
+
+/*
+ * This internal function is used by user-level polling code to go to sleep
+ * after checking with each device being polled (thus registering any event
+ * cells as necessary).
+ *
+ * May sleep. Callable from base level only. Returns 0 if woken by an
+ * indication that an event has occurred, or 1 if woken by a signal.
+ */
+
+#if	__USE_PROTO__
+int (pollsleep) (void)
+#else
+int
+pollsleep __ARGS (())
+#endif
+{
+	pwait_t	      *	pwaitp = GET_POLLWAIT ();
+	int		sigwake = 0;
+
+	ASSERT (pwaitp != NULL);
+
+	/*
+	 * Lock the structure before checking to see whether we want to go
+	 * to sleep or not.
+	 */
+
+	(void) POLLWAIT_LOCK (pwaitp);
+
+	if (pwaitp->pw_sleeping == PW_POLLING) {
+		/*
+		 * No events were triggered while we were scanning all the
+		 * requested channels, so we do actually have to sleep.
+		 */
+
+		SET_POLLWAIT (NULL);
+		pwaitp->pw_sleeping = PW_SLEEPING;
+
+		sigwake = SV_WAIT_SIG (pwaitp->pw_sleep, prilo,
+				       pwaitp->pw_lock) == 0;
+
+		ASSERT (GET_POLLWAIT () == NULL);
+
+		pwaitp->pw_sleeping = PW_WOKEN;
+		SET_POLLWAIT (pwaitp);
+	} else {
+
+		ASSERT (pwaitp->pw_sleeping == PW_WOKEN);
+
+		POLLWAIT_UNLOCK (pwaitp, plbase);
+	}
+
+	return sigwake;
+}
+
+
+/*
+ * This local function deals with dequeuing event cells from device polling
+ * lists.
+ */
+
+#if	__USE_PROTO__
+__LOCAL__ void (pollclean) (pevent_t * events, int nevents)
+#else
+__LOCAL__ void
+pollclean __ARGS ((events, nevents))
+pevent_t      *	events;
+int		nevents;
+#endif
+{
+	pl_t		prev_pl;
+
+	ASSERT (events != NULL);
+
+	/*
+	 * Iterate over the list of queued events and dequeue each one.
+	 */
+
+	while (nevents > 0) {
+
+		prev_pl = POLLHEAD_LOCK (events->pe_head);
+
+		events->pe_node.pn_next->pn_prev = events->pe_node.pn_prev;
+		events->pe_node.pn_prev->pn_next = events->pe_node.pn_next;
+
+		POLLHEAD_UNLOCK (events->pe_head, prev_pl);
+
+		nevents --;
+		events ++;
+	}
+}
+
+
+/*
+ * This function destroys and deallocates all the resources taken up by a
+ * user poll-wait structure.
+ */
+
+#if	__USE_PROTO__
+void (pwfree) (void)
+#else
+void
+pwfree __ARGS (())
+#endif
+{
+	pwait_t	      *	pwaitp = GET_POLLWAIT ();
+
+	ASSERT (pwaitp != NULL);
+
+#if	_OLD_COH_POLLING
+	oldpollclean (pwaitp->pw_oevents, pwaitp->pw_noevents);
+#endif
+
+	pollclean (pwaitp->pw_events, pwaitp->pw_nevents);
+
+	/*
+	 * Now there is no way that an interrupt-level context could try and
+	 * access the pollwait structure, we can safely deallocate it.
+	 */
+
+	SV_DEALLOC (pwaitp->pw_sleep);
+
+	LOCK_DEALLOC (pwaitp->pw_lock);
+
+	kmem_free (pwaitp, pwaitp->pw_size);
+}
+@

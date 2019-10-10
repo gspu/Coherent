@@ -1,0 +1,212 @@
+lldd -- Command
+
+Link relocatable object modules
+lldd [_o_p_t_i_o_n ...] _f_i_l_e ...
+
+A compiler translates a file of source code into a _r_e_l_o_c_a_t_a_b_l_e _o_b_j_e_c_t. This
+relocatable  object cannot  be executed  by itself,  for calls  to routines
+stored in  libraries have  not yet been  resolved.  lldd combines,  or _l_i_n_k_s,
+relocatable object files with  routines stored in libraries produced by the
+archiver  aarr to  construct  an executable  file.   For this  reason, lldd  is
+sometimes called a _l_i_n_k_e_r, a _l_i_n_k _e_d_i_t_o_r, or a _l_o_a_d_e_r.
+
+lldd scans  its arguments  in order and  interprets each option  as described
+below.   Each non-option  argument  is either  a  relocatable object  file,
+produced by cccc, aass, or lldd,  or a library archive produced by aarr. It rejects
+all other arguments and prints a diagnostic message.
+
+Each relocatable file argument is bound into the output file if its machine
+type matches the  machine type of the first file  so bound; if it does not,
+lldd prints  a diagnostic message.   The symbol table  of the file  is merged
+into the output symbol table and  the list of defined and undefined symbols
+updated  appropriately.   If the  file  redefines a  symbol  defined in  an
+earlier bound module, the  redefinition is reported and the link continues.
+The last  such redefinition determines the value that  the symbol will have
+in the output file, which may be acceptable but is probably an error.
+
+Each  library  archive  argument  is  searched  only to  resolve  undefined
+references, i.e., if there are no undefined symbols, the linker goes to the
+next argument  immediately.  The library  is searched from  first module to
+last and  any module that resolves  one or more undefined  symbols is bound
+into the  output exactly as an explicitly named  relocatable file is bound.
+The library is searched repeatedly until an entire scan adds nothing to the
+executable file.
+
+The order  of modules in  a library is  important in two  respects: it will
+affect  the time  required to  search the  library, and,  if more  than one
+module  resolves an  undefined  symbol, it  can  alter the  set of  library
+modules bound into the output.
+
+A library  will link faster if  the undefined symbols in  any given library
+module are  resolved by a library  module that comes later  in the library.
+Thus,  the low-level  library  modules, those  with  no undefined  symbols,
+should come  at the end  of the library, whereas  the higher-level modules,
+those  with many  undefined  symbols, should  come at  the beginning.   The
+library  module  rraannlliibb.ssyymm, which  is  maintained by  the  aarr ss  modifier,
+provides lldd with a compressed index  to the symbols defined in the library.
+But even with  the index, the library will link  much faster if the modules
+occur in top-down rather than bottom-up order.
+
+A library  can be constructed to provide a  type of ``conditional'' linking
+if alternate  resolutions of undefined symbols are  archived in a carefully
+thought-out order.  For instance, lliibbcc.aa contains the modules
+
+    ffiinniitt.oo
+    eexxiitt.oo
+    _ffiinniisshh.oo
+
+in  precisely the  order given,  though some  other modules  may intervene.
+ffiinniitt.oo  contains  most  of the  internals  of  the  STDIO library,  eexxiitt.oo
+contains the  eexxiitt() function, and  _ffiinniisshh.oo contains an  empty version of
+_ffiinniisshh(), the  function that  eexxiitt() calls  to close STDIO  streams before
+process  termination.  If  a program  uses any  STDIO routines,  macros, or
+data,  then ffiinniitt.oo  will be  bound  into the  output with  its version  of
+ffiinniisshh(). If a program uses no  STDIO, then the ``dummy'' _ffiinniisshh.oo will be
+bound into the output because it is the first module that defines _ffiinniisshh()
+that the linker encounters after eexxiitt.oo adds the undefined reference.  This
+saves approximately  3,000 bytes.   To set the  order of routines  within a
+library, use the archiver aarr.
+
+_C_O_F_F _L_i_n_k_i_n_g
+COHERENT uses  the Common Object  File Format (COFF).   This format renders
+many advantages,  but it also places special demands  upon the linker.  The
+following discussing  some of the complexities that  arise for linking into
+the COFF format.
+
+Under  COFF, common  variables  are kept  aligned according  to their  most
+strongly aligned  contributor.  If _n_a_m_e is linked  with another module that
+also declares  _n_a_m_e but sets it  to another length, the  linker creates one
+such variable and  gives it the greater length of  the two.  lldd deduces the
+alignment of a common variable by  its length: if the length of a common is
+divisible  by  four, it  is  aligned  on a  four-byte  boundary;  if it  is
+divisible by two,  it is aligned on a two-byte  boundary.  Otherwise, it is
+assumed  to  be  unaligned.  The  linker  supports  only  three classes  of
+alignment:  four-byte, two-byte,  and unaligned.  It  then aligns  a common
+variable according to its most strongly aligned contributor.
+
+For example,  if one assembly-language module  contributes a .ccoommmm (common)
+variable  named xxyyzz  whose length  is four  bytes, and  another contributes
+another xxyyzz whose length is five bytes, lldd gives the resulting xxyyzz a length
+of eight  bytes to satisfy the  length requirement (at least  five) and the
+alignment requirement (four-byte boundary).
+
+Or in  another example, if you  declare a C variable cchhaarr xx;  x is a common
+variable, with a length of one  byte.  If another C module declares lloonngg xx;
+the  two xx's  will share  a length  of four bytes.   However, in  the first
+module ssiizzeeooff(xx)  == 11 and in  the second ssiizzeeooff(xx) ==  44. These will cause
+warning messages to appear, which you can turn off by using the -qq option.
+
+After lldd has made its first pass, it places all common variables at the end
+of the  .bbssss segment: first the four-byte-aligned  variables, then the two-
+byte-aligned, then the unaligned.
+
+_O_p_t_i_o_n_s
+lldd recognizes the following options:
+
+-ee _e_n_t_r_y
+     Specify the _e_n_t_r_y point of the output module, either as a symbol or as
+     an absolute octal address.
+
+-ff   (Force)  Force  link  even  if  there  are  errors.   Results  may  be
+     undefined.
+
+-GG   Suppress the common/global warning -- that is, tell lldd not to complain
+     if a global variable is also used as a common variable.
+
+-ii   This option  is obsolete, but is kept  for compatibility purposes.  If
+     you include it in a mmaakkeeffiillee, lldd will silently ignore it.
+
+-KK   Link a kernel segment.
+
+-LL_d_i_r_e_c_t_o_r_y
+     Search  _d_i_r_e_c_t_o_r_y  for  libraries  and  objects before  searching  the
+     directories named in LLIIBBPPAATTHH. Note that  you can have more than one -LL
+     option  in a  lldd command  line.   For example,  if LLIIBBPPAATTHH  is set  to
+     /lliibb:/uussrr/lliibb, then the command line
+
+         ld -L/search/First -L/search/Next a.o -lxyz
+
+     tells lldd to search for libraries lliibbxxyyzz.aa and lliibbcc.aa along the path:
+
+         /search/First:/search/Next:/lib:/usr/lib
+
+     The character that  separates entries in the path is  set by the macro
+     LLIISSTTSSEEPP. Header file ppaatthh.hh defines this to be the `:'.
+
+-ll _n_a_m_e
+     An abbreviation  for the library  /lliibb/lliibb_n_a_m_e.aa or /uussrr/lliibb/lliibb_n_a_m_e.aa
+     if the first is not found.
+
+-oo _f_i_l_e
+     Write output to _f_i_l_e. The default is aa.oouutt.
+
+-qq   Suppress all warning messages.
+
+-QQ   Suppress all error messages, not just warnings.
+
+-rr   Retain relocation  information in the output,  and issue no diagnostic
+     message  for undefined  symbols.  This  option builds  a .oo  file that
+     appears as if its pieces had been compiled together.
+
+-ss   Strip  the symbol  table  from the  output.   The same  effect may  be
+     obtained  by  using the  command  ssttrriipp.  The -ss  and  -rr options  are
+     mutually exclusive.
+
+-uu _s_y_m_b_o_l
+     Add _s_y_m_b_o_l to the symbol table as a global reference, usually to force
+     the linking of a particular library module.
+
+-XX   Discard local compiler-generated symbols beginning .LL.
+
+-xx   Discard all local symbols.
+
+lldd reads the environmental variables LLDDHHEEAADD and LLDDTTAAIILL and appends them to,
+respectively, the  beginning and end of its command  line.  For example, to
+ensure that lldd is always executed  with the option -dd, insert the following
+into your .pprrooffiillee:
+
+    export LDHEAD=-d
+
+Likewise, to  ensure that lldd  always includes the  mathematics library lliibbmm
+when it links, insert the following into your .pprrooffiillee:
+
+    export LDTAIL=-lm
+
+_L_I_B_P_A_T_H
+Except when used with its -ll option, lldd does not know about paths: it links
+exactly what  you tell it  to link via  the cccc command line.   cccc looks for
+libraries by searching  the directories named in the environmental variable
+LLIIBBPPAATTHH. If you do not define  LLIIBBPPAATTHH in your environment, it searches the
+default LLIIBBPPAATTHH  as defined in /uussrr/iinncclluuddee/ppaatthh.hh.  If you define LLIIBBPPAATTHH,
+cccc  searches the  directories in  the  order you  specify.  For  example, a
+typical definition is:
+
+    export LIBPATH=:/lib:/usr/lib
+
+This searches the current directory `.', then /lliibb, then /uussrr/lliibb.
+
+_L_i_n_k_e_r-_d_e_f_i_n_e_d _S_y_m_b_o_l_s
+lldd defines the following set of symbols within an executable program:
+
+__eenndd_tteexxttEnd of the .tteexxtt segment
+__eenndd_ddaattaaEnd of the .ddaattaa segment
+__eenndd_bbssss End of the .bbssss segment
+__eenndd     End of the highest segment
+
+Note that if  you have a segment named .xxyyzz,  then lldd will allow you to use
+__eenndd_xxyyzz.
+
+_F_i_l_e_s
+aa.oouutt -- Default output
+/ccoohheerreenntt for -kk option
+/lliibb/lliibb*.aa -- Libraries
+/uussrr/lliibb/lliibb*.aa -- More libraries
+
+_S_e_e _A_l_s_o
+aarr, aarr.hh, aass, cccc, ccddmmpp, ccooffff.hh, ccoommmmaannddss, ll.oouutt.hh, LLIIBBPPAATTHH, ssttrriipp
+
+_N_o_t_e_s
+If you  are linking a  program by hand  (that is, running  lldd independently
+from the cccc command), be  sure to include the appropriate run-time start-up
+routine  with the  lldd command  line; otherwise, the  program will  not link
+correctly.

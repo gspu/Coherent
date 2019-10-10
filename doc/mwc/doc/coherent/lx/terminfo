@@ -1,0 +1,974 @@
+.TH terminfo "" ""  "System Administration"
+.PC "Terminal-description language"
+.B /usr/lib/terminfo
+.PP
+.B terminfo
+is a system for describing terminals.
+Descriptions are collected in the file
+.B /usr/lib/terminfo
+and are read by
+.BR curses ,
+.BR more ,
+.BR vi ,
+and other utilities.
+By passing her terminal's
+.B terminfo
+entry to a program,
+a user can make sure that the program can take full advantage of her
+terminal's capacities.
+.PP
+.B terminfo
+resembles the terminal-description language
+.BR termcap ;
+however, it enjoys a number of features that
+.B termcap
+does not, as follows:
+.IP \(bu 0.3i
+A
+.B termcap
+entry cannot exceed a predefined limit.
+.B terminfo
+lifts this restriction.
+.IP \(bu
+.B terminfo
+entries are compiled; therefore, they are read and loaded more quickly.
+.IP \(bu
+.B termcap
+entries are all kept in file
+.BR /etc/termcap .
+Each
+.B terminfo
+resides in its own file;
+thus, a program and find and load an entry more quickly.
+.IP \(bu
+.B terminfo
+is a little more easily read by human beings.
+.PP
+Whether a program uses
+.B termcap
+or
+.B terminfo
+descriptions depends entirely on that program.
+For example, MicroEMACS uses
+.B termcap
+descriptions; but
+.B vsh
+(and other
+.BR curses -based
+programs) use
+.BR terminfo .
+In general,
+.B terminfo
+is regarded as being more flexible and up-to-date.
+.SH "terminfo Entries"
+Directory
+.B /usr/lib/terminfo
+consists of a number of sub-directories, one for each terminal type being
+described.
+A \fIterminal type\fR
+describes a given make of terminal
+(e.g., the Wyse 150) plus some special attribute, such as the
+number of characters on a line or a specially defined bank of function keys.
+A
+.B terminfo
+entry can extend over more than one line by indenting every line after
+the first.
+A line that begins with a pound sign `#' is a comment.
+.PP
+A
+.B terminfo
+entry consists of an indefinite number of comma-separated fields.
+White space after each comma is ignored.
+The first field names the terminal; the remaining fields hold
+capability codes.
+(\fICapability codes\fR are discussed in detail below.)
+Preceding a field with a period `.' comments out that field, and only that
+field.
+.SH "Naming Terminals"
+The first field in a \fBterminfo\fR entry names the terminal being
+described.
+The name field consists of one or more names, which are separated
+by vertical-bar characters.
+The first name given is the most common abbreviation for the terminal.
+The last name is usually a long name that fully identifies the terminal.
+All names in between the first and the last give common synonyms
+for that terminal.
+All names can contain upper-case characters;
+the last name can also contain white space.
+.PP
+Terminal names (except for the last, verbose entry) should
+use the following conventions:
+.IP \(bu 0.3i
+The hardware should have a root name chosen, e.g., ``wyse150''.
+.IP \(bu 0.3i
+The root name should not contain hyphens, except to prevent synonyms from
+colliding with other names.
+.IP \(bu
+Modes that the hardware can be in, or user preferences, should
+be indicated by appending a hyphen and an indicator of the mode.
+For example, a \fBwyse150\fR with an old-fashioned 82-key keyboard
+could be called \fBwyse150-o\fR.
+.PP
+Use the following suffixes whenever possible:
+.DS
+.ta 1.0i
+\fISuffix	Meaning\fR
+\fB\-w\fR	Wide (more than 80 columns)
+\fB\-am\fR	With automatic margins (usually default)
+\fB\-nam\fR	Without automatic margins
+\fB-\fIn\fR	Number of lines on the screen
+\fB\-na\fR	No arrow keys
+\fB-\fIn\fPp	\fIn\fR pages of memory
+\fB-rv\fR	Reverse video
+.DE
+.SH "Capability Codes"
+A
+.I "capability code"
+describes a capability of a terminal.
+Capability codes come in three varieties:
+.IP \fIBoolean\fR 1.0i
+This indicates whether a terminal has a given feature.
+If the field is present, the terminal is assumed to have the capability;
+if not, then it is assumed not to be present.
+For example, the code \fBam\fR indicates ``automatic margins''.
+If \fBam\fR appears in a terminal's \fBterminfo\fR entry, then it can
+execute automatic margins; if not, then it can't.
+.IP \fINumeric\fR
+This gives the size of some aspect of a terminal, such as the number of
+lines or the number of columns.
+A numeric code is followed by a number sign `#' and then a string of digits,
+which set the value for that code
+For example, the code \fBcols#80\fR indicates that a terminal has 80
+columns per row.
+.IP "\fIString Capabilities\fR"
+This gives a sequence of characters that trigger a terminal operation.
+For example, a terminal may expect a ``magic sequence'' to wipe the
+screen clean, to print in reverse video, or to change the shape of its cursor.
+Likewise, a terminal may send a ``magic sequence'' when a particular function
+key is pressed.
+For example, the code \fBklf1=\eE5\fR indicates that this terminal sends the
+string \fB<esc>5\fR when the user presses function-key 1.
+.PP
+Some terminal capabilities may involve \fIpadding\fR \(em that is, telling
+the terminal to delay execution of the capability for a fraction of a second.
+In some instances, padding may make the difference between a terminal's
+drawing information correctly, or displaying a jumble.
+.PP
+A delay code can appear anywhere in a string capability code.
+It is introduced by a dollar sign `$' and enclosed in angle brackets `<\^>'\fR.
+The numeric value is always in milliseconds.
+For example, the code \fBel=\eEK$<3>\fR indicates that the
+clear-to-end-of-line code \fBel\fR is invoked by the ``magic sequence''
+\fB<esc>K\fR, and that it should involve a three-millisecond delay.
+Function
+.B tputs()
+provides the delay.
+.PP
+The delay can be either a number, e.g., ``20'', or a number followed by
+an asterisk, e.g., ``3*''.
+An asterisk indicates that the padding must be proportional
+to the number of lines affected by the operation;
+the amount given is the amount of padding required by each line of output.
+(This is true even in the case of the insert-character code.)
+When an asterisk is specified,
+it is sometimes useful to give a delay of the form
+``3.5'' to specify a delay-per-unit to tenths of milliseconds.
+(Only one decimal place is allowed.)
+.PP
+The following table gives the commonest \fBterminfo\fR capability codes.
+The
+.I variable
+is the name by which the programmer (at the \fBterminfo\fR level)
+accesses the capability.
+The
+.I code
+is the name used in the \fBterminfo\fR entry.
+There is no fixed limit to the length of a code,
+but the convention is to keep them to five characters or fewer.
+Whenever possible, names are the same as, or similar to,
+those in the ANSI Standard X3.64-1979.
+.PP
+The semantics describe features of the code:
+.IP \(dg 0.3i
+You may specify padding.
+.IP \(dg*
+Padding may be based on the number of lines affected.
+.IP #
+The string is passed through \fBtparm()\fR with the number of parameters
+given in the description.
+.IP #\fIi\fP\fR
+Indicate the \fIi\fRth parameter.
+.PP
+.SH "Boolean Codes"
+.LB
+.tc
+.ie t .ta 0.75i 2.5i
+.el   .ta 0.75i 3.25i
+\fICode	Variable	Description\fR
+.tc . 0.1i
+\fBam\fR	auto_right_margin	Automatic margins
+\fBbce\fR	back_color_erase	Erase screen with background color
+\fBbw\fR	auto_left_margin	\fBcub1\fR wraps from column 0 to last column
+\fBccc\fR	can_change	Terminal can redefine a color
+\fBchts\fR	hard_cursor	Cursor is difficult to see
+\fBcpix\fR	cpi_changes_res	Changing character pitch also changes resolution
+\fBcrxm\fR	cr_cancels_micro_mode	Carriage return cancels micro mode
+\fBda\fR	memory_above	Display can be retained above the screen
+\fBdaisy\fR	has_print_wheel	You must change print wheel on printer
+\fBdb\fR	memory_below	Display can be retained below the screen
+\fBeo\fR	erase_overstrike	Erase overstrikes with a blank
+\fBeslok\fR	status_line_esc_ok	Escape can be used on the status line
+\fBgn\fR	generic_type	Generic line type (e.g., dialup, switch).
+\fBhc\fR	hard_copy	Hardcopy terminal
+\fBhls\fR	hue_lightness_saturation	Terminal uses HLS color notation
+\fBhs\fR	has_status_line	Has an extra ``status line''
+\fBhz\fR	tilde_glitch	Hazeltine cannot print tildes `~'
+\fBin\fR	insert_null_glitch	Insert mode distinguishes NULs
+\fBkm\fR	has_meta_key	Has a metakey (shift sets parity bit)
+\fBmc5i\fR	prtr_silent	Printer does not echo on screen
+\fBmir\fR	move_insert_mode	Safe to move while in insert mode
+\fBmsgr\fR	move_standout_mode	Safe to move in standout modes
+\fBnpc\fR	no_pad_char	No padding character
+\fBnxon\fR	needs_xon_xoff	Padding does not work:  needs XON/XOFF
+\fBos\fR	over_strike	Terminal overstrikes
+\fBsam\fR	semi_auto_right_margin	Printing in last column returns carriage
+\fBul\fR	transparent_underline	Underline character overstrikes
+\fBxenl\fR	eat_newline_glitch	Newline ignored after 80 columns (Concept)
+\fBxhp\fR	ceol_standout_glitch	Standout not erased by overwriting (HP)
+\fBxhpa\fR	col_addr_glitch	Only positive motion for HPA/MHPA capitals
+\fBxon\fR	xon_xoff	Terminal uses XON/XOFF handshaking
+\fBxsb\fR	no_esc_ctlc	Beehive terminal (F1=escape, F2=\fB<ctrl-C>\fR)
+\fBxvpa\fR	row_addr_glitch	Only positive motion for VPA/MVPA capitals
+\fBxt\fR	teleray_glitch	Tabs destructive, magic SO char (Teleray 1061)
+.SH "Numeric Codes"
+.LB
+.tc
+.ie t .ta 0.75i 2.5i
+.el   .ta 0.75i 3.25i
+\fICode	Variable	Description\fR
+.tc . 0.1i
+\fBbufsz\fR	buffer_capacity	Number of bytes buffered before printing
+\fBcolors\fR	max_colors	Maximum number of colors on the screen
+\fBcols\fR	columns	Number of columns in a line
+\fBit\fR	init_tabs	Tabs initially every \fIn\fR spaces
+\fBlines\fR	lines	Number of lines on screen or page
+\fBlm\fR	lines_of_memory	Lines of memory if greater than \fBlines\fR; zero, variable
+\fBmaddr\fR	max_micro_address	Maximum value in micro_ ... _address
+\fBmjump\fR	max_micro_jump	Maximum value in parm_ ... _micro
+\fBmls\fR	micro_line_size	Line-step size when in micro mode
+\fBncv\fR	no_color_video	Video attributes that cannot be used with color
+\fBnlab\fR	num_labels	Number of labels on the screen
+\fBnpins\fR	number_of_pins	Number of pins in the print-head
+\fBorc\fR	output_res_char	Horizontal resolution, units per character
+\fBorhi\fR	output_res_horz	Horizontal resolution in units per inch
+\fBorl\fR	output_res_line	Vertical resolution, units per line
+\fBorvi\fR	output_res_vert	Vertical resolution, units per inch
+\fBpairs\fR	max_pairs	Maximum number of color_pairs on screen
+\fBpb\fR	padding_baud_rate	Lowest baud rate where CR/NL padding is needed
+\fBspinh\fR	dot_horz_spacing	Spacing of pins horizontally (pins/inch)
+\fBspinv\fR	dot_vert_spacing	Spacing of pins vertically (pins/inch)
+\fBvt\fR	virtual_terminal	Virtual terminal number
+\fBwidcs\fR	wide_char_size	Character step size, double-width mode
+\fBwsl\fR	width_status_line	Number of columns in the status line
+\fBxmc\fR	magic_cookie_glitch	Number of blank characters left by \fBsmso\fR or \fBrmso\fR
+.SH "String Capabilities"
+.LB
+.tc
+.ie t .ta 0.75i 2.5i
+.el   .ta 0.75i 3.25i
+\fICode	Variable	Description\fR
+.tc . 0.1i
+\fBCC\fR	command_character	Terminal-settable command character in prototype
+\fBacsc\fR	acs_chars	Pairs of graphical character set (aAbBcC ...)
+\fBbel\fR	bell	Audible signal (bell)\(dg
+\fBblink\fR	enter_blink_mode	Turn on blinking
+\fBbold\fR	enter_bold_mode	Turn on bold (extra bright)
+\fBcbt\fR	back_tab	Back tab\(dg
+\fBch\fR	erase_charse	Erase #1 characters\(dg#
+\fBchr\fR	change_res_horz	Change horizontal resolution
+\fBcivis\fR	cursor_invisible	Make cursor invisible
+\fBclear\fR	clear_screen	Clear screen\(dg*
+\fBcnorm\fR	cursor_normal	Make cursor appear normal (undo \fBvs\fR and \fBvi\fR)
+\fBcpi\fR	change_char_pitch	Change number of characters per inch
+\fBcr\fR	carriage_return	Carriage return\(dg*
+\fBcsnm\fR	char_set_names	Names of character sets
+\fBcsr\fR	change_scroll_region	change to lines #1 through #2 (vt100)\(dg#
+\fBcub\fR	parm_left_cursor	Move cursor left #1 spaces\(dg#
+\fBcub1\fR	cursor_left	Move cursor left one space
+\fBcud\fR	parm_down_cursor	Move cursor down #1 lines.\(dg*#
+\fBcud1\fR	cursor_down	Move cursor down one line
+\fBcuf\fR	parm_right_cursor	Move cursor right #1 spaces\(dg*#
+\fBcuf1\fR	cursor_right	Move cursor right one space
+\fBcup\fR	cursor_address	Cursor motion relative to row 1 column 2\(dg#
+\fBcuu\fR	parm_up_cursor	Move cursor up #1 lines\(dg*#
+\fBcuu1\fR	cursor_up	Upline (cursor up)
+\fBcvr\fR	change_rs_vert	Change vertical resolution
+\fBcvvis\fR	cursor_visible	Make cursor very visible
+\fBdch\fR	parm_dch	Delete #1 chars\(dg*#
+\fBdch1\fR	delete_character	Delete character\(dg*
+\fBdefc\fR	define_char	Define a character in a character set
+\fBdim\fR	enter_dim_mode	Turn on half-bright mode
+\fBdl\fR	parm_delete_line	Delete #1 lines\(dg*#
+\fBdl1\fR	delete_line	Delete line\(dg*
+\fBdocr\fR	these_cause_cr	List of characters that trigger carriage return
+\fBdsl\fR	dis_status_line	Disable status line
+\fBech\fR	erase_chars	Erase no. 1 characters
+\fBed\fR	clr_eos	Clear to end of display\(dg*
+\fBel\fR	clr_eol	Clear to end of line\(dg
+\fBel1\fR	clr_bol	Clear to beginning of line, inclusive
+\fBenacs\fR	ena_acs	Enable alternate character set
+\fBflash\fR	flash_screen	Visible bell (may not move cursor)
+\fBff\fR	form_feed	Hardcopy terminal page eject\(dg*
+\fBfsl\fR	from_status_line	Return from status line
+\fBhd\fR	down_half_line	Half-line down (forward 1/2 linefeed)
+\fBhome\fR	cursor_home	Move cursor to home position (if no \fBcup\fR)
+\fBhpa\fR	column_address	Set cursor column\(dg#
+\fBht\fR	tab	Tab to next eight-space hardware tab stop
+\fBhts\fR	set_tab	Set a tab in all rows, current column.
+\fBhu\fR	up_half_line	Half-line up (reverse 1/2 linefeed)
+\fBich\fR	parm_ich	Insert #1 blank characters\(dg*#
+\fBich1\fR	insert_character	Insert character\(dg
+\fBif\fR	init_file	Name of file containing \fBis\fR
+\fBil\fR	parm_insert_line	Add #1 new blank lines\(dg*#
+\fBil1\fR	insert_line	Add new blank line\(dg*
+\fBind\fR	scroll_forward	Scroll text up\(dg
+\fBindn\fR	parm_index	Scroll forward #1 lines\(dg#
+\fBinitc\fR	initialize_color	Initialize color definition
+\fBinitp\fR	initialize_pair	Initialize color pairs
+\fBinvis\fR	enter_secure_mode	Turn on blank mode (characters invisible)
+\fBip\fR	insert_padding	Insert pad after character inserted\(dg*
+\fBiprog\fR	init_prog	Full path name of initialization program
+\fBis1\fR	init_1string	Terminal-initialization string
+\fBis2\fR	init_2string	Terminal-initialization string
+\fBis3\fR	init_3string	Terminal-initialization string
+\fBkBEG\fR	key_sbeg	Sent by shifted beginning key
+\fBkCAN\fR	key_scancel	Sent by shifted cancel key
+\fBkCMD\fR	key_scommand	Sent by shifted command key
+\fBkCPY\fR	key_scopy	Sent by shifted copy key
+\fBkCRT\fR	key_screate	Sent by shifted create key
+\fBkDC\fR	key_sdc	Sent by shifted delete-character key
+\fBkDL\fR	key_sdl	Sent by shifted delete-line key
+\fBkEND\fR	key_send	Sent by shifted end key
+\fBkEOL\fR	key_seol	Sent by shifted EOL clear-line key
+\fBkEXT\fR	key_sexit	Sent by shifted exit key
+\fBkFND\fR	key_sfind	Sent by shifted find key
+\fBkHLP\fR	key_shelp	Sent by shifted help key
+\fBkHOM\fR	key_shome	Sent by shifted home key
+\fBkIC\fR	key_sic	Sent by shifted input key
+\fBkLFT\fR	key_sleft	Sent by shifted \*(LA key
+\fBkMOV\fR	key_smove	Sent by shifted move key
+\fBkMSG\fR	key_smessage	Sent by shifted message key
+\fBkNXT\fR	key_snext	Sent by shifted next key
+\fBkOPT\fR	key_soptions	Sent by shifted option key
+\fBkPRT\fR	key_sprint	Sent by shifted print key
+\fBkPRV\fR	key_sprevious	Sent by shifted previous key
+\fBkRDO\fR	key_sredo	Sent by shifted redo key
+\fBkRES\fR	key_srsume	Sent by shifted resume key
+\fBkRIT\fR	key_sright	Sent by shifted \*(RA key
+\fBkRPL\fR	key_sreplace	Sent by shifted replace key
+\fBkSAV\fR	key_ssave	Sent by shifted save key
+\fBkSPD\fR	key_ssuspend	Sent by shifted suspend key
+\fBkUND\fR	key_sundo	Sent by shifted undo key
+\fBka1\fR	key_a1	Sent by key A1, upper left of keypad
+\fBka3\fR	key_a3	Sent by key A3, upper right of keypad
+\fBkb2\fR	key_b2	Sent by key B2, center of keypad
+\fBkbeg\fR	key_beg	Sent by ``begin'' key
+\fBkbs\fR	key_backspace	Sent by backspace key
+\fBkc1\fR	key_c1	Sent by key C1, lower left of keypad
+\fBkc3\fR	key_c3	Sent by key C3, lower right of keypad
+\fBkcan\fR	key_cancel	Sent by cancel key
+\fBkcbt\fR	key_btab	Sent by back-tab key
+\fBkclo\fR	key_close	Sent by close key
+\fBkclr\fR	key_clear	Sent by clear-screen or erase key
+\fBkcmd\fR	key_command	Sent by ``cmd'' key
+\fBkcpy\fR	key_copy	Sent by copy key
+\fBkcrt\fR	key_create	Sent by create key
+\fBkctab\fR	key_ctab	Sent by clear-tab key
+\fBkcub1\fR	key_left	Sent by \*(LA key
+\fBkcud1\fR	key_down	Sent by \*(DA key
+\fBkcuf1\fR	key_right	Sent by \*(RA key
+\fBkcuu1\fR	key_up	Sent by terminal \*(UA key
+\fBkdch1\fR	key_dc	Sent by delete-character key
+\fBkdl1\fR	key_dl	Sent by delete-line key
+\fBked\fR	key_eos	Sent by clear-to-end-of-screen key
+\fBkel\fR	key_eol	Sent by clear-to-end-of-line key
+\fBkend\fR	key_end	Sent by end key
+\fBkent\fR	key_enter	Sent by \*(RT key
+\fBkext\fR	key_exit	Sent by exit key
+\fBkf0\fR	key_f0	Sent by function key 0
+\fBkf1\fR	key_f1	Sent by function key 1
+\fBkf10\fR	key_f10	Sent by function key 10
+\fBkf11\fR	key_f11	Sent by function key 11
+\fBkf12\fR	key_f12	Sent by function key 12
+\fBkf13\fR	key_f13	Sent by function key 13
+\fBkf14\fR	key_f14	Sent by function key 14
+\fBkf15\fR	key_f15	Sent by function key 15
+\fBkf16\fR	key_f16	Sent by function key 16
+\fBkf17\fR	key_f17	Sent by function key 17
+\fBkf18\fR	key_f18	Sent by function key 18
+\fBkf19\fR	key_f19	Sent by function key 19
+\fBkf2\fR	key_f2	Sent by function key 2
+\fBkf20\fR	key_f20	Sent by function key 20
+\fBkf21\fR	key_f21	Sent by function key 21
+\fBkf22\fR	key_f22	Sent by function key 22
+\fBkf23\fR	key_f23	Sent by function key 23
+\fBkf24\fR	key_f24	Sent by function key 24
+\fBkf25\fR	key_f25	Sent by function key 25
+\fBkf26\fR	key_f26	Sent by function key 26
+\fBkf27\fR	key_f27	Sent by function key 27
+\fBkf28\fR	key_f28	Sent by function key 28
+\fBkf29\fR	key_f29	Sent by function key 29
+\fBkf3\fR	key_f3	Sent by function key 3
+\fBkf30\fR	key_f30	Sent by function key 30
+\fBkf31\fR	key_f31	Sent by function key 31
+\fBkf32\fR	key_f32	Sent by function key 32
+\fBkf33\fR	key_f33	Sent by function key 33
+\fBkf34\fR	key_f34	Sent by function key 34
+\fBkf35\fR	key_f35	Sent by function key 35
+\fBkf36\fR	key_f36	Sent by function key 36
+\fBkf37\fR	key_f37	Sent by function key 37
+\fBkf38\fR	key_f38	Sent by function key 38
+\fBkf39\fR	key_f39	Sent by function key 39
+\fBkf4\fR	key_f4	Sent by function key 4
+\fBkf40\fR	key_f40	Sent by function key 40
+\fBkf41\fR	key_f41	Sent by function key 41
+\fBkf42\fR	key_f42	Sent by function key 42
+\fBkf43\fR	key_f43	Sent by function key 43
+\fBkf44\fR	key_f44	Sent by function key 44
+\fBkf45\fR	key_f45	Sent by function key 45
+\fBkf46\fR	key_f46	Sent by function key 46
+\fBkf47\fR	key_f47	Sent by function key 47
+\fBkf48\fR	key_f48	Sent by function key 48
+\fBkf49\fR	key_f49	Sent by function key 49
+\fBkf5\fR	key_f5	Sent by function key 5
+\fBkf50\fR	key_f50	Sent by function key 50
+\fBkf51\fR	key_f51	Sent by function key 51
+\fBkf52\fR	key_f52	Sent by function key 52
+\fBkf53\fR	key_f53	Sent by function key 53
+\fBkf54\fR	key_f54	Sent by function key 54
+\fBkf55\fR	key_f55	Sent by function key 55
+\fBkf56\fR	key_f56	Sent by function key 56
+\fBkf57\fR	key_f57	Sent by function key 57
+\fBkf58\fR	key_f58	Sent by function key 58
+\fBkf59\fR	key_f59	Sent by function key 59
+\fBkf6\fR	key_f6	Sent by function key 6
+\fBkf60\fR	key_f60	Sent by function key 60
+\fBkf61\fR	key_f61	Sent by function key 61
+\fBkf62\fR	key_f62	Sent by function key 62
+\fBkf63\fR	key_f63	Sent by function key 63
+\fBkf7\fR	key_f7	Sent by function key 7
+\fBkf8\fR	key_f8	Sent by function key 8
+\fBkf9\fR	key_f9	Sent by function key 9
+\fBkfnd\fR	key_find	Sent by find key
+\fBkhlp\fR	key_help	Sent by help key
+\fBkhome\fR	key_home	Sent by home key
+\fBkhts\fR	key_stab	Sent by set-tab key
+\fBkich1\fR	key_ic	Sent by insert char/enter insert-mode key
+\fBkil1\fR	key_il	Sent by insert line
+\fBkind\fR	key_sf	Sent by scroll-forward/down key
+\fBkll\fR	key_ll	Sent by home-down key
+\fBkmrk\fR	key_mark	Sent by mark key
+\fBkmsg\fR	key_message	Sent by message key
+\fBkmov\fR	key_move	Sent by move key
+\fBknp\fR	key_npage	Sent by next-page key
+\fBknxt\fR	key_next	Sent by next-object key
+\fBkopn\fR	key_open	Sent by open key
+\fBkopt\fR	key_options	Sent by options key
+\fBkpp\fR	key_ppage	Sent by previous-page key
+\fBkprt\fR	key_print	Sent by print (copy) key
+\fBkprv\fR	key_previous	Sent by previous-object key
+\fBkrdo\fR	key_redo	Sent by redo key
+\fBkref\fR	key_reference	Sent by reference key
+\fBkres\fR	key_resume	Sent by resume key
+\fBkrfr\fR	key_refresh	Sent by refresh key
+\fBkri\fR	key_sr	Sent by scroll-backward/up key
+\fBkrmir\fR	key_eic	Sent by \fBrmir\fR or \fBsmir\fR in insert mode
+\fBkrpl\fR	key_replace	Sent by replace key
+\fBkrst\fR	key_restart	Sent by restart key
+\fBksav\fR	key_save	Sent by save key
+\fBkslt\fR	key_select	Sent by select key
+\fBkspd\fR	key_suspend	Sent by suspend key
+\fBktbc\fR	key_catab	Sent by clear-all-tabs key
+\fBkund\fR	key_undo	Sent by undo key
+\fBlf0\fR	label_f0	Label on function key 0 if not F0
+\fBlf1\fR	label_f1	Label on function key 1 if not F1
+\fBlf10\fR	label_f10	Label on function key 10 if not F10
+\fBlf2\fR	label_f2	Label on function key 2 if not F2
+\fBlf3\fR	label_f3	Label on function key 3 if not F3
+\fBlf4\fR	label_f4	Label on function key 4 if not F4
+\fBlf5\fR	label_f5	Label on function key 5 if not F5
+\fBlf6\fR	label_f6	Label on function key 6 if not F6
+\fBlf7\fR	label_f7	Label on function key 7 if not F7
+\fBlf8\fR	label_f8	Label on function key 8 if not F8
+\fBlf9\fR	label_f9	Label on function key 9 if not F9
+\fBll\fR	cursor_to_ll	Last line, first column (if no \fBcup\fR)
+\fBlpi\fR	change_line_pitch	Change number of lines per inch
+\fBmc0\fR	print_screen	Print contents of the screen
+\fBmc4\fR	prtr_off	Turn off printer
+\fBmc5\fR	prtr_on	Turn on printer
+\fBmcub\fR	parm_left_micro	Like \fBcub\fR for micro adjustment
+\fBmcub1\fR	micro_left	Like \fBcub1\fR for micro adjustment
+\fBmcud\fR	parm_down_micro	Like \fBcud\fR for micro adjustment
+\fBmcud1\fR	micro_down	Like \fBcud1\fR for micro adjustment
+\fBmcuf\fR	parm_right_micro	Like \fBcuf\fR for micro adjustment
+\fBmcuf1\fR	micro_right	Like \fBcuf1\fR for micro adjustment
+\fBmcuu\fR	parm_up_micro	Like \fBcuu\fR for micro adjustment
+\fBmcuu1\fR	micro_up	Like \fBcuu1\fR for micro adjustment
+\fBmgc\fR	clear_margins	Clear all margins (top, bottom, sides)
+\fBmhpa\fR	micro_column_address	Like \fBhpa\fR for micro adjustment
+\fBmrcup\fR	cursor_mem_address	Memory-relative cursor addressing
+\fBmvpa\fR	micro_row_address	Like \fBvpa\fR for micro adjustment
+\fBnel\fR	newline	Newline (behaves like CR followed by LF)
+\fBoc\fR	orig_colors	Set all colors to originals
+\fBop\fR	orig_pair	Set default color_pair to original
+\fBpad\fR	pad_char	Pad character (rather than NUL)
+\fBpfkey\fR	pkey_key	Program function key 1 to type string 2
+\fBpfloc\fR	pkey_local	Program function key 1 to execute string 2
+\fBpfx\fR	pkey_xmit	Program function key 1 to transmit string 2
+\fBpln\fR	plab_norm	Program label 1 to show string 2
+\fBporder\fR	order_of_pins	Match software bits to print-head pins
+\fBprot\fR	enter_protected_mode	Turn on protected mode
+\fBrc\fR	restore_cursor	Restore cursor to position of last \fBsc\fR
+\fBrep\fR	repeat_char	Repeat character #1 #2 times. \(dg*#
+\fBrev\fR	enter_reverse_mode	Turn on reverse-video
+\fBrf\fR	reset_file	Name of file containing reset string
+\fBrfi\fR	reg_for_input	Send next input character
+\fBri\fR	scroll_reverse	Scroll text down\(dg
+\fBrin\fR	parm_rindex	Scroll backward one line\(dg#
+\fBritm\fR	exit_italics_mode	Disable italics
+\fBrlm\fR	exit_leftward_mode	Enable rightward motion
+\fBrmacs\fR	exit_alt_charset_mode	End alternate character set\(dg
+\fBrmam\fR	exit_am_mode	Turn off automatic margins
+\fBrmcup\fR	exit_ca_mode	String to end programs that use \fBcup\fR
+\fBrmdc\fR	exit_delete_mode	End delete mode
+\fBrmicm\fR	exit_micro_mode	Disable micro-motion capabilities
+\fBrmir\fR	exit_insert_mode	End insert mode
+\fBrmkx\fR	keypad_local	Exit ``keypad transmit'' mode
+\fBrmln\fR	label_off	Turn off soft labels
+\fBrmm\fR	meta_off	Turn off ``meta mode''
+\fBrmp\fR	char_padding	Like \fBip\fR, but in replace mode
+\fBrmso\fR	exit_standout_mode	End stand out mode
+\fBrmul\fR	exit_underline_mode	End underscore mode
+\fBrmxon\fR	exit_xon_mode	Turn off XON/XOFF handshaking
+\fBrs1\fR	reset_1string	Reset terminal completely to sane modes
+\fBrs2\fR	reset_2string	Reset terminal completely to sane modes
+\fBrs3\fR	reset_3string	Reset terminal completely to sane modes
+\fBrshm\fR	exit_shadow_mode	Disable shadow printing
+\fBrsubm\fR	exit_subscript_mode	Disable subscript printing
+\fBrsupm\fR	exit_superscript_mode	Disable superscript printing
+\fBrum\fR	exit_upward_motion	Enable downward motion
+\fBrwidm\fR	exit_doublewide_mode	Disable double-width printing
+\fBsbim\fR	start_bit_margin	Start printing bit-mapped graphics
+\fBsc\fR	save_cursor	Save cursor position\(dg
+\fBscp\fR	set_color_pair	Set current color pair
+\fBscs\fR	select_char_set	Select character set
+\fBscsd\fR	start_char_set_def	Start definition of a character set
+\fBsdrfq\fR	enter_draft_quality	Set draft-quality printing
+\fBsetb\fR	set_background	Set current background color
+\fBsetf\fR	set_foreground	Set current foreground color
+\fBsgr\fR	set_attributes	Define the nine video attributes\(dg*#
+\fBsgr0\fR	exit_attribute_mode	Turn off all attributes
+\fBsitm\fR	enter_italics_mode	Enable italics
+\fBslm\fR	enter_leftward_mode	Enable leftward carriage motion
+\fBsmacs\fR	enter_alt_charset_mode	Start alternate character set\(dg
+\fBsmam\fR	enter_am_mode	Turn on automatic margins
+\fBsmcup\fR	enter_ca_mode	String to begin programs that use \fBcup\fR
+\fBsmdc\fR	enter_delete_mode	Delete mode (enter)
+\fBsmgb\fR	set_bottom_margin	Set bottom margin to current line
+\fBsmgbp\fR	set_bottom_margin_parm	Set bottom margin at lines 1 or 2
+\fBsmgl\fR	set_left_margin	Set left margin to current column
+\fBsmglp\fR	set_left_margin_parm	Set left margin to columns 1 or 2
+\fBsmgr\fR	set_right_margin	Set right margin to current column
+\fBsmgrp\fR	set_right_margin_parm	Set right margin to columns 1 or 2
+\fBsmgt\fR	set_top_margin	Set top margin to current line
+\fBsmgtp\fR	set_top_margin_parm	Set top margin to lines 1 or 2
+\fBsmicm\fR	enter_micro_mode	Enable micro-motion capabilities
+\fBsmir\fR	enter_insert_mode	Insert mode (enter)
+\fBsmkx\fR	keypad_xmit	Enter ``keypad transmit'' mode
+\fBsmln\fR	label_on	Turn on soft labels
+\fBsmm\fR	meta_on	Turn on ``meta mode'' (eighth bit)
+\fBsmso\fR	enter_standout_mode	Begin stand-out mode
+\fBsmul\fR	enter_underline_mode	Start underscore mode
+\fBsmxon\fR	enter_xon_mode	Turn on XON/XOFF handshaking
+\fBsnlq\fR	enter_near_letter_quality	Set near-letter-quality printing
+\fBsnrmq\fR	enter_normal_quality	Set normal-quality print
+\fBsshm\fR	enter_shadow_mode	Enable shadow printing
+\fBssubm\fR	enter_subscript_mode	Enable subscript printing
+\fBssupm\fR	enter_superscript_mode	Enable superscript printing
+\fBsubcs\fR	subscript_characters	List of ``subscript-able'' characters
+\fBsum\fR	enter_upward_mode	Enable upward carriage motion
+\fBsupcs\fR	superscript_characters	List of ``superscript-able'' characters
+\fBswidm\fR	enter_doublewide_mode	Enable double-wide printing
+\fBtbc\fR	clear_all_tabs	Clear all tab stops\(dg
+\fBtsl\fR	to_status_line	Go to status line, column 1
+\fBuc\fR	underline_char	Underscore one char and move past it
+\fBvpa\fR	row_address	Vertical position absolute (set row)\(dg#
+\fBwind\fR	set_window	Current window is lines #1-#2, columns 3\(em4
+\fBxoffc\fR	xoff_character	XOFF character
+\fBxonc\fR	xon_character	XON character
+\fBzerom\fR	zero_motion	No motion for subsequent character
+.fi
+.SH "Escape Sequences"
+You can use the following escape sequences with any string-capability
+entry:
+.DS
+.ta 0.5i 1.5i
+	\fB\eE\fR	\fB<esc>\fR character
+	\fB\ee\fR	\fB<esc>\fR character
+	\fB^\fIX\fR	\fB<ctrl-\fIX\^\fB>\fR for any appropriate \fIX\fR
+	\fB\en\fR	Newline
+	\fB\er\fR	Carriage return
+	\fB\et\fR	Horizontal tab
+	\fB\eb\fR	Backspace
+	\fB\ef\fR	Formfeed
+	\fB\es\fR	Space
+	\fB\e\fI000\fR	Value of a character in three octal digits
+	\fB\e^\fR	Literal carat
+	\fB\e,\fR	Literal comma
+	\fB\e\e\fR	Literal backslash
+.DE
+.SH "Parameterized Strings"
+Cursor-addressing and other strings requiring parameters
+in the terminal are described by a parameterized string capability, with
+\fBprintf()\fR-like escape sequences in it.
+Each escape sequence is introduced with a percent sign `%', followed by
+one character that described the type of formatting to be performed,
+as follows:
+.DS
+.ta 0.5i 1.5i
+	\fB%%\fR	Literal `%'
+	\fB%d\fR	Decimal integer
+	\fB%2d\fR	Decimal integer with at least two places
+	\fB%02d\fR	Decimal integer, two places, zero padding
+	\fB%3d\fR	Decimal integer with at least three places
+	\fB%03d\fR	Decimal integer, three places, zero padding
+	\fB%c\fR	Character
+	\fB%s\fR	String
+.DE
+.DS
+.ta 0.5i 1.5i
+	\fB%p[\fIi\fR]\fR	Push \fIi\fRth parameter
+	\fB%P[\fIa-z\^\fB]\fR	Set variable [\fIa-z\fR] to \fBpop()\fR
+	\fB%g[\fIa-z\^\fB]\fR	Push variable [\fIa-z\fR]
+	\fB%'\fIc\^\fB'\fR	Character constant \fIc\fR
+	\fB%{\fInn\^\fB}\fR	Integer constant \fInn\fR
+.DE
+.DS
+.ta 0.5i 1.5i
+	\fB%+\fR	Addition: \fBpush(pop() + pop())\fR
+	\fB%-\fR	Subtraction: \fBpush(pop() - pop())\fR
+	\fB%*\fR	Multiplication: \fBpush(pop() * pop())\fR
+	\fB%/\fR	Division: \fBpush(pop() / pop())\fR
+	\fB%m\fR	Modulo: \fBpush(pop() % pop())\fR
+	\fB%&\fR	Bitwise AND: \fBpush(pop() op pop())\fR
+	\fB%|\fR	Bitwise OR: \fBpush(pop() op pop())\fR
+	\fB%^\fR	Bitwise NOR: \fBpush(pop() op pop())\fR
+	\fB%=\fR	Logical AND: \fBpush(pop() op pop())\fR
+	\fB%>\fR	Logical OR: \fBpush(pop() op pop())\fR
+	\fB%<\fR	Logical NOR: \fBpush(pop() op pop())\fR
+	\fB%!\fR	Unary NOT: \fBpush(op pop())\fR
+	\fB%~\fR	Unary complement: \fBpush(op pop())\fR
+	\fB%i\fR	Add one to first two parmameters (for ANSI terminals)
+.DE
+.PP
+The parameterized mechanism is based on a stack.
+.B %
+operations
+push parameters and constants onto the stack, do arithmetic and
+other operations on the top of the stack, and print out values in
+various formats.
+Up to nine parameters can be used at once.
+If-then-else testing is possible, as is storage in a limited number of
+variables.
+There is no provision for loops or printing strings
+in any format other than \fB%s\fR.
+.PP
+For example, compare the
+.B termcap
+entry
+\fBcm\fR and the
+.B terminfo
+entry \fBcup\fR.
+.B %+
+(add space and print as a character)
+.B cm
+would be treated as \fB%p1%' '%+%c\fR, that is, push the first parameter,
+push space, add the top two numbers onto the stack,
+and output the top item on the stack using
+character (\fB%c\fR) format.
+For the second parameter, change \fB%p1\fR to \fB%p2\fR.
+.B %.
+(print as a character) becomes
+.BR %p1%c .
+.B %d
+(print in decimal) becomes \fB%p1%d\fR.
+.PP
+As with \fBtgoto()\fR, characters standing by themselves (no `%' sign) are
+output as is.
+.SH "Alternate Characters"
+The instruction
+.B acsc
+defines a set of alternate characters.
+These alternate characters define, among other things,
+the characters used to draw boxes.
+.PP
+.B acsc
+is set to a string composed of pairs of characters.
+The first character in each pair gives the character used by a
+VT100 in graphics mode to display;
+the second character is the one for the terminal in use.
+The following table shows the VT100 graphic-character set:
+.nf
+.sp \n(pDu
+.ta 0.5i 2.5i
+	Arrow right	\fB+\fR
+	Arrow left	\fB,\fR
+	Arrow down	\fB.\fR
+	Full block (inverted space)	\fB0\fR
+	Lantern	\fBI\fR
+	Arrow up	\fB-\fR
+	Diamond	\fB'\fR
+	Checkboard	\fBa\fR
+	Degree	\fBf\fR
+	+/- Sign	\fBg\fR
+	Centered rectangles	\fBh\fR
+	Lower right corner	\fBj\fR
+	Upper right corner	\fBk\fR
+	Upper left corner	\fBl\fR
+	Lower left corner	\fBm\fR
+	Cross	\fBn\fR
+	Upper horizontal line	\fBo\fR
+	Middle horizontal line	\fBq\fR
+	Lower horizontal line	\fBs\fR
+	Left tee	\fBt\fR
+	Right tee	\fBu\fR
+	Lower tee	\fBv\fR
+	Upper tee	\fBw\fR
+	Vertical line	\fBx\fR
+	Centered dot	\fB~\fR
+.fi
+.SH "Changes from termcap to terminfo"
+This section describes features of
+.B terminfo
+that
+.B termcap
+does not contain.
+.SH Defaults
+.B terminfo
+does not contain every default found in
+.BR termcap .
+.BR termcap,
+for example, assumed that \er was a
+carriage return unless \fBnc\fP was present,
+indicating that it did not
+work, or \fBcr\fP was present, indicating an alternative.
+In
+.BR terminfo ,
+if \fBcr\fP is present, the string so given works; otherwise it should
+be assumed \fInot\fP to work.
+The \fBbs\fP and \fBbc\fP capabilities are replaced
+by \fBcub\fP and \fBcub1\fP.
+(The former takes a parameter, moving left that
+many spaces.
+The latter is probably more common in terminals and
+moves left one space.)
+\fBnl\fP (linefeed) has been split into two
+functions:
+\fBcud1\fP (moves the cursor down one line) and \fBind\fP (scroll
+forward).
+\fBcud1\fP applies when the cursor is not on the bottom
+line, \fBind\fP applies when it is on the bottom line.
+The bell capability is now explicitly given as \fBbel\fP.
+.PP
+The
+.B terminfo
+data base is compiled, unlike termcap.
+This means
+that a
+.B terminfo
+source file (describing some set of terminals) is
+processed by the terminfo compiler, producing a binary
+description of the terminal in a file under
+.BR /usr/lib/terminfo .
+The function
+.B setupterm()
+reads this file.
+The advantage to compilation is that starting up a program using
+.B terminfo
+is faster.
+The increase in speed comes partly from not having to
+skip past other terminal descriptions, and partly from the
+compiler having sorted the capabilities into order so that a linear
+scan can read them in.
+.PP
+The
+.B terminfo
+compiler
+.B tic
+uses the environment variable
+.B TERMINFO
+to be the destination directory of the new object files.
+It is also used by
+\fBsetupterm()\fR to find an entry for a given terminal.
+First it looks in
+the directory given in
+.B TERMINFO
+and, if not found there, checks
+.BR /usr/lib/terminfo .
+.SH "Basic Example"
+The following gives the
+.B terminfo
+description for a simple terminal, the Lear-Siegler ADM-3:
+.DM
+	adm3\||\|3\||\|lsi adm3,
+		cr=^M, cud1=^J, ind=^J, bel=^G,
+		am, cub1=^H, clear=^Z, lines#24, cols#80
+.DE
+.PP
+As you can see, the description is divided into comma-separated fields.
+The following discusses each field in detail.
+.IP "\fBadm3\||\|3\||\|lsi adm3,\fR" 0.75i
+The first field names the terminal.
+This field is unique in that it is divided into a number of sub-fields, which
+are separated by vertical bar characters.
+The first sub-field gives the name by which the terminal is normally addressed
+in a program; the last gives a longer, descriptive name.
+.IP \fBcr=^M,\fR
+To move the cursor to the left margin, send \fB<ctrl-M>\fR.
+.IP \fBcud1=^J,\fR
+To move the cursor down one row, send \fB<ctrl-J>\fR.
+.IP \fBind=^J,\fR
+To scroll the screen up, send \fB<ctrl-J>\fR.
+Note that the ADM-3, like most terminals,
+does not scroll unless the cursor is on the last row.
+.IP \fBbel=^G,\fR
+To ring the terminal's bell, send \fB<ctrl-G>\fR.
+.IP \fBam,\fR
+This boolean code indicates that
+the ADM-3 wraps to the leftmost
+column of the of the next row when the cursor reaches the rightmost column.
+.IP \fBcub1=^H,\fR
+To move the cursor nondestructively one column to the left, send
+.BR <ctrl-H> .
+.IP \fBclear=^Z,\fR
+To clear the screen, send
+.BR <ctrl-Z> .
+.IP \fBlines#24,\fR
+The ADM-3 has 24 rows (lines).
+.IP \fBcols#80,\fR
+The ADM-3 has 80 columns.
+.SH "Modifying an Entry"
+A full discussion of how to modify a
+.B terminfo
+entry is beyond the scope of this article.
+The references, below, name several volumes that discuss this topic
+at length.
+.PP
+In brief, modifying a
+.B terminfo
+entry requires that you use the command
+.B infocmp
+to de-compile the entry for a given terminal, modify the text by hand,
+then use the command
+.B tic
+to recompile and re-install the entry.
+.SH "C-Level Routines"
+The library \fB/usr/lib/libcurses.a\fR
+contains a suite of C functions with which you can read a given terminal's
+.B terminfo
+capabilities.
+You must reference the
+.B terminfo
+capabilities in your program as
+global variables whose names are identical to the full names
+of the capabilities themselves; e.g.,
+.BR auto_left_margin .
+These functions are declared in the header files
+.II curses.h
+.II term.h
+.II terminfo.h
+.B <curses.h> ,
+.BR <term.h>,
+and
+.BR <terminfo.h> ;
+note that you must
+.B #include
+all three header files in your C program.
+.PP
+You can call
+the following functions from within a C program to read a
+\fBterminfo\fR entry:
+.DS
+.ta 1.5i
+\fBfixterm()\fR	Set the terminal into program mode
+\fBputp()\fR	Write a string into \fIstdwin\fR
+\fBresetterm()\fR	Reset the terminal into a saved mode
+\fBsetupterm()\fR	Initialize terminal capabilities
+\fBtparm()\fR	Output a parameterized string
+\fBtputs()\fR	Process a capability string
+\fBvidattr()\fR	Set the terminal's video attributes
+\fBvidputs()\fR	Set video attributes into a function
+.DE
+.PP
+\fBsetupterm()\fR initializes a terminal.
+It inhales all terminal capabilities at once, and performs
+all other system-dependent initialization.
+.PP
+A program should call \fBresetterm()\fR
+when it exits or calls a shell escape, to restore the tty modes.
+When it returns from a shell escape, the program should call \fBfixterm()\fR
+to set the tty modes back to their internal settings.
+.PP
+\fBtparm()\fR is a more powerful, parameterized string mechanism.
+It resembles the \fBtermcap\fR function
+.BR tgoto() .
+\fBtgoto()\fR is still available for compatibility.
+\fBtputs()\fR is unchanged.
+.SH Files
+\fB/usr/lib/libcurses.a\fR \(em Routines for reading \fBterminfo\fR descriptions
+.br
+\fB/usr/lib/terminfo/?/*\fR \(em Directories containing compiled descriptions
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "captoinfo," captoinfo
+.Xr "curses," curses
+.Xr "fixterm()," fixterm
+.Xr "infocmp," infocmp
+.Xr "putp()," putp
+.Xr "resetterm()," resetterm
+.Xr "setupterm()," setupterm
+.Xr "term," term
+.Xr "termcap," termcap
+.Xr "tic," tic
+.Xr "tparm()," tparm
+.Xr "tputs()," tputs
+.Xr "vi," vi
+.Xr "vidputs()" vidputs
+.br
+Strang, J., Mui, L., O'Reilly, T.:
+\fITermcap and Terminfo\fR.
+Sebastopol, CA:
+O'Reilly & Associates, Inc., 1991.
+\fIHighly recommended.\fR
+.SH Notes
+As mentioned above, each
+.B terminfo
+description is kept in its own file, in a subdirectory of directory
+.BR /usr/lib/terminfo .
+Each file is named after the device it describes.
+Thus, to see what terminal devices have
+.B terminfo
+descriptions, type the command:
+.DM
+	ls -laR /usr/lib/terminfo
+.DE
+.PP
+You may wish to redirect the output of this command into a file, for further
+study later on.
+.PP
+.II "Curtis, Pavel"
+.II "Munk, Udo"
+This implementation of
+.B terminfo
+was written by Pavel Curtis of Cornell University.
+It was ported to \*(CO by Udo Munk.

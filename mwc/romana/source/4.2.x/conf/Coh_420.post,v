@@ -1,0 +1,214 @@
+head	4.2;
+access
+	hal
+	ljg
+	fred
+	udo
+	nigel;
+symbols
+	r12:4.2;
+locks; strict;
+comment	@# @;
+
+
+4.2
+date	94.03.01.16.04.41;	author rcsadmin;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+4.2
+log
+@This is the baseline version
+@
+text
+@# Coh_420.post Tue Mar  1 09:58:21 1994 CST
+
+# COHERENT Version 4.2.0
+# Installation/Update postprocessing.
+
+# This script is invoked with "-u" switch if run from an update rather
+# than from a new install.
+
+UPDATE_MODE="n"
+
+for ARG; do
+	case $ARG in
+	-u)
+		UPDATE_MODE="y"
+		;;
+	esac
+done
+
+# Copy at this point will avoid some make problems.
+cp /etc/conf/install_conf/[ms]tune /etc/conf/install_conf/[ms]device /etc/conf
+
+# Install device configuration we already know about from /etc/build.
+# This consists of information in id-var and id-cmd files.
+
+VAR_FILE=/conf/id-var
+if [ -f $VAR_FILE ]; then
+	/etc/conf/bin/idtune -f `cat $VAR_FILE`
+fi
+
+CMD_FILE=/conf/id-cmd
+if [ -f $CMD_FILE ]; then
+	sh $CMD_FILE
+fi
+
+# Save old boot kernel.
+mv /coherent /coherent.min
+
+# Configure and link new kernel.
+/etc/conf/bin/idbld -o /coherent
+
+# Link new kernel to /autoboot
+/bin/rm -f /autoboot
+ln -f /coherent /autoboot
+
+# Now that new kernel is in place, attach new /etc/brc file.
+/bin/rm -f /etc/brc
+/bin/ln -f /etc/brc.coh /etc/brc
+
+# Taylor uucp stuff.
+
+if [ "$UPDATE_MODE" = "y" ]; then
+	/bin/echo '\n'
+	/conf/upd2tay.post
+	/bin/echo '\n
+Before re-establishing your remote connections to other UUCP sites
+or before other users on your system use the new mail utilities,
+it is necessary to convert any existing mailboxes to the new mailbox
+format used by Coherent 4.0.  Failure to do this will result in
+unpredictable behavior of the mail utilities.'
+
+	/bin/echo '
+
+If you are updating from COHERENT 3.x, your mailboxes must be converted
+to a new format in order for the mail utilities to work properly. If
+you are updating from a previous COHERENT 4.x release, you should not
+attempt to convert your mailbox format.
+
+Do you wish to convert existing mailboxes now? (y/n) \c'
+
+	read answ
+	case $answ in
+	[nN]*)
+	 	/bin/echo '
+To manually convert your system mailboxes, run:
+
+       /bin/cvmail -m boxname
+
+for each mailbox in the directory /usr/spool/mail.
+
+To convert other files where you or other users of
+your system may have saved mail messages, run:
+
+        /bin/cvmail filename
+
+Press <Enter> to continue...\c'
+		read answ
+		;;
+
+	*)	echo 'Converting mailboxes. This may take a few minutes...'
+		cd /usr/spool/mail
+		for name in *
+		do
+			/bin/cvmail -m $name
+		done
+		echo '
+The system mailboxes have been converted to the format required
+by the Coherent 4.0 mail utilities. If other users of your system
+or yourself have previously saved mail messages to other files,
+the mail command will detect whether or not these files are in the
+new format and will prompt the user to run the cvmail command to
+convert the mail file if necessary.
+
+Press <Enter> to continue...\c'
+		read answ
+		;;
+	esac
+else
+	/etc/setdate
+	/etc/uuset
+
+	# Copy dial, port, and sys files into /usr/lib/uucp -
+	# They were hidden so that the update procedure would
+	# know that existing dial/port/sys were signs of a
+	# customer's prior Taylor setup.
+
+	cpdir -ade /tmp/tay_config /usr/lib/uucp/
+	rm -r /tmp/tay_config
+fi
+
+(cd /usr/lib/uucp;
+	if [ -f sys ]; then
+		chmog 600 uucp uucp sys
+	fi
+	if [ -f port ]; then
+		chmog 600 uucp uucp port
+	fi
+	if [ -f dial ]; then
+		chmog 600 uucp uucp dial
+	fi
+)
+
+if [ "$UPDATE_MODE" = "n" ]; then
+	: Optionally build /usr/dict/words.
+	echo '\n
+The COHERENT dictionary in /usr/dict is shipped in compressed form.
+The compressed dictionary uses about 350 blocks (.175 MB) of disk space.
+The uncompressed dictionary uses about 1700 blocks (.85 MB).
+You can either:
+	1) Remove the dictionary,
+	2) Leave the dictionary compressed, or
+	3) Uncompress the dictionary.
+The "spell" command will work only if you uncompress the dictionary (option 3).
+'
+	flag=1
+	while [ $flag -eq 1 ]
+	do
+		echo -n 'Please choose an option: '
+		read x
+		flag=0
+		case $x in
+		1*)	rm /usr/dict/*.z;;
+		2*)	;;
+		3*)	/usr/dict/Run
+			echo Uncompressing complete. ;;
+		*)	echo Please enter 1, 2 or 3.
+			flag=1;;
+		esac
+	done
+fi
+
+# Fix permissions and links for help files.
+
+HELPFILE=/etc/helpfile
+HELPINDEX=/etc/helpindex
+chmog 644 bin bin $HELPFILE $HELPINDEX
+ln -f $HELPFILE /usr/lib/helpfile
+ln -f $HELPINDEX /usr/lib/helpindex
+
+# If present, these files are obsolete.
+
+rm -rf /tmp/drv/* /etc/drvld
+
+# Configure the spooler
+
+/conf/mlpconfig
+
+# Convert to shadow passwords.
+
+/conf/pwsetup
+
+# Display a message in case we are not running from /etc/install.
+
+echo "System configuration done, will take effect after reboot."
+
+# end of Coh_420.post
+@

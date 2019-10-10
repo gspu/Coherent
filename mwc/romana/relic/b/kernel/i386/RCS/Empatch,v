@@ -1,0 +1,63 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @# @;
+
+
+1.2
+date     93.03.02.08.18.15;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     93.01.18.16.23.43;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@hal: kernel 72
+@
+
+
+1.2
+log
+@kernel 73 update
+@
+text
+@# Empatch - patch a kernel so that the emulator is enabled.
+#
+# This involves patching three function pointers that are initially null:
+#
+# ndpEmFn:	becomes address of math_emulate()
+# ndpKfsave:	becomes address of kfsave()
+# ndpKfrstor:	becomes address of kfrstor()
+KER=${1-/tx}
+echo "Enabling emulator in $KER"
+
+/conf/patch -v $KER "ndpEmFn=math_emulate" "ndpKfsave=kfsave" \
+  "ndpKfrstor=kfrstor"
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a7 2
+GREP=egrep
+
+d11 2
+a12 8
+ADDR=`nm $KER | ${GREP} math_emulate | awk '{ print $2 }'`
+/conf/patch -v $KER "ndpEmFn=0x${ADDR}"
+
+ADDR=`nm $KER | ${GREP} kfsave | awk '{ print $2 }'`
+/conf/patch -v $KER "ndpKfsave=0x${ADDR}"
+
+ADDR=`nm $KER | ${GREP} kfrstor | awk '{ print $2 }'`
+/conf/patch -v $KER "ndpKfrstor=0x${ADDR}"
+@

@@ -1,0 +1,1700 @@
+.TH cc "" "" Command
+.PC "C compiler"
+\fBcc [\fIcompiler options\^\fB] \fIfile .\|.\|.\|. \fB[\fIlinker options\^\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-A\fR
+\*(ME option:
+Invoke \*(ME automatically should any errors be found during compilation,
+to allow user to edit source and then recompile
+.IC \fB\-a\fR
+Create an executable file named \fBa.out\fR, unless option \fB\-o\fR
+is used explicitly
+.IC \fB\-B\fR
+Backup option:
+Use alternate versions of various compiler phases
+.IC \fB\-c\fR
+Compile only \(em no load
+.IC \fB\-D\fIname\fB[=\fIvalue\fB]\fR
+Tell \fBcpp\fR to define \fIname\fR with \fIvalue\fR
+.IC \fB\-E\fR
+Run \fBcpp\fR only and send its output to stdout
+.IC \fB\-f\fR
+Link in routines to format floating-point output
+.IC \fB\-g\fR
+Generate debugging information
+.IC \fB\-I\fIname\fR
+Tell \fBcpp\fR to look for header files in
+directory \fIname\fR
+.IC \fB\-K\fR
+Keep intermediate files
+.IC \fB\-L\fIdirectory\fR
+Tell the linker \fBld\fR to search \fIdirectory\fR for its libraries
+before it searches the directories named in the environmental variable
+\fBLIBPATH\fR
+.IC \fB\-l\fIname\fR
+Pass \fB/lib/lib\fIname\fB.a\fR to linker \fBld\fR
+.IC \fB\-M\fIstring\fR
+Use alternative machine versions
+.\".IC \fB\-N[p01ab2sdlrt]\fIstr\fR
+.\"Rename specified pass to \fIstr\fR
+.IC \fB\-O\fR
+Run peephole optimizer of C compiler
+.IC \fB\-q[p01ab2s]\fR
+Quit after specified pass
+.IC \fB\-Q\fR
+Quiet:
+suppress all error messages, no matter how awful an error
+they indicate
+.IC \fB\-S\fR
+Place C compiler assembler output in a \fB.s\fR file
+.IC \fB\-T\fIsize\fR
+Tell
+.B cc
+to use buffers of
+.I sizen
+bytes each, instead of its default 64-kilobytes buffers.
+.B cc
+reads the environmental variable
+.B TMPDIR
+to find where you want it to write its temporary files.
+.IC \fB\-t[p01ab2sdlrt]\fR
+Take specified compiler phases.
+.IC \fB\-U\fIname\fR
+Tell \fBcpp\fR to remove any initial definition
+of \fIname\fR
+.IC \fB\-V\fR
+Run verbosely
+.IC \fB\-V\fIname\fR
+Toggle variant \fBV\fIname\fR
+.Pp
+Compiles files ending \fB.c\fR; assembles files ending in \fB.s\fR;
+passes other options and files to the linker \fBld\fR.
+.HE
+.B cc
+is the program that compiles C programs.
+It guides files of source and object code through each phase
+of compilation and linking.
+\fBcc\fR has many options to assist in the compilation of
+C programs;
+in essence, however, all you need to do to produce an executable
+file from your C program is type
+\fBcc\fR followed by the name of the file or files that hold your program.
+.B cc
+checks whether the file names you give it are reasonable,
+selects the right phase for each file, and performs other
+tasks that ease the compilation of your programs.
+.SH "How cc Works"
+.B cc
+works as follows:
+.IP \(bu 0.3i
+If a file ends in \fB.c\fR,
+.B cc
+assumes that it contains C code, and compiles it.
+The compiler generates a relocatable object module with the
+suffix \fB.o\fR.
+.IP \(bu
+If the file has the suffix \fB.s\fR,
+.B cc
+assumes that it is a file of assembly language, and invokes the assembler
+.B as
+to assemble it.
+The assembler also generates a relocatable object module with the suffix
+.BR .o .
+.IP \(bu
+.B cc
+assumes that all files with the suffix \fB.o\fR are relocatable object
+modules.
+It also assumes that all files with the suffix \fB.a\fR are libraries of
+object modules.
+It passes both directly to the linker
+.BR ld .
+Additional libraries can also be invoked by using the \fB\-l\fR option
+.BR cc ,
+described below.
+.IP \(bu
+Once all files of C code and assembly language have been compiled or assembled,
+.B cc
+then invokes the linker
+.B ld
+to link the newly created object files with any objects and libraries
+you named on
+.B cc
+command line.
+It also automatically includes the C runtime startup routine
+and the standard C library, so you do not have to name these on your
+.B cc
+command line.
+.IP \(bu
+.B cc
+also cleans up after itself.
+It removes all of its temporary files automatically.
+If only one object file is created during compilation,
+.B cc
+deletes it after linking;
+however, if more than one object file is created, or if an
+object file of the same name existed before you began to compile,
+then the object file or files are not deleted.
+.PP
+Assuming that no error occurs along the way,
+.B cc
+writes the linked result into a file named after the
+.I file
+on its command line, minus that file's suffix \(em
+\fB.c\fR, \fB.s\fR, or \fB.o\fR, depending upon the type of data
+.I file
+holds.
+It is now ready to be executed.
+.SH "Options"
+The following lists all of \fBcc\fR's command-line options.
+.B cc
+passes some options
+through to the linker
+.B ld
+unchanged, and correctly interprets for it the options
+\fB-o\fR and \fB\-u\fR.
+.PP
+A number of the options are esoteric and normally are not used
+when compiling a C program.
+The following are the most commonly used options:
+.DS
+.ta 0.4i 1.2i
+	\fB-c\fR	Compile only; do not link
+	\fB-f\fR	Link in floating-point \fBprintf()\fR
+	\fB-l\fR\fIname\fR	Pass library \fBlib\fIname\fB.a\fR to linker
+	\fB-o \fIname\fR	Call output file \fIname\fR
+	\fB-V\fR	Print verbose listing of \fBcc\fR's action
+.DE
+.IP \fB?\fR
+Print a detailed usage message that describes available
+.BR cc 's
+options to the standard output.
+.IP \fB\-A\fR 0.4i
+\*(ME option.
+If an error occurs during compilation,
+.B cc
+automatically invokes the \*(ME screen editor.
+The error or errors are displayed in one window and the source
+code file in the other, with the cursor set to the line number
+indicated by the first error message.
+Typing
+.B <ctrl-X>>
+moves to the next error,
+.B <ctrl-X><
+moves to the previous error.
+To recompile, close the edited file with
+.BR <ctrl-Z> .
+Compilation will continue either until the program compiles without
+error, or until you exit from the editor by typing
+.B <ctrl-U>
+followed by
+.BR <ctrl-X><ctrl-C> .
+.IP \fB\-a\fR
+By default,
+.B cc
+generates an executable file that is named after the source module.
+For example, the command
+.DM
+	cc foo.c
+.DE
+.IP
+generates an executable named
+.BR foo .
+If you name more than source module on the
+.B cc
+command line, by default it names the executable after the first module
+you name.
+The option
+.B \-a
+tells
+.B cc
+to create an executable file named \fBa.out\fR.
+This is for compatibility with other versions of \*(UN.
+Note that option
+.BR \-o ,
+described below, overrides the effect of
+.BR \-a .
+.IP "\fB\-B[\fIpath\^\fB]\fR"
+Backup option.
+Use an alternative
+.I path
+for the compiler phases
+.BR cc0 ,
+.BR cc1 ,
+.BR cc2 ,
+and
+.BR cc3 .
+If
+.I path
+is supplied,
+.B cc
+prefixes it onto the name of each phase of the compiler, to form the name
+of the new compiler phase, and the path to the directory in which it lives.
+If you do not supply a
+.IR string ,
+.B cc
+prefixes the name of the current directory.
+.IP
+If you precede a
+.B \-B
+option with a
+.B \-t
+option, the
+.B \-B
+option affects only the phase of the compiler that the
+.B \-t
+option names.
+For example, the command
+.DM
+	cc -t0 -B/usr/fred/bin hello.c
+.DE
+.IP
+compiles
+.B hello.c
+using the version of
+.B cc0
+found in directory
+.BR /usr/fred/bin .
+You can include any number of pairs of
+.B \-t
+and
+.B \-B
+options, with each
+.B \-t
+option naming phase of the compiler that the subsequent
+.B \-B
+option affects.
+.IP
+If followed by the prefix option
+.BR \-M ,
+the name of the compiler phase in question is prefixed by the string named
+in the
+.B \-M
+option.
+For example, the command
+.DM
+	cc -t0 -B/usr/fred/cc -Mnew a.c
+.DE
+.IP
+tells the compiler to look for
+.B /usr/fred/cc/newcc0
+and execute instead of the usual
+.BR cc0 .
+.IP \fB\-c\fR
+Compile option.
+Suppress linking
+and the removal
+of the object files.
+.IP "\fB\-D\fIname\^\fB[=\fIvalue\^\fB]\fR"
+Define
+.I name
+to the preprocessor, as if set by a
+.B #define
+directive.
+If
+.I value
+is present, it is used to initialize the definition.
+.IP \fB\-E\fR
+Expand option.
+Run the C preprocessor \fBcpp\fR and write its
+output onto the standard output.
+.IP \fB\-f\fR
+Floating-point option.
+Include the version of
+.B printf()
+that converts floating-point numbers to text.
+If a program is compiled without the \fB\-f\fR option but attempts
+to print a floating-point number during execution by using the
+.BR e ,
+.BR f ,
+or
+.B g
+format specifications to
+.BR printf() ,
+the program prints the error message
+.DM
+	You must compile with -f option for floating point
+.DE
+.IP
+and exits.
+.IP
+Note that if you wish to include the
+.B libm
+library routines that perform floating-point mathematics functions,
+you must specify
+.B \-lm
+on the command line to load the library
+.BR libm.a .
+.IP \fB\-g\fR
+Generate debugging information.
+Same as option \fB\-VDB\fR, described below.
+.IP "\fB\-I\fIname\fR"
+Include option.
+Specify a directory the preprocessor should search for files given in
+.B #include
+directives, using the following criteria:
+If the \fB#include\fR statement reads
+.DM
+	#include "file.h"
+.DE
+.IP
+\fBcc\fR searches for \fBfile.h\fR first in the source directory,
+then in the directory named in the \fB\-I\fIname\fR option, and
+finally in the system's default directories.
+If the \fB#include\fR statement reads
+.DM
+	#include <file.h>
+.DE
+.IP
+\fBcc\fR searches for \fBfile.h\fR first in the directories named in
+the \fB\-I\fIname\fR option, and then in the system's default directories.
+Multiple \fB\-I\fIname\fR options are executed in the order of their appearance.
+.IP \fB\-K\fR
+Keep option.
+Do not erase the intermediate files generated during compilation.
+Temporary files will be written into the current directory.
+.IP \fB\-L\fIdirectory\fR
+Tell the linker \fBld\fR to search \fIdirectory\fR for its libraries
+before it searches the directories named in the environmental variable
+\fBLIBPATH\fR.
+You can use multiple
+.B \-L
+options in a
+.B cc
+command.
+.IP "\fB\-l\fIname\fR"
+Pass the name of a library to the linker.
+.B cc
+expands \fB\-l\fIname\fR into \fB/lib/lib\fIname\fB.a\fR.
+If an alternative library prefix has been specified by the
+.B \-tl
+and
+.BI \-B string
+options, then \fB\-l\fIname\fR
+expands to
+\fIstring\fBlib\fPname\fB.a\fR.
+Note that this is a
+.IR "linker option" ,
+and so must appear at the end of the
+.B cc
+command line, or it will not be processed correctly.
+.IP "\fB\-M\fIstring\fR"
+Machine option.
+Use an alternate version of
+.BR cc0 ,
+.BR cc1 ,
+.BR cc1a ,
+.BR cc1b ,
+.BR cc2 ,
+.BR cc3 ,
+.BR as ,
+.BR lib*.a ,
+and
+.B crts0.o,
+named by fixing
+.I string
+between the directory name and the pass and file names.
+For examples, see the description of option
+.BR \-B ,
+above.
+Before release 4.0 of \*(CO,
+.B cc
+executed the compiler phases
+.B /lib/cc0
+through
+.BR /lib/cc3 .
+Beginning with release 4.0,
+.B cc
+itself contains all the compiler phases;
+the preprocessor
+.B /lib/cpp
+executes the parser
+.BR /lib/cc0 ,
+but compiler phases
+.B /lib/cc[123]
+do not exist for
+.BR cc .
+.\".IP \fB\-n\fR
+.\"Instruct the linker
+.\".B ld
+.\"to bind the output with separate shared and private segments,
+.\"starting each on a separate hardware-segment boundary.
+.\"This allows several processes to simultaneously use one copy of the shared
+.\"segment.
+.\"Note that programs linked with this option will run a little more slowly
+.\"than if they were not so linked; however, if a program forks
+.\"(e.g., \fBkermit\fR)
+.\"or will be used by more than one user at a time
+.\"(e.g., \*(ME), this slightly slower time will be more than offset by
+.\"the program's being spared having to read an entire copy of itself
+.\"from the disk.
+.\".IP \fB\-N\fR[\fBp0123sdlrt\fR]\fIstring\fR
+.\"Name option.
+.\"Rename a specified pass to
+.\".IR string .
+.\"The letters
+.\".B p0123sdlrt
+.\"refer, respectively, to
+.\".BR cpp ,
+.\".BR cc0 ,
+.\".BR cc1 ,
+.\".BR cc2 ,
+.\".BR cc3 ,
+.\"the assembler, the linker, the libraries, the run-time start-up, and
+.\"the temporary files.
+.IP "\fB\-o \fIname\fR"
+.II a.out
+Output option.
+Rename the executable file from the default
+to \fIname\fR.
+Unlike \*(UN, the \*(CO implementation of
+.B cc
+by default names an executable after the first
+first \fB.c\fR or \fB.o\fR file given on the command line, instead of
+naming it
+.BR a.out .
+If you want \fBcc\fR to conform to the \*(UN standard,
+set include the option \fB\-o a.out\fR when you
+set the environmental variable \fBCCHEAD\fR.
+This environmental variable is described below.
+Another approach is to invoke
+.B make
+to control compilation.
+For details, see the Lexicon entry for
+.BR make .
+.IP \fB\-O\fR
+Optimize option.
+Run the code generated by the C compiler through the peephole optimizer.
+The optimizer pass is mandatory for the i8086, Z8000,
+and M68000 compilers, and need not be requested.
+It is optional for the PDP\-11 compiler, but
+is recommended for all files except those
+that consist entirely of initialized tables of data.
+.IP \fB\-p\fR
+Generate code to profile functions calls.
+Programs compiled with this option can be run with the command
+.B prof
+to print a summary of how much time the program spends
+in each subroutine, to help you optimize your programs.
+You must use this option to compile each module whose functions
+you wish to examine; and you must also use this option on the
+.B cc
+command line with which you link the program, to ensure that the
+appropriate library routines are linked into your executable.
+.IP \fB\-Q\fR
+Quiet option.
+Suppress all messages, no matter how awful an error they indicate.
+.IP \fB\-S\fR
+Suppress
+the object-writing and link phases, and invoke the disassembler
+.BR cc3 .
+This option produces an assembly-language
+version of a C program for examination, for example
+if a compiler problem is suspected.
+The assembly-language output file name replaces the
+.B \&.c
+suffix with
+.BR \&.s .
+This is equivalent to the \fB\-VASM\fR option.
+.IP \fB\-T\fIsize\fR
+.B cc
+writes its temporary data into two 64-kilobytes buffers that grow as needed.
+The
+.B \-T
+option tells
+.B cc
+to use buffers of
+.I size
+bytes each.
+Setting these to a larger size may help large files compile faster.
+.\" Then again, it may not.
+Setting
+.I size
+to zero forces
+.B cc
+to use temporary files written onto the disk.
+.IP \fB\-t\fIphase\fR
+Take option.
+Use an alternate versions of the phase or phases of the compiler specified by
+.BR phase ,
+which must consist of one or more of the characters
+.BR 01ab23sdlrt .
+If no
+.I phase
+string appears, \fBcc\fR uses alternate version of every phase of the compiler,
+except the preprocessor.
+If the \fB\-t\fR option is followed by a \fB\-B\fR option,
+\fBcc\fR prefixes the path named in the \fB\-B\fR option to the
+phases and files named in the \fB\-t\fR option.
+For examples, see the description of option
+.BR \-B ,
+above,
+.IP "\fB\-U\fIname\fR"
+Undefine symbol
+.IR name .
+Use this option to undefine symbols that the preprocessor
+defines implicitly, such as the name of the native system or machine.
+.II "ISO namespace, compliance"
+Users who wants serious ISO namespace compliance should compile with the
+options:
+.DM
+	-UCOHERENT -UMWC -U_I386 -U_IEEE
+.DE
+.IP
+These options turn off the macros
+.BR COHERENT ,
+.BR MWC ,
+.BR _I386 ,
+and
+.BR _IEEE ,
+all of which are automatically defined by the \*(CO preprocessor.
+.IP \fB\-V\fR
+Verbose option.
+\fBcc\fR prints onto the standard output a step-by-step description
+of each action it takes.
+.IP \fB\-V\fIstring\fR
+Variant option.
+Toggle (i.e., turn on or off) the
+variant \fIstring\fR during the compilation.
+Variants that are marked \fBon\fR are turned on by default.
+Options marked \fBStrict:\fR generate messages that
+warn of the conditions in question.
+.B cc
+recognizes the following variants:
+.RS
+.IP \fB\-VASM\fR 0.3i
+Output assembly-language code.
+Identical to \fB\-S\fR option, above.
+Default is \fBoff\fR.
+.IP \fB\-VCOMM\fR
+Permit \fB.com\fR-style data items.
+Default is \fBon\fR.
+.IP \fB\-VCPLUS\fR
+Ignore C++-style comments, which are deliminted by `//'.
+.\".IP \fB\-VCSD\fR
+.\"Generate debugging information for
+.\".BR csd ,
+.\"the Mark Williams C Source Debugger.
+.IP \fB\-VDB\fR
+Generate debugging information, same as option
+.BR \-g
+described above.
+.\"Toggle all debugging options, i.e.,
+.\".BR \-VDLINE ,
+.\".BR \-VDTYPE ,
+.\".BR \-VDSYMB ,
+.\"and
+.\".BR \-VDCALL .
+Default is
+.BR off .
+.\".IP \fB\-VDCALL\fR
+.\"Generate parameter type information.
+.\"Default is
+.\".BR off .
+.\".IP \fB\-VDEBUG\fR
+.\"Identical to
+.\".BR \-VDSYMB .
+.\"Default is
+.\".BR off .
+.\".IP \fB\-VDLINE\fR
+.\"Generate line-number information.
+.\"Default is
+.\".BR off .
+.\".IP \fB\-VDSYMB\fR
+.\"Generate debug items for local and static symbols.
+.\"Default is \fBoff\fR.
+.\".IP \fB\-VDTYPE\fR
+.\"Generate debug type items.
+.\"Default is \fBoff\fR.
+.IP \fB\-VFLOAT\fR
+Include floating-point \fBprintf()\fR code.
+Same as option
+.BR \-f ,
+described above.
+.IP \fB\-VNDP\fR
+Generate code to execute hardware floating-point arithmetic.
+.\"Beginning with release 4.2.13, \*(CO uses hardware floating-point
+.\"arithmetic exclusively; in effect, option
+.\".B \-VNDP
+.\"is always turned on.
+.B cc
+executes floating-point arithmetic
+on an 80387 or 80486-DX, if present; or use software emulation if
+it is not.
+For more information, see the section on hardware floating-point arithmetic,
+below.
+.IP \fB\-VNOWARN\fR
+Suppress all warning and strict messages.
+Use this option if you wish to suppress cascades of warning message about,
+say, nested comments.
+.IP \fB\-VPROF\fR
+Same as the option
+.BR \-p ,
+described above.
+.IP \fB\-VPSTR\fR
+``imPure'' strings:
+Place all string
+literals into the \fB.data\fR segment rather than in \fB.text\fR.
+This may be necessary for sloppily written
+code that assumes it can overwrite string literals.
+.IP \fB\-VQUIET\fR
+Suppress all messages.
+Identical to
+.B \-Q
+option.
+Default is \fBoff\fR.
+.IP \fB\-VS\fR
+Turn on all strict checking.
+Default is \fBon\fR.
+.IP \fB\-VSBOOK\fR
+Strict: note deviations from \fIThe C Programming Language\fR, ed. 1.
+Default is \fBoff\fR.
+.IP \fB\-VSCCON\fR
+Strict: note constant conditional.
+Default is \fBoff\fR.
+.IP \fB\-VSINU\fR
+Implement struct-in-union rules instead of Berkeley-member resolution rules.
+Default is \fBoff\fR, i.e., Berkeley rules are the default.
+.IP \fB\-VSLCON\fR
+Strict: \fBint\fR constant promoted to \fBlong\fR because value is too big.
+Default is \fBon\fR.
+.IP \fB\-VSMEMB\fR
+Strict: check use of structure/union members for adherence to standard rules
+of C.
+Default is \fBon\fR.
+.IP \fB\-VSNREG\fR
+Strict: register declaration reduced to auto.
+Default is \fBon\fR.
+.IP \fB\-VSPVAL\fR
+Strict: pointer value truncated.
+Default is \fBoff\fR.
+.IP \fB\-VSRTVC\fR
+Strict: risky types in truth contexts.
+Default is \fBoff\fR.
+.IP \fB\-VSTAT\fR
+Give statistics on optimization.
+.IP \fB\-VSUREG\fR
+Strict: note unused registers.
+Default is \fBoff\fR.
+.IP \fB\-VSUVAR\fR
+Strict: note unused variables.
+Default is \fBon\fR.
+.IP \fB\-VVERSION\fR
+Print to the standard error the compiler's version number.
+This information is useful when reporting bugs.
+.IP \fB\-VWIDEN\fR
+Warn the user if a parameter is widened from
+.B char
+or
+.B short
+to
+.BR int ,
+or from
+.B float
+to
+.BR double .
+Default is
+.BR off .
+.IP \fB\-V3GRAPH\fR
+Translate ANSI trigraphs.
+Default is \fBoff\fR.
+.RE
+.\".IP \fB\-W\fIc\fB,\fIarg\fR
+.\"Pass the argument
+.\".I arg
+.\"directly to one of the programs that
+.\".B cc
+.\"invokes.
+.\".I c
+.\"is a flag that indicates the program to which
+.\".B cc
+.\"is to pass
+.\".IR arg .
+.\"It must be one of the following:
+.\".DS
+.\"	\fBp\fR	C preprocessor
+.\"	\fB0\fR	Optimizer
+.\"	\fB2\fR	Compiler
+.\"	\fBa\fR	Assembler
+.\"	\fBl\fR	Linker
+.\".DE
+.\".IP
+.\"Note that \*(CO's implementation of
+.\".B cc
+.\"recognizes only \fBa\fR and \fBl\fR.
+.\"For an example of using this option, see the description of
+.\".B CCHEAD
+.\"that follows.
+.PP
+.II CCHEAD
+.II CCTAIL
+.B cc
+reads the environmental variables \fBCCHEAD\fR and \fBCCTAIL\fR and appends
+their contents to, respectively, the beginning and the end of the
+.B cc
+command.
+For example, if you insert the following entries into your \fB.profile\fR
+.DM
+	export CCHEAD='-f -o a.out'
+	export CCTAIL=-lm
+.DE
+.PP
+then \fBcc\fR will always use the floating-point version of \fBprintf()\fR,
+always write its executable into file \fBa.out\fR, and always link in the
+mathematics library \fBlibm\fR.
+In effect, it turns the command
+.DM
+	cc hello.c
+.DE
+.PP
+into:
+.DM
+	cc -f -o a.out hello.c -lm
+.DE
+.PP
+If you set a command option in \fBCCHEAD\fR or \fBCCTAIL\fR, you can always
+override it for specific \fBcc\fR commands.
+For example, if you have set \fB\-o a.out\fR in \fBCCHEAD\fR, typing the command
+.DM
+	cc -o hello hello.c
+.DE
+.PP
+generates the command:
+.DM
+	cc -o a.out -o hello hello.c
+.DE
+.PP
+The latter \fB\-o\fR option is the one used, and in effect cancels the effect
+of the \fBCCHEAD\fR entry.
+Thus, setting \fBCCHEAD\fR and \fBCCTAIL\fR give you a flexible way to
+set \fBcc\fR's default behavior.
+.PP
+.II "UNIX^compilation environment"
+Note that
+.DM
+	CCHEAD='-Wa,-f -Wl,-oa.out'
+.DE
+.PP
+will give you a compilation environment that matches that of the \*(UN
+operating system.
+.SH "Linking Objects"
+The linker
+.B ld
+does not know about paths:
+it links exactly what you tell it to link via the
+.B cc
+command line.
+.II LIBPATH
+.B cc
+looks for compiler phases and for runtime startoff and
+library by searching the directories named in the environmental variable
+.BR LIBPATH .
+If you do not define
+.B LIBPATH
+in your environment, it searches the default
+.B LIBPATH
+as defined in
+.BR /usr/include/path.h .
+If you define
+.BR LIBPATH ,
+.B cc
+searches the directories in the order you specify.
+For example, a typical definition is:
+.DM
+	export LIBPATH=:/lib:/usr/lib
+.DE
+.PP
+This searches the current directory `.', then
+.BR /lib ,
+then
+.BR /usr/lib .
+.II "floating-point arithmetic^hardware"
+.SH "Hardware Floating-Point Arithmetic"
+The C compiler shipped with version of \*(CO prior to release 4.2
+generated software floating-point calls.
+That is, floating-point code such as
+.DM
+	d1 = d2 + 2.5;
+.DE
+.PP
+generated calls to software routines to perform the desired operations.
+This is called ``software floating-point arithmetic''.
+.PP
+Beginning with release 4.2.05 of \*(CO,
+.B cc
+generates software floating-point arithmetic by default, but let you select
+``hardware floating-point arithmetic''.
+With hardware floating-point arithmetic,
+.B cc
+generates calls to execute floating-point operations on a numeric data
+processor (NDP), such as the 80387.
+To do so, use the option
+.BR \-VNDP .
+A program compiled to perform hardware floating-point arithmetic runs
+correctly on any computer:
+if the computer contains an NDP, the code executes on that part; but if
+the computer does not contain an NDP, the code emulates the operation of
+the NDP.
+Note that persons who do
+.I not
+have an NDP on their system must have the floating-point emulation
+module linked into their kernels; those who do have an NDP, however,
+do not need this module.
+The libraries in directories
+.B /lib
+and
+.BR /usr/lib
+are compiled using
+software floating-point arithmetic; the libraries compiled with
+hardware floating-point arithmetic are kept in sub-directories
+.B /lib/ndp
+and
+.BR /usr/lib/ndp .
+.\".PP
+.\"Beginning with release 4.2.13 of \*(CO,
+.\".B cc
+.\"generates hardware floating-point code exclusive \(em in effect, option
+.\".B \-VNDP
+.\"is always turned on.
+.\"This change was made to bring \*(CO more in alignment with industry
+.\"standards.
+.\"The default libraries in directories
+.\".B /lib
+.\"and
+.\".B /usr/lib
+.\"are now compiled with hardware floating-point arithmetic.
+.\"\*(CO no longer includes libraries that are compiled using software
+.\"floating-point arithmetic.
+.\"Programs compiled with earlier versions of
+.\".B cc
+.\"to use software floating-point arithmetic will still run under \*(CO,
+.\"but object modules compiled using software floating-point arithmetic
+.\"cannot be linked with those that use hardware floating-point arithmetic.
+.\"If your system does not have an NDP, then you
+.\".I must
+.\"link the hardware floating-point module into your kernel.
+.PP
+As mentioned above, code compiled to use
+hardware floating-point arithmetic runs much faster
+when your machine has an NDP installed.
+If your system does not have a numeric co-processor (i.e., an 80387,
+80487, an 80486DX, or a Pentium) and you wish to run programs that
+intensively use floating-point arithmetic, we strongly urge you to consider
+upgrading your system to use an NDP.
+.\".PP
+.\"As mentioned above, there is a speed trade-off in using
+.\"hardware floating-point arithmetic.
+.\"Consider the following benchmarks, which were generated with a program
+.\"that computes transcendental functions:
+.\".DS
+.\"	Software floating point: 10.1 seconds
+.\"	Hardware floating point with NDP: 1.0 seconds
+.\"	Hardware floating point, no NDP: 54.0 seconds
+.\".DE
+.SH "Files"
+\fB/bin/cc\fR \(em C compiler
+.SH "See Also"
+.Xr "as," as
+.Xr "C language," c_languag
+.Xr "cc0," cc0
+.Xr "cc1," cc1
+.Xr "cc2," cc2
+.Xr "cc3," cc3
+.Xr "commands," commands
+.Xr "C preprocessor," c_preproce
+.Xr "cpp," cpp
+.Xr "ld," ld
+.Xr "LIBPATH," libpath
+.Xr "make," make
+.Xr "makedepend," makedepend
+.Xr "TMPDIR" tmpdir
+.br
+\fIThe C Language\fR tutorial
+.R
+.SH Diagnostics
+The following gives the error messages returned by the \*(CO C compiler.
+The messages are in alphabetical order, and each is marked as to whether
+it is a
+.IR fatal ,
+.IR error ,
+.IR warning ,
+or
+.I strict
+condition.
+A fatal message usually indicates a condition that caused
+the compiler to terminate execution.
+Fatal errors from the later phases of compilation often cannot
+be fixed, and may indicate problems in the compiler or assembler.
+An error message points to a condition in the source code
+that the compiler cannot resolve.
+This almost always occurs when the program does something illegal, e.g.,
+has unbalanced braces.
+Warning messages point out code that is compilable, but
+may produce trouble when the program is executed.
+A strict message refers to a passage in the code that is
+unorthodox and may not be portable.
+For error messages produced by the assembler
+.BR as ,
+the linker
+.BR ld ,
+and the preprocessor
+.BR cpp ,
+see their respective entries in the Lexicon.
+.Ip "ambiguous reference to ``\fIstring\fR'' \fI(error)\fR"
+.I string
+is defined as a member of more than one
+.B struct
+or
+.BR union ,
+is referenced via a pointer to one of those
+.BR struct s
+or
+.BR union s,
+and there is more than one offset that could be assigned.
+.Ip "argument list has incorrect syntax \fI(error)\fR"
+The argument list of a function declaration contains something
+other than a comma-separated list of formal parameters.
+.Ip "array bound must be a constant \fI(error)\fR"
+An array's size can be declared only with a constant; you cannot
+declare an array's size by using a variable.
+For example, it is correct to say
+.BR foo[5] ,
+but illegal to say
+.DM
+	bar = 5;
+	foo[bar];
+.DE
+.Ip "array bound must be positive \fI(error)\fR"
+An array must be declared to have a positive number of elements.
+The array flagged here was declared to have a negative size, e.g.,
+.BR foo[-5] .
+.Ip "array bound too large \fI(error)\fR"
+The array is too large to be compiled with 32-bit index arithmetic.
+You should devise a way to divide the array into compilable portions.
+.Ip "array row has 0 length \fI(error)\fR"
+This message can be triggered by either of two problems.
+The first problem is declaring an array to have a length of zero;
+e.g., \fBfoo[0]\fR.
+The second problem is failing to declare the size of a dimension \fIother
+than the first\fR in a multi-dimensional array.
+C allows you to declare an indefinite number of array elements of \fIn\fR
+bytes each, but you cannot declare \fIn\fR array elements of
+an indefinite length.
+For example, it is correct say \fBfoo[][5]\fR
+but illegal to say \fBfoo[5][]\fR.
+.Ip "associative expression too complex \fI(fatal)\fR"
+An expression that uses associative
+binary operators (e.g., \*(Ql+\*(Qr) has too many operators;
+for example, \fBi=i1+i2+i3+ .\ .\ .\ +i30;\fR.
+You should simplify the expression.
+.Ip "bad argument storage class \fI(error)\fR"
+An argument was assigned a storage class that the compiler does not
+recognize.
+The only valid storage class is
+.BR register .
+.Ip "bad external storage class \fI(error)\fR"
+An
+.B extern
+has been declared with an invalid storage class, e.g.,
+.B register
+or
+.BR auto .
+.Ip "bad field width \fI(error)\fR"
+A field width was declared either to be negative or to be larger than
+the object that holds it.
+For example, \fBchar foo:9\fR or \fBchar foo:-1\fR will trigger this
+error.
+.Ip "bad filler field width \fI(error)\fR"
+A filler field width was declared either to be negative or to be
+larger than the object that holds it.
+For example, \fBchar foo:9\fR or \fBchar foo:-1\fR will trigger this
+error.
+.Ip "bad flexible array declaration \fI(error)\fR"
+A flexible array is missing an array boundary; e.g., \fBfoo[5][]\fR.
+C permits you to declare an indefinite number of array elements of
+\fIn\fR bytes each, but you cannot declare an array to have \fIn\fR
+elements of an indefinite number of bytes each.
+.Ip "break not in a loop \fI(error)\fR"
+A
+.B break
+occurs that is not inside a loop or a
+.B switch
+statement.
+.Ip "call of non function \fI(error)\fR"
+What the program attempted to call is not a function.
+Check to make sure that you have not accidentally declared a
+function as a variable; e.g., typing \fBchar *foo;\fR when you
+meant \fBchar *foo();\fR.
+.Ip "cannot add pointers \fI(error)\fR"
+The program attempted to add two pointers.
+.BR int s
+or
+.BR long s
+may be added to or subtracted from
+pointers, and two pointers to the same type
+may be subtracted, but no other arithmetic operations are
+legal on pointers.
+.Ip "cannot apply unary `&' to a register variable \fI(error)\fR"
+Because register variables are stored within registers,
+they do not have addresses, which means that the unary
+.B &
+operator cannot be used with them.
+.\".Ip "cannot apply unary `&' to an alien function \fI(error)\fR"
+.\"The unary `&' operator cannot be used with any function that has
+.\"been declared to be of type \fBalien\fR.
+.\"\fBalien\fR functions cannot be called by pointers.
+.Ip "cannot cast double to pointer \fI(error)\fR"
+The program attempted to cast a
+.B double
+to a pointer.
+This is illegal.
+.Ip "cannot cast pointer to double \fI(error)\fR"
+The program attempted to cast a
+pointer to a
+.BR double .
+This is illegal.
+.Ip "cannot cast structure or union \fI(error)\fR"
+The program attempted to cast a
+.B struct
+or a
+.BR union .
+This is illegal.
+.Ip "cannot cast to structure or union \fI(error)\fR"
+The program attempted to cast a variable to a
+.B union
+or
+.BR struct .
+This is illegal.
+.Ip "cannot declare array of functions \fI(error)\fR"
+For example, the declaration
+.B "extern int (*f)[]();"
+declares
+.B f
+to be an array of pointers to functions that return
+.BR int s.
+Arrays of functions are illegal.
+.Ip "cannot declare flexible automatic array \fI(error)\fR"
+The program does not explicitly declare the number of
+elements in an automatic array.
+.Ip "cannot initialize fields \fI(error)\fR"
+The program attempted to initialize bit fields within a structure.
+This is not supported.
+.Ip "cannot initialize unions \fI(error)\fR"
+The program attempted to initialize a
+.B union
+within its declaration.
+.BR union s
+cannot be initialized in this way.
+.Ip "\fIstring\fR: cannot reopen \fI(fatal)\fR"
+The optimizer cannot reopen a file with which it has worked.
+Make sure that your mass storage device is working correctly
+and that it is not full.
+.Ip "case not in a switch \fI(error)\fR"
+The program uses a \fBcase\fR label outside of a \fBswitch\fR statement.
+See the Lexicon entry for \fBcase\fR.
+.Ip "character constant overflows long \fI(error)\fR"
+The character constant is too large to fit into a \fBlong\fR.
+It should be redefined.
+.Ip "character constant promoted to long \fI(warning)\fR"
+A character constant has been promoted to a \fBlong\fR.
+.Ip "class not allowed in structure body \fI(error)\fR"
+A storage class such as
+.B register
+or
+.B auto
+was specified within a structure.
+.Ip "compound statement required \fI(error)\fR"
+A construction that requires a compound statement
+does not have one, e.g.,
+a function definition, array initialization, or
+.B switch
+statement.
+.Ip "constant expression required \fI(error)\fR"
+The expression used with a \fB#if\fR statement cannot
+be evaluated to a numeric constant.
+It probably uses a variable in a statement rather than
+a constant.
+.Ip "constant ``\fInumber\fR'' promoted to long \fI(warning)\fR"
+The compiler promoted a constant in your program to
+.BR long ;
+although this is not strictly illegal, it may create problems
+when you attempt to port your code to another system,
+especially if the constant appears in an argument list.
+.Ip "constant used in truth context \fI(strict)\fR"
+A conditional expression for an
+.BR if ,
+.BR while ,
+or
+.B for
+statement has turned out to be always true or always false.
+For example, \fBwhile(1)\fR will trigger this message.
+.Ip "construction not in Kernighan and Ritchie \fI(strict)\fR"
+This construction is not found in \fIThe C Programming Language\fR;
+although it can be compiled by \*(PN, it may not be portable to
+another compiler.
+.Ip "continue not in a loop \fI(error)\fR"
+The program uses a \fBcontinue\fR statement that is not inside a
+\fBfor\fR for \fBwhile\fR loop.
+.Ip "declarator syntax \fI(error)\fR"
+The program used incorrect syntax in a declaration.
+.Ip "default label not in a switch \fI(error)\fR"
+The program used a
+\fBdefault\fR label outside a \fBswitch\fR construct.
+See the Lexicon entry for \fBdefault\fR.
+.Ip "divide by zero \fI(warning)\fR"
+The program will divide by zero if this code is executed.
+Although the program can be parsed, this statement may create
+trouble if executed.
+.Ip "duplicated case constant \fI(error)\fR"
+A \fBcase\fR value can appear only once in a \fBswitch\fR statement.
+See the Lexicon entries for \fBcase\fR and \fBswitch\fR.
+.Ip "empty switch \fI(warning)\fR"
+A
+.B switch
+statement has no \fBcase\fR labels and no \fBdefault\fR labels.
+See the Lexicon entry for \fBswitch\fR.
+.Ip "error in enumeration list syntax \fI(error)\fR"
+The syntax of an enumeration declaration contains an error.
+.Ip "error in expression syntax \fI(error)\fR"
+The parser expected to see a valid expression, but did not find one.
+.Ip "exponent overflow in floating point constant \fI(warning)\fR"
+The exponent in a floating point constant has overflowed.
+The compiler has set the constant to the maximum allowable value,
+with the expected sign.
+.Ip "exponent underflow in floating point constant \fI(warning)\fR"
+The exponent in a floating point constant has underflowed.
+The compiler has set the constant to zero, with the expected sign.
+.Ip "expression too complex \fI(fatal)\fR"
+The code generator cannot generate code for an expression.
+You should simplify your code.
+.Ip "external syntax \fI(error)\fR"
+This could be one of several errors, most often a missing \*(Ql{\*(Qr.
+.Ip "file ends within a comment \fI(error)\fR"
+The source file ended in the middle of a comment.
+If the program uses nested comments, it may have mismatched numbers of
+begin-comment and end-comment markers.
+If not, the program began a comment and did not end it, perhaps
+inadvertently when dividing by \fB*\fIsomething\fR, e.g.,
+.BR "a=b/*cd;" .
+.Ip "function cannot return a function \fI(error)\fR"
+The function is declared to return another function, which is illegal.
+A function, however, can return a
+.I pointer
+to a function, e.g.,
+.B "int\ (*signal(n,\ a))()" .
+.Ip "function cannot return an array \fI(error)\fR"
+A function is declared to return an array, which is illegal.
+A function, however, can return a pointer to a structure or array.
+.Ip "functions cannot be parameters \fI(error)\fR"
+The program uses a function as a parameter, e.g.,
+.BR "int\ q();\ x(q);" .
+This is illegal.
+.Ip "identifier ``\fIstring\fR'' is being redeclared \fI(error)\fR"
+The program declares
+variable
+.I string
+to be of two different types.
+This often is due to an implicit declaration, which occurs when
+a function is used before it is explicitly declared.
+Check for name conflicts.
+.Ip "identifier ``\fIstring\fR'' is not a label \fI(error)\fR"
+The program attempts to
+.B goto
+a nonexistent label.
+.Ip "identifier ``\fIstring\fR'' is not a parameter \fI(error)\fR"
+The variable \*(QL\fIstring\fR\*(QR did not appear in the parameter list.
+.Ip "identifier ``\fIstring\fR'' is not defined \fI(error)\fR"
+The program uses identifier
+.I string
+but does not define it.
+.Ip "identifier ``\fIstring\fR'' not usable \fI(error)\fR"
+.I string
+is probably a member of a structure or
+.B union
+which appears by itself in an expression.
+.Ip "illegal character constant \fI(error)\fR"
+A legal character constant consists of a
+a backslash \*(Ql\e\*(Qr followed by
+.BR a ,
+.BR b ,
+.BR f ,
+.BR n ,
+.BR r ,
+.BR t ,
+.BR v ,
+.BR x ,
+or up to three octal digits.
+.Ip "illegal character (\fInumber\fR decimal) \fI(error)\fR"
+A control character was embedded within the source code.
+.I number
+is the decimal value of the character.
+.Ip "illegal # construct \fI\fI(error)\fR\fR"
+The parser recognizes control lines of the form
+\fB#\fIline_number\fR (decimal) or
+\fB#\fIfile_name\fR.
+Anything else is illegal.
+.Ip "illegal integer constant suffix \fI(error)\fR"
+Integer constants may be suffixed with \fBu\fR, \fBU\fR, \fBl\fR, or \fBL\fR
+to indicate \fBunsigned\fR, \fBlong\fR, or \fBunsigned long\fR.
+.Ip "illegal label ``\fIstring\fR'' \fI(error)\fR"
+The program uses the
+keyword
+.I string
+as a
+.B goto
+label.
+Remember that each label must end with a colon.
+.Ip "illegal operation on ``void'' type \fI(error)\fR"
+The program tried to manipulate a value returned by a function
+that had been declared to be of type \fBvoid\fR.
+.Ip "illegal structure assignment \fI(error)\fR"
+The structures have different sizes.
+.Ip "illegal subtraction of pointers \fI(error)\fR"
+A pointer can be subtracted from another pointer only
+if both point to objects of the
+same size.
+.Ip "illegal use of a pointer \fI(error)\fR"
+A pointer was used illegally, e.g.,
+multiplied, divided, or &\-ed.
+You may get the result you want if you cast the pointer to a
+.BR long .
+.Ip "illegal use of a structure or union \fI(error)\fR"
+You may take the address of a
+.BR struct ,
+access one of its members, assign it to another structure,
+pass it as an argument, and return.
+All else is illegal.
+.Ip "illegal use of floating point \fI(error)\fR"
+A
+.B float
+was used illegally, e.g., in a bit-field structure.
+.Ip "illegal use of ``void'' type \fI(error)\fR"
+The program used
+.B void
+improperly.
+Strictly, there are only
+.B void
+functions; \*(PN also supports the cast to
+.B void
+of a function call.
+.Ip "illegal use of void type in cast \fI(error)\fR"
+The program uses a pointer where it should be using a variable.
+.Ip "inappropriate signed \fI(error)\fR"
+The \fBsigned\fR modifier may only be applied to \fBchar\fR, \fBshort\fR,
+\fBint\fR, or \fBlong\fR types.
+.Ip "inappropriate ``long'' \fI(error)\fR"
+Your program used the type
+.B long
+inappropriately.
+.Ip "inappropriate ``short'' \fI(error)\fR"
+Your program used the type
+.B short
+inappropriately.
+.Ip "inappropriate ``unsigned'' \fI(error)\fR"
+Your program used the type
+.B unsigned
+inappropriately.
+.Ip "indirection through non pointer \fI(error)\fR"
+The program attempted to use a scalar (e.g., a \fBlong\fR or \fBint\fR)
+as a pointer.
+This may be due to not de-referencing the scalar.
+.Ip "initializer too complex \fI(error)\fR"
+An initializer was too complex to be calculated at compile time.
+You should simplify the initializer to correct this problem. 
+.Ip "integer pointer comparison \fI(strict)\fR"
+The program compares an integer or \fBlong\fR with a pointer without
+casting one to the type of the other.
+Although this is legal, the comparison may not work on machines
+with non-integer size pointers, e.g., Z8001 or LARGE-model
+on the i8086 family, or on machines with pointers larger than
+.BR int s,
+e.g., the M68000 family of microprocessors.
+.Ip "integer pointer pun \fI(strict)\fR"
+The program assigns a pointer to an integer, or vice versa,
+without casting the right-hand side of the assignment to the
+type of the left-hand side.
+For example,
+.DM
+	char *foo;
+	long bar;
+	foo = bar;
+.DE
+Although this is permitted, it is often an error if the integer
+has less precision than the pointer does.
+Make sure that you properly declare all functions that returns pointers.
+.Ip "internal compiler error \fI(fatal)\fR"
+The program produced a state that should not happen during compilation.
+Try to localize the offending statement if at all possible.
+Forward a minimal program that exhibits the error, preferably
+on a machine-readable medium,
+to Mark Williams Company, together with the version number of the compiler,
+the command line used to compile the program, and the system configuration.
+For immediate advice during business hours, telephone Mark Williams Company
+technical support.
+.Ip "``\fIstring\fR'' is a enum tag \fI(error)\fR"
+.sp -\n(pDu
+.Ip "``\fIstring\fR'' is a struct tag \fI(error)\fR"
+.sp -\n(pDu
+.Ip "``\fIstring\fR'' is a union tag \fI(error)\fR"
+.I string
+has been previously declared as a tag name for a
+.BR struct ,
+.BR union ,
+or
+.BR enum ,
+and is now being declared as another tag.
+Perhaps the structure declarations have been included twice.
+.Ip "``\fIstring\fR'' is not a tag \fI(error)\fR"
+A
+.B struct
+or
+.B union
+with tag
+.I string
+is referenced before any such
+.B struct
+or
+.B union
+is declared.
+Check your declarations against the reference.
+.Ip "``\fIstring\fR'' is not a typedef name \fI(error)\fR"
+.I string
+was found in a declaration in the position in which the base type of the
+declaration should have appeared.
+.I string
+is not one of the predefined types or a
+.B typedef
+name.
+See the Lexicon entry on \fBtypedef\fR for more information.
+.Ip "``\fIstring\fR'' is not an ``enum'' tag \fI(error)\fR"
+An
+.B enum
+with tag
+.I string
+is referenced before any such
+.B enum
+has been declared.
+See the Lexicon entry for \fBenum\fR for more information.
+.Ip "\fIclass\fR ``\fIstring\fR'' [\fInumber\^\fR] is not used \fI(strict)\fR"
+Your program declares variable
+.I string
+or
+.I number
+but does not use it.
+.Ip "label ``\fIstring\fR'' undefined \fI(error)\fR"
+The program does not declare the label
+.IR string ,
+but it is referenced in a
+.B goto
+statement.
+.Ip "left side of ``\fIstring\fR'' not usable \fI(error)\fR"
+The left side of
+the expression
+.I string
+should be a pointer, but is not.
+.Ip "lvalue required \fI(error)\fR
+The left-hand value of a declaration is missing or incorrect.
+See the Lexicon entries for \fBlvalue\fR and \fBrvalue\fR.
+.Ip "member ``\fIstring\fR'' is not addressable \fI(error)\fR"
+The array
+.I string
+has exceeded the machine's addressing capability.
+Structure members are addressed with 16-bit signed offsets on
+most machines.
+.Ip "member ``\fIstring\fR'' is not defined \fI(error)\fR"
+The program references a structure member that has not been declared.
+.Ip "mismatched conditional \fI(error)\fR"
+In a \*(Ql?:\*(Qr expression, the colon
+and all three expressions must be present.
+.Ip "misplaced ``:'' operator \fI(error)\fR"
+The program used
+a colon without a preceding question mark.
+It may be a misplaced label.
+.Ip "missing ``('' \fI(error)\fR"
+The
+.BR if ,
+.BR while ,
+.BR for ,
+and
+.B switch
+keywords must be followed by parenthesized expressions.
+.Ip "missing ``='' \fI(warning)\fR"
+An equal sign is missing from the
+initialization of a variable declaration.
+Note that this is a warning, not an error:
+this allows \*(PN to compile programs with \*(QLold style\*(QR
+initializers, such as
+.BR "int i 1" .
+Use of this feature is strongly discouraged, and it will
+disappear when the ANSI standard for the C language is
+adopted in full.
+.Ip "missing ``,'' \fI(error)\fR"
+A comma is missing from an enumeration member list.
+.Ip "missing ``:'' \fI(error)\fR"
+A colon \*(Ql:\*(Qr is missing after a
+.B case
+label, after a default label, or
+after the \*(Ql?\*(Qr in a \*(Ql?\*(Qr-\*(Ql:\*(Qr
+construction.
+.Ip "missing ``;'' \fI(error)\fR"
+A semicolon \*(Ql;\*(Qr does not appear
+after an external data definition or declaration, after a
+.B struct
+or
+.B union
+member declaration,
+after an automatic data declaration or definition,
+after a statement, or in a
+.B "for(;;)"
+statement.
+.Ip "missing ``]'' \fI(error)\fR"
+A right bracket \*(Ql]\*(Qr is missing from an array declaration, or
+from an array reference; for example, \fBfoo[5\fR.
+.Ip "missing ``{'' \fI(error)\fR"
+A left brace \*(Ql{\*(Qr is missing after a
+\fBstruct \fItag\fR,
+\fBunion \fItag\fR,
+or
+\fBenum \fItag\fR
+in a definition.
+.Ip "missing ``}'' \fI(error)\fR"
+A right brace \*(Ql}\*(Qr is missing from a
+.BR struct ,
+.BR union ,
+or
+.BR enum
+definition, from an initialization, or from a compound statement.
+.Ip "missing ``while'' \fI(error)\fR"
+A
+.B while
+command does not appear after a
+.B do
+in a
+\fBdo\fR-\fBwhile()\fR statement.
+.Ip "missing label name in goto \fI(error)\fR"
+A
+.B goto
+statement does not have a label.
+.Ip "missing member \fI(error)\fR"
+A \*(Ql.\*(Qr or \*(Ql->\*(Qr is not followed by
+a member name.
+.Ip "missing right brace \fI(error)\fR"
+A right brace is missing at end of file.
+The missing brace probably precedes lines with errors reported earlier.
+.Ip "missing ``\fIstring\fR'' \fI(error)\fR"
+The parser
+.B cc0
+expects to see token
+.IR string ,
+but sees something else.
+.Ip "missing semicolon \fI(error)\fR"
+External declarations should continue with `,' or end with `;'.
+.Ip "missing type in structure body \fI(error)\fR"
+A structure member declaration has no type.
+.Ip "multiple classes \fI(error)\fR"
+An element has been asigned to more than one storage class,
+e.g.,
+.BR "extern register" .
+.Ip "multiple types \fI(error)\fR"
+An element has been assigned more than one data type, e.g.,
+.BR "int float" .
+.Ip "nonterminated string or character constant \fI(error)\fR"
+A line that contains single or double quotation marks left
+off the closing quotation mark.
+A newline in a string constant may be escaped with \*(Ql\e\*(Qr.
+.Ip "number has too many digits \fI(error)\fR"
+A number is too big to fit into its type.
+.Ip "only one default label allowed \fI(error)\fR"
+The program uses more than
+one \fBdefault\fR label in a \fBswitch\fR expression.
+See the Lexicon entries for \fBdefault\fR and \fBswitch\fR
+for more information.
+.Ip "out of tree space \fI(fatal)\fR"
+The compiler allows a program to use up to 350 tree nodes;
+the program exceeded that allowance.
+.Ip "parameter \fIstring\fR is not addressable \fI(error)\fR"
+The parameter has a stack frame offset greater than 32,767.
+Perhaps you should pass a pointer instead of a structure.
+.Ip "potentially nonportable structure access \fI(strict)\fR"
+A program that uses this construction may not be portable
+to another compiler.
+.Ip "return type/function type mismatch \fI(error)\fR"
+What the function was declared to return and what it actually returns
+do not match, and cannot be made to match.
+.Ip "return(e) illegal in void function \fI(error)\fR"
+A function that was declared to be type
+.B void
+has nevertheless attempted to return a value.
+Either the declaration or the function should be altered.
+.Ip "risky type in truth context \fI(strict)\fR"
+The program uses a variable declared to be a pointer,
+.BR long ,
+.BR "unsigned long" ,
+.BR float ,
+or
+.B double
+as the condition expression
+in an \fBif\fR,
+.BR while ,
+.BR do ,
+or \*(Ql?\*(Qr-\*(Ql:\*(Qr.
+This could be misinterpreted by some C compilers.
+.Ip "size of \fIstring\fR overflows size_t \fI(strict)\fR"
+A string was so large that it overran an internal
+compiler limit.
+You should try to break the string in question into several
+small strings.
+.Ip "size of union ``\fIstring\fP'' is not known \fI(error)\fR"
+A pointer to a
+.B struct
+or
+.B union
+is being incremented, decremented, or subjected to array arithmetic,
+but the
+.B struct
+or
+.B union
+has not been defined.
+.Ip "size of \fIstring\fR too large \fI(error)\fR"
+The program declared an array or
+.B struct
+that is too big to be addressable, e.g.,
+.B "long a[20000];"
+on a machine that has a 64-kilobyte limit on data size
+and four-byte
+.BR long s.
+.Ip "sizeof truncated to unsigned \fI(warning)\fR"
+An object's \fBsizeof\fR value has lost precision when truncated to
+a \fBsize_t\fR integer.
+.Ip "sizeof(\fIstring\fR) set to \fInumber\fR \fI(warning)\fR"
+The program attempts to set the value of
+.I string
+by applying
+.B sizeof
+to a function or an
+.BR extern ;
+the compiler in this instance has set
+.I string
+to
+.IR number .
+.Ip "storage class not allowed in cast \fI(error)\fR"
+The program
+.BR cast s
+an item as a
+.BR register ,
+.BR static ,
+or other storage class.
+.Ip "string initializer not terminated by NUL \fI(warning)\fR"
+An array of \fBchar\fRs that was initialized by a string is too small
+in dimension to hold the terminating NUL character.
+For example, \fBchar foo[3] = "ABC"\fR.
+.Ip "structure ``\fIstring\fR'' does not contain member ``\fIm\fR'' \fI(error)\fR"
+The program attempted to address the variable
+.IR string.m ,
+which is not defined as part of the structure
+.IR string .
+.Ip "structure or union used in truth context \fI(error)\fR"
+The program uses a structure in an \fBif\fR,
+.BR while ,
+or
+.BR for ,
+or \*(Ql?:\*(Qr statement.
+.Ip "switch of non integer \fI(error)\fR"
+The expression in a
+.B switch
+statement is not type
+.B int
+or
+.BR char .
+You should cast the
+.B switch
+expression to an
+.B int
+if the loss of precision is not critical.
+.Ip "switch overflow \fI(fatal)\fR"
+The program has more than ten nested \fBswitch\fRes.
+.Ip "too many adjectives \fI(error)\fR"
+A variable's type was described with too many of
+.BR long ,
+.BR short ,
+or
+.BR unsigned .
+.Ip "too many arguments \fI(fatal)\fR"
+No function may have more than 30 arguments.
+.Ip "too many cases \fI(fatal)\fR"
+The program cannot allocate space to build a
+.B switch
+statement.
+.Ip "too many initializers \fI(error)\fR"
+The program has more initializers than the space allocated can hold.
+.Ip "too many structure initializers \fI(error)\fR"
+The program contains
+a structure initialization that has more values than members.
+.Ip "trailing ``,'' in initialization list \fI(warning)\fR"
+An initialization statement ends with a comma, which is legal.
+.Ip "type clash \fI(error)\fR
+The parser expected to find matching types but did not.
+For example, the types of
+.B e1
+and
+.B e2
+in
+.B "(x)\ ?\ e1\ :\ e2"
+must either
+both be pointers or neither be pointers.
+.Ip "type of function \*(QL\fIstring\fP\*(QR adjusted to \fIstring\fR \fI(warning)\fR"
+This warning is given when the type of a numeric constant is widened
+to \fBunsigned\fR, \fBlong\fR, or \fBunsigned long\fR to preserve
+the constant's value.
+The type of the constant may be explicitly specified with the
+\fBu\fR or \fBL\fR constant suffixes.
+.Ip "type of parameter \*(QL\fIstring\fP\*(QR adjusted to \fIstring\fR \fI(warning)\fR"
+The program uses a parameter that the C language says must be adjusted to
+a wider type, e.g., \fBchar\fR to \fBint\fR or \fBfloat\fR to \fBdouble\fR.
+.Ip "type required in cast \fI(error)\fR"
+The type is missing from a cast declaration.
+.Ip "unexpected end of enumeration list \fI(error)\fR"
+An end-of-file flag or a right brace occurred in the middle of
+the list of enumerators.
+.Ip "unexpected EOF \fI(fatal)\fR"
+EOF occurred in the middle of a statement.
+The temporary file may have been corrupted or truncated accidentally.
+Check your disk drive to see that it is working correctly.
+.Ip "union ``\fIstring\fR'' does not contain member \fIm\fR \fI(error)\fR"
+The program attempted to address the variable string
+.IR m ,
+which is not defined as part of the structure
+.IR string .
+.Ip "write error on output object file \fI(fatal)\fR"
+\fBcc\fR could not write the relocatable object module.
+Most likely, your mass storage device has run out of room.
+Check to see that your disk drive or hard disk has enough room
+to hold the object module, and that it is working correctly.
+.Ip "zero modulus \fI(warning)\fR"
+The program will perform a modulo operation by zero if the
+code just parsed is executed.
+Although the program can be parsed, this statement may create trouble
+if executed.
+.SH Notes
+If you see the message
+.DM
+	Out of memory
+.DE
+.PP
+when compiling,
+this probably means that your program has exhausted the buffer space
+available to it.
+Use the option
+.B \-T0
+to force
+.B cc
+to write its temporary files on the disk.
+.PP
+Prior to \*(CO release 4.2,
+.B cc
+wrote its diagnostic messages to the standard output device.
+.B cc
+now writes its diagnostic messages to the standard error.
+You may need to modify any scripts that redirect the output of
+.BR cc .

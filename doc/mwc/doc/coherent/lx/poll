@@ -1,0 +1,186 @@
+.TH poll() "" "" "System Call (libc)"
+.PC "Query several I/O devices"
+.B "#include <poll.h>"
+\fBint poll(\fIfds\^\fB, \fInfds\^\fB, \fItimeout\^\fB)\fR
+\fBstruct pollfd \fIfds\^\fB[]; unsigned long \fInfds\^\fB; int \fItimeout\^\fB;\fR
+.PP
+The \*(CO system call
+.B poll()
+polls one or more file streams for one or more polling conditions.
+.I fds
+gives the address of an array of \fBstruct\fRs of type
+.BR pollfd ,
+which has the following structure:
+.DM
+struct pollfd {
+	int	fd;	/* file descriptor */
+	short	events;	/* requested events */
+	short	revents;	/* returned events */
+};
+.DE
+.PP
+Field
+.B fd
+gives the file descriptor for a file stream, as returned by a call to
+.BR open() ,
+or
+.BR creat() .
+Fields
+.B events
+and
+.B revents
+give, respectively, the polling conditions that interest you, and those that
+have occurred.
+The legal conditions, as defined in header file
+.BR poll.h ,
+are as follows:
+.IP \fBPOLLIN\fR 0.75i
+Input, or a non-priority or file-descriptor passing message, is
+available for reading.
+In
+.BR revents ,
+this bit is mutually exclusive
+with \fBPOLLPRI\fR.
+.IP \fBPOLLPRI\fR
+A priority message is available for reading.
+In
+.BR revents ,
+this bit is mutually exclusive with
+.BR POLLIN .
+.IP \fBPOLLOUT\fR
+Output may be performed; the output queue is not full.
+.IP \fBPOLLERR\fR
+An error message has arrived.
+This field is used only in
+\fBrevents\fR,
+and is ignored in
+.BR events .
+.IP \fBPOLLHUP\fR
+A hangup has occurred.
+This field is used only in
+.BR revents ,
+and is ignored in
+.BR events .
+.IP \fBPOLLNVAL\fR
+The specified
+.B fd
+value does not belong to an open I/O stream.
+This field is used only in
+.BR revents ,
+and is ignored in
+.BR events .
+.PP
+.I nfds
+gives the number of entries in
+.IR fds .
+.PP
+For each array element
+\fIfds\^\fB[\fIi\^\fB]\fR,
+.B poll()
+examines the file descriptor
+\fIfds\fB[\^\fIi\^\fB].fd\fR
+for the events specified by bits set in
+\fIfds\^\fB[\fIi\^\fB].events\fR,
+and places the resulting status into
+\fIfds\^\fB[\fIi\^\fB].revents\fR.
+If the
+.B fd
+value is less than zero,
+.B revents
+for that entry is set to zero.
+Event flags
+.BR POLLIN ,
+.BR POLLPRI ,
+and
+.B POLLOUT
+are set in
+.B revents
+only if the same bits are set in
+.B events
+.I and
+the corresponding condition holds.
+Event flags
+.BR POLLHUP ,
+.BR POLLERR ,
+and
+.B POLLNVAL
+are always set in
+.B revents
+if the corresponding condition holds, regardless of the contents of
+.BR events .
+.PP
+If none of the defined events for any of the file descriptors has
+occurred,
+.B poll()
+waits for
+.I timeout
+milliseconds.
+Because the system clock runs at 100 hertz, the value used for
+.I timeout
+is the next higher multiple of ten milliseconds.
+If
+.I timeout
+is zero,
+.B poll()
+returns immediately.
+If
+.I timeout
+is \-1,
+.B poll()
+blocks until a requested event occurs or a signal interrupts the call.
+.PP
+.B poll()
+returns the number of file descriptors for which
+.B revents
+is nonzero.
+It returns zero if
+it timed out with no matching events.
+If the call failed, it returns \-1 and sets
+.B errno
+to an appropriate value.
+.SH Example
+.II "sleep^fraction of a second"
+For an example of using
+.B poll()
+to read a serial port, see the Lexicon entry for
+.BR ioctl().
+The following example uses
+.B poll()
+to sleep for a fraction of a second.
+.DM
+#include <poll.h>
+#include <sys/v_types.h>
+#include <sys/times.h>
+.DE
+.DM
+main()
+{
+	struct pollfd fds;
+	int timeout;
+	struct tms tmp;
+	int before; /* time in millisec before poll() */
+	int after; /* time in millisec after poll() */
+.DE
+.DM
+	timeout = 270; /* sleep time is timeout * 10 millisec */
+.DE
+.DM
+	fds.fd = -1; /* no file needed for sleeping */
+.DE
+.DM
+	before = times(&tmp); /* Get time before poll */
+.DE
+.DM
+	/* sleep not less than 0.270 sec */
+	poll(&fds, 1, timeout);
+.DE
+.DM
+	after = times(&tmp); /* Get time after poll */
+.DE
+.DM
+	printf("%d\en", (after - before) * 1000 / CLK_TCK);
+}
+.DE
+.SH "See Also"
+.Xr "libc," libc
+.Xr "poll.h" poll.h

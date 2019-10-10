@@ -1,0 +1,578 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.3
+date     93.08.10.13.29.10;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.07.20.11.42.06;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     93.07.16.10.20.18;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@Kernel 82 header update
+@
+text
+@/***********************************************************************
+ *  Module: haiscsi.h
+ *
+ *  Constants and structures used to access SCSI devices through the
+ *  SCSI Driver in a Host Adapter inspecific manner.
+ *
+ *  Copyright (c) 1993, Christopher Sean Hilton, All rights reserved.
+ *
+ *  Last Modified: Fri Jul 23 15:38:08 1993 by [chris]
+ *
+ */
+
+#ifndef __SYS_HAISCSI_H__
+#define __SYS_HAISCSI_H__
+
+#define SCSIMAJOR   13
+
+#define MAXTID      7
+#define MAXDEVS     (MAXTID + 1)
+#define MAXLUN      7
+#define MAXUNITS    (MAXLUN + 1)
+
+#define ST_GOOD     0x00    /* Status Good. */
+#define ST_CHKCOND  0x02    /* Check Condition */
+#define ST_CONDMET  0x04    /* Condition Met */
+#define ST_BUSY     0x08    /* Busy */
+#define ST_INTERM   0x10    /* Intermediate */
+#define ST_INTCDMET 0x14    /* Intermediate Condtion Met */
+#define ST_RESCONF  0x18    /* Reservation Conflict */
+#define ST_COMTERM  0x22    /* Command Terminated */
+#define ST_QFULL    0x28    /* Queue Full */
+
+#define ST_TIMEOUT  0x0101  /* Command Timed out */
+#define ST_USRABRT  0x0102  /* User pressed ^C */
+#define ST_DRVABRT  0x0103  /* Command Aborted by driver */
+#define ST_HATMOUT  0x0201  /* Host adapter Timed out command */
+#define ST_PENDING  0xffff  /* Command Pending */
+
+#define DMAREAD     0x0001  /* Command Reads from SCSI device */
+#define DMAWRITE    0x0002  /* Command Writes to SCSI device */
+
+#define SENSELEN    18
+
+#define PHYS_ADDR       0x0000      /* Physical Address - (who knows) */
+#define KRNL_ADDR       0x0001      /* Kernal Address */
+#define USER_ADDR       0x0002      /* User Address (Anything goes) */
+#define SYSGLBL_ADDR    0x0003      /* System Global address (yeah) */
+
+/***** Minor Device Number Bits *****/
+
+#define SPECIAL     0x80    /* Special Bit to flag boot block / Tape */
+#define TIDMASK     0x70
+#define LUNMASK     0x0c
+#define PARTMASK    0x03
+#define TAPE        0x01
+#define REWIND      0x02
+
+#pragma align 1
+
+typedef struct g0cmd_s *g0cmd_p;
+
+typedef struct g0cmd_s {
+    unsigned char   opcode;     /* From opcode Table */
+    unsigned char   lun_lba;    /* LUN and high part of LBA */
+    unsigned char   lba_mid;    /* LBA Middle. */
+    unsigned char   lba_low;    /* LBA Low. */
+    unsigned char   xfr_len;    /* Transfer Length */
+    unsigned char   control;    /* Control byte. */
+} g0cmd_t;
+
+typedef struct g1cmd_s *g1cmd_p;
+
+typedef struct g1cmd_s {
+    unsigned char   opcode;     /* From opcode Table */
+    unsigned char   lun;        /* LUN */
+    unsigned long   lba;        /* LBA */
+    unsigned char   pad1;       /* Reserved */
+    unsigned short  xfr_len;    /* Transfer Length's MSB. */
+    unsigned char   control;    /* Control byte. */
+} g1cmd_t;
+
+#define g2cmd_t g1cmd_t         /* SCSI-2 Added Group 2 commands */
+#define g2cmd_s g1cmd_s         /* with the same size and layout as */
+#define g2cmd_p g1cmd_p         /* g1 commands. */
+
+typedef struct g5cmd_s *g5cmd_p;
+
+typedef struct g5cmd_s {
+    unsigned char   opcode;     /* From opcode Table */
+    unsigned char   lun;        /* LUN */
+    unsigned long   lba;        /* LBA's MSB */
+    unsigned char   pad1[3];    /* Reserved */
+    unsigned short  xfr_len;    /* Transfer Length */
+    unsigned char   control;    /* Control byte. */
+} g5cmd_t;
+
+typedef union cdb_u *cdb_p;
+
+typedef union cdb_u {
+    g0cmd_t g0;
+    g1cmd_t g1;
+    g5cmd_t g5;
+} cdb_t;
+
+typedef struct sense_s *sense_p;
+
+typedef struct sense_s {
+    unsigned char   errorcode;  /* Error Code:  0x0? */
+    unsigned char   lba_msb;    /* LSB's MS 5 Bits */
+    unsigned char   lba_mid;    /*       Middle 8 bits */
+    unsigned char   lba_lsb;    /*       LS 8 Bits */
+} sense_t;
+
+typedef struct extsense_s *extsense_p;
+
+typedef struct extsense_s {
+    unsigned char   errorcode;      /* Error Code (70H) */
+    unsigned char   segmentnum;     /* Number of current segment descriptor */
+    unsigned char   sensekey;       /* Sense Key(See bit definitions too) */
+    long            info;           /* Information MSB */
+    unsigned char   addlen;         /* Additional Sense Length */
+    unsigned char   addbytes[1];    /* Additional Sense unsigned chars */
+} extsense_t;
+
+#ifdef __KERNEL__
+/***** Device Control Array *****/
+
+typedef struct dca_s *dca_p;
+
+typedef struct dca_s {
+    int (*d_open)();            /* open routine for device */
+    int (*d_close)();           /* close routine */
+    int (*d_block)();           /* Block request routine (Strategy) */
+    int (*d_read)();            /* Character Read routine */
+    int (*d_write)();           /* Character Write routine */
+    int (*d_ioctl)();           /* I/O Control routine */
+    int (*d_load)();            /* Load or Init routine */
+    int (*d_unload)();          /* Unload routine */
+    int (*d_poll)();            /* Poll routine */
+} dca_t;
+
+typedef struct bufaddr_s *bufaddr_p;
+
+typedef struct bufaddr_s {
+    int             space;      /* Address space */
+    union {
+        paddr_t     paddr;      /* Physical Address */
+        caddr_t     caddr;      /* Virtual Address */
+    } addr;
+    size_t          size;       /* Size of buffer */
+} bufaddr_t;
+
+typedef struct srb_s *srb_p;    /* SCSI Request Block */
+
+typedef struct srb_s {
+    unsigned short  status;     /* SCSI Status Byte */
+    unsigned short  hastat;     /* Host Adapter Status Byte */
+    dev_t           dev;        /* Device number (major/minor) */
+    unsigned char   target;     /* Target ID */
+    unsigned char   lun;        /* Logical Unit Number */
+    unsigned short  tries;      /* Current tries */
+    unsigned short  timeout;    /* Seconds til timeout */
+    bufaddr_t       buf;        /* Buffer to use */
+    unsigned short  xferdir;    /* Transfer Direction */
+    int             (*cleanup)();   /* Cleanup Function. */
+    cdb_t           cdb;        /* Command to execute */
+    char            sensebuf[SENSELEN];
+} srb_t;
+
+#pragma align
+
+#ifdef HA_MODULE
+extern dca_p mdca[MAXDEVS];
+#else
+extern int hapresent;
+#endif
+
+/***********************************************************************
+ *  Host Adapter routines.
+ *
+ *  These must be defined by the host adapter module.  For each individual
+ *  routine's functionality see the host adapter module aha154x.c.
+ */
+
+extern void hatimer();
+extern void haintr();
+extern int hainit();
+extern int startscsi();
+extern void abortscsi();
+extern void resetdevice();
+extern void haihdgeta();
+extern void haihdseta();
+
+extern char iofailmsg[];
+extern int  HAI_HAID;
+
+#define bit(n)          (1 << (n))
+#define tid(d)          (((d) & TIDMASK) >> 4)
+#define lun(d)          (((d) & LUNMASK) >> 2)
+#define partn(d)        (((d) & SPECIAL) ? 4 : ((d) & PARTMASK))
+
+char *swapbytes();
+#define flip(o)         swapbytes(&(o), sizeof(o))
+int cpycdb();
+void reqsense();
+void doscsi();
+void printsense();
+int printerror();
+void haiioctl();
+void hainonblk();
+#endif	/* KERNEL */
+
+#endif /* !defined( __SYS_HAISCSI_H__ ) */
+
+/* End of file */
+@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@d9 1
+a9 1
+ *  Last Modified: Sun Jun 27 16:41:53 1993 by [chris]
+a10 1
+ *  $Id: haiscsi.h,v 1.0 93/06/27 18:24:04 chris Exp Locker: chris $
+d13 2
+a14 2
+#ifndef _SCSI_H_
+#define _SCSI_H_	0x0100
+d16 1
+a16 1
+#define SCSIMAJOR	13
+d18 4
+a21 4
+#define MAXTID		7
+#define MAXDEVS		(MAXTID + 1)
+#define MAXLUN	    	7
+#define MAXUNITS    	(MAXLUN + 1)
+d23 9
+a31 9
+#define ST_GOOD     	0x00    /* Status Good. */
+#define ST_CHKCOND  	0x02    /* Check Condition */
+#define ST_CONDMET  	0x04    /* Condition Met */
+#define ST_BUSY     	0x08    /* Busy */
+#define ST_INTERM   	0x10    /* Intermediate */
+#define ST_INTCDMET 	0x14    /* Intermediate Condtion Met */
+#define ST_RESCONF  	0x18    /* Reservation Conflict */
+#define ST_COMTERM  	0x22    /* Command Terminated */
+#define ST_QFULL    	0x28	/* Queue Full */
+d33 5
+a37 5
+#define ST_TIMEOUT  	0x0101  /* Command Timed out */
+#define ST_USRABRT  	0x0102  /* User pressed ^C */
+#define ST_DRVABRT  	0x0103  /* Command Aborted by driver */
+#define ST_HATMOUT  	0x0201  /* Host adapter Timed out command */
+#define ST_PENDING  	0xffff  /* Command Pending */
+d39 2
+a40 2
+#define DMAREAD     	0x0001  /* Command Reads from SCSI device */
+#define DMAWRITE    	0x0002  /* Command Writes to SCSI device */
+d42 1
+a42 1
+#define SENSELEN    	18
+d44 4
+a47 4
+#define PHYS_ADDR	0x0000	    /* Physical Address - (who knows) */
+#define KRNL_ADDR	0x0001	    /* Kernal Address */
+#define USER_ADDR	0x0002	    /* User Address (Anything goes) */
+#define SYSGLBL_ADDR	0x0003	    /* System Global address (yeah) */
+d51 6
+a56 6
+#define SPECIAL     	0x80    /* Special Bit to flag boot block / Tape */
+#define TIDMASK     	0x70
+#define LUNMASK     	0x0c
+#define PARTMASK    	0x03
+#define TAPE	    	0x01
+#define REWIND	    	0x02
+d63 6
+a68 6
+	unsigned char	opcode; 	/* From opcode Table */
+	unsigned char	lun_lba;	/* LUN and high part of LBA */
+	unsigned char	lba_mid;	/* LBA Middle. */
+	unsigned char	lba_low;	/* LBA Low. */
+	unsigned char	xfr_len;	/* Transfer Length */
+	unsigned char	control;	/* Control byte. */
+d74 6
+a79 6
+	unsigned char	opcode; 	/* From opcode Table */
+	unsigned char	lun;		/* LUN */
+	unsigned long	lba;		/* LBA */
+	unsigned char	pad1;		/* Reserved */
+	unsigned short	xfr_len;	/* Transfer Length's MSB. */
+	unsigned char	control;	/* Control byte. */
+d82 3
+a84 3
+#define g2cmd_t g1cmd_t 	/* SCSI-2 Added Group 2 commands */
+#define g2cmd_s g1cmd_s 	/* with the same size and layout as */
+#define g2cmd_p g1cmd_p 	/* g1 commands. */
+d89 6
+a94 6
+	unsigned char	opcode; 	/* From opcode Table */
+	unsigned char	lun;		/* LUN */
+	unsigned long	lba;		/* LBA's MSB */
+	unsigned char	pad1[3];	/* Reserved */
+	unsigned short	xfr_len;	/* Transfer Length */
+	unsigned char	control;	/* Control byte. */
+d100 3
+a102 3
+	g0cmd_t g0;
+	g1cmd_t g1;
+	g5cmd_t g5;
+d108 4
+a111 4
+	unsigned char	errorcode;	/* Error Code:  0x0? */
+	unsigned char	lba_msb;	/* LSB's MS 5 Bits */
+	unsigned char	lba_mid;	/* Middle 8 bits */
+	unsigned char	lba_lsb;	/* LS 8 Bits */
+d117 6
+a122 6
+	unsigned char	errorcode;	/* Error Code (70H) */
+	unsigned char	segmentnum; 	/* Number of current segment descriptor */
+	unsigned char	sensekey;	/* Sense Key(See bit definitions too) */
+	long		info;		/* Information MSB */
+	unsigned char	addlen;		/* Additional Sense Length */
+	unsigned char	addbytes[1];	/* Additional Sense unsigned chars */
+d125 1
+d131 9
+a139 9
+	int	(*d_open)();		/* open routine for device */
+	int	(*d_close)();		/* close routine */
+	int	(*d_block)();		/* Block request routine (Strategy) */
+	int	(*d_read)();		/* Character Read routine */
+	int	(*d_write)();		/* Character Write routine */
+	int	(*d_ioctl)();		/* I/O Control routine */
+	int	(*d_load)();		/* Load or Init routine */
+	int	(*d_unload)();		/* Unload routine */
+	int	(*d_poll)();		/* Poll routine */
+d145 6
+a150 6
+	int 		space;		/* Address space */
+	union {
+		paddr_t paddr;		/* Physical Address */
+		vaddr_t vaddr;		/* Virtual Address */
+	} addr;
+	size_t		size;		/* Size of buffer */
+d153 1
+a153 1
+typedef struct srb_s *srb_p;	/* SCSI Request Block */
+d156 12
+a167 12
+	unsigned short	status; 	/* SCSI Status Byte */
+	unsigned short	hastat; 	/* Host Adapter Status Byte */
+	dev_t		dev;		/* Device number (major/minor) */
+	unsigned char	target; 	/* Target ID */
+	unsigned char	lun;		/* Logical Unit Number */
+	unsigned short	tries;		/* Current tries */
+	unsigned short	timeout;	/* Seconds til timeout */
+	bufaddr_t	buf;		/* Buffer to use */
+	unsigned short	xferdir;	/* Transfer Direction */
+	int 		(*cleanup)();	/* Cleanup Function. */
+	cdb_t		cdb;		/* Command to execute */
+	char		sensebuf[SENSELEN];
+d191 2
+a193 1
+
+d197 4
+a200 4
+#define bit(n)		(1 << (n))
+#define tid(d)		(((d) & TIDMASK) >> 4)
+#define lun(d)		(((d) & LUNMASK) >> 2)
+#define partn(d)	(((d) & SPECIAL) ? 4 : ((d) & PARTMASK))
+d203 1
+a203 1
+#define flip(o) 	swapbytes(&(o), sizeof(o))
+d209 3
+a211 1
+#endif
+d213 2
+@
+
+
+1.1
+log
+@Kernel 79 w/streams
+@
+text
+@d9 3
+a11 1
+ *  Last Modified: Thu Jun  3 13:55:30 1993 by [chris]
+d15 1
+a15 1
+#define _SCSI_H_    0x0100
+d17 1
+a17 1
+#define SCSIMAJOR   13
+d19 4
+a22 4
+#define MAXTID      7
+#define MAXDEVS     (MAXTID + 1)
+#define MAXLUN      7
+#define MAXUNITS    (MAXLUN + 1)
+d24 9
+a32 9
+#define ST_GOOD     0x00    /* Status Good. */
+#define ST_CHKCOND  0x02    /* Check Condition */
+#define ST_CONDMET  0x04    /* Condition Met */
+#define ST_BUSY     0x08    /* Busy */
+#define ST_INTERM   0x10    /* Intermediate */
+#define ST_INTCDMET 0x14    /* Intermediate Condtion Met */
+#define ST_RESCONF  0x18    /* Reservation Conflict */
+#define ST_COMTERM  0x22    /* Command Terminated */
+#define ST_QFULL    0x28    /* Queue Full */
+d34 5
+a38 5
+#define ST_TIMEOUT  0x0101  /* Command Timed out */
+#define ST_USRABRT  0x0102  /* User pressed ^C */
+#define ST_DRVABRT  0x0103  /* Command Aborted by driver */
+#define ST_HATMOUT  0x0201  /* Host adapter Timed out command */
+#define ST_PENDING  0xffff  /* Command Pending */
+d40 2
+a41 2
+#define DMAREAD     0x0001  /* Command Reads from SCSI device */
+#define DMAWRITE    0x0002  /* Command Writes to SCSI device */
+d43 1
+a43 1
+#define SENSELEN    16
+d45 4
+a48 4
+#define PHYS_ADDR       0x0000      /* Physical Address - (who knows) */
+#define KRNL_ADDR       0x0001      /* Kernal Address */
+#define USER_ADDR       0x0002      /* User Address (Anything goes) */
+#define SYSGLBL_ADDR    0x0003      /* System Global address (yeah) */
+d52 6
+a57 6
+#define SPECIAL     0x80    /* Special Bit to flag boot block / Tape */
+#define TIDMASK     0x70
+#define LUNMASK     0x0c
+#define PARTMASK    0x03
+#define TAPE        0x01
+#define REWIND      0x02
+d64 6
+a69 6
+    unsigned char   opcode;     /* From opcode Table */
+    unsigned char   lun_lba;    /* LUN and high part of LBA */
+    unsigned char   lba_mid;    /* LBA Middle. */
+    unsigned char   lba_low;    /* LBA Low. */
+    unsigned char   xfr_len;    /* Transfer Length */
+    unsigned char   control;    /* Control byte. */
+d75 6
+a80 6
+    unsigned char   opcode;     /* From opcode Table */
+    unsigned char   lun;        /* LUN */
+    unsigned long   lba;        /* LBA */
+    unsigned char   pad1;       /* Reserved */
+    unsigned short  xfr_len;    /* Transfer Length's MSB. */
+    unsigned char   control;    /* Control byte. */
+d83 4
+d90 6
+a95 6
+    unsigned char   opcode;     /* From opcode Table */
+    unsigned char   lun;        /* LUN */
+    unsigned long   lba;        /* LBA's MSB */
+    unsigned char   pad1[3];    /* Reserved */
+    unsigned short  xfr_len;    /* Transfer Length */
+    unsigned char   control;    /* Control byte. */
+d101 3
+a103 3
+    g0cmd_t g0;
+    g1cmd_t g1;
+    g5cmd_t g5;
+d109 4
+a112 4
+    unsigned char   errorcode;  /* Error Code:  0x0? */
+    unsigned char   lba_msb;    /* LSB's MS 5 Bits */
+    unsigned char   lba_mid;    /*       Middle 8 bits */
+    unsigned char   lba_lsb;    /*       LS 8 Bits */
+d118 6
+a123 6
+    unsigned char   errorcode;      /* Error Code (70H) */
+    unsigned char   segmentnum;     /* Number of current segment descriptor */
+    unsigned char   sensekey;       /* Sense Key(See bit definitions too) */
+    long            info;           /* Information MSB */
+    unsigned char   addlen;         /* Additional Sense Length */
+    unsigned char   addbytes[1];    /* Additional Sense unsigned chars */
+d131 9
+a139 9
+    int (*d_open)();            /* open routine for device */
+    int (*d_close)();           /* close routine */
+    int (*d_block)();           /* Block request routine (Strategy) */
+    int (*d_read)();            /* Character Read routine */
+    int (*d_write)();           /* Character Write routine */
+    int (*d_ioctl)();           /* I/O Control routine */
+    int (*d_load)();            /* Load or Init routine */
+    int (*d_unload)();          /* Unload routine */
+    int (*d_poll)();            /* Poll routine */
+d145 6
+a150 6
+    int             space;      /* Address space */
+    union {
+        paddr_t     paddr;      /* Physical Address */
+        caddr_t     vaddr;      /* Virtual Address */
+    } addr;
+    size_t          size;       /* Size of buffer */
+d153 1
+a153 1
+typedef struct srb_s *srb_p;    /* SCSI Request Block */
+d156 12
+a167 12
+    unsigned short  status;     /* SCSI Status Byte */
+    dev_t           dev;        /* Device number (major/minor) */
+    unsigned char   target;     /* Target ID */
+    unsigned char   lun;        /* Logical Unit Number */
+    unsigned short  hastat;     /* Host Adapter Status Byte */
+    unsigned short  tries;      /* Current tries */
+    unsigned short  timeout;    /* Seconds til timeout */
+    bufaddr_t       buf;        /* Buffer to use */
+    unsigned short  xferdir;    /* Transfer Direction */
+    int             (*cleanup)();   /* Cleanup Function. */
+    cdb_t           cdb;        /* Command to execute */
+    char            sensebuf[SENSELEN];
+d172 1
+a172 1
+#ifdef _COH_HA_
+d174 2
+d177 16
+d194 1
+d196 4
+a199 4
+#define bit(n)          (1 << (n))
+#define tid(d)          (((d) & TIDMASK) >> 4)
+#define lun(d)          (((d) & LUNMASK) >> 2)
+#define partn(d)        (((d) & SPECIAL) ? 4 : ((d) & PARTMASK))
+d202 1
+a202 1
+#define flip(o)         swapbytes(&(o), sizeof(o))
+a204 2
+
+#if defined(V_SLEEP)
+a205 2
+#endif
+
+@

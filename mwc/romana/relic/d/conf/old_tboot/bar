@@ -1,0 +1,51 @@
+ * To pass a new data structure into the kernel:
+ *
+ * 1. Define your new data structure in typed.h.  You will probably want
+ *    to define some supporting routines for your data structure.  These
+ *    should go in a file by themselves.  Be sure to add the file to the
+ *    tboot Makefile.
+ * 
+ * 2. Write a routine that takes at least an ffp, which will generate your
+ *    data structure and write it into the ffp.  The routine should return 0
+ *    if it ran out of space in the FIFO.  Other return values are permissible,
+ *    but ignored.  Add arguments to prepare_gift() as needed.  It is called
+ *    only from the end of main() in tboot.c
+ *
+ * 3. Add a call to your routine to prepare_gift() in the section marked
+ *    FILL THE BOX.  This is an if statement with || seperated calls.  The
+ *    most important data structures should be called first, because later
+ *    calls will be skipped if the FIFO fills.
+ *
+ * 4. In the kernel (probably in a driver) you will want to add a loop to
+ *    look through the gift for your data structure:
+ *
+ *    FIFO *ffp;
+ *    typed_space *tp;
+ *
+ *    ffp = fifo_open(&boot_gift, 0);	-- Open gift for reading. 
+ * 
+ *    if (F_NULL == ffp) {
+ *	  indicate_error("Could not open boot_gift.");
+ *    } else {
+ *        while (T_NULL != (tp = fifo_read(ffp))) {	-- While not EOFIFO.
+ *	      if (T_MYTYPE == tp->ts_type) {	-- Is this my type?
+ *		  my_handler(tp->ts_data);	-- Process the data.
+ *	      }
+ *        }
+ *    }
+ *
+ *    Be sure to include fifo_k.c and typed.h into your kernel.
+
+
+gift_drive_params
+
+gift_argf
+ * To read gift_argf from bootgift, use the procedure outlined above in
+ * point 4 to find the entry marked T_STR_ARGF.  You must then explicitly
+ * recast it with RETYPE(tp->ts_data, T_FIFO_SIC).  Then you can open it
+ * as a FIFO, with code modeled on point 4 above.  This scheme seemed
+ * the simplest for uniquely identifying the argument FIFO.
+ * Each element of the FIFO is a T_STR_STR, so ts_data for these is
+ * just a NUL terminated string.
+
+gift_rootdev

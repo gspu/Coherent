@@ -1,0 +1,94 @@
+vv_sslleeeepp() -- Accessible Kernel Routine
+
+#iinncclluuddee <ssyyss/sscchheedd.hh>
+vvooiidd
+vv_sslleeeepp(_e, _c_v, _i_v, _s_v, _s_t_r)
+cchhaarr *_e;
+iinntt _c_v, _i_v, _s_v;
+cchhaarr *_s_t_r;
+
+vv_sslleeeepp() suspends processing of a  process until event _e has completed.  _e
+normally represents a data item's address in the static kernel data space.
+
+_s_t_r  is a  human readable  event name  displayed by command  ppss. _c_v  is the
+scheduling value set  to obtain the CPU as soon  as the process awakes.  _i_v
+is the swap  value obtained to keep the process  in memory for the duration
+of the sleep.   _s_v is the swap value that  allows the process to be swapped
+in if  it has  been swapped  out.  The following  table gives  the manifest
+constants to use with _c_v, _i_v, and _s_v for normal processing tasks, as set in
+the header file <ssyyss/sscchheedd.hh>:
+
+Child Process            CCVVCCHHIILLDD   IIVVCCHHIILLDD   SSVVCCHHIILLDD
+Swapper                  CCVVSSWWAAPP    IIVVSSWWAAPP    SSVVSSWWAAPP
+Wait for Block I/O to Complete     CCVVBBLLKKIIOO   IIVVBBLLKKIIOOSSVVBBLLKKIIOO
+Wait for Gate to Open    CCVVGGAATTEE    IIVVGGAATTEE    SSVVGGAATTEE
+Terminal Output          CCVVTTTTOOUUTT   IIVVTTTTOOUUTT   SSVVTTTTOOUUTT
+Wait for Free clists     CCVVCCLLIISSTT   IIVVCCLLIISSTT   SSVVCCLLIISSTT
+Process Trace            CCVVPPTTSSEETT   IIVVPPTTSSEETT   SSVVPPTTSSEETT
+Process Trace Stop       CCVVPPTTRREETT   IIVVPPTTRREETT   SSVVPPTTRREETT
+Waiting for a Pipe       CCVVPPIIPPEE    IIVVPPIIPPEE    SSVVPPIIPPEE
+Terminal Input           CCVVTTTTIINN    IIVVTTTTIINN    SSVVTTTTIINN
+Pause                    CCVVPPAAUUSSEE   IIVVPPAAUUSSEE   SSVVPPAAUUSSEE
+Wait                     CCVVWWAAIITT    IIVVWWAAIITT    SSVVWWAAIITT
+
+If _c_v  is less  than _C_V_N_O_S_I_G,  then signals may  abort the  process without
+returning from the sleep.
+
+Please note  the following caveats  when using vv_sslleeeepp().  Disobeying these
+rules can jeopardize the health of your system.
+
+First, your  driver can vv_sslleeeepp() while  it waits for some  condition to be
+satisfied.  However,  the vv_sslleeeepp() may return  prematurely; therefore, you
+must place  the call to vv_sslleeeepp()  within a loop and  check for the initial
+condition  to  still be  valid.   Normally,  a sleep  is  performed in  the
+following manner:
+
+    set interrupt priority to keep out the gremlins
+    while (work is not yet completed)
+        v_sleep( &some_variable_in_the_kernel_data_area, ... )
+    restore interrupt mask
+
+The  interrupt routine  will, in  turn, call wwaakkeeuupp()  or defer  wakeup for
+later background processing  if time is not an issue.   This will cause the
+aforementioned code to return from the call to vv_sslleeeepp().
+
+As you can  see, there is an inherent race  condition between the wwhhiillee and
+vv_sslleeeepp(). If  the work is  serviced while the driver  is vv_sslleeeepp()ing, the
+wwhhiillee loop will work  correctly.  However, should the last interrupt happen
+after the  wwhhiillee but before the  vv_sslleeeepp(), the driver will  deadlock -- it
+will, in effect, be waiting for Godot.
+
+vv_sslleeeepp() returns  for various reasons, but you cannot  always depend on it
+to return for reasons other than a process calling wwaakkeeuupp() on the variable
+that  your driver  fell  asleep on.   So,  if your  driver  is waiting  for
+something to happen based upon an interrupt, be sure to bracket the call to
+vv_sslleeeepp() with calls to the kernel routines sspphhii() and ssppll().
+
+_S_e_e _A_l_s_o
+aacccceessssiibbllee kkeerrnneell rroouuttiinneess, sspphhii(), ssppll(), wwaakkeeuupp()
+
+_N_o_t_e_s
+Please note the following warnings:
+
+->   Do not  call vv_sslleeeepp(), either directly or  indirectly, from the block
+     routine of a driver.
+
+->   Do not  call vv_sslleeeepp(),  either directly  or indirectly, from  with an
+     interrupt  handler.  When  the interrupt occurs,  the driver  does not
+     know which  process was running  at the time,  so it does  not whose _u
+     _a_r_e_a it  will be sleeping on.  Thus, calling  vv_sslleeeepp() from within an
+     interrupt handler will deadlock your driver.
+
+->   Calling  vv_sslleeeepp() from  the load  routine of a  driver linked  to the
+     kernel will cause a panic.
+
+->   Always check for signals while sleeping.  Failure to do so will result
+     in user  processes which cannot be terminated  due to an uncooperative
+     device driver.   For example, the following code  fragment can be used
+     in a blocking  driver _x_xooppeenn() routine to allow the  user to break out
+     of a sleep by hitting the interrupt character on the keyboard.
+
+         if (SELF->p_ssig && nondsig()) {  /* received a signal? */
+             u.u_error = EINTR;    /* indicate that we were interrupted */
+             return;           /* return to user process */
+         }

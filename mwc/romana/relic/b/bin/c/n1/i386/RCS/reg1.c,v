@@ -1,0 +1,135 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.10.05.11.53.15;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * n1/i386/reg1.c
+ * Machine specific parts of the register allocator.
+ * i386.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+/*
+ * Select a register.
+ * The argument 'tp' is the tree.
+ * The argument 'c' is a context, which will be either 'PAIR' or 'ANY'.
+ * The 'flag' is true if ANY should be resolved.
+ */
+regselect(tp, c, flag) TREE *tp; int c, flag;
+{
+	register REGDESC	*rp;
+	register KIND		kind;
+	register PREGSET	busy;
+	register PERTYPE	*ptp;
+
+	ptp = &pertype[tp->t_type];
+	if (c == PAIR)
+		kind = ptp->p_pair;
+	else if (flag==0)
+		return c;
+	kind = ptp->p_kind;
+	busy = curbusy;
+	for (rp = &reg[FRREG]; rp<&reg[NRREG]; ++rp) {
+		if ((rp->r_phys&busy) != 0)
+			continue;
+		if (c == ANYL) {
+			if ((rp->r_lvalue&kind) == 0)
+				continue;
+		} else {
+			if ((rp->r_rvalue&kind) == 0)
+				continue;
+		}
+		if (bytereg(tp, tp->t_patp) && (rp->r_phys&~(BEAX|BEBX|BECX|BEDX))!=0)
+			continue;
+		return (rp - &reg[0]);
+	}
+	return -1;
+}
+
+/*
+ * Return true if register 'r' is a usable temporary for tree 'tp'.
+ */
+isusable(tp, c, r) register TREE *tp; int c; register int r;
+{
+	register int	op;
+	register KIND	kind;
+
+#if !TINY
+	if (sflag > 2)
+		snapf("Isusable(%P, %C, %R)? ", tp, c, r);
+#endif
+	op = tp->t_op;
+	kind = pertype[tp->t_type].p_kind;
+	if (c == MLVALUE) {
+		if ((reg[r].r_lvalue&kind) == 0)
+			goto no;
+	} else {
+		if ((reg[r].r_rvalue&kind) == 0)
+			goto no;
+	}
+	if (bytereg(tp, tp->t_patp) && (reg[r].r_phys&~(BEAX|BEBX|BECX|BEDX))!=0)
+		goto no;
+#if !TINY
+	if (sflag > 2)
+		snapf("yes\n");
+#endif
+	return 1;
+no:
+#if !TINY
+	if (sflag > 2)
+		snapf("no\n");
+#endif
+	return 0;
+}
+
+/*
+ * Test if a pattern requires a byte register.
+ * This prevents e.g. applying the LO LO macro to EDI or ESI.
+ * The first argument is archaic.
+ * dgc kludged the i8086 compiler source to look at tp
+ * to decide if the tree needed a byte register.
+ * steve added the PBYTE pattern flag for the i386 compiler,
+ * so bytereg() now looks at the pattern instead of at the tree.
+ * Only patterns with BYTE left or right arg types require byte registers.
+ * The tp argument is retained to maintain compatiblity
+ * with other machine-dependent sources, namely i8086.
+ */
+int
+bytereg(tp, patp) register TREE *tp; register PAT *patp;
+{
+	register INDEX index;
+	register TREE *rp;
+
+	index = patp->p_flag;
+	return (index != 0 && (patcache[index-1] & PBYTE) != 0
+		&& (isbyte(tp->t_lp->t_type)
+		  || ((rp = tp->t_rp) != NULL && isbyte(rp->t_type))));
+}
+
+/* end of n1/i386/reg1.c */
+@

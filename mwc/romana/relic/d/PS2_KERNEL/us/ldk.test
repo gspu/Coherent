@@ -1,0 +1,22 @@
+# /conf/ldker
+# Build COHERENT kernel into /mnt/coherent
+
+HD=lib/at.a
+HDUNDEF="-u atcon_"
+HDPATCH="drvl_+110=atcon_"
+
+KB=lib/kb.a
+KBUNDEF="-u iscon_"
+KBPATCH="drvl_+20=iscon_"
+
+RESULT=testcoh
+set -ex
+(/bin/ld -i -x -o $RESULT kernel321.o $KBUNDEF $HDUNDEF $KB $HD lib/mm.a \
+	lib/tty.a lib/support.a lib/kl.a \
+	&& /conf/patch $RESULT $KBPATCH $HDPATCH \
+	&& /conf/patch $RESULT drvl_+30=lpcon_ drvl_+40=flcon_ drvl_+80=rmcon_ \
+	) || echo 'Kernel link failed' && exit 1
+echo $RESULT built	
+mv $RESULT /testcoh
+/conf/patch /testcoh rootdev_=0xb00 pipedev_=0xb00 ronflag_=0
+chmog 400 sys sys /testcoh

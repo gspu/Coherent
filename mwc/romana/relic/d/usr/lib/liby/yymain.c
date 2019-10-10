@@ -1,0 +1,7 @@
+
+
+main( )
+{
+
+	return (yyparse( ));
+}

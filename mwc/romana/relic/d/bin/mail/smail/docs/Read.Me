@@ -1,0 +1,130 @@
+		Read.Me - Updated 9/15/87
+
+What smail does:
+
+  smail is capable of handling UUCP syntax (bang paths, bang
+  domains, and at domains are supported) mail transportation
+  over UUCP/uux/rmail channels.  It will support machines that
+  only have UUCP connections, and machines with UUCP links to
+  the outside world plus a small number of local machines that
+  are reached via SMTP.  The domain intelligence is embedded
+  in the smail database (e.g. the pathalias output), not the
+  sendmail.cf file, so if you have a fancier domain structure
+  that involves SMTP or anything other than uux in the domain
+  structure, you'll want to modify the sendmail.cf file here or
+  merge pieces of the enclosed sendmail.cf into your own.
+
+  smail runs under 4.2BSD and System V, as a back end to sendmail;
+  and under System V without sendmail.  It also replaces rmail, which
+  becomes a link to smail.  In a sendmail environment, smail depends on
+  sendmail to crack the headers, as smail just deals with the envelope.
+  smail makes your host capable of using the INTERNET definition in the
+  Usenet software.
+
+  Features of smail include:
+
+  (1) Using pathalias data to choose the best route to your destination.
+  (2) Handling of user@domain, domain!user, and host!user syntax.
+  (3) Generation of domain!user syntax to be forwarded by other systems.
+  (4) Logging of traffic through your machine, by sender, recipient, and
+      size of message, so you can, track use and detect abuse of your
+      machine.
+  (5) Mail being forwarded through your machine to another uux link is
+      passed from rmail directly to uux, so there's less overhead on
+      your machine (sendmail stays out of the loop.)
+  (6) Sendmail-like alias capability for hosts without sendmail.
+  (7) Generation of RFC822 required headers for locally generated mail.
+  (8) Robust delivery scheme that reroutes only if stated path is inaccessible.
+  (8) Mail that is undeliverable is returned to sender.
+  (9) Simplicity.
+
+Prerequisites:
+
+  A copy of a recent posting of pathalias.  (The one posted
+  by Peter Honeyman in January 1986 is recommended.)
+
+  A current copy of the UUCP map, or at least a copy of the
+  appropriate part of it that you're interested in.
+
+  A properly registered domain name for your organization, such
+  as ATT.COM.  (It is possible to run smail using a domain name
+  under .UUCP, but since this can't be officially registered,
+  it is appropriate only for testing.)
+
+  You can get pathalias from the mod.sources Usenet archive
+  (contact sources-request@uunet.uu.net or uunet!sources-request)
+
+  You can get a UUCP map each month from Usenet newsgroup mod.map.
+  The UUCP map is quite large (currently about 2MB) so please don't ask
+  to have a copy mailed to you - get a copy from a nearby Usenet site.
+
+  You can get a domain name by joining the UUCP Zone.  There are
+  low membership dues for this, and a registration process that
+  will take 2-8 weeks.  This Read.Me file may be out of date by
+  the time you read it, so we ask you to contact us for current
+  dues rates and procedures.  Contact uucp-query@Stargate.COM or
+  cbosgd!stargate!uucp-query and ask for the UUCP Zone information
+  packet.  (If you already belong to a network such as CSNET, DDN,
+  or BITNET, your organization may already have a domain name.  If
+  you are also on UUCP, it is recommended that you also join the
+  UUCP Zone at the lower rate for organizations whose primary
+  affiliation is with another network.  See the file "Registry"
+  for more information.
+
+Overall structure:
+
+  smail is installed in /bin/smail with a link in /bin/rmail.  Uuxqt
+  calls rmail, which either forwards the message on to the next hop
+  directly or, on a sysetm with sendmail, calls sendmail.  sendmail
+  may decide the message should be delivered by UUCP, and invoke smail,
+  which will look up a route and invoke uux.  (Note that the choice
+  about when to invoke sendmail and when to process a message directly
+  can be configured in smail.)
+
+  smail uses a database which is generated from pathalias.  You take the
+  current UUCP map, add some local information and topology data (to tell
+  it about the domain tree) and run pathalias.  The result is sorted and
+  installed in /usr/lib/uucp/paths.  There is no hashing done on this
+  file - when smail looks up a name it uses a binary search.
+
+Configuration considerations:
+
+  You'll note two configuration options in defs.h: HANDLE and ROUTING.
+  These control which sorts of addresses smail/rmail will handle, and
+  which type of routing they will do.  The HANDLE define only affects
+  rmail, since smail sets it implicitly.  In any case, we recommend
+  that you leave HANDLE alone, unless you are making major changes.
+
+  ROUTING has three choices: JUSTDOMAIN, ALWAYS, and REROUTE.  rmail
+  will run as JUSTDOMAIN, the defs.h default.  This means rmail will
+  only apply routing if it sees "rmail user@domain", and will just call
+  uux if it sees "rmail host!user".  (If the uux fails, it will call
+  smail -r, which will apply ALWAYS routing to try to get the mail
+  there anyway.  If the ALWAYS routing fails, then REROUTE routing is
+  applied.  This has the advantage of being low overhead on your
+  system, not second guessing a route someone else asked for, and still
+  recovering nicely from the mistakes of another system.  Your host
+  becomes a "smart host" that can get mail anywhere.)
+
+  Many people will note huge paths going through their machine.  These
+  paths are generated by replies to netnews messages, and tend to be 10
+  or 20 hops long - far longer than necessary.  If you are a bit aggressive,
+  you can change -r to -R, which will cause such failed mail to be rerouted,
+  thus, mail to a!b!c!d!e!f!g!user will look up a route to g, and send the
+  mail to route!g!user.  (If it can't find g, it will try f, then e, and
+  so on until it finds someone it recognizes.)  If you are REALLY aggressive,
+  you can change ROUTING to REROUTE in defs.h, to get the same effect for
+  ALL rmail being passed through your machine.  This may help cut phone
+  bills, but it has some disadvantages.  It can lengthen a path sometimes,
+  e.g. mail to tektronix!user might turn into ihnp4!tektronix!user if your
+  routing database says mail to tektronix goes through ihnp4.  It makes it
+  hard to route around a dead host, or to redirect traffic from a mailing
+  list to several different directions.  It may also make mail go a different
+  path than what your user thought it was, and it affects other hosts that
+  route mail through you if you set ROUTING to REROUTE in defs.h.  So only
+  do this if you know what you are doing, and are willing to live with the
+  disadvantages.
+
+#
+#@(#)Read.Me	2.5 (smail) 9/15/87
+#

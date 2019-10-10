@@ -1,0 +1,86 @@
+# Run script for MWC86 UDI compiler manual
+# udi1 has cover page and table of contents
+# udi2.$i has manual text.
+# udi3 has Lexicon.
+# udi4 has the permuted listing of the Lexicon's entries.
+# udi5 has index.
+#
+if test $# -ne 1
+then
+	echo "Usage: Run ( 8086 | 80286 )"
+	exit
+fi
+case $1 in
+	8086)	G='-rG0';;
+	80286)	G='-rG1';;
+	*)	echo "Usage: Run ( 8086 | 80286 )" ;
+		exit;;
+esac
+troff $G -mwc -mroff fonts.r top.r cover.r >/tmp/doc/mwc/udi0 2>udi.x
+#
+troff $G -rX3 -r#1 -muditext -mroff fonts.r top.r intro.r >/tmp/doc/mwc/udi2.1 2>>udi.x
+tail -1 udi.x >pgn.r
+echo ".nr @1 1" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff $G -muditext -mroff pgn.r fonts.r top.r s3cc.r >/tmp/doc/mwc/udi2.2 2>>udi.x
+tail -1 udi.x >pgn.r
+echo ".nr @1 2" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff $G -muditext -mroff pgn.r fonts.r top.r s3link.r >/tmp/doc/mwc/udi2.3 2>>udi.x
+tail -1 udi.x >pgn.r
+echo ".nr @1 3" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff $G -muditext -mroff pgn.r fonts.r top.r s3runtime.r >/tmp/doc/mwc/udi2.4 2>>udi.x
+tail -1 udi.x >pgn.r
+echo ".nr @1 4" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff $G -muditext -mroff pgn.r fonts.r top.r s3notes.r >/tmp/doc/mwc/udi2.5 2>>udi.x
+tail -1 udi.x >pgn.r
+echo ".nr @1 5" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff $G -rX3 -muditext -mroff pgn.r fonts.r top.r \
+	/v/doc/mwc/text/errors.r >/tmp/doc/mwc/udi2.6 2>>udi.x
+tail -1 udi.x >pgn.r
+echo ".nr @1 6" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff $G -rX3 -muditext -mroff pgn.r fonts.r top.r \
+	/v/doc/mwc/text/lexicon.r >/tmp/doc/mwc/udi2.7 2>>udi.x
+tail -1 udi.x >pgn.r
+#
+# build lists files to troff
+#
+for i in E a b c d e f g h i j k l m n o p q r s t u v w x z
+do
+	ls /v/doc/mwc/lx/ISIS/$i* >TEMPFILE
+	ls /v/doc/mwc/lx/ALL/$i* >TEMPFILE
+	egrep -l ISIS /v/doc/mwc/lx/MULTI/$i* >>TEMPFILE 
+	sort -t/ +7 TEMPFILE >FILES.$i
+done
+#
+# and do the troffing
+# 
+for i in E a b c d e f g h i j k l m n o p q r s t u v w x z
+do
+	troff -rX3 -mudilex -mroff pgn.r fonts.r top.r ../alphabet/$i.r\
+	`cat FILES.$i` >/tmp/doc/mwc/udi3.$i$Z 2>>udi.x
+	tail -1 udi.x >pgn.r
+done
+#
+>udi.pc.r
+/v/doc/bin/percon udi.x udi.pc.r
+troff -mtostext -mroff fonts.r pgn.r fonts.r top.r udi.pc.r >/tmp/doc/mwc/udi4 2>>udi.x
+#
+>udi.ix.r
+/v/doc/bin/index -w udi.x udi.ix.r
+troff -mudiindex -mroff fonts.r top.r udi.ix.r >/tmp/doc/mwc/udi5 2>>udi.x;
+tail -1 >pgn.r
+#
+>udi.tc.r
+/v/doc/bin/contents -w udi.x udi.tc.r
+troff -r%1 -mudicon -mroff fonts.r top.r udi.tc.r >/tmp/doc/mwc/udi1$Z 2>>udi.x

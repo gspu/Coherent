@@ -1,0 +1,685 @@
+/*
+ * Peephole optimizer. Look through the
+ * code graph, tracking the state of the machine
+ * and deleting and/or simplifing instructions that
+ * have no change on the machine state. This code
+ * is machine independent in spirit, but is in fact
+ * only for the Intel 8086.
+ */
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+/*
+ * Machine registers. These codes are the
+ * same as the ones used by the processor in the
+ * REGM field of an instruction. This makes it easier
+ * to get the register code from an AFIELD. Unless
+ * Intel changes the chip, do not change the values
+ * here.
+ */
+#define	MAX	0
+#define	MCX	1
+#define	MDX	2
+#define	MBX	3
+#define	MSP	4
+#define	MBP	5
+#define	MSI	6
+#define	MDI	7
+
+#define	MES	0
+#define	MCS	1
+#define	MSS	2
+#define	MDS	3
+
+#define	NMREG	8
+#define	NSREG	4
+
+/*
+ * Register state tables. Just an AFIELD
+ * structure for each kind of register (machine or
+ * segment). An "a_mode" of "A_NONE" means the
+ * register is empty or contains unknown information.
+ * Indexed by machine register code.
+ */
+AFIELD	mregstate[NMREG];
+AFIELD	sregstate[NSREG];
+
+AFIELD	*afresolve();
+
+AFIELD	afdsfakeing	= { A_SR|MDS, NULL, 0 };
+AFIELD	afesfakeing	= { A_SR|MES, NULL, 0 };
+
+/*
+ * Mainline of the peephole pass.
+ * Mark all of the world as unknown. Sweep the
+ * code graph, watching out for labels and machine
+ * code. Any label makes the entire machine state an
+ * unknown (with some flow analysis, this would not really
+ * be necessary).
+ */
+peephole()
+{
+	register INS	*ip;
+	register int	rel;
+
+	emptyall();
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type == LLABEL)
+			emptyall();
+		else if (ip->i_type == JUMP) {
+			rel = ip->i_rel;
+			if (rel==ZLOOP || rel==ZLOOPE || rel==ZLOOPNE)
+				emptymreg(&mregstate[MCX]);
+		} else if (ip->i_type == CODE) {
+			if (noeffect(ip)) {
+				ip = deleteins(ip, ip->i_fp);
+				++nuseless;
+				++changes;
+			} else {
+				simplify(ip);
+				track(ip);
+			}
+		}
+	}
+}
+
+/*
+ * Mark all of the registers in the
+ * processor state as empty. Used whenever the
+ * state of the machine is, or will become,
+ * completely undefined.
+ */
+emptyall()
+{
+	register AFIELD	*sp;
+
+	sp = &mregstate[0];
+	while (sp < &mregstate[NMREG]) {
+		emptymreg(sp);
+		++sp;
+	}
+	sp = &sregstate[0];
+	while (sp < &sregstate[NSREG]) {
+		emptysreg(sp);
+		++sp;
+	}
+}
+
+/*
+ * Flag machine register "r" as empty
+ * (contains unknown data) in the processor state.
+ * If "r" is an indexing base (BX, SI, DI) then any
+ * processor state entries based off these registers
+ * must also be set empty. Note that there is a
+ * register number change between bx and [bx], so a
+ * bit of funnyness is required.
+ */
+emptymreg(rsp)
+register AFIELD	*rsp;
+{
+	register AFIELD	*sp;
+	register short	xmode;
+
+	rsp->a_mode = A_NONE;
+	if (rsp == &mregstate[MBX]
+	||  rsp == &mregstate[MSI]
+	||  rsp == &mregstate[MDI]) {
+		if (rsp == &mregstate[MBX])
+			xmode = A_XBX;
+		else if (rsp == &mregstate[MSI])
+			xmode = A_XSI;
+		else
+			xmode = A_XDI;
+		sp = &mregstate[0];
+		while (sp < &mregstate[NMREG]) {
+			if ((sp->a_mode&(A_AMOD|A_REGM)) == xmode)
+				sp->a_mode = A_NONE;
+			++sp;
+		}
+		sp = &sregstate[0];
+		while (sp < &sregstate[NSREG]) {
+			if ((sp->a_mode&(A_AMOD|A_REGM)) == xmode)
+				sp->a_mode = A_NONE;
+			++sp;
+		}
+	}
+}
+
+/*
+ * Flag segment register "r" as empty
+ * (contains unknown data) in the processor state.
+ * If "r" is the ES register then all entries in the
+ * processor state being accessed through ES must also
+ * flagged as empty.
+ */
+emptysreg(rsp)
+register AFIELD	*rsp;
+{
+	register AFIELD	*sp;
+
+	rsp->a_mode = A_NONE;
+	if (rsp == &sregstate[MES]) {
+		sp = &mregstate[0];
+		while (sp < &mregstate[NMREG]) {
+			if ((sp->a_mode&A_AMOD) != A_NONE
+			&&  (sp->a_mode&A_PREFX) == A_ES)
+				sp->a_mode = A_NONE;
+			++sp;
+		}
+		sp = &sregstate[0];
+		while (sp < &sregstate[NSREG]) {
+			if ((sp->a_mode&A_AMOD) != A_NONE
+			&&  (sp->a_mode&A_PREFX) == A_ES)
+				sp->a_mode = A_NONE;
+			++sp;
+		}
+	}
+	if (rsp == &sregstate[MDS]) {
+		sp = &mregstate[0];
+		while (sp < &mregstate[NMREG]) {
+			if ((sp->a_mode&A_AMOD) != A_NONE) {
+				if ((sp->a_mode&A_PREFX) == A_DS)
+					sp->a_mode = A_NONE;
+				else if ((sp->a_mode&A_PREFX) == A_NONE
+				     &&  (sp->a_mode&(A_AMOD|A_REGM)) != A_XBP)
+					sp->a_mode = A_NONE;
+			}
+			++sp;
+		}
+		sp = &sregstate[0];
+		while (sp < &sregstate[NSREG]) {
+			if ((sp->a_mode&A_AMOD) != A_NONE) {
+				if ((sp->a_mode&A_PREFX) == A_DS)
+					sp->a_mode = A_NONE;
+				else if ((sp->a_mode&A_PREFX) == A_NONE
+				     &&  (sp->a_mode&(A_AMOD|A_REGM)) != A_XBP)
+					sp->a_mode = A_NONE;
+			}
+			++sp;
+		}
+	}
+}
+
+/*
+ * This routine, given a pointer to
+ * a CODE node, returns 1 if the instruction has
+ * no effect on the machine state. This is determined by
+ * looking at the operands of the instruction and the value
+ * that is currently in the registers. Some care must be
+ * taken to make sure that an instruction that is being used
+ * to set the flags is not considered to have no effect.
+ */
+noeffect(ip)
+register INS	*ip;
+{
+	register AFIELD	*sp;
+	register short	mode;
+
+	if (ip->i_op == ZSUB) {
+		if ((ip->i_af[0].a_mode&A_AMOD) == A_WR
+		&&   ip->i_af[0].a_mode == ip->i_af[1].a_mode) {
+			sp = &mregstate[ip->i_af[0].a_mode&A_REGM];
+			if ((sp->a_mode&A_AMOD) == A_IMM
+			&&   sp->a_sp == NULL
+			&&   sp->a_value == 0) {
+				/* Need flags? */
+				if ((ip = ip->i_fp) == &ins)
+					return (0);
+				if (ip->i_type==JUMP && ip->i_rel!=ZJMP)
+					return (0);
+				return (1);
+			}
+		}
+		return (0);
+	}
+	if (ip->i_op == ZLEA) {
+		if (afcompare(A_EA, &ip->i_af[0], &ip->i_af[1], 0))
+			return (1);
+		return (0);
+	}
+	if (ip->i_op==ZLDS || ip->i_op==ZLES) {
+		sp = (ip->i_op==ZLDS) ? &sregstate[MDS] : &sregstate[MES];
+		if (afcompare(0, sp, &ip->i_af[1], 2)
+		&&  afcompare(0, &ip->i_af[0], &ip->i_af[1], 0))
+			return (1);
+		return (0);
+	}
+	if (ip->i_op == ZMOV) {
+		mode = ip->i_af[0].a_mode&A_AMOD;
+		if ((mode==A_WR || mode==A_SR)
+		&&   afcompare(0, &ip->i_af[0], &ip->i_af[1], 0))
+			return (1);
+		return (0);
+	}
+	return (0);
+}
+
+/*
+ * This routine looks at a CODE node
+ * and tries to make it into a simpler node that
+ * performs the same transformation of the machine
+ * state. The current idioms understood are:
+ * 1) Look for "half loaded" "lds" and "les" instructions
+ *    that can be changed into the approproate "mov".
+ * 2) Try to replace memory operands of dual op instructions
+ *    and push instructions with old register data.
+ */
+simplify(ip)
+register INS	*ip;
+{
+	register AFIELD *sp;
+
+	switch (ip->i_op) {
+
+	case ZLDS:
+	case ZLES:
+		sp = (ip->i_op==ZLDS) ? &sregstate[MDS] : &sregstate[MES];
+		if (afcompare(0, sp, &ip->i_af[1], 2)) {
+			if (!afcompare(0, &ip->i_af[0], &ip->i_af[1], 0)) {
+				ip->i_op = ZMOV;
+				++nsimplify;
+				++changes;
+			}
+		} else if (afcompare(0, &ip->i_af[0], &ip->i_af[1], 0)) {
+			if (ip->i_op == ZLDS)
+				ip->i_af[0].a_mode = A_SR|MDS; else
+				ip->i_af[0].a_mode = A_SR|MES;
+			ip->i_af[1].a_value += 2;
+			ip->i_op = ZMOV;
+			++nsimplify;
+			++changes;
+		}
+		break;
+
+	case ZADC:
+	case ZADD:
+	case ZAND:
+	case ZOR:
+	case ZSBB:
+	case ZSUB:
+	case ZXOR:
+		simpoper(&ip->i_af[1]);
+		break;
+
+	case ZPUSH:
+		simpoper(&ip->i_af[0]);
+		break;
+	}
+}
+
+/*
+ * The "afp" points at an AFIELD. If it is
+ * a memory AFIELD look through the processor state
+ * to see if a register contains the same value. If such
+ * a register is found adjust the AFIELD to refer to the
+ * machine register.
+ */
+simpoper(afp)
+register AFIELD	*afp;
+{
+	register AFIELD	*sp;
+	register int	mode;
+
+	mode = afp->a_mode&A_AMOD;
+	if (mode==A_IMM || mode==A_DIR || mode==A_X) {
+		sp = &mregstate[0];
+		while (sp < &mregstate[NMREG]) {
+			if (afcompare(0, sp, afp, 0)) {
+				afp->a_mode = A_WR | (sp-&mregstate[0]);
+				afp->a_sp = NULL;
+				afp->a_value = 0;
+				++nsimplify;
+				++changes;
+				break;
+			}
+			++sp;
+		}
+	}
+}
+
+/*
+ * Look at the CODE node pointed to
+ * by "ip", and make the required changes to the processor
+ * state. Some special compiler idioms have special checks.
+ * Any instruction for which there is no special knowledge
+ * is assumed to have no effect on the machine state.
+ */
+track(ip)
+register INS	*ip;
+{
+	register AFIELD	*sp;
+	register short	destmode;
+	register short	destreg;
+	register short	isbyte;
+
+	if (ip->i_op == ZOR
+	&& (ip->i_af[0].a_mode&A_AMOD) == A_WR
+	&&  ip->i_af[0].a_mode == ip->i_af[1].a_mode)
+		return;
+	if (ip->i_op == ZSUB
+	&& (ip->i_af[0].a_mode&A_AMOD) == A_WR
+	&&  ip->i_af[0].a_mode == ip->i_af[1].a_mode) {
+		sp = &mregstate[ip->i_af[0].a_mode&A_REGM];
+		sp->a_mode = A_IMM;
+		sp->a_sp = NULL;
+		sp->a_value = 0;
+		return;
+	}
+	isbyte = 0;
+	switch (ip->i_op) {
+
+	case ZAAA:
+	case ZAAD:
+	case ZAAM:
+	case ZAAS:
+	case ZCBW:
+	case ZDAA:
+	case ZDAS:
+	case ZDIVB:
+	case ZIDIVB:
+	case ZIMULB:
+	case ZIN:
+	case ZINB:
+	case ZLAHF:
+	case ZMULB:
+		emptymreg(&mregstate[MAX]);
+		break;
+
+	case ZCWD:
+		emptymreg(&mregstate[MDX]);
+		break;
+
+	case ZDIV:
+	case ZIDIV:
+	case ZIMUL:
+	case ZMUL:
+		emptymreg(&mregstate[MAX]);
+		emptymreg(&mregstate[MDX]);
+		break;
+
+	case ZREPE:
+	case ZREPNE:
+		emptymreg(&mregstate[MCX]);
+		break;
+
+	case ZCALL:
+	case ZICALL:
+	case ZIXCALL:
+	case ZXCALL:
+	case ZCMPS:
+	case ZCMPSB:
+	case ZINT:
+	case ZINTO:
+	case ZLODS:
+	case ZLODSB:
+	case ZMOVS:
+	case ZMOVSB:
+	case ZSCAS:
+	case ZSCASB:
+	case ZSTOS:
+	case ZSTOSB:
+	case ZXCHG:
+	case ZXCHGB:
+	case ZXLAT:
+		emptyall();
+		break;
+
+	case ZADCB:
+	case ZADDB:
+	case ZANDB:
+	case ZDECB:
+	case ZINCB:
+	case ZNEGB:
+	case ZNOTB:
+	case ZORB:
+	case ZRCLB:
+	case ZRCRB:
+	case ZROLB:
+	case ZRORB:
+	case ZSALB:
+	case ZSARB:
+	case ZSBBB:
+	case ZSHLB:
+	case ZSHRB:
+	case ZSUBB:
+	case ZXORB:
+		isbyte = 1;
+	case ZADC:
+	case ZADD:
+	case ZAND:
+	case ZINC:
+	case ZDEC:
+	case ZNEG:
+	case ZNOT:
+	case ZOR:
+	case ZPOP:
+	case ZRCL:
+	case ZRCR:
+	case ZROL:
+	case ZROR:
+	case ZSAL:
+	case ZSAR:
+	case ZSBB:
+	case ZSHL:
+	case ZSHR:
+	case ZSUB:
+	case ZXOR:
+	case ZIMULI:
+		destmode = ip->i_af[0].a_mode&A_AMOD;
+		destreg  = ip->i_af[0].a_mode&A_REGM;
+		if (destmode==A_WR || destmode==A_BR) {
+			if (isbyte != 0)
+				destreg &= 0x03;
+			emptymreg(&mregstate[destreg]);
+		} else if (destmode == A_SR)
+			emptysreg(&sregstate[destreg]);
+		else if (isbyte==0 && (destmode==A_DIR || destmode==A_X))
+			emptyaf(&ip->i_af[0]);
+		else
+			emptyall();
+		break;
+
+	case ZLEA:
+		afupdate(A_EA, &ip->i_af[0], &ip->i_af[1], 0);
+		break;
+
+	case ZLDS:
+		afupdate(0, &ip->i_af[0], &ip->i_af[1], 0);
+		afupdate(0, &afdsfakeing, &ip->i_af[1], 2);
+		break;
+
+	case ZLES:
+		afupdate(0, &ip->i_af[0], &ip->i_af[1], 0);
+		afupdate(0, &afesfakeing, &ip->i_af[1], 2);
+		break;
+
+	case ZMOV:
+		destmode = ip->i_af[0].a_mode&A_AMOD;
+		destreg  = ip->i_af[0].a_mode&A_REGM;
+		if (destmode==A_WR || destmode==A_SR)
+			afupdate(0, &ip->i_af[0], &ip->i_af[1], 0);
+		else if (destmode==A_DIR || destmode==A_X) {
+			emptyaf(&ip->i_af[0]);
+			destmode = ip->i_af[1].a_mode&A_AMOD;
+			if (destmode==A_WR || destmode==A_SR)
+				afupdate(0, &ip->i_af[1], &ip->i_af[0], 0);
+		} else
+			emptyall();
+		break;
+
+	case ZMOVB:
+		destmode = ip->i_af[0].a_mode&A_AMOD;
+		destreg  = ip->i_af[0].a_mode&A_REGM;
+		if (destmode == A_BR)
+			emptymreg(&mregstate[destreg&0x03]);
+		else if (destmode==A_DIR || destmode==A_X)
+			emptyaf(&ip->i_af[0]);
+		else
+			emptyall();
+	}
+}
+
+/*
+ * This routine compares address fields.
+ * The "afp1" and "afp2" parameters are the fields
+ * themselves. They must be "resolved" to the machine
+ * state if registers. The "afp1" argument always is
+ * the register side, and is required to have the flags
+ * that are set in "flags" in the address. The "afp2"
+ * is the lvalue side; it gets its address adjusted by
+ * "bump" bytes before the compare is done.
+ */
+afcompare(flag, afp1, afp2, bump)
+register AFIELD	*afp1;
+register AFIELD	*afp2;
+{
+	register short	mode;
+
+	if ((afp1=afresolve(afp1, 0x00, 0)) == NULL)
+		return (0);
+	if ((afp2=afresolve(afp2, bump, 0)) == NULL)
+		return (0);
+	if (afp1->a_mode==A_NONE || afp2->a_mode==A_NONE)
+		return (0);
+	if (afp1->a_mode != afp2->a_mode)
+		return (0);
+	mode = afp1->a_mode&A_AMOD;
+	if (mode==A_IMM || mode==A_DIR || mode==A_X) {
+		if (afp1->a_sp != afp2->a_sp)
+			return (0);
+		if (afp1->a_value != afp2->a_value+bump)
+			return (0);
+		if ((afp1->a_mode&A_EA) != flag)
+			return (0);
+	}
+	return (1);
+}
+
+/*
+ * Update address fields in the processor
+ * state tables. The arguments have the same functions
+ * as their namesakes in "afcompare" (above).
+ */
+afupdate(flag, afp1, afp2, bump)
+register AFIELD	*afp1;
+register AFIELD *afp2;
+{
+	if ((afp1=afresolve(afp1, 0x00, 1)) == NULL)
+		cbotch("afupdate");
+	if ((afp2=afresolve(afp2, bump, 0)) == NULL)
+		afp1->a_mode = A_NONE;
+	else if (afdependency(afp1, afp2))
+		afp1->a_mode = A_NONE;
+	else {
+		afp1->a_mode = afp2->a_mode;
+		afp1->a_sp = afp2->a_sp;
+		afp1->a_value = afp2->a_value+bump;
+		if (afp1->a_mode != A_NONE)
+			afp1->a_mode |= flag;
+	}
+}
+
+/*
+ * Resolve an address descriptor to the entry
+ * in the processor state. If the entry will not map
+ * for some reason, return NULL. The "bump" argument is
+ * passed so that "afresolve" can fail on bumped registers.
+ * If "flag" is set the register descriptor is flushed.
+ */
+AFIELD	*
+afresolve(afp, bump, flag)
+register AFIELD	*afp;
+{
+	register short	mode;
+
+	if ((mode=afp->a_mode&A_AMOD) == A_BR)
+		return (NULL);
+	if (mode == A_WR) {
+		if (bump != 0)
+			return (NULL);
+		afp = &mregstate[afp->a_mode&A_REGM];
+		if (flag != 0)
+			emptymreg(afp);
+		return (afp);
+	}
+	if (mode == A_SR) {
+		if (bump != 0)
+			return (NULL);
+		afp = &sregstate[afp->a_mode&A_REGM];
+		if (flag != 0)
+			emptysreg(afp);
+		return (afp);
+	}
+	return (afp);
+}
+
+/*
+ * Given two AFIELD nodes,
+ * return true if the second depends
+ * on the value of the first. This checks
+ * for instructions like "mov bx,3[bx]", 
+ * where you must not set the contents of
+ * "bx" to be "3[bx]".
+ */
+afdependency(afp1, afp2)
+register AFIELD	*afp1;
+register AFIELD *afp2;
+{
+	if (afp1 == &mregstate[MBX]) {
+		if ((afp2->a_mode&(A_AMOD|A_REGM)) == A_XBX)
+			return (1);
+		return (0);
+	}
+	if (afp1 == &mregstate[MSI]) {
+		if ((afp2->a_mode&(A_AMOD|A_REGM)) == A_XSI)
+			return (1);
+		return (0);
+	}
+	if (afp1 == &mregstate[MDI]) {
+		if ((afp2->a_mode&(A_AMOD|A_REGM)) == A_XDI)
+			return (1);
+		return (0);
+	}
+	if (afp1 == &sregstate[MES]) {
+		if ((afp2->a_mode&A_PREFX) == A_ES)
+			return (1);
+		return (0);
+	}
+	if (afp1 == &sregstate[MDS]) {
+		if ((afp2->a_mode&A_PREFX) == A_DS)
+			return (1);
+		if ((afp2->a_mode&A_PREFX) == A_NONE
+		&&  (afp2->a_mode&(A_AMOD|A_REGM)) != A_XBP)
+			return (1);
+		return (0);
+	}
+	return (0);
+}
+
+/*
+ * Purge any processor state entries that
+ * think they are holding the value of "afp". This
+ * is used to purge the state of the world when a register
+ * is stored into memory.
+ */
+emptyaf(afp)
+register AFIELD	*afp;
+{
+	register AFIELD	*sp;
+
+	sp = &mregstate[0];
+	while (sp < &mregstate[NMREG]) {
+		if (afcompare(0, sp, afp, 0))
+			emptymreg(sp);
+		++sp;
+	}
+	sp = &sregstate[0];
+	while (sp < &sregstate[NSREG]) {
+		if (afcompare(0, sp, afp, 0))
+			emptysreg(sp);
+		++sp;
+	}
+}

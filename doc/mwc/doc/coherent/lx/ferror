@@ -1,0 +1,87 @@
+.TH ferror() "" "" "STDIO Function (libc)"
+.PC "Discover stream status"
+.B "#include <stdio.h>"
+\fBint ferror(\fIfp\^\fB) FILE *\fIfp\^\fB;\fR
+.PP
+.B ferror()
+tests the status of the file stream
+.IR fp .
+It returns a number other than zero if an error has occurred on
+.IR fp .
+Any error condition that it discovers
+persists until you either close the stream or call
+.B clearerr()
+to clear it.
+For write routines that employ buffers, call
+.B fflush()
+before you call
+.BR ferror() ,
+in case an error occurs on the last block written.
+.SH Example
+This example reads a word from one file and writes it into another.
+.DM
+#include <stdio.h>
+.DE
+.DM
+main()
+{
+	FILE *fpin, *fpout;
+	int inerr = 0;
+	int outerr = 0;
+	int word;
+	char infile[20], outfile[20];
+.DE
+.DM
+	printf("Name data file you wish to copy:\en");
+	gets(infile);
+	printf("Name new file:\en");
+	gets(outfile);
+.DE
+.DM
+	if ((fpin = fopen(infile, "r")) != NULL) {
+		if ((fpout = fopen(outfile, "w")) != NULL) {
+.DE
+.DM
+			for (;;) {
+				word = fgetw(fpin);
+				if (ferror(fpin)) {
+					clearerr(fpin);
+					inerr++;
+				}	
+.DE
+.DM
+				if (feof(fpin))
+					break;
+				fputw(word, fpout);
+				if (ferror(fpout)) {
+					clearerr(fpout);
+					outerr++;
+				}
+			}
+.DE
+.DM
+		} else {	
+			printf
+				("Cannot open output file %s\en", 
+					outfile);
+			exit(1);
+		}
+.DE
+.DM
+	} else {
+		printf("Cannot open input file %s\en", infile);
+		exit(1);
+	}	
+.DE
+.DM
+	printf("%d - read error(s)  %d - write error(s)\en", 
+		inerr, outerr);
+	exit(0);
+}
+.DE
+.SH "See Also"
+.Xr "libc" libc
+.br
+\*(AS, \(sc7.9.10.3
+.br
+\*(PX Standard, \(sc8.1

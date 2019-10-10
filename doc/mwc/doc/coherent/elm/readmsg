@@ -1,0 +1,255 @@
+.TH readmsg "" "" "Command"
+.PC "Extract messages from a mailbox"
+\fBreadmsg [\fB\-anhp] [\-f \fIdirectory\^\fB] [\fIselection ...\^\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB-a \fIpattern\fR"
+Display every message that matches \fIpattern\fR
+.IC "\fB\-f \fIdirectory\fR
+Read \fIdirectory\fR rather than the default mailbox
+.IC \fB\-h\fR
+Include the entire header of the matched message
+.IC \fB-n\fR
+Exclude all headers
+.IC \fB-p\fR
+Place formfeed characters between message headers.
+.HE
+The command
+.B readmsg
+extracts selected mail messages from your mailbox.
+For example, you can use
+.B readmsg
+to pull a given mail message into an editor, so you can compose a response.
+.PP
+When you run
+.B readmsg
+from within
+.B elm
+(i.e., from a subshell escape or in an external editor while composing
+a mail reply), it behaves a bit differently from when you run it directly
+(i.e., from a shell command line).
+We will first describe its normal behavior,
+then describe how it behaves when you run it under
+.BR elm .
+.PP
+The argument
+.I selection
+tells
+.B readmsg
+which messages to extract.
+There are a couple of possible different ways to specify the
+.IR selection :
+.IP \fB1.\fR 0.3i
+A `*' tells
+.B readmsg
+to select all messages in the mailbox.
+Note that you must escape this character, or it will have been expanded by the
+shell before
+.B readmsg
+ever sees it.
+.IP \fB2.\fR
+A list of numbers tells
+.B readmsg
+to read the messages with those identifying numbers.
+Messages in the mailbox are numbered from one to infinity, with one
+identifying the first (oldest) message.
+The values `0' and `$' both are synonyms for
+the last (youngest) message in the mailbox.
+For example, the command
+.DM
+	readmsg 1 3 0
+.DE
+.IP
+extracts three messages from the directory:
+the first, the third, and the last.
+.IP \fB3.\fR
+Finally,
+.I selection
+can be a string.
+This selects a mail message that
+.I exactly
+matches that string.
+For example, the command
+.DM
+	readmsg staff meeting
+.DE
+.IP
+extracts the message that contains the words ``staff meeting.''
+Note that it will
+.I not
+match a message that contains ``Staff Meeting'' \(em the matching is case
+sensitive.
+Normally,
+.B readmsg
+prints only the first message that matches
+.IR string .
+The command-line option
+.B \-a
+changes this behavior; it is discussed in the next section.
+.SH "Command-line Options"
+.B readmsg
+recognizes the following command-line options:
+.IP "\fB-a \fIpattern\fR"
+Display every message that matches
+.IR pattern ,
+not just the first.
+If the command line does not specify a pattern, this flag has no effect.
+.IP "\fB\-f \fIdirectory\fR"
+Read
+.I directory
+rather than your mailbox.
+.I directory
+can name a file or a specifier such as
+.BR =sentmail .
+.IP \fB\-h\fR
+Include the entire header of the matched message when displaying its text.
+By default,
+.B readmsg
+displays only the lines with the tags
+.BR From: ,
+.BR Date: ,
+or
+.BR Subject: .
+.IP \fB-n\fR
+Exclude
+.I all
+headers.
+This is used mostly to extract mailed files.
+.IP \fB-p\fR
+Place a formfeed character (\fB<ctrl-L>\fR) between messages.
+You would use this if you were preparing mail text for printing.
+.SH "readmsg and elm"
+When you run
+.B readmsg
+under
+.B elm
+(in the context, say, of an external editor),
+its behavior changes in the following ways:
+.IP "\fB1.\fR" 0.3i
+The default mail directory is the directory that you are examining with
+.BR elm ,
+not necessarily your mailbox.
+.IP "\fB2.\fR"
+You do not need to specify a
+.I selection
+on the command line.
+If you omit
+.IR selection ,
+.B readmsg
+extracts the message (or messages) you selected through
+.BR elm .
+If you have tagged any messages, this would be all of the tagged messages;
+otherwise it is the message you are currently examining.
+.IP "\fB3.\fR"
+Normally, the message numbers
+.B readmsg
+uses are in mailbox order.
+When you call
+.B readmsg
+under
+.B elm
+and do not override the directory selection with the option
+.BR \-f ,
+message numbers are sorted as they are displayed on
+.BR elm 's
+message-index screen.
+.SH "Examples"
+The first example gives a command that you can use from within
+.B vi
+to include the text of the current message:
+.DM
+	:r !readmsg
+.DE
+.PP
+As you hit the `:',
+.B vi
+puts you at the bottom of the screen with the `:' prompt.
+The space following
+.B :r
+is required.
+.PP
+Let's look at something more interesting, however.
+Consider the mail file:
+.DM
+	From joe Jun 3 1986 4:45:30 MST
+	Subject: hello
+.sp \n(pDu
+	Hey Guy!  Wanta go out and have a milk this evening?
+.sp \n(pDu
+	Joe
+.sp \n(pDu
+	From john Jun 3 1986 4:48:20 MST
+	Subject: Dinner at Eight
+	From: John Dinley <xyz!john>
+.sp \n(pDu
+	Remember you should show up about eight, okay?
+.sp \n(pDu
+			- John D -
+.sp \n(pDu
+	From xxzyz!cron Jun 3 1986 5:02:43 MST
+.sp \n(pDu
+	Cannot connect to server: blob
+	Job 43243 deleted from queue.
+.DE
+.PP
+The command
+.DM
+	readmsg 2
+.DE
+.PP
+displays the second message, the one from John.
+The command
+.DM
+	readmsg
+.DE
+.PP
+This is an error, unless we're calling
+.B readmsg
+from within
+.BR elm .
+The command
+.DM
+	readmsg BLOB
+.DE
+.PP
+matches nothing \(em remember that
+.B readmsg
+is case sensitive.
+Finally, the command
+.DM
+	readmsg -h connect to server
+.DE
+.PP
+displays the third message, including headers.
+.SH Files
+.nf
+\fB/usr/mail/\fIusername\fR \(em Incoming mail
+\fB$ELMSTATE\fR \(em Status information from \fBelm\fR
+.fi
+.SH "See Also"
+.B
+commands,
+elm,
+mail (overview),
+printmail
+.R
+.SH Notes
+Release 2.4 of
+.B elm
+is copyright \(co 1988-1992 by The USENET Community Trust.
+It is derived from
+.B elm
+release 2.0, which is copyright \(co 1986, 1987 by Dave Taylor.
+.PP
+.B readmsg
+was ported to \*(CO by Mark Williams Company.
+Please send bug reports concerning the \*(CO version of
+.B readmsg
+to support@mwc.com.
+.B readmsg
+in general is maintained by the Elm Development Group.
+.II "Weinstein, Syd"
+Please send messages concerning the general design of
+.B readmsg
+to Syd Weinstein (elm@DSI.COM).

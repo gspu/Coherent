@@ -1,0 +1,145 @@
+#
+# bld - make a complete COHERENT mwc kernel.
+#
+# $Log:	bld,v $
+# Revision 1.1  92/07/17  15:29:51  bin
+# Initial revision
+# 
+# Revision 1.3  92/01/10  10:09:12  hal
+# Add "dbg" option.
+# Default to rootdev = pipedev = (0,0).
+# 
+#
+
+# Shell variables
+#	DRIVERS is the list of device drivers to be linked into the kernel.
+#	COH_TYPE is one of [ fl | at | ss | aha ] and is for information -
+#		it is the suffix on the name of the kernel produced.
+#	BOOTDEV is the device name for the COHERENT boot floppy or partition -
+#		it is passed to the "config" script.
+#	HD is the device driver name for the hard drive device driver linked
+#		into this kernel - it is one of [ aha154x | at | ss ], or
+#		may be omitted entirely for a floppy-only system.
+#	KB is one of [ kb | nkb ] - the first of these uses fixed keyboard
+#		tables and scan code set 1, and source is provided in the
+#		driver kit;  use it if you are concerned about supporting
+#		keyboards of questionable compatibility or want to work with
+#		keyboard driver source - the second of these uses loadable
+#		keyboard tables for international support, but requires
+#		full compatibility, and source code is not provided in the
+#		driver kit.
+#	DEBUG is empty for normal kernels, is "dbg" if debug versions of
+#		kernel and drivers are wanted
+
+# Default arguments -
+#   use old kb driver, at hard disk, let tboot set rootdev & pipedev
+BOOTDEV="None"
+HD=at
+COH_TYPE=at
+KB=kb
+
+if [ $USRSYS ]
+then
+if [ $KS ]
+then
+if [ $KOBJ ]
+then
+if [ $LOBJ ]
+then
+DRIVERS="rm fl lp "
+DEBUG="NO"
+for ARG
+do
+	case $ARG in
+	at)
+#		BOOTDEV="at0a"
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	aha)
+#		BOOTDEV="sd0a"
+		HD=aha154x
+		COH_TYPE=$ARG
+		;;
+	ss)
+#		BOOTDEV="ss0a"
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	fh)
+		BOOTDEV="fha0"
+		HD=""
+		COH_TYPE=fh
+		;;
+	fv)
+		BOOTDEV="fva0"
+		HD=""
+		COH_TYPE=fv
+		;;
+	kb|kb_d|kb_f|vt|nkb)
+		KB=$ARG
+		;;
+	dbg)
+		DEBUG="CFLAGS=-DDEBUG"
+		;;
+	*)	echo "Usage: $0 [kb|nkb|kb_d|kb_f|vt] [at|ss|aha|fh|fv] [dbg]"
+		exit 0
+		;;
+	esac
+done
+if [ $KB = "vt" ]
+then
+	DRIVERS="$KB $HD $DRIVERS"
+else
+	DRIVERS="$KB $HD $DRIVERS mm"
+fi
+echo "Kernel:    /coh.$COH_TYPE"
+echo "Version:   `version ID`"
+echo "Devices:   $DRIVERS"
+echo "Default root/pipe device is $BOOTDEV."
+echo "Debug setting: $DEBUG"
+if [ $DEBUG = "NO" ]
+then
+	DEBUG=""
+fi
+export KB HD
+( cd $KS/ldrv; make ld_support )			|| exit 1
+( cd $KS/io.286; make -f Mf.mwc $DEBUG install )	|| exit 1
+( make $DEBUG kernel )					|| exit 1
+./config.mwc ibm-at $DRIVERS root=$BOOTDEV		|| exit 1
+cp coherent /tmp/coh					|| exit 1
+strip /tmp/coh						|| exit 1
+set `ls -s /tmp/coh`
+SIZE=$1
+rm /tmp/coh						|| exit 1
+echo "Coherent bootable limit is 138 blocks.  This kernel is $SIZE"
+if [ $SIZE -gt 138 ] ;then
+	echo 
+	echo Your Coherent image exceeds the bootable limit of 138 blocks
+	echo by `expr $SIZE - 138` 'block(s).'  You will need to decrease the
+	echo size of your kernel in order to make it bootable.
+	echo
+	echo We suggest removing some of the non critical drivers from the
+	echo default list of drivers linked into Coherent.  These additional
+	echo drivers may then be linked as loadable drivers using the
+	echo ldconfig script located in this directory.
+fi
+cp coherent /interim/coh.$COH_TYPE
+chown sys /interim/coh.$COH_TYPE
+chgrp sys /interim/coh.$COH_TYPE
+chmod 400 /interim/coh.$COH_TYPE
+echo "New kernel in /interim/coh.$COH_TYPE"
+ls -l /interim/coh.$COH_TYPE
+# the rest is error exits
+else
+echo "Error - LOBJ not defined - (e.g. /usr/lobj)"
+fi
+else
+echo "Error - KOBJ not defined - (e.g. /usr/kobj)"
+fi
+else
+echo "Error - KS not defined - (e.g. /usr/src/sys)"
+fi
+else
+echo "Error - USRSYS not defined - (e.g. /usr/sys)"
+fi

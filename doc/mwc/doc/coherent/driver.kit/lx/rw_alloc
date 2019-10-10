@@ -1,0 +1,127 @@
+.TH RW_ALLOC() "" "" "DDI/DKI Kernel Routine"
+.PC "Create a read/write lock"
+.B "#include <sys/types.h>"
+.B "#include <sys/kmem.h>"
+.B "#include <sys/ksynch.h>"
+\fBrwlock_t *RW_ALLOC(\fIhierarchy\^\fB, \fIpriority\^\fB, \fIlock_info\^\fB, \fIflag\^\fB)\fR
+\fBuchar_t \fIhierarchy\^\fB; pl_t \fIpriority\^\fB; lkinfo_t *\fIlock_info\^\fB; int \fIflag\^\fB;\fR
+.PP
+.B RW_ALLOC()
+allocates a read/write lock, and initializes it into the unlocked state.
+.PP
+.I hierarchy
+is a number from one through 32 that
+gives the order in which the newly created lock was acquired.
+This gives the lock's position relative to other basic and read/write locks,
+and therefore gives its position within the hierarchy of locks.
+Your driver must set
+.I hierarchy
+such that it acquires locks in order of increasing hierarchy number.
+To be portable across all implementations of \*(ST, your driver
+must increase
+.I hierarchy
+with priority \(em that is,
+no lock's
+.I hierarchy
+should be less than that of a lock with a lower priority.
+.PP
+.I priority
+gives the minimum interrupt priority
+that a function must have to acquire this lock.
+The following gives the recognized values for
+.IR priority ,
+from least to most restrictive:
+.IP \fBplbase\fR 1.5i
+Block no interrupts.
+.IS \fBpltimeout\fR
+Block functions scheduled by functions
+.B itimeout()
+and
+.BR dtimeout() .
+.IS \fBpldisk\fR
+Block disk-device interrupts.
+.IS \fBplstr\fR
+Block \*(ST interrupts.
+.IS \fBplhi\fR
+Block all interrupts.
+.PP
+.I priority
+the following order of priorities:
+.DM
+	plbase < pltimeout <= pldisk, plstr <= plhi
+.DE
+.PP
+\*(ST does not define how
+.B pldisk
+and
+.B plstr
+relate to each other.
+.PP
+.I priority
+must be high enough to block any interrupt handler that attempts
+to acquire this lock.
+.PP
+.I lock_info
+gives the address of the
+.B lkinfo
+structure that describes this lock.
+The caller must initialize this structure.
+For detail on initializing and using a lock, see the article
+.B lkinfo
+in this Lexicon.
+.PP
+.I flag
+indicates whether the caller can sleep as it awaits the lock.
+If
+.I flag
+equals
+.BR KM_SLEEP ,
+the caller indicates that if insufficient memory is available for the lock,
+it will sleep until enough memory becomes available.
+However, if
+.I flag
+equals
+.BR KM_NOSLEEP ,
+the caller will not sleep.
+.PP
+If all goes well,
+.B RW_ALLOC()
+returns the address of the newly allocated lock.
+If insufficient memory was available to allocate a lock and
+.I flag
+equals
+.BR KM_NOSLEEP ,
+then it returns NULL.
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+lkinfo,
+RW_DEALLOC(),
+RW_RDLOCK(),
+RW_TRYRDLOCK(),
+RW_TRYWRLOCK(),
+RW_UNLOCK(),
+RW_WRLOCK()
+.R
+.SH Notes
+If
+.I flag
+equals
+.BR KM_SLEEP ,
+.B RW_ALLOC()
+has base level only and can sleep.
+If it equals
+.BR KM_NOSLEEP ,
+it has base or interrupt level
+and does not sleep.
+.PP
+If
+.I flag
+equals
+.BR KM_NOSLEEP ,
+a driver can hold a
+driver-defined basic lock or read/write lock across a call to this function.
+It can hold a
+driver-defined sleep lock across a call to this function
+regardless of the value of
+.IR flag .

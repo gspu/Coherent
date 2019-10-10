@@ -1,0 +1,87 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	 __SYS_FILSYS_H__
+#define  __SYS_FILSYS_H__
+
+/*
+ * Super block, free block list definitions.
+ */
+
+#include <common/ccompat.h>
+#include <common/__time.h>
+#include <common/__daddr.h>
+#include <common/_uid.h>
+
+
+/*
+ * Size definitions.
+ */
+
+#define NICINOD	100		/* Number of free in core inodes */
+#define INOPB	8		/* Number of inodes per block */
+#define BOOTBI	0		/* Boot block index */
+#define SUPERI	1		/* Super block index */
+#define INODEI	2		/* Inode block index */
+#define BADFIN	1		/* Bad block inode number */
+#define ROOTIN	2		/* Root inode number */
+#define NICFREE	64		/* number of blocks in free list block */
+
+
+/*
+ * Free list block structure.
+ */
+
+struct fblk {
+	unsigned short	df_nfree;		/* Number of free blocks */
+#pragma align 2
+	__daddr_t	df_free [NICFREE] __ALIGN (2);	/* Free blocks */
+#pragma align
+#pragma	align 2
+};
+#pragma	align	/* control structure padding with Coherent 'cc' */
+
+
+/*
+ * Super block.
+ */
+
+struct filsys {
+	unsigned short	s_isize;	/* First block not in inode list */
+#pragma align 2
+	__daddr_t	s_fsize __ALIGN (2);	/* Size of entire volume */
+#pragma align
+	short		s_nfree;	/* Number of addresses in s_free */
+	__daddr_t	s_free [NICFREE]; /* Free block list */
+	short		s_ninode;	/* Number of inodes in s_inode */
+	o_ino_t		s_inode [NICINOD]; /* Free inode list */
+	char		s_flock;	/* Not used */
+	char		s_ilock;	/* Not used */
+	char		s_fmod;		/* Super block modified flag */
+	char		s_ronly;	/* Mounted read only flag */
+#pragma align 2
+	__time_t	s_time __ALIGN (2);	/* Last super block update */
+	__daddr_t	s_tfree __ALIGN (2);	/* Total free blocks */
+#pragma align
+	o_ino_t		s_tinode;	/* Total free inodes */
+	short		s_m;		/* Interleave factor */
+	short		s_n;		/* Interleave factor */
+	char		s_fname [6];	/* File system name */
+	char		s_fpack [6];	/* File system pack name */
+	long		s_unique;	/* Unique number */
+};
+
+
+/*
+ * Functions.
+ */
+
+#define iblockn(ino)	(INODEI + ((ino) - 1) / INOPB)
+#define iblocko(ino)	(((ino) - 1) % INOPB)
+
+#endif	/* ! defined (__SYS_FILSYS_H__) */
+

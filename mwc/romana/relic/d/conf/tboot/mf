@@ -1,0 +1,96 @@
+# Makefile for Tertiary boot code for COHERENT
+# Targets are stand-alone bootable programs.
+#
+# La Monte H. Yarroll <piggy@mwc.com>, September 1991
+
+OBJDIR=objects
+
+#CC=cc286
+#LD=cc286
+#AR=/bin/286/ar
+#RANLIB=/bin/286/ranlib
+CP=cp
+#AS=/bin/286/as
+
+CC=cc
+LD=ld
+AR=/bin/ar
+RANLIB=/bin/ranlib
+AS=/bin/as
+
+DESTDIR=./
+DESTDIR2=./
+
+LIBOBJECTS=$(OBJDIR)/bootlib.o $(OBJDIR)/cbootlib.o $(OBJDIR)/diskio.o $(OBJDIR)/indirect.o $(OBJDIR)/intcall.o $(OBJDIR)/monitor.o \
+	$(OBJDIR)/l.out.o $(OBJDIR)/coff.o $(OBJDIR)/bio.o $(OBJDIR)/gift.o $(OBJDIR)/objects.o $(OBJDIR)/pacifier.o \
+	$(OBJDIR)/fifo_b.o $(OBJDIR)/fifo_k.o $(OBJDIR)/sys.o $(OBJDIR)/fdisk.o $(OBJDIR)/arg_exist.o $(OBJDIR)/execute.o \
+	$(OBJDIR)/cpu_type.o $(OBJDIR)/printf.o
+
+LIBSOURCES=bootlib.m cbootlib.c diskio.c indirect.c intcall.m monitor.c \
+	l.out.c coff.c bio.c gift.c objects.c pacifier.c \
+	fifo_b.c fifo_k.c sys.c fdisk.c arg_exist.c execute.c \
+	cpu_type.s printf.c
+
+OBJECTS=$(OBJDIR)/Startup.o $(LIBOBJECTS)
+
+SOURCES=Startup.s $(LIBSOURCES)
+
+LIBS=$(OBJDIR)/libtboot.a /lib/libc.a
+#LIBS=libtboot.a libtboot.a libtboot.a /lib/286/libc.a
+INCLUDE=-I. -I/usr/include -I/usr/include/sys
+CFLAGS=$(INCLUDE)
+
+all: tboot bootcmd
+	touch all
+
+# NB: Startup.o must come first in the link line, so the entry
+# point in Startup lines up correctly.
+tboot: sys/ptypes.h  $(OBJDIR)/Startup.o $(OBJDIR)/tboot.o $(OBJDIR)/builtin.o $(OBJDIR)/libtboot.a
+	$(LD) -o $(DESTDIR)tboot $(OBJDIR)/Startup.o $(OBJDIR)/tboot.o $(OBJDIR)/builtin.o $(LIBS)
+
+bootcmd: bootcmd.o fifo_k.o
+	$(LD) -o $(DESTDIR2)bootcmd bootcmd.o fifo_k.o
+
+$(OBJDIR)/libtboot.a: $(LIBOBJECTS) 
+	rm -f $@
+	$(AR) rkus $@ $(LIBOBJECTS)
+	$(RANLIB) $@
+
+sys/ptypes.h: ptypes.h
+	$(CP) ptypes.h sys/ptypes.h
+
+$(OBJDIR)/pacifier.o:	pacifier.c pac_states.h
+	$(CC) -c $(CFLAGS) pacifier.c
+
+$(OBJDIR)/tboot.o:	tboot.c
+	$(CC) -o $@ -c $(CFLAGS) tboot.c
+
+$(OBJDIR)/coff.o:	coff.c
+	$(CC) -o $@ -c $(CFLAGS) coff.c
+
+hello: hello.o $(OBJECTS)
+	$(LD) -o hello $(OBJECTS) hello.o $(LIBS)
+
+hello.o: Examples/hello.c
+
+dir: dir.o $(OBJECTS) 
+	$(LD) -o dir $(OBJECTS) dir.o $(LIBS)
+
+dir.o: Examples/dir.c
+
+newdir: newdir.o libtboot.a
+	$(LD) -o newdir Startup.o newdir.o $(LIBS)
+
+newdir.o: Examples/newdir.c
+
+tags:
+	ctags -r *.[ch]
+
+clean:
+	rm -f l.out *.o *.a
+
+install:
+	cp tboot $(DESTDIR)
+	chown root $(DESTDIR)/tboot
+	chgrp daemon $(DESTDIR)/tboot
+	chmod ugo=r $(DESTDIR)/tboot

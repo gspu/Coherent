@@ -1,0 +1,44 @@
+# /etc/brc.build
+# Wed Nov 10 08:54:23 1993 CST
+
+# COHERENT executes this script when it boots.
+# This version invokes /etc/build
+# to install or update floppy-based COHERENT to the hard disk.
+
+# Configure RAM disk and mount it on /tmp.
+/etc/mkfs /dev/ram1 384
+/etc/mount /dev/ram1 /tmp
+
+# Initialize environment, etc.
+. /etc/.profile
+
+# Load drivers.
+/etc/drvld.all
+
+# Set the date from the system clock.
+. /etc/timezone
+/bin/date -s `/etc/ATclock` >/dev/null
+
+# /etc/build reboots automatically on success.
+# Trap in case interrupted.
+trap 'echo; echo Aborted...; exit 1' 1 2 3
+
+case "`/etc/boot_cmd`" in
+	begin*)
+		options=	;;
+	update*)
+		options='-u'	;;
+	*)
+		echo 'Installation/Update kit booted incorrectly.'
+		echo 'When booting, you must boot via "begin" or "update".'
+		echo 'Please reboot and try again...'
+		exit 1	;;
+esac
+
+if /etc/build $options
+then
+else
+	echo The COHERENT system installation failed, please reboot and try again.
+fi
+sync
+exit 1

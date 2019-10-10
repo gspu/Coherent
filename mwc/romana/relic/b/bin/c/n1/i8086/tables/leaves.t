@@ -1,0 +1,1075 @@
+/////////
+/ 
+/ Leaf nodes, fixups, type conversions and casts.
+/ All performed by a single table.
+/ These tables MUST be correct and complete, since they get used
+/ to fix up any missing entries in the other tables.
+/ Work on them carefully!
+/ The compiler is not very good at detecting errors or ommissions here.
+/ A missing fixup table usually makes the compiler run out of stack
+/ as the code generator calls itself again and again.
+/
+/////////
+
+CONVERT:
+CAST:
+FIXUP:
+LEAF:
+
+/////////
+/
+/ Load a constant 0.
+/ The subtract instruction is the shortest and fastest way to zero a register.
+/ The SUB then MOV sequence is used to zero a long register
+/ (instead of SUB then SUB) so that the same code table entry
+/ can be used to zero a segment register/index register pair.
+/
+/////////
+
+%	PRVALUE
+	WORD		ANYR	*	*	TEMP
+		0|MMX		*
+		*		*
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		0|MMX		*
+		*		*
+			[ZSUB]	[R],[R]
+
+%	PRVALUE
+	LONG|LPTX	ANYR	*	*	TEMP
+		0|MMX		*
+		*		*
+#ifndef ONLYSMALL
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		0|MMX		*
+		*		*
+#endif
+			[ZSUB]	[LO R],[LO R]
+			[ZMOV]	[HI R],[LO R]
+
+/////////
+/
+/ The constants 0.0 and 1.0 have special instructions
+/ to make pushing them onto the 8087 stack easier.
+/ There are other constant instructions too (push PI, etc.)
+/ but we make absolutely no attempt to use them.
+/
+/////////
+
+#ifdef NDPDEF 
+%	PRVALUE
+	FF64		FPAC	*	*	FPAC
+		0|MMX		*
+		*		*
+			[ZFLDZ]
+
+%	PRVALUE
+	FF64		FPAC	*	*	FPAC
+		1|MMX		*
+		*		*
+			[ZFLD1]
+#endif
+
+/////////
+/
+/ Long constants of the form ....0000 and 0000.... can have
+/ the 0000 half loaded with a SUB, saving one byte.
+/
+/////////
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		UHC|MMX		LONG
+		*		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZSUB]	[HI R],[HI R]
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		LHC|MMX		LONG
+		*		*
+			[ZSUB]	[LO R],[LO R]
+			[ZMOV]	[HI R],[HI AL]
+
+/////////
+/
+/ Load simple lvalues.
+/ The strange BYTE table is for loading the elements of small enumerations,
+/ which have the type BYTE.
+/
+/////////
+
+%	PRVALUE
+	WORD		ANYR	*	*	TEMP
+		LEA|MMX		WORD
+		*		*
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		LEA|MMX		WORD
+		*		*
+			[ZLEA]	[R],[NSE AL]
+
+%	PRVALUE
+	WORD|BYTE	ANYR	*	*	TEMP
+		IMM|MMX		BYTE
+		*		*
+%	PRVALUE
+	WORD		ANYR	*	*	TEMP
+		ADR|IMM		WORD
+		*		*
+%	PLVALUE
+	WORD		ANYL	*	*	TEMP
+		ADR|IMM		WORD
+		*		*
+			[ZMOV]	[R],[AL]
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		ADR|IMM		LONG
+		*		*
+%	PLVALUE
+	LONG		ANYL	*	*	TEMP
+		ADR|IMM		LONG
+		*		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+#ifdef NDPDEF
+%	PRVALUE
+	FF64		FPAC	*	*	FPAC
+		ADR		FF64
+		*		*
+			[ZFLDD]	[AL]
+#endif
+
+/////////
+/
+/ LARGE model pointers.
+/ Many cases have to be broken out,
+/ because most of the time the appropriate segment register is only implied.
+/ It gets passed in the flags.
+/
+/////////
+
+#ifndef ONLYSMALL
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		LSS|MMX		LPTX
+		*		*
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		LSS|MMX		LPTX
+		*		*
+			[ZLEA]	[LO R],[NSE AL]
+			[ZPUSH]	[REGNO SS]
+			[ZPOP]	[HI R]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		RREG|LREG|MMX		LPTX
+		*		*
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		RREG|MMX	LPTX
+		*		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		SREG|MMX	LPTX
+		*		*
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		LREG|SREG|MMX	LPTX
+		*		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZPUSH]	[HI AL]
+			[ZPOP]	[HI R]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ICN|MMX		LPTX
+		*		*
+			[ZMOV]	[LO R],[AL]
+			[ZSUB]	[HI R],[HI R]
+
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ICN|MMX		LPTX
+		*		*
+			[ZSUB]	[LO R],[LO R]
+			[ZMOV]	[HI R],[LO R]
+			[ZMOV]	[LO R],[AL]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		LCN|MMX		LPTX
+		*		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		LCN|MMX		LPTX
+		*		*
+			[ZMOV]	[LO R],[HI AL]
+			[ZMOV]	[HI R],[LO R]
+			[ZMOV]	[LO R],[LO AL]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ACS|MMX		LPTX
+		*		*
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ACS|MMX		LPTX
+		*		*
+			[ZMOV]	[LO R],[AL]
+			[ZPUSH]	[REGNO CS]
+			[ZPOP]	[HI R]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ADS|MMX		LPTX
+		*		*
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ADS|MMX		LPTX
+		*		*
+			[ZMOV]	[LO R],[AL]
+			[ZPUSH]	[REGNO DS]
+			[ZPOP]	[HI R]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ADR		LPTX
+		*		*
+			[ZMOV]	[LO R],[LO AL]
+			[ZMOV]	[HI R],[HI AL]
+
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ADR		LPTX
+		*		*
+			[ZLDES]	[LO R],[AL]
+#endif
+
+/////////
+/
+/ The FF32 load actually loads 64 bits.
+/ It is just like the S8 and U8 loads, and exists for much the same reasons.
+/
+/////////
+
+#ifndef NDPDEF
+%	PRVALUE
+	FF32|FF64	FPAC	AX	*	FPAC
+		ADR		FF32
+		*		*
+			[ZMOV]	[REGNO AX],[HI AL]
+			[ZMOV]	[HI LO R],[REGNO AX]
+			[ZMOV]	[REGNO AX],[LO AL]
+			[ZMOV]	[LO LO R],[REGNO AX]
+			[ZMOV]	[HI HI R],[CONST 0]
+			[ZMOV]	[LO HI R],[CONST 0]
+
+%	PRVALUE
+	FF64		FPAC	*	*	FPAC
+		IMM|MMX		FF64
+		*		*
+			[ZMOV]	[HI LO R],[LO LO AL]
+			[ZMOV]	[LO LO R],[HI LO AL]
+			[ZMOV]	[HI HI R],[LO HI AL]
+			[ZMOV]	[LO HI R],[HI HI AL]
+
+%	PRVALUE
+	FF64		FPAC	AX	*	FPAC
+		ADR		FF64
+		*		*
+			[ZMOV]	[REGNO AX],[HI LO AL]
+			[ZMOV]	[HI LO R],[REGNO AX]
+			[ZMOV]	[REGNO AX],[LO LO AL]
+			[ZMOV]	[LO LO R],[REGNO AX]
+			[ZMOV]	[REGNO AX],[HI HI AL]
+			[ZMOV]	[HI HI R],[REGNO AX]
+			[ZMOV]	[REGNO AX],[LO HI AL]
+			[ZMOV]	[LO HI R],[REGNO AX]
+#endif
+
+/////////
+/
+/ Widen conversions.
+/
+/////////
+
+/ Widen to word.
+%	PRVALUE
+	WORD		AX	*	*	TEMP
+		RREG|MMX	BYTE
+		*		*
+			[ZMOV]	[R],[AL]
+			[ZCBW]
+
+%	PRVALUE|PEFFECT
+	WORD|FS8	AX	*	*	TEMP
+		ADR|IMM		FS8
+		*		*
+			[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZCBW]
+
+%	PRVALUE|PEFFECT
+	WORD|FU8	AX	*	*	TEMP
+		ADR|IMM		FU8
+		*		*
+			[ZMOVB]	[LO R],[AL]
+		[IFV]	[ZSUBB]	[HI R],[HI R]
+
+%	PRVALUE|P_SLT
+	WORD		ANYR	ANYR	*	TEMP
+		TREG		BYTE
+		*		*
+			;
+
+/ Widen to long.
+%	PRVALUE
+	LONG		DXAX	*	*	TEMP
+		RREG|MMX	BYTE
+		*		*
+			[ZMOV]	[LO R],[AL]
+			[ZCWD]
+
+%	PRVALUE|P_SLT
+	LONG		DXAX	AX	*	TEMP
+		TREG		BYTE
+		*		*
+			[ZCWD]
+
+%	PRVALUE
+	LONG		DXAX	*	*	TEMP
+		ADR		FS8
+		*		*
+			[ZMOVB]	[LO LO R],[AL]
+			[ZCBW]
+			[ZCWD]
+
+%	PRVALUE
+	LONG		DXAX	*	*	TEMP
+		ADR		FU8
+		*		*
+			[ZMOVB]	[LO LO R],[AL]
+			[ZSUBB]	[HI LO R],[HI LO R]
+			[ZCWD]
+
+%	PRVALUE
+	LONG		DXAX	*	*	TEMP
+		ADR|IMM		FS16
+		*		*
+			[ZMOV]	[LO R],[AL]
+			[ZCWD]
+
+%	PRVALUE
+	LONG		DXAX	*	*	TEMP
+		ADR|IMM		UWORD
+		*		*
+			[ZMOV]	[LO R],[AL]
+			[ZSUB]	[HI R],[HI R]
+
+#ifdef NDPDEF
+/ Widen to float.
+%	PRVALUE
+	FF32|FF64	FPAC	*	*	FPAC
+		ADR		FS16
+		*		*
+			[ZFLDI] [AL]
+
+%	PRVALUE
+	FF32|FF64	FPAC	*	*	FPAC
+		ADR		FS32
+		*		*
+			[ZFLDL] [AL]
+
+%	PRVALUE
+	FF32|FF64	FPAC	*	*	FPAC
+		ADR		FF32
+		*		*
+			[ZFLDF]	[AL]
+#endif
+
+/////////
+/
+/ Conversions to and from LARGE model pointers.
+/
+/////////
+
+#ifndef ONLYSMALL
+
+/ Byte to LARGE pointer.
+%	PRVALUE
+	LPTX		DXAX	*	*	DXAX
+		ADR|IMM		FS8
+		*		*
+			[ZSUB]	[HI R],[HI R]
+			[ZMOVB]	[LO LO R],[AL]
+			[ZCBW]
+
+%	PLVALUE
+	LPTX		ESAX	*	*	ESAX
+		ADR|IMM		FS8
+		*		*
+			[ZSUB]	[LO R],[LO R]		/ ES = 0
+			[ZMOV]	[HI R],[LO R]
+			[ZMOVB]	[LO LO R],[AL]
+			[ZCBW]
+
+%	PRVALUE
+	LPTX		DXAX	*	*	DXAX
+		ADR|IMM		FU8
+		*		*
+			[ZSUB]	[HI R],[HI R]
+			[ZMOVB]	[LO LO R],[AL]
+			[ZSUBB]	[HI LO R],[HI LO R]
+
+%	PLVALUE
+	LPTX		ESAX	*	*	ESAX
+		ADR|IMM		FU8
+		*		*
+			[ZSUB]	[LO R],[LO R]		/ ES = 0
+			[ZMOV]	[HI R],[LO R]
+			[ZMOVB]	[LO LO R],[AL]		/ AH already 0
+
+/ Word to LARGE pointer.
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ADR|IMM		WORD
+		*		*
+			[ZSUB]	[HI R],[HI R]
+			[ZMOV]	[LO R],[AL]
+
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ADR|IMM		WORD
+		*		*
+			[ZSUB]	[LO R],[LO R]		/ ES = 0
+			[ZMOV]	[HI R],[LO R]
+			[ZMOV]	[LO R],[AL]
+
+/ Long to LARGE pointer.
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		IMM|MMX		LONG
+		*		*
+			[ZMOV]	[HI R],[HI AL]
+			[ZMOV]	[LO R],[LO AL]
+
+%	PRVALUE
+	LPTX		ANYR	DXAX	*	TEMP
+		TREG		LONG
+		*		*
+%	PLVALUE
+	LPTX		ANYL	DXAX	*	TEMP
+		TREG		LONG
+		*		*
+			[ZMOV]	[HI R],[HI RL]
+			[ZMOV]	[LO R],[LO RL]
+
+%	PRVALUE
+	LPTX		ANYR	*	*	TEMP
+		ADR		LONG
+		*		*
+%	PLVALUE
+	LPTX		ANYL	*	*	TEMP
+		ADR		LONG
+		*		*
+			[ZMOV]	[HI R],[HI AL]
+			[ZMOV]	[LO R],[LO AL]
+
+/ LARGE pointer to long.
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		LSS|MMX		LPTX
+		*		*
+			[ZMOV]	[HI R],[REGNO SS]
+			[ZLEA]	[LO R],[NSE AL]
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		ICN|MMX		LPTX
+		*		*
+			[ZSUB]	[HI R],[HI R]
+			[ZMOV]	[LO R],[AL]
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		LCN|MMX		LPTX
+		*		*
+			[ZMOV]	[HI R],[HI AL]
+			[ZMOV]	[LO R],[LO AL]
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		ADS|MMX		LPTX
+		*		*
+			[ZMOV]	[HI R],[REGNO DS]
+			[ZMOV]	[LO R],[AL]
+
+%	PRVALUE
+	LONG		ANYR	*	*	TEMP
+		ADR		LPTX
+		*		*
+			[ZMOV]	[HI R],[HI AL]
+			[ZMOV]	[LO R],[LO AL]
+#endif
+
+/////////
+/
+/ Shrinks.
+/ Two kinds.
+/ The first kind (long => int) just grabs the correct bit.
+/ The other kind (int => char) performs a range reduction.
+/
+/////////
+
+/ Long to word.
+%	PRVALUE
+	WORD		ANYR	*	*	TEMP
+		IMM|MMX		LONG|LPTX
+		*		*
+			[ZMOV]	[R],[LO AL]
+
+%	PRVALUE|P_SLT
+	WORD		DXAX	DXAX	*	AX
+		TREG		LONG|LPTX
+		*		*
+			;
+
+%	PRVALUE
+	WORD		ANYR	*	*	TEMP
+		ADR		LONG|LPTX
+		*		*
+			[ZMOV]	[R],[LO AL]
+
+/ Long to byte.
+%	PRVALUE
+	FS8		AX	*	*	TEMP
+		RREG|MMX	LONG|LPTX
+		*		*
+			[ZMOV]	[R],[LO AL]
+			[ZCBW]
+
+%	PRVALUE
+	FU8		AX	*	*	TEMP
+		RREG|MMX	LONG|LPTX
+		*		*
+			[ZMOV]	[R],[LO AL]
+			[ZSUBB]	[HI R],[HI R]
+
+%	PRVALUE
+	FS8		AX	*	*	TEMP
+		ADR|IMM		LONG|LPTX
+		*		*
+			[ZMOV]	[R],[LO AL]
+			[ZCBW]
+
+%	PRVALUE
+	FU8		AX	*	*	TEMP
+		ADR|IMM		LONG|LPTX
+		*		*
+			[ZMOV]	[R],[LO AL]
+			[ZSUBB]	[HI R],[HI R]
+
+%	PRVALUE
+	FS8		DXAX	DXAX	*	AX
+		TREG		LONG|LPTX
+		*		*
+			[ZCBW]
+
+%	PRVALUE
+	FU8		DXAX	DXAX	*	AX
+		TREG		LONG|LPTX
+		*		*
+			;
+
+/ Word to byte.
+%	PRVALUE
+	FS8		AX	*	*	TEMP
+		RREG|MMX	WORD
+		*		*
+			[ZMOV]	[R],[AL]
+			[ZCBW]
+
+%	PRVALUE
+	FU8		AX	*	*	TEMP
+		RREG|MMX	WORD
+		*		*
+			[ZMOV]	[R],[AL]
+			[ZSUBB]	[HI R],[HI R]
+
+%	PRVALUE
+	FS8		AX	*	*	TEMP
+		ADR|IMM		WORD
+		*		*
+			[ZMOVB]	[LO R],[HI AL]
+			[ZCBW]
+
+%	PRVALUE
+	FU8		AX	*	*	TEMP
+		ADR|IMM		WORD
+		*		*
+			[ZMOVB]	[LO R],[HI AL]
+			[ZSUBB]	[HI R],[HI R]
+
+%	PRVALUE|P_SLT
+	FS8		AX	AX	*	TEMP
+		TREG		WORD
+		*		*
+			[ZCBW]
+
+%	PRVALUE|P_SLT
+	FU8		AX	AX	*	TEMP
+		TREG		WORD
+		*		*
+			[ZSUBB]	[HI R],[HI R]
+
+/////////
+/
+/ Test contexts.
+/ These handle checking of leaf nodes.
+/ They also are responsible for transforming the result of a PRVALUE match
+/ into a match that generates a jump.
+/ Pointers are a little bit special.
+/ If the relation is EQ or NE, look at the entire pointer.
+/ If it is something else, only look at the offset part.
+/
+/////////
+
+%	PSREL
+	WORD		NONE	*	*	NONE
+		RREG|MMX	WORD
+		*		*
+			[ZOR]	[AL],[AL]
+			[REL0]	[LAB]
+
+%	PSREL
+	WORD		AX	*	*	NONE
+		ADR		WORD
+		*		*
+			[ZCMP]	[AL],[CONST 0]
+			[REL0]	[LAB]
+
+%	PSREL
+	WORD|BYTE	AX	*	*	NONE
+		ADR		BYTE
+		*		*
+			[ZCMPB]	[AL],[CONST 0]
+			[REL0]	[LAB]
+
+%	PEREL
+	LONG		NONE	*	*	NONE
+		RREG|MMX	LONG
+		*		*
+			[ZOR]	[LO AL],[HI AL]
+			[REL0]	[LAB]
+
+%	PEREL
+	LONG		AX	*	*	NONE
+		ADR|IMM		LONG
+		*		*
+			[ZMOV]	[R],[LO AL]
+			[ZOR]	[R],[HI AL]
+			[REL0]	[LAB]
+
+%	PLT|PGE
+	LONG		NONE	*	*	NONE
+		RREG|MMX	LONG
+		*		*
+			[ZOR]	[HI AL],[HI AL]
+			[REL1]	[LAB]
+
+%	PLT|PGE
+	LONG		AX	*	*	NONE
+		ADR		LONG
+		*		*
+			[ZCMP]	[HI AL],[CONST 0]
+			[REL1]	[LAB]
+
+%	PLE
+	LONG		NONE	*	*	NONE
+		RREG|MMX	LONG
+		*		*
+			[ZOR]	[HI AL],[HI AL]
+			[ZJS]	[LAB]
+			[ZJNE]	[LAB0]
+			[ZOR]	[LO AL],[LO AL]
+			[ZJE]	[LAB]
+		[DLAB0]:
+
+%	PLE
+	LONG		AX	*	*	NONE
+		ADR		LONG
+		*		*
+			[ZCMP]	[HI AL],[CONST 0]
+			[ZJS]	[LAB]
+			[ZJNE]	[LAB0]
+			[ZCMP]	[LO AL],[CONST 0]
+			[ZJE]	[LAB]
+		[DLAB0]:
+
+%	PGT
+	LONG		NONE	*	*	NONE
+		RREG|MMX	LONG
+		*		*
+			[ZOR]	[HI AL],[HI AL]
+			[ZJS]	[LAB0]
+			[ZJNE]	[LAB]
+			[ZOR]	[LO AL],[LO AL]
+			[ZJNE]	[LAB]
+		[DLAB0]:
+
+%	PGT
+	LONG		AX	*	*	NONE
+		ADR		LONG
+		*		*
+			[ZCMP]	[HI AL],[CONST 0]
+			[ZJS]	[LAB0]
+			[ZJNE]	[LAB]
+			[ZCMP]	[LO AL],[CONST 0]
+			[ZJNE]	[LAB]
+		[DLAB0]:
+
+#ifdef NDPDEF
+%	PREL
+	FF64		*	*	*	NONE
+		RREG|MMX	FF64
+		*		*
+			[CALL]	[GID tstccp]
+			[REL0]	[LAB]
+#endif
+
+#ifndef ONLYSMALL
+%	PEREL
+	LPTX		*	*	*	NONE
+		RREG|MMX	LPTX
+		*		*
+			[ZOR]	[LO AL],[HI AL]
+			[REL0]	[LAB]
+
+%	PEREL
+	LPTX		AX	*	*	NONE
+		ADR		LPTX
+		*		*
+			[ZMOV]	[R],[HI AL]
+			[ZOR]	[R],[LO AL]
+			[REL0]	[LAB]
+
+%	PREL
+	LPTX		AX	*	*	NONE
+		ADR		LPTX
+		*		*
+			[ZCMP]	[LO AL],[CONST 0]
+			[REL0]	[LAB]
+#endif
+
+%	PUGE
+	*		NONE	*	*	NONE
+		*		*
+		*		*
+			[ZJMP]	[LAB]
+
+%	PULT
+	*		NONE	*	*	NONE
+		*		*
+		*		*
+			;
+
+%	PSREL
+	WORD		NONE	ANYR	*	NONE
+		TREG		WORD
+		*		*
+			[ZOR]	[RL],[RL]
+			[REL0]	[LAB]
+
+#ifndef ONLYSMALL
+%	PEREL
+	LPTX		NONE	ANYR	*	NONE
+		TREG		LPTX
+		*		*
+			[ZOR]	[LO RL],[HI RL]
+			[REL0]	[LAB]
+
+%	PREL
+	LPTX		NONE	ANYR	*	NONE
+		TREG		LPTX
+		*		*
+			[ZOR]	[LO RL],[LO RL]
+			[REL0]	[LAB]
+#endif
+
+#ifndef NDPDEF
+//////////
+/
+/ The ddtest() call generated by the first entry below is necessary
+/ because of the nonaddressability of FPAC in LARGE model.
+/ It should be conditionalized #ifndef ONLYSMALL,
+/ but tabgen currently does not process nested conditionals correctly.
+/ It is not required for SMALL model but I cannot figure out how to avoid it.
+/
+//////////
+
+%	PREL
+	FF64		NONE	*	*	NONE
+		RREG|MMX	FF64
+		*		*
+			[CALL]	[GID ddtest]
+			[REL0]	[LAB]
+
+%	PREL
+	FF64		NONE	*	*	NONE
+		ADR		FF64
+		*		*
+			[ZTEST]	[HI LO AL],[CONST 077600]
+			[REL0]	[LAB]
+
+%	PREL
+	FF32|FF64	NONE	*	*	NONE
+		ADR		FF32
+		*		*
+			[ZTEST]	[HI AL],[CONST 077600]
+			[REL0]	[LAB]
+
+#endif
+
+/////////
+/ 
+/ Push function arguments onto the stack.
+/ For the 8086, this is complicated by the lack of a push immediate.
+/ Perhaps the "make an addr" conversion should be performed.
+/ For the i80186, similar but using push immediate.
+/
+/////////
+%	PFNARG|P80186
+	WORD		NONE	*	*	NONE
+		IMM|MMX		WORD
+		*		*
+			[ZPUSH]	[AL]
+
+%	PFNARG
+	WORD		ANYR	*	*	NONE
+		0|MMX		*
+		*		*
+			[ZSUB]	[R],[R]
+			[ZPUSH]	[R]
+
+%	PFNARG
+	WORD		ANYR	*	*	NONE
+		IMM|MMX		WORD
+		*		*
+			[ZMOV]	[R],[AL]
+			[ZPUSH]	[R]
+
+%	PFNARG
+	WORD		ANYR	*	*	NONE
+		LEA|MMX		WORD
+		*		*
+			[ZLEA]	[R],[NSE AL]
+			[ZPUSH]	[R]
+
+#ifndef ONLYSMALL
+%	PFNARG
+	LPTX		ANYR	*	*	NONE
+		LSS|MMX		LPTX
+		*		*
+			[ZPUSH]	[REGNO SS]
+			[ZLEA]	[LO R],[NSE AL]
+			[ZPUSH]	[LO R]
+
+%	PFNARG|P80186
+	LPTX		NONE	*	*	NONE
+		ICN|MMX		LPTX
+		*		*
+			[ZPUSH]	[CONST 0]
+			[ZPUSH]	[AL]
+
+%	PFNARG|P80186
+	LPTX		NONE	*	*	NONE
+		LCN|MMX		LPTX
+		*		*
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+
+%	PFNARG
+	LPTX		AX	*	*	NONE
+		0|MMX		*
+		*		*
+			[ZSUB]	[R],[R]
+			[ZPUSH]	[R]
+			[ZPUSH]	[R]
+
+%	PFNARG
+	LPTX		AX	*	*	NONE
+		ICN|MMX		LPTX
+		*		*
+			[ZSUB]	[R],[R]
+			[ZPUSH]	[R]
+			[ZMOV]	[R],[AL]
+			[ZPUSH]	[R]
+
+%	PFNARG
+	LPTX		AX	*	*	NONE
+		LCN|MMX		LPTX
+		*		*
+			[ZMOV]	[R],[HI AL]
+			[ZPUSH]	[R]
+			[ZMOV]	[R],[LO AL]
+			[ZPUSH]	[R]
+
+%	PFNARG|P80186
+	LPTX		NONE	*	*	NONE
+		ACS|MMX		LPTX
+		*		*
+			[ZPUSH]	[REGNO CS]
+			[ZPUSH]	[AL]
+
+%	PFNARG|P80186
+	LPTX		NONE	*	*	NONE
+		ADS|MMX		LPTX
+		*		*
+			[ZPUSH]	[REGNO DS]
+			[ZPUSH]	[AL]
+
+%	PFNARG
+	LPTX		ANYR	*	*	NONE
+		ACS|MMX		LPTX
+		*		*
+			[ZPUSH]	[REGNO CS]
+			[ZMOV]	[LO R],[AL]
+			[ZPUSH]	[LO R]
+
+%	PFNARG
+	LPTX		ANYR	*	*	NONE
+		ADS|MMX		LPTX
+		*		*
+			[ZPUSH]	[REGNO DS]
+			[ZMOV]	[LO R],[AL]
+			[ZPUSH]	[LO R]
+
+#endif
+
+%	PFNARG
+	WORD		NONE	*	*	NONE
+		ADR		WORD
+		*		*
+%	PFNARG
+	BYTE		*	*	*	NONE
+		RREG|MMX	WORD|BYTE
+		*		*
+			[ZPUSH]	[AL]
+
+%	PFNARG|P80186
+	LONG		NONE	*	*	NONE
+		IMM|MMX		LONG
+		*		*
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+
+%	PFNARG
+	LONG|LPTX	ANYR	*	*	NONE
+		0|MMX		*
+		*		*
+			[ZSUB]	[LO R],[LO R]
+			[ZPUSH]	[LO R]
+			[ZPUSH]	[LO R]
+
+%	PFNARG
+	LONG		ANYR	*	*	NONE
+		IMM|MMX		LONG
+		*		*
+			[ZMOV]	[LO R],[HI AL]
+			[ZPUSH]	[LO R]
+			[ZMOV]	[LO R],[LO AL]
+			[ZPUSH]	[LO R]
+
+%	PFNARG
+	LONG|LPTX	NONE	*	*	NONE
+		ADR		LONG|LPTX
+		*		*
+#ifndef ONLYSMALL
+%	PFNARG
+	LPTX		NONE	*	*	NONE
+		RREG|MMX	LPTX
+		*		*
+#endif
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+
+/////////
+/
+/ Floating point.
+/
+/////////
+
+#ifdef NDPDEF
+%	PFNARG
+	FF64		NONE	*	*	NONE
+		RREG|MMX	FF64
+		*		*
+			[CALL]	[GID dp87]
+#endif
+#ifndef NDPDEF
+%	PFNARG
+	FF64		NONE	*	*	NONE
+		RREG|MMX	FF64
+		*		*
+			[CALL]	[GID dpush]
+
+%	PFNARG
+	FF64		NONE	*	*	NONE
+		ADR		FF64
+		*		*
+			[ZPUSH]	[HI LO AL]
+			[ZPUSH]	[LO LO AL]
+			[ZPUSH]	[HI HI AL]
+			[ZPUSH]	[LO HI AL]
+#endif
+
+////////
+/
+/ This entry ignores structs used for effect.
+/
+////////
+
+%	PEFFECT
+	FBLK		NONE	*	*	NONE
+		ADR|IMM		FBLK
+		*		*
+			;
+
+////////
+/
+/ These tables transform value contexts into effect contexts.
+/ They are used to clear the stack of the 8087.
+/ The EMPTY tables are needed because the CALL node always produces a value.
+/
+////////
+
+%	PEFFECT
+	NFLT		NONE	*	*	NONE
+		RREG|MMX	NFLT
+		*		*
+			;
+
+#ifndef NDPDEF
+%	PEFFECT
+	FF64		NONE	*	*	NONE
+		RREG|MMX	FF64
+		*		*
+			;
+#endif
+#ifdef NDPDEF
+%	PEFFECT
+	FF64		NONE	*	*	NONE
+		RREG|MMX	FF64
+		*		*
+			[ZFDROP]
+#endif

@@ -1,0 +1,79 @@
+.TH SLEEP_ALLOC() "" "" "DDI/DKI Kernel Routine"
+.PC "Create a sleep lock"
+.B "#include <sys/kmem.h>"
+.B "#include <sys/types.h>"
+.B "#include <sys/ksynch.h>"
+\fBsleep_t *SLEEP_ALLOC(\fIunused\^\fB, \fIlock_info\^\fB, \fIflag\^\fB)\fR
+\fBint \fIunused\^\fB, \fIflag\^\fB; lkinfo_t *\fIlock_info\^\fB;\fR
+.PP
+.B SLEEP_ALLOC()
+allocates a sleep lock, and initializes it to the unlocked state.
+.PP
+.I unused
+is reserved for future development.
+Always initialize it to zero.
+.PP
+.I lock_info
+points to a a copy of the structure
+.BR lkinfo .
+Initialize it as follows:
+.IP \fBlk_pad\fR 1.0i
+Initialize this field to zero.
+.IP \fBlk_name\fR
+Initialize this field to the address of the string that names the lock.
+.IP \fBlk_flags\fR
+To turn off the gathering of statistics, initialize this field to
+.BR LK_NOSTATS ;
+otherwise, initialize it to zero.
+.PP
+Multiple sleep locks can share one
+.B lkinfo
+structure; however, a sleep lock and a read/write lock cannot.
+.PP
+.I flag
+specifies whether the caller is willing to sleep if the lock cannot
+be created immediately.
+If
+.I flag
+equals
+.BR KM_SLEEP ,
+the caller will sleep if the lock cannot be created;
+if it equals
+.BR KM_NOSLEEP ,
+it will not.
+.PP
+If all goes well,
+.B RW_ALLOC()
+returns the address of the newly created lock.
+If sufficient memory is not available for the lock and
+.I flag
+equals
+.BR KM_NOSLEEP ,
+it returns NULL.
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+lkinfo
+.R
+.SH Notes
+If
+.I flag
+equals
+.BR KM_SLEEP ,
+.B SLEEP_ALLOC()
+has base level only and may not sleep;
+if, however,
+.I flag
+equals
+.BR KM_NOSLEEP ,
+it has base or Interrupt level and may sleep.
+.PP
+A driver can hold a
+driver-defined basic lock or read/write lock across a call to this function
+only if
+.I flag
+equals
+.BR KM_NOSLEEP .
+It can hold a
+driver-defined sleep lock regardless of the value of
+.IR flag .

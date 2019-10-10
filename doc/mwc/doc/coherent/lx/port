@@ -1,0 +1,296 @@
+.TH port "" "" "System Administration"
+.PC "File that describes ports for UUCP"
+.B /usr/lib/uucp/port
+.PP
+File
+.B /usr/lib/uucp/port
+names and describes the serial ports that
+.B uucico
+and
+.B cu
+use to connect to remote systems.
+.PP
+.B port
+consists of a set of entries, one for each port.
+Entries should be separated from each other by one blank line.
+Each entry consists of one or more of the following commands:
+.IP "\fBport \fIport_name\fR"
+Name the port being described.
+This command must appear first in every port's entry.
+.IP "\fBtype \fIstring\fR"
+This command gives the type of port.
+It must appear immediately after the \fBport\fR command.
+.I string
+must be one of the following:
+.RS
+.IP \fBdirect\fR
+The port directly accesses another, usually via a serial port.
+.IP \fBmodem\fR
+The port accesses a modem.
+This is the default.
+.IP \fBpipe\fR
+The connection is a pipe that runs through another program
+.IP \fBstdin\fR
+The connection runs through the standard input and standard output.
+Use this option when
+.B uucico
+is run as a login shell
+.IP \fBtcp\fR
+The port is a TCP port.
+.RE
+.IP "\fBprotocol \fIstring\fR"
+List the protocols that can be used with this port.
+If
+.B /usr/lib/uucp/sys
+contains a list of protocols, that list takes precedence over the one set in
+.BR port .
+We recommend that protocols be specified in the file
+.B sys
+intsead of here.
+For information on the available protocols, see the Lexicon article
+.BR sys .
+.IP "\fBprotocol-parameter \fIprotocol parameter\fR"
+Set a
+.I parameter
+for the
+.IR protocol .
+This command recognizes exactly the same arguments as its namesake in the
+system-configuration file
+.BR sys .
+For information on how to use this command, see the Lexicon entry for
+.IP "\fBseven-bit true|false\fR"
+.II "seven-bit parity"
+If
+.BR true ,
+then this port (or the modem plugged into it ) supports only
+seven-bit transfers;
+if false, then it supports both seven-bit and eight-bit protocols.
+.B uucico
+uses this command only during protocol negotiation, to force the
+selection of a protocol that works across a seven-bit link.
+It will not prevent eight-bit characters from being transmitted.
+The default is
+.BR false .
+.IP
+Note that
+some devices use only seven bits to define a character, and reserve the
+eighth bit as a parity bit.
+It is not possible it is not possible to send eight-bit characters across
+such devices.
+.IP "\fBreliable true|false\fR"
+This command is used only when your system negotiates with the remote system
+over what protocol to use.
+If set to
+.BR false ,
+it forces your system to accept only a protocol that works over a
+seven-bit (or unreliable) connection.
+If
+.BR true ,
+then an eight-bit protocol is acceptable.
+The default is false.
+.IP "\fBhalf-duplex true|false\fR"
+If
+.BR true ,
+then this port supports only half-duplex communications,
+which forces
+.B uucico
+not to use a bidirectional protocol with this port.
+If it is
+.BR false ,
+then the port supports both half-duplex and full-duplex communications.
+The default is
+.BR false .
+.BR sys .
+.IP "\fBdevice \fIstring\fR"
+This command names the device associated with the port.
+For example, the command
+.DM
+	device /dev/com2l
+.DE
+.IP
+names port
+.B com2l
+as the device used by this port.
+This command is used only with ports of types
+.B modem
+or
+.BR direct .
+.IP "\fBbaud \fInumber\fR"
+.IS "\fBspeed \fInumber\fR"
+Set the baud rate for this port.
+If an entry in file
+.B /usr/lib/uucp/sys
+specifies a speed but no port entry,
+.B uucico
+tries every entry in
+.B port
+that has a matching baud rate,
+in the order in which they appear,
+until it finds one that is unlocked.
+These commands are used only with ports of type
+.B modem
+or
+.BR direct .
+.IP "\fBbaud-range \fIlow high\fR"
+.IS "\fBspeed-range \fIlow high\fR"
+Set the range of speeds at which this port can be run.
+.I low
+gives the minimum speed,
+.I high
+the maximum.
+This command applies only to ports of type
+.BR modem .
+.IP "\fBcarrier true|false\fR"
+If
+.BR true ,
+the port supports carrier; if
+.BR false ,
+the port does not.
+If a port does not support carrier, the carrier-detect signal will never
+be required on this port, regardless of what the modem chat script says.
+If a direct port supports carrier, the port will be set always
+to expect carrier.
+.IP
+This command applies only to ports of type
+.B direct
+or
+.BR modem .
+The default for a
+.B modem
+port is true; but for a
+.B direct
+port is false.
+.IP "\fBhardflow true|false\fR"
+If
+.BR true ,
+turn on hardware flow control for this port; otherwise, do not.
+The default is
+.BR true .
+This command applies only to ports of type
+.B direct
+or
+.BR modem .
+.IP "\fBdial-device \fIdevice\fR"
+Send dialing instructions to
+.IR device ,
+instead of the the normal port device.
+This applies only to ports of type
+.BR modem .
+.IP "\fBdialer \fIstring\fR"
+Names the dialer to use.
+Information about the dialer is read from file
+.BR /usr/lib/uucp/dial .
+This applies only to ports of type
+.BR modem . 
+.IP "\fBdialer \fIstring ...\fR"
+Execute a simple dialing script.
+This command can be used in situations where the dialing script is so simple
+that it would be cumbersome to embed it within a separate file.
+If the command
+.B dialer
+is used with only one argument (to name a dialing script), this command
+is ignored.
+This applies only to ports of type
+.BR modem . 
+.IP "\fBdialer-sequence \fIdialer phone_number ...\fR"
+Name pairs of dialers and telephone numbers.
+The telephone number is substituted for the escape sequences
+.B \eD
+or
+.B \eT
+in the
+.I dialer
+entry.
+In effect, this lets you name a sequence of chat scripts to use.
+At present, this command is the only way to use a chat script with a
+TCP port.
+.IP
+This command applies only to ports of type
+.B modem
+or
+.BR tcp .
+.IP "\fBlockname \fIname\fR"
+Use
+.I name
+when locking this port.
+This applies only to ports of type
+.B modem
+or
+.BR direct .
+.IP "\fBservice \fIservice_name\fR"
+Name the TCP port to use.
+If this names a service, then
+.B uucico
+looks the port for that service in file
+.BR /etc/services .
+If it is a number, then
+.B uucico
+binds itself to that TCP port.
+If this command is not used, then
+.B uucico
+by default uses the well-known port 540.
+This command applies only to ports of type
+.BR tcp .
+.IP "\fBcommand \fIcommand \fB[ \fIarguments \fB]\fR"
+If the port is of type
+.BR pipe ,
+name the command and its arguments with which
+.B uucico
+will be exchanging data.
+.II rlogin
+For example, if your system is on a network, then
+.I command
+could a form of the command
+.BR rlogin ,
+which would permit
+.B uucico
+to log into the remote system via the network.
+.SH Example
+The following gives a sample entry for a port:
+.DM
+	port MWCBBS
+	type modem
+	device /dev/com2l
+	baud 9600
+	dialer tbfast
+.DE
+The following describes each command in detail:
+.IP \fBport\fR
+This names the port being described in this entry, in this case
+.BR MWCBBS .
+.IP \fBtype\fR
+The type of port \(em in this case, a modem.
+.IP \fBdevice\fR
+The device used by this port.
+The device name usually matches the port name, but it does not have to.
+.IP \fBbaud\fR
+The speed of the port, in this case 9600.
+.IP \fBdialer\fR
+The type of dialing device (i.e., modem) plugged into this
+port \(em in this case, the dialer named
+.BR tbfast .
+This dialer is described in the file
+.BR /usr/lib/uucp/dial .
+For information on how a dialer is described in its file,
+see the Lexicon entry for
+.BR dial .
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "dial," dial
+.Xr "sys," sys
+.Xr "UUCP" uucp
+.R
+.SH Notes
+Only the superuser
+.B root
+can edit
+.BR /usr/lib/uucp/port .
+.PP
+The file
+.B port
+supports many commands in addition to the ones described here.
+This article describes only those commands that might be used
+in typical \*(UU connections.
+For more information, see the original Taylor \*(UU documentation,
+which is in the archive
+.BR /usr/src/alien/uudoc.tar.Z .

@@ -1,0 +1,330 @@
+
+
+calling conventions   Technical Information   calling conventions
+
+
+
+The following presents the calling conventions for COHERENT.
+
+The design  of the calling  conventions had to  take into account
+the fact  that C  does not require  that the number  of arguments
+passed  to a  function be  the  same as  the number  of arguments
+specified in  the function's declaration.  Routines  with a vari-
+able number  of arguments are  not uncommon; for  example, printf
+and scanf can take  a variable number of arguments.  Another con-
+sideration was the availability of register variables.
+
+Therefore,  COHERENT uses  the following  calling  sequence.  The
+function arguments  are pushed onto the stack  from the first, or
+rightmost, through the last, or leftmost.  lloonnggs are pushed high-
+half  first; this  makes the  word order  compatible with  the dddd
+instruction.  The  function is then called with  a near call.  An
+add  instruction after  the call removes  the arguments  from the
+stack.
+
+For example, the function call
+
+
+        int a;
+        long b;
+        char c;
+
+        foo()
+        {
+                example(a, b, c);
+        }
+
+
+generates the code
+
+
+        movb     al,c
+        cbw
+        push     ax
+        push     b+2
+        push     b
+        push     a
+        call     example_
+        add      sp,8
+
+
+Note that  an underbar  character `_'   has been appended  to the
+function  name.  This  serves two purposes.   First, it  makes it
+harder to accidentally  call routines written in other languages.
+Second,  it means  that two  routines with the  same name  can be
+called from C and another language in identical fashions.
+
+The  parameters and  local variables in  the called  function are
+referenced as offsets  from the bp register.  The arguments begin
+at  offset 8  and continue toward  higher addresses,  whereas the
+local variables begin at  offset -2 and continue toward lower ad-
+dresses.
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+calling conventions   Technical Information   calling conventions
+
+
+
+
+The sp  register points  the local  variable with the  lowest ad-
+dress.  Thus,  when eexxaammppllee_ is  reached in  the above model, the
+stack frame resembles the following:
+
+
+     High      ZDDDDDDDDDDDDDDDDDDDDDDD?
+               3 c (widened to a word) 3
+               CDDDDDDDDDDDDDDDDDDDDDDD4
+               3    high half of b     3
+               CDDDDDDDDDDDDDDDDDDDDDDD4
+               3     low half of b     3
+               CDDDDDDDDDDDDDDDDDDDDDDD4
+               3          a            3
+     Low       @DDDDDDDDDDDDDDDDDDDDDDDY
+
+
+Functions  return iinntts  in the  ax register,  lloonnggs in  the dx:ax
+register pair, pointers in  the ax register and ddoouubbllees in ffppaacc_.
+The following program
+
+
+     example(a, b, c)
+     int a, b, c;
+     {
+         return (a * b - c);
+     }
+
+
+when compiled  with the -VVAASSMM option,  produces the following as-
+sembly-language code:
+
+
+     .shri
+     .globl example_
+
+
+
+example_:
+     push      si
+     push      di
+     push      bp
+     mov       bp, sp
+     mov       ax, 10(bp)
+     imul      8(bp)
+     sub       ax, 12(bp)
+     pop       bp
+     pop       di
+     pop       si
+     ret
+
+
+The runtime startup initializes the registers cs, ds, es, and ss,
+and the segment  registers remain unchanged.  Other registers may
+be overwritten.
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+calling conventions   Technical Information   calling conventions
+
+
+
+
+COHERENT pushes function arguments as follows.
+
+
+          cchhaarr   Widened to iinntt, then pushed
+          iinntt    Pushed in machine word order
+          lloonngg   Pushed high order word, then low-order word
+          ffllooaatt  Widened to ddoouubbllee, then pushed
+          ddoouubbllee Pushed high order, then low order
+          ssttrruucctt Pushed in memory order
+          uunniioonn  Pushed in memory order
+
+
+Functions return values as follows:
+
+
+          cchhaarr   In al
+          iinntt    In ax
+          lloonngg   In dx:ax
+          ffllooaatt  Same as ddoouubbllee
+          ddoouubbllee In ffppaacc_
+          ssttrruucctt Pointer in ax
+          uunniioonn  Pointer in ax
+          pointerIn ax
+
+
+A  function that  returns a  struct or  union actually  returns a
+pointer; the code generated for the function call block-moves the
+result to its destination Functions that return a float or double
+return it in the global double ffppaacc_.
+
+For example, consider the call
+
+
+     example(i, l, c, cp);
+
+
+where i is an int, l is a long, c is a char, cp is a pointer to a
+char, and  example declares two automatic  iinntts.  After execution
+of the  call and the prologue of example,  the stack contains the
+following 11 words:
+
+
+     High      ZDDDDDDDDDDDDDDDDDD?
+               3        cp        3
+               CDDDDDDDDDDDDDDDDDD4
+               3         c        3
+               CDDDDDDDDDDDDDDDDDD4
+               3  high word of l  3
+               CDDDDDDDDDDDDDDDDDD4
+               3   low word of l  3
+               CDDDDDDDDDDDDDDDDDD4
+               3         i        3
+               CDDDDDDDDDDDDDDDDDD4
+               3  return address  3
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+calling conventions   Technical Information   calling conventions
+
+
+
+               CDDDDDDDDDDDDDDDDDD4
+               3     saved SI     3
+               CDDDDDDDDDDDDDDDDDD4
+               3     saved DI     3
+               CDDDDDDDDDDDDDDDDDD4
+               3     saved BP     3
+               CDDDDDDDDDDDDDDDDDD4
+               3 space for auto 1 3
+               CDDDDDDDDDDDDDDDDDD4
+               3 space for auto 2 3
+     Low       @DDDDDDDDDDDDDDDDDDY
+
+
+The following example performs a simple function call:
+
+
+main()
+{
+     example(1, 2);/* call sample routine */
+}
+
+example(p1, p2)
+{
+     int a, b;
+
+     a = 3;
+     b = 4;
+}
+
+
+When the  function eexxaammppllee is about to  return, the stack appears
+as follows:
+
+
+High ZDDDDDDDDDDDDDDDDD?
+     3       2         3^  ppaarrmm 22    1100(bbpp)
+     CCDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD44
+     33       11         33^  parm 1     8(bp)
+     CDDDDDDDDDDDDDDDDD4
+     3 Return Address: 3
+     3    2 words in   3
+     3   LARGE model,  3
+     3 1 in SMALL model3              6(bp)
+     CDDDDDDDDDDDDDDDDD4
+     3     main's SI   3              4(bp)
+     CDDDDDDDDDDDDDDDDD4
+     3     main's DI   3              2(bp)
+     CDDDDDDDDDDDDDDDDD4
+     3     main's BP   3               (bp)
+     CDDDDDDDDDDDDDDDDD4
+     3       3         3^ aa          -22(bbpp)
+     CCDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD44
+LLooww  33       44         33^ SP b       -4(bp)
+     @DDDDDDDDDDDDDDDDDY
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+calling conventions   Technical Information   calling conventions
+
+
+
+
+***** See Also *****
+
+C language, technical information
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 5
+
+

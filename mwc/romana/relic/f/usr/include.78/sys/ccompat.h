@@ -1,0 +1,576 @@
+/*
+ * /usr/include/sys/ccompat.h
+ *
+ * C compiler compatibility definitions.
+ *
+ * Revised: Wed May 19 10:30:25 1993 CDT
+ */
+#ifndef	__SYS_CCOMPAT_H__
+#define	__SYS_CCOMPAT_H__
+
+/*
+ * Define some handy things that allow us to work with K&R, ANSI and C++
+ * compilers in a way that is at least less painful than not working. This
+ * file does mandate an ANSI C pre-processing environment.
+ *
+ * While ANSI allows us to not define function prototypes, C++ mandates that
+ * they exist, and it's a *really* good idea to use them whereever possible.
+ *
+ * This file also deals with some compiler-specific features that are either
+ * in the C or C++ language standards but not always available, and some
+ * language extensions that are very widely available, if only because they
+ * are part of the C++ standard and have been incorporated into C compilers.
+ *
+ * This file specifically excludes specifics about target machines and
+ * compiler interactions. Such definitions belong in another file.
+ */
+
+/*
+ * The following ISO-ism has been included in this header as the most
+ * logical place. This pair of macros are used to get the *value* of a
+ * preprocessor macro stringized, rather than the *name* of the macro.
+ * As mentioned above, this file deals with compiler dependencies, and
+ * assumes an ANSI preprocessor. Should this have to change, remember to
+ * change this.
+ *
+ * This usage follows PJ Plauger's <assert.h> in "The Standard C Library".
+ */
+
+#define	__STR(x)	__VAL(x)
+#define	__VAL(x)	#x
+
+
+/*
+ * The Mark Williams Company C compiler on the Coherent operating system for
+ * some reason uses symbols in the user's name space to internally identify
+ * itself. Here we work around that.
+ */
+
+#if	defined (COHERENT) && defined (MWC) && defined (_I386)
+
+/* #undef	COHERENT */
+/* #undef	MWC */
+
+#define	__COHERENT__	1
+#define	__MWC__		1
+
+#endif
+
+
+/*
+ * There is some complexity on the way __STDC__ is used in practice: the ANSI
+ * committee merely says that if __STDC__ is defined and value 1, then the
+ * implementation is ISO-conforming.
+ *
+ * Unfortunately, much existing code uses #ifdef as the only test, which
+ * means that some non-conforming compilers which defined __STDC__ as zero
+ * caused problems (the Coherent 3.x compiler is one such; the 4.x compiler
+ * uses the alternate convention). The #if test is preferable in programs,
+ * since in preprocessor tests undefined symbols assume value 0, but still
+ * many programs use the alternate form.
+ *
+ * For compilers with an intermediate status, eg. with an ISO preprocessor,
+ * or support for "const" but not prototypes, or prototypes but not "const"
+ * we perform individual featurectomies below.
+ *
+ * A general rule for future extensions: use double-underscores before and
+ * after for non-parameterized macros, double-underscores before for macros
+ * that take parameters. If this file's definitions are to be used by user-
+ * level code, create a header that exports the definitions into the user
+ * namespace.
+ */
+
+#define	__PROTODECL_M__	0x0001	/* supports prototype declarations */
+#define	__PROTODEFN_M__	0x0002	/* supports prototype definitions */
+#define	__CONST_M__	0x0004	/* supports "const" construct */
+#define	__VOLATILE_M__	0x0008	/* supports "volatile" construct */
+#define	__VOIDSTAR_M__	0x0010	/* supports "void *" type */
+
+#define	__NOTUSED_M__	0x0100	/* allows "not used" warning suppression */
+#define	__REGISTER_M__	0x0200	/* requires "register" declaration */
+#define	__LINKID_M__	0x0400	/* requires linkage specifier (eg C++) */
+#define	__INLINE_M__	0x0800	/* allows inline functions */
+#define	__INLINEL_M__	0x1000	/* allows inline functions with loops */
+#define	__DOTDOTDOT__	0x2000	/* requires (...) rather than () */
+
+
+/*
+ * The Standard C language features in one definition for simplicity.
+ */
+
+#define	__STDC_M__	(__PROTODECL_M__ | __PROTODEFN_M__ | __CONST_M__ | \
+			 __VOLATILE_M__ | __VOIDSTAR_M__)
+
+
+/*
+ * Below, we attempt to determine a configuration suitable for the translator
+ * that is working on the current program. Each group of macros attempts to
+ * set a preprocessor macro __PROFILE__ with a bit-mask of the features
+ * supported by the current translator.
+ *
+ * This approach has been taken since it considerably simplifies both the
+ * task of adding new features to test for and adding new translators. Many
+ * other programs intermingle the tasks of determining the translator and
+ * defining the responses to that determination; in general, such programs
+ * fail to be maintainable when the matrix of features and translators grows 
+ * larger than about 3x3.
+ */
+
+#if  	defined (__PROFILE__)				/* user-overridden */
+
+# if	(__PROFILE__ & ~ (__STDC_M__ | __NOTUSED_M__ | __REGISTER_M__ | \
+			  __LINKID_M__)) != 0
+# error	__PROFILE__ contains unknown flag bits.
+# endif
+
+#elif	defined (__cplusplus)				/* C++ */
+
+# ifdef	__GNUC__
+#  define __PROFILE__	(__STDC_M__ | __NOTUSED_M__ | __LINKID_M__ | \
+			 __INLINE_M__ | __INLINEL_M__ | __DOTDOTDOT__)
+# else
+#  define __PROFILE__	(__STDC_M__ | __NOTUSED_M__ | __LINKID_M__ | \
+			 __INLINE_M__ | __DOTDOTDOT__)
+# endif
+
+#elif	defined (__BORLANDC__)				/* Borland C */
+
+# if	__BORLANDC__ >= 0x410
+#  define  __PROFILE__	(__STDC_M__)	/* features restricted to C++ */
+# else
+#  define  __PROFILE__	(__STDC_M__ | __NOTUSED_M__ | __INLINE_M__)
+# endif
+
+#elif	defined (__GNUC__)				/* GCC w/o C */
+
+# define __PROFILE__	(__STDC_M__ | __INLINE_M__ | __INLINEL_M__)
+
+#elif	defined (__STDC__) && (__STDC__ == 1)		/* minimal ANSI C */
+
+# define  __PROFILE__	(__STDC_M__)
+
+#elif	defined (__COHERENT__)				/* MWC Coherent */
+
+# define  __PROFILE__	(__REGISTER_M__)
+
+#else							/* VANILLA */
+
+# define  __PROFILE__	(__REGISTER_M__)
+
+#endif
+
+
+/*
+ * In the following sections we determine the responses to take on the basis
+ * of whether or not each feature/misfeature is supported by the current
+ * translator.
+ *
+ * In cases where the feature requires considerable change to source code,
+ * such as prototyping and inline functions, we define both an existence test
+ * name (which should be tested for definition, not value) and a value macro.
+ * For the case of inline functions, this is because the function should not
+ * appear at all in the souce code unless unlining is supported (and because
+ * often a macro may suffice in place, although with less safety).
+ *
+ * In addition, the tests below always check to see whether a particular
+ * symbol is defined already, allowing almost any feature to be turned on or
+ * off at will from the command-line. This is useful when testing the
+ * characteristics of a new translator, and may often be useful to suppress
+ * certain features to aid in debugging.
+ */
+
+/*
+ * __PROTO__ is a general test which can be performed in .c files to see
+ * whether to use a prototype form or a K&R form, since the two are so
+ * different. This has the advantage that some tools which are hard-wired for
+ * K&R source code can get confused by macros in the function header, so
+ * keeping a real K&R header around can help.
+ *
+ * __PROTO () is a macro that can be used in header files, since all that
+ * differs between K&R and ANSI external definitions is whether the types
+ * are present.
+ *
+ * The difference between the two is important, especially when "lint"-like
+ * tools are used. In order to check for consistency between the prototype
+ * and K&R-style definitions, it may be necessary to enable prototypes in
+ * the header files while suppressing them in the C files.
+ */
+
+#ifndef	__PROTO
+# if 	(__PROFILE__ & __PROTODECL_M__) != 0
+
+#  define  __PROTO(p)	p
+
+# else	/* prototypes are not supported */
+
+#  define  __PROTO(p)	()
+
+# endif
+# if	(__PROFILE__ & __PROTODEFN_M__) != 0
+
+#  define	__USE_PROTO__
+
+# endif
+#endif	/* ! defined (__PROTO) */
+
+
+/*
+ * There are several existing compilers still in use which either do not
+ * support the notion of a "const" language element or implement the feature
+ * incorrectly with respect to the C standard.
+ *
+ * For these compilers, we allow the "const" specifier in prototypes, local
+ * variables and structure declarations to be suppressed. Note that "const"
+ * will never appear in a K&R function header.
+ */
+
+#ifndef	__CONST__
+# if	(__PROFILE__ & __CONST_M__) != 0
+
+#  define  __CONST__	const
+
+# else	/* const is not supported */
+
+#  define  __CONST__
+
+# endif
+#endif	/* ! defined (__CONST__) */
+
+
+/*
+ * For symmetry with the "const" definition, we provide a wrapper for the
+ * "volatile" feature. Note that for some reason "volatile" is available in
+ * some compilers that do not implement "const", probably because the feature
+ * was defined in simpler terms.
+ *
+ * For these compilers, we allow the "volatile" specifier in prototypes,
+ * local variables, and structure declarations to be suppressed.
+ */
+
+#ifndef	__VOLATILE__
+# if	(__PROFILE__ & __VOLATILE_M__) != 0
+
+#  define  __VOLATILE__	volatile
+
+# else	/* const is not supported */
+
+#  define  __VOLATILE__
+
+# endif
+#endif	/* ! defined (__VOLATILE__) */
+
+
+/*
+ * Some compilers support the "void" type, but not the semantics of "void *".
+ *
+ * The following definition is similar to a usage in System V documentation
+ * which probably exists for the same reason, except that we use two
+ * underscores in ours before and after, where theirs is called _VOID.
+ */
+
+#ifndef	__VOID__
+# if	(__PROFILE__ & __VOIDSTAR_M__) != 0
+
+#  define  __VOID__	void
+
+# else	/* void with a pointer is not supported */
+
+#  define  __VOID__	unsigned char
+
+# endif
+#endif	/* ! defined (__VOID__) */
+
+
+/*
+ * A feature defined as part of the C++ language that also exists in many
+ * C implementations is the ability to suppress "argument not used" warnings
+ * in some cases by omitting the name of the variable in the function
+ * prototype and merely giving the type.
+ *
+ * This feature is common in type-checking compilers since the checking of
+ * function pointer arguments and other extra checks mean that functions
+ * must be declared with unused arguments to match the shape of some function
+ * pointer.
+ *
+ * Of course, it is desirable to leave the original name of the variable in
+ * the same place for documentation purposes, often commented out, but this
+ * usage chokes some compilers. It seems preferable use the following
+ * definition to explicitly state the intention, even in cases where the
+ * compiler generates spurious warnings.
+ */
+
+#ifndef	__NOTUSED
+# if	(__PROFILE__ & __NOTUSED_M__) != 0
+
+#  define  __NOTUSED(name)		/* name */
+
+# else	/* does not understand name suppression */
+
+#  define  __NOTUSED(name)		name
+
+# endif
+#endif	/* ! defined (__NOTUSED) */
+
+
+/*
+ * Most modern compilers perform their own register allocation and ignore
+ * the "register" directive from K&R C. Such compilers usually have debugging
+ * tools that know how to deal with variables that spend at least part of
+ * their lifetime in a machine register (or at worst, the option to suppress
+ * the auto-register allocation).
+ *
+ * For compilers that require a register declaration for a variable to be
+ * placed in a machine register, often it is desirable to suppress the use
+ * of registers when debugging.
+ */
+
+#ifndef	__REGISTER__
+# if	(__PROFILE__ & __REGISTER_M__) != 0
+
+#  define  __REGISTER__		register
+
+# else
+
+#  define  __REGISTER__
+
+# endif
+#endif	/* ! defined (__REGISTER__) */
+
+
+/*
+ * Some compilers for C-like languages such as C++, Objective-C or even
+ * conceivably Pascal/Modula-2/Fortran support cross-language linkage.
+ *
+ * The standard way of doing this within the C family is to use a special
+ * form of "extern" which names the language a function is implemented in.
+ * Functions which are implemented in C in a library should be declared as
+ * such in the exported header.
+ *
+ * Currently, this is most important for C++.
+ */
+
+#ifndef	__EXTERN_C__
+# if	(__PROFILE__ & __LINKID_M__) != 0
+
+#  define  __EXTERN_C__		extern "C"
+#  define  __EXTERN_C_BEGIN__	__EXTERN_C__ {
+#  define  __EXTERN_C_END__	}
+
+# else	/* this is being compiled by a C compiler */
+
+#  define  __EXTERN_C__
+#  define  __EXTERN_C_BEGIN__
+#  define  __EXTERN_C_END__
+
+# endif
+#endif	/* ! defined (__EXTERN_C__) */
+
+
+/*
+ * In order for some of the useful compiler extensions below to be kept
+ * available during a "strict" compile (assuming that the feature-tests above
+ * enable their use) then the convention is to prepend compiler-specific
+ * keywords with double-underscores.
+ *
+ * This also serves to document which usages are not ISO C. Note that this
+ * may have to change a little for a potential standardized C++.
+ */
+
+#if	defined (__STDC__) && __STDC__ != 0
+
+# define   __NON_ISO(k)		__##k
+
+#else
+
+# define   __NON_ISO(k)		k
+
+#endif
+
+
+/*
+ * All C++ compilers and many C compilers support the notion of "inline
+ * functions" as an alternative to macros that (i) can be used to wrap up
+ * casts so they are only used in safe contexts, (ii) can be used as an
+ * alternative to macros that allow arguments with side-effects.
+ *
+ * This comes in two strengths: can inline anything, and can inline anything
+ * that does not contain a loop. GNU C has extra strength, can inline tail-
+ * recursive inline function, but that facility is not sufficiently widespread
+ * to be useful as yet.
+ *
+ * The question is, what should the default setting of the client tests be?
+ * I prefer #ifndef __NO_INLINE__, since by default I want to be getting all
+ * the features. The possibility of defining __INLINE__ as "static" so that
+ * inline functions appear in the module separately breakpointable from other
+ * modules is a desirable facility (assuming the debug namespace is separate
+ * from the linkage namespace, likely in a system sophisticated enough to
+ * support inlining). Furthermore, be aware of any interactions with the
+ * __LOCAL__ macro defined in <sys/xdebug.h>
+ */
+
+#if	! defined (__NO_INLINE__) && ! defined (__INLINE__)
+# if	(__PROFILE__ & __INLINE_M__) != 0
+
+#   define   __INLINE__		__NON_ISO (inline)
+
+#  if	! defined (__NO_INLINEL__) && ! defined (__INLINEL__)
+#   if	(__PROFILE__ & __INLINEL_M__) != 0
+
+#    define __INLINEL__		__NON_ISO (inline)
+
+#   else
+
+#    define  __INLINEL__
+#    define  __NO_INLINEL__
+
+#   endif
+#  endif	/* ! defined (__NO_INLINEL__) && ! defined (__INLINEL__) */
+
+# else	/* does not grok inlining */
+
+#  define    __INLINE__
+#  define    __NO_INLINE__
+
+# endif
+
+#else	/* if the user has overridden __NO_INLINE__ or __INLINE__ */
+
+#endif	/* defined (__NO_INLINE__) || defined (__INLINE__) */
+
+
+/*
+ * One particular incompatibility between ANSI C and C++ code exists in the
+ * way in which prototypes which do not specify any types at all are handled.
+ * Under C++, the () form is used to imply (void), since such declarations
+ * are extremely common and because early versions of the C++ translators did
+ * not allow any declarations in the argument lists of constructors or
+ * destructors, not even void, so this form was used to syntactically imply
+ * (void).
+ *
+ * The ANSI C committe declared that a prototype of the form
+ *	extern char * malloc ();
+ * said nothing whatsoever about the types of its arguments, since such
+ * declarations were extremely common in K&R C code, and doing anything else
+ * would gratuitously require considerable rewriting.
+ *
+ * Unfortunately, the ANSI C committee decided that the special form "..." to
+ * introduce variable arguments was not valid unless preceeded by a regular
+ * argument type declaration, so that there is no way of being unambiguous
+ * that will compile under both transators.
+ *
+ *		ANSI		C++
+ *
+ * ()		(...)		(void)		ambiguous
+ *
+ * (void)	(void)		(void)		unambiguous
+ *
+ * (...)	error		(...)		thanks, X3J11
+ *
+ * Use the preprocessor symbol __ANY_ARGS__ in this context to expand to
+ * whatever the current translator needs to see for it to make no assumptions
+ * about the number and type of any function arguments.
+ */
+
+#ifndef	__ANY_ARGS__
+# if	(__PROFILE__ & __DOTDOTDOT__) != 0
+
+#  define  __ANY_ARGS__		...
+
+# else
+
+#  define  __ANY_ARGS__
+
+# endif
+#endif	/* ! defined (__ANY_ARGS__) */
+
+
+/*
+ * This is a minor K&R compatibility issue: certain K&R compilers reject the
+ * ISO C idiom of enclosing a macro name in parentheses to suppress macro
+ * expansion when this idiom is used in function declarations. To get around
+ * this, we can use the ISO preprocessor in a clumsy fashion by providing an
+ * identity macro to provide the same overall effect of making the name we
+ * wish to suppress expansion for not be immediately followed by a left
+ * parenthesis (it will be followed by parenthesis eventually, but since the
+ * proprocessor won't revisit the text it has seen before the expansion of
+ * the identity macro we get the behaviour we want).
+ */
+
+#define	__ARGS(x)	x
+
+
+/*
+ * The C standard recommends that a system have a method of selecting a "pure"
+ * compilation environment, but leaves the method for doing so up to the
+ * implementation. For our headers we will define a feature-test macro along
+ * the lines of the POSIX.1 feature-test.
+ *
+ * If _STDC_SOURCE is defined with a non-zero value, we interpret that as
+ * meaning that the user wishes a pure compilation environment with no symbols
+ * in the user name-space visible in headers other than those defined in the
+ * ISO C standard ISO/IEC 9899:1990.
+ *
+ * This flag cannot be used with the _POSIX_SOURCE flag; the symbols defined
+ * by headers in the POSIX.1 standard ISO/IEC 9945-1:1990 are a superset of
+ * those defined by the C standard, so if _POSIX_SOURCE is specified we
+ * undefine _STDC_SOURCE.
+ */
+
+#if	defined(_POSIX_SOURCE)
+#undef	_STDC_SOURCE
+#endif
+
+
+/*
+ * The POSIX.1 standard discusses a special namespace issue; how can standard
+ * structures be portably extended, given that the structure tags are in the
+ * user namespace. For structures which have members with regular names and
+ * which are likely to be extended, the POSIX.1 standard deals with this by
+ * implicitly reserving all names of that form (something which further
+ * underscores the restrictions on standard headers not including each other).
+ *
+ * However, for situations where we wish to extend a structure not covered by
+ * the namespace reservation rules, or we wish to name a member according to
+ * some other usage, we must take care to not define the member such that it
+ * might conflict with some macro name which the user is permitted to define.
+ * See POSIX.1 B.2.7.2 for discussion of this point.
+ *
+ * The following definition can be used to wrap the definition of structure
+ * member names such that those names will not conflict with user macros if
+ * _POSIX_SOURCE is defined. This form can be used in references to the member
+ * name which may be encapsulated in macros so that there is no loss of
+ * functionality or alteration of behaviour when _POSIX_SOURCE is used.
+ */
+
+#if	defined(_POSIX_SOURCE)
+
+# define	__NON_POSIX(name)	_##name
+
+#else
+
+# define	__NON_POSIX(name)	name
+
+#endif
+
+
+/*
+ * Undefine all our internal symbols... why pollute the namespace?
+ */
+
+#undef	__PROTO_M__
+#undef	__CONST_M__
+#undef	__VOLATILE_M__
+#undef	__VOIDSTAR_M__
+
+#undef	__NOTUSED_M__
+#undef	__REGISTER_M__
+#undef	__LINKID_M__
+#undef	__INLINE_M__
+#undef	__INLINEL_M__
+#undef	__DOTDOTDOT__
+
+#undef	__STDC_M__
+#undef	__PROFILE__
+
+
+#endif	/* ! defined (__SYS_CCOMPAT_H__) */

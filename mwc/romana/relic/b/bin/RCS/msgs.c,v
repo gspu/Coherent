@@ -1,0 +1,540 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     93.02.25.10.39.26;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@bob updated for COH386
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ *	msgs - system wide messages program
+ */
+
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/dir.h>
+#include <ctype.h>
+#include <signal.h>
+
+#define BSIZE 512
+#define NLINE 512
+#define PAGELEN 20
+
+char	mline[NLINE];	/* line of mail file */
+
+int	qflag;		/* query new messages */
+int	msgsnum;	/* command line numeric argument */
+int	exstat;		/* exit status */
+
+FILE	*boundfp;		/* file pointer for boundname */
+char	*boundformat = "LOWMSG=%d\tHIGHMSG=%d\n";
+unsigned int	lowmsg;		/* lowest number message in msgsdir */
+unsigned int	highmsg;	/* highest number message in msgsdir */
+
+FILE	*mailfp;		/* file pointer to mailfile */
+char 	*mailfile = "/usr/spool/mail/msgs";
+char	*msgsdir  = "/usr/msgs";
+char	*rcname = ".msgsrc";
+char	*rcformat = "MSGSNUM=%d\n";
+char	*boundname = "/usr/msgs/bounds";
+char	*home;
+char	*scatname;
+
+#define	FATAL		1	/* used by badmsg() */
+#define NONFATAL	0
+
+extern	char *getenv();
+
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	int rcnum, num;
+
+	if ( argc > 1 )
+		doargs(argc, argv);
+	dobounds();
+	readmail();
+	rcnum = readrc();
+	num = (msgsnum<=0) ? rcnum+msgsnum : msgsnum;
+	if ( (num=domsgs(num)) > rcnum )
+		writerc(num);	
+	exit(exstat);
+}
+
+/*
+ *	Fix the boundname file and set the global variables
+ *	lowmsg and highmsg to the appropriate values.
+ */
+
+dobounds()
+{
+	struct stat st;
+
+	if ( stat(boundname, &st) < 0 ) {
+		calcbounds();
+		return;
+	}
+
+	if ( (boundfp=fopen(boundname,"rw")) == NULL )
+		badmsg(FATAL, "Can't open read/write: %s", boundname);
+
+	if ( fscanf(boundfp, boundformat, &lowmsg, &highmsg) != 2 )
+		calcbounds();
+}
+
+/*
+ *	Recreate the boundname file
+ */
+
+calcbounds()
+{
+	int dirfd;
+	char buf[BSIZE];
+	int num, size;
+	struct direct *dentry;
+
+	if ( (boundfp=fopen(boundname,"w")) == NULL )
+		badmsg(FATAL, "Can't open: %s", boundname);
+
+	if ( chmod(boundname, 0666) < 0 )
+		badmsg(FATAL, "Can't chmod: %s", boundname);
+
+	if ( (dirfd=open(msgsdir, 0)) < 0 )
+		badmsg(FATAL, "Can't open: %s", msgsdir);
+
+	highmsg = 0;
+	lowmsg = ~000;
+
+	while ( (size=read(dirfd, buf, BSIZE)) != 0 ) {
+		dentry = (struct direct *) buf;
+		while ( (size-=sizeof(struct direct)) >= 0 ) {
+			
+			if ( dentry->d_ino &&
+				 (num=decode(dentry->d_name)) > 0 ) {
+				if ( num > highmsg )
+					highmsg = num;
+				if ( num < lowmsg )
+					lowmsg = num;
+			}
+			dentry++;
+		}
+	}
+
+	if ( highmsg==0 )
+		lowmsg = 0;
+
+	fprintf(boundfp, boundformat, lowmsg, highmsg);
+}
+
+/*
+ *	Does an atoi of the given string once it is certain that
+ *	it is all digits.
+ */
+
+decode(str)
+char *str;
+{
+	register int i;
+
+	for (i=0; i<DIRSIZ; i++) {
+		if ( str[i] == '\0' )
+			break;
+		if ( i==0 && str[0] == '-' )
+			continue;
+		if ( !isascii(str[i]) || !isdigit(str[i]) )
+			return(0);
+	}
+
+	return(atoi(str));
+}
+
+/*
+ *	Process the mail in mailfile, and put it in the msgsdir.
+ */
+
+readmail()
+{
+	struct stat st;
+	int fd;
+
+	if ( stat(mailfile, &st) < 0 ) {
+		badmsg(NONFATAL,"Can't stat: %s", mailfile);
+		return;
+	}
+
+	if ( st.st_size == 0 ) {
+		fclose(boundfp);
+		return;
+	}
+
+	if ( (mailfp=fopen(mailfile, "rw")) == NULL ) {
+		badmsg(NONFATAL,"Can't open read/write: %s", mailfile);
+		return;
+	}
+
+	if ( chdir(msgsdir) < 0 )
+		badmsg(FATAL, "Can't chdir: %s", msgsdir);
+
+	while ( dumpmsg() ) ;
+	
+	fclose(mailfp);
+	if ( (fd=creat(mailfile, 0644)) < 0 )
+		badmsg(FATAL, "Can't creat: %s", mailfile);
+	close(fd);
+
+	rewind(boundfp);
+	fprintf(boundfp, boundformat, lowmsg, highmsg);
+	fclose(boundfp);
+}
+
+/*
+ *	Dump the current message from the mailfile into the msgsdir
+ */
+
+dumpmsg()
+{
+	char *tmp;
+	char numname[10];
+	FILE *fp;
+	short skipsep = 1;
+
+	tmp = fgets(mline, NLINE, mailfp);
+
+	if ( tmp == NULL )	/* nothing left to be read */
+		return(0);
+
+	sprintf(numname, "%d", ++highmsg);
+
+	/* open the file that will hold the message */
+	if ( (fp=fopen(numname,"w")) == NULL )
+		badmsg(FATAL, "Can't open to write: %s/%s", msgsdir, numname);
+
+	/* now copy the message line by line to the new file. The first line
+	 * read SHOULD be a mesage separator, we will skip it and set a flag
+	 * to break out when the next message separator is encountered.
+	 */
+
+	do {
+		if( (strcmp(mline,"\1\1\1\1\n") == 0) && skipsep){
+			strcpy(mline,"");
+			skipsep = 0;
+		}else{
+			if( (strcmp(mline,"\1\1\1\1\n") == 0) && !skipsep)
+				break;
+		}
+		fputs(mline, fp);
+	} while ( fgets(mline, NLINE, mailfp) != NULL );
+
+	fclose(fp);
+	if ( lowmsg == 0 )
+		lowmsg = 1;
+	return(1);
+}
+	
+/*
+ *	Display the messages in msgsdir beginning with
+ *	message number (num)
+ */
+	
+domsgs(num)
+int num;
+{
+	int intexit();
+
+	signal(SIGINT, intexit);
+	signal(SIGPIPE, intexit);
+	
+	if ( chdir(msgsdir) < 0 )
+		badmsg(FATAL, "Can't chdir: %s", msgsdir);
+	
+	if ( num < 1  || num < lowmsg )
+		num = lowmsg;
+
+	if ( qflag ) {
+		if (num <= highmsg) 
+			printf("There are new messages.\n");
+		else
+			printf("No new messages.\n");
+		return(num);
+	}
+
+	if ( ((scatname=getenv("PAGER")) != NULL) &&
+	     (strlen(scatname) == 0) )
+		scatname = NULL;
+
+	while ( num <= highmsg ) {
+		if (do_one(num) < 0)
+			break;
+		num += 1;
+	}
+		
+	return(num);
+}
+
+/* 
+ *	Display a single message, return (-1) if user
+ *	requests to quit.
+ */
+
+do_one(num)
+int num;
+{
+	FILE *fp;
+	char numname[10];
+	char ch, inputchar();
+	long offset = 0;
+	int newnum;
+	struct stat st;
+
+	sprintf(numname, "%d", num);
+
+	if ( stat(numname, &st) < 0 )
+		return(0);
+
+	if ( (fp=fopen(numname, "r")) == NULL ) 
+		return(0);
+
+	printf("\nMessage Number %d [%ld chars]\n", num, st.st_size);
+
+	while ( fgets(mline, NLINE, fp) != NULL ) {
+		if ( (strncmp(mline, "Date: ", 6) == 0) ||
+		     (strncmp(mline, "From: ", 6) == 0) ||
+		     (strncmp(mline, "To: ", 4  ) == 0) ||
+		     (strncmp(mline, "cc: ", 4  ) == 0) ||
+		     havesubject() ) {
+			printf("%s", mline);
+			offset = ftell(fp);
+			continue;
+		}
+		if (offset)
+			break;
+	}
+
+	if ( !offset ) {
+		fclose(fp);
+		return(0);
+	}
+	fseek(fp, offset, 0);
+
+	switch( ch=inputchar() ) {
+	case 'Y':
+		dumpit(fp);
+	case 'N':
+		fclose(fp);
+		return(0);
+	case 'Q':
+		fclose(fp);
+		return(-1);
+	default:
+		ungetc(ch, stdin);
+		scanf("%d", &newnum);
+		while ( getchar() != '\n' ) ;
+		break;
+	case '-':
+		newnum = num - 1;
+		break;
+	}
+	fclose(fp);
+	if ( do_one(newnum) < 0 )
+		return(-1);
+	return(do_one(num));
+}
+
+/*
+ *	Determine if we have a subject in mline.
+ */
+
+havesubject()
+{
+	static char *subject="subject:";
+	register char *x = subject;
+	register char *y = mline;
+
+	while ( *x )
+		if ( tolower(*y++)!=*x++ )
+			return(0);
+
+	return(1);
+}
+
+/*
+ *	Print out the text of the message in a scat like
+ *	manner.
+ */
+
+dumpit(fp)
+FILE *fp;
+{
+	FILE *xfp;
+	char ch, *cmdname;
+
+	if ( scatname != NULL ) {
+		sprintf(cmdname=&mline[0], "%s", scatname);
+		if ( (xfp=popen(cmdname, "w")) == NULL )
+			badmsg(FATAL, "Can't open pipe for writing: %s",
+								 cmdname);
+		while ( (ch=getc(fp)) != EOF )
+			if ( putc(ch, xfp) == EOF )
+				intexit(SIGPIPE);
+		if ( ((pclose(xfp)>>8)&0xFF) == SIGINT )
+			intexit(SIGINT);
+	} else {
+		while ( (ch=getc(fp)) != EOF )
+			putc(ch, stdout);
+	}
+}
+
+intexit(status)
+{
+	putc('\n', stdout);
+	_exit(status);
+}
+
+char
+inputchar()
+{
+	char ch;
+
+	for (;;) {
+		printf("[ynq]: ");
+		while ( (ch=getchar()) == ' ' || ch == '\t' ) ;
+		if ( isalpha(ch) )
+			ch = toupper(ch);
+
+		if ( ch == '\n' )
+			return('Y');
+
+		if ( isdigit(ch) )
+			return(ch);
+
+		while (getchar() != '\n') ;
+
+		if ( ch == 'N' || ch == 'Y' || ch == 'Q' || ch == '-')
+			return(ch);
+	}
+}
+	
+/*
+ *	Returns the next message number to read according the the
+ *	file (.msgsrc) in the HOME directory.  Returns message
+ *	number (1) if any problems.
+ */
+
+readrc()
+{
+	FILE *msgsrc;
+	struct stat st;
+	int num;
+
+	if ( (home=getenv("HOME")) == NULL ) {
+		badmsg(NONFATAL,"No HOME variable in environment.");
+		return(1);
+	}
+
+	if ( chdir(home) < 0 ) {
+		badmsg(NONFATAL,"Can't chdir to %s", home);
+		return(1);
+	}
+
+	if ( stat(rcname, &st) < 0 )
+		return(1);
+
+	if ( (msgsrc=fopen(rcname,"r")) == NULL ) {
+		badmsg(NONFATAL, "Can't open to read: %s/%s", home, rcname);
+		return(1);
+	}
+
+	if ( fscanf(msgsrc, rcformat, &num) != 1 ) {
+		badmsg(NONFATAL, "Badly formatted file: %s/%s", home, rcname);
+		return(1);
+	}
+
+	fclose(msgsrc);
+	return(num);
+}
+
+/*
+ *	Update the rcname file in the user's home directory.
+ */
+
+writerc(num)
+int num;
+{
+	FILE *msgsrc;
+
+	if ( chdir(home) < 0 )
+		badmsg(FATAL,"Can't chdir to %s", home);
+
+	if (setuid(getuid())< 0)
+		badmsg(FATAL, "Can't setuid to %d\n", getuid());
+
+	if ( (msgsrc=fopen(rcname,"w")) == NULL )
+		badmsg(FATAL, "Can't open to write: %s/%s", home, rcname);
+
+	fprintf(msgsrc, rcformat, num);
+	fclose(msgsrc);
+}
+
+/*
+ *	Process command line arguments.
+ */
+
+doargs(argc, argv)
+register int argc;
+register char *argv[];
+{
+	if ( argc > 2 )
+		usage();
+
+	if ( strcmp(argv[1], "-q") == 0 )
+		qflag = 1;
+	else if ( (msgsnum=decode(argv[1])) == 0 )
+		usage();
+}
+
+/*
+ *	Issue error message.  flag is either NONFATAL or FATAL
+ */
+
+badmsg(flag, x)
+int flag;
+char *x;
+{
+	fprintf(stderr, "msgs: %r\n", &x);
+	if ( flag == FATAL)
+		exit(1);
+	else
+		exstat = 1;
+}
+	
+char *usemsg = "\n\
+Usage:   msgs [ -q ] [ number ]\n\
+	 -q    :  query existence of new messages\n\
+	 number:  greater than zero, start with that message number\n\
+		  less than zero, start backward that many from current\n\n";
+
+usage()
+{
+	fprintf(stderr, usemsg);
+	exit(1);
+}
+
+@

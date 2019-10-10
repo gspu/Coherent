@@ -1,0 +1,353 @@
+head     1.7;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.7;
+comment  @ * @;
+
+
+1.7
+date     92.05.15.11.57.01;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.03.31.08.24.12;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.03.30.16.03.20;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.03.26.15.14.22;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.03.26.14.59.26;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.18.18.45.54;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.08.13.26.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@updated version provided by epstein
+@
+
+
+1.7
+log
+@Norm's 'final' 386 fix
+@
+text
+@/*
+ *	Header file for fsck  --  File System Check Program
+ *
+ */
+
+#include <canon.h>
+#include <sys/dir.h>
+#include <sys/fblk.h>
+#include <sys/filsys.h>
+#include <sys/ino.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+
+#if _I386
+#define SMALLMODEL 0
+#else
+#define SMALLMODEL 1
+#endif
+
+#if HPCOHERENT
+typedef long fsize_t;
+#endif
+
+/*
+ *	Conditional Compilation Flags
+ */
+
+#define NOT_ALL_ZERO_INODE	/* Dependent on whether or not an inode */
+#ifdef 	ALL_ZERO_INODE		/* is totally zeroed when unallocated   */
+#undef	ALL_ZERO_INODE		/* or simply a zero mode and zero link  */
+#endif
+
+
+/*
+ *	Definitions and Externs
+ */
+
+#define NUL	0		/* true zero ! */
+#define NULL	((char *)0)
+
+#define	YES	3		/* default actions */
+#define	NO	2
+#define ASK	1
+
+#define	NFILSYS	10		/* max number of file systems */
+#define	MAXCH	20		/* max length of filesys name */
+
+#define	MAXBADOK	10	/* Max number of bad blocks before excessive */
+extern	int numbad;		/* num bad blocks found so far this inode*/
+
+#define MAXDUPOK	10	/* Max number of dup blocks */
+				/* in a single inode before excessive */
+#define	DUPTBLSIZE	20	/* Max number of dup referenced blocks */
+extern	daddr_t	dupblck[];	/* table of duplicate referenced blocks */
+extern 	int totdups;		/* number of dup blocks found so far */
+
+#define MAXBADFREE	10	/* max bad in free list before abort */
+#define MAXDUPFREE	10	/* max dup in free list before abort */
+
+#define GOOD	1		/* returned by bad() in util.c */
+#define	BAD	0
+
+#define	TRUE	1		/* errflag possibilities */
+#define	FALSE	0
+extern 	int	errflag;	/* errflag indicates not to do phases */
+
+#define OK	1		/* used to indicate excessive bad/dup */
+#define STOP	0		/* blocks in an inode in phase1.c     */
+#define BAD_DUP	2
+
+#define FIRSTIN	2		/* First real inode number */
+
+#define	ND	10		/* Number of Direct Blocks */
+#undef	NI
+#define	NI	1
+#define	NII	1
+#define	NIII	1
+#undef	NADDR
+#define	NADDR	(ND+NI+NII+NIII)
+extern	int	offsets[];	/* table of offsets for level of indirection */
+				/* for the blocks in an inode */
+
+extern	char	nextchar();	/* used in util.c */
+extern	int	fsfd;		/* file system file descriptor */
+extern 	int	mdaction;	/* default action for this invocation */
+extern 	int	daction;	/* default action for current file system */
+extern  int 	writeflg;	/* system write ok or read-only */
+extern  int	qflag;		/* quiet fsck flag */
+extern	int	fflag;		/* fast fsck flag */
+extern	int	sflag;		/* force free list salvation	*/
+extern	daddr_t	fsize;		/* file system size in blocks */
+extern	int	isize;		/* first block not in inode list */
+				/* isize is NOT unsigned so that comparisons */
+				/* with longs will not cast the long to */
+				/* unsigned thus producing confusing results */
+
+extern  daddr_t	totfree;	/* running count of total free blocks */
+extern 	unsigned	ninodes;/* Number of inodes in the files system */
+extern 	char	*fsname;	/* file system name */
+extern  fsize_t  pinfo();	/* returns size of file, in phase2.c */
+extern	ino_t	lostfound();	/* returns inumber of lost+found dir */
+extern struct dinode *ptrino(); /* returns a ptr to inode, give number */
+extern 	char databuf[];		/* buffer to read in block, used throughout */
+extern	char buf2[];		/* alternate data buffer */
+extern 	daddr_t	cdbn;		/* current block number, used by nextblock() */
+#define DSIZE	(sizeof(struct direct))
+extern 	char *lostname;		/* name of lost+found directory */
+extern  char *nameit();		/* nameing function for lost dirs and files */
+extern 	int	depth;		/* used during tree traversal in phase2.c */
+extern  struct direct *path[]; 	/* used during tree traversal in phase2.c */
+extern	char	*typename();	/* return string to type of inode */
+extern 	struct filsys *sbp;	/* Super Block */
+extern 	int	sbpfix;		/* flag for super block fixes */
+extern  struct stat stats;	/* used by statit() in util.c */
+extern	dev_t	rootdev;	/* root device number */
+extern	dev_t	fsysrdev;	/* file system real device number */
+extern	int	mounted;	/* flag indicating mountedness of filesystem */
+extern 	int	changeflg;	/* file system modified flag */
+extern 	int	fixerup;	/* flag to rebuild free list */
+extern	char	*fixit;		/* Prompt message phase[45].c */
+extern 	int	numfiles;	/* num files in system */
+extern	daddr_t	imap();		/* function for disk block mapping in util.c */
+extern	fsize_t	lostsize;	/* Size of files cleared in phase4.c */
+extern	char 	*tmpfile;	/* TMP File name for virtual.c */
+
+#define SUCCESS	1		/* used in connect() in phase3.c */
+#define FAILURE	0
+
+#define	MODEMASK	0x07
+#define ALLOCMASK	0x06
+#define UNALLOC		0x00
+#define UNKNOWN		0x01
+#define	IDIR		0x02
+#define	IREG		0x03
+#define ICHR		0x04
+#define IBLK		0x05
+#define IPIPE		0x06
+#define IBAD_IDUP	0x08
+#define VISITED		0x10
+#define UNREFDIR	0x20
+#define CHILDDIR	0x40
+#define IFREELIST	0x80
+
+/*
+ *	Macros for tables
+ */
+
+#if SMALLMODEL
+/* Actions for virtual block system */
+enum vact { testBlock, markBlock, unmarkBlock, grabBlock,
+	    testDup, markDup, unmarkDup, setDup,
+	    Flags, setFlags, orFlags,
+	    linkCtr, incLinkctr, setLinkctr };
+	      
+#define testblock(bn)  findblock((unsigned long)(bn), testBlock)
+#define markblock(bn)  findblock((unsigned long)(bn), markBlock)
+#define unmarkblock(bn) findblock((unsigned long)(bn), unmarkBlock)
+
+#define testdup(bn) findblock((unsigned long)(bn), testDup)
+#define markdup(bn) findblock((unsigned long)(bn), markDup)
+#define unmarkdup(bn) findblock((unsigned long)(bn), unmarkDup)
+
+#define flags(ino) findblock((unsigned long)(ino), Flags)
+#define setflags(ino, data) findblock((unsigned long)(ino), setFlags, data)
+#define orflags(ino, data)  findblock((unsigned long)(ino), orFlags, data)
+
+#define linkctr(ino) findblock((unsigned long)(ino), linkCtr)
+#define inclinkctr(ino) findblock((unsigned long)(ino), incLinkctr)
+#define setlinkctr(ino, data) findblock((unsigned long)(ino), setLinkctr, data)
+
+#define badblks(ino)	(flags(ino)&IBAD_IDUP)
+
+#else
+unsigned short *linkPtr;
+unsigned char  *flagPtr, *blockPtr, *dupPtr;
+
+#define bix(bn)	 (((unsigned long)(bn)) >> LOGNBPC)
+#define bitm(bn) (1 << ((bn) & (NBPC - 1)))
+
+#define testblock(bn)	(blockPtr[bix(bn)] &  bitm(bn))
+#define markblock(bn)	(blockPtr[bix(bn)] |= bitm(bn))
+#define unmarkblock(bn) (blockPtr[bix(bn)] ^= bitm(bn))
+
+#define testdup(bn)	(dupPtr[bix(bn)] &  bitm(bn))
+#define markdup(bn)	(dupPtr[bix(bn)] |= bitm(bn))
+#define unmarkdup(bn)	(dupPtr[bix(bn)] ^= bitm(bn))
+
+#define flags(ino)		flagPtr[ino - 1]
+#define setflags(ino, data)	(flags(ino) = data)
+#define orflags(ino, data)	(flags(ino) |= data)
+
+#define linkctr(ino)	linkPtr[ino - 1]
+#define inclinkctr(ino) (++linkctr(ino))
+#define setlinkctr(ino, data)	(linkctr(ino) = data)
+
+#define badblks(ino)	(flags(ino) & IBAD_IDUP)
+#endif
+
+/*
+ *	Miscellany
+ */
+#define	NBPC	8			/* number of bits per character */
+#define	LOGNBPC	3		/* Log2 Number of Bits per Character    */
+#define	MAXINTN	255			/* used for interleave table	*/
+					/* in phase6.c			*/
+/*
+ *	Stdio Stuff
+ */
+extern char *malloc();
+extern char *calloc();
+#undef putchar(c)
+#define putchar(c) { char b = c; write(1, &b, 1); }
+@
+
+
+1.6
+log
+@update by cef for 2/386
+@
+text
+@d175 2
+a176 1
+char *linkPtr, *flagPtr, *blockPtr, *dupPtr;
+@
+
+
+1.5
+log
+@update by cef from first 386 fsck checkin
+@
+text
+@d211 1
+@
+
+
+1.4
+log
+@changes by cef for large model and auto-build large vs. small
+@
+text
+@d172 1
+a172 1
+#define badblks(ino)	( flags(ino)&IBAD_IDUP )
+a173 2
+#define putchar(c) { char b = c; write(1, &b, 1); }
+
+a175 4
+	      
+#define testblock(bn)	(blockPtr[bn >> LOGNBPC] &  (1 << (bn & (NBPC - 1))))
+#define markblock(bn)	(blockPtr[bn >> LOGNBPC] |= (1 << (bn & (NBPC - 1))))
+#define unmarkblock(bn) (blockPtr[bn >> LOGNBPC] ^= (1 << (bn & (NBPC - 1))))
+d177 2
+a178 3
+#define testdup(bn)	(dupPtr[bn >> LOGNBPC] &  (1 << (bn & (NBPC - 1))))
+#define markdup(bn)	(dupPtr[bn >> LOGNBPC] |= (1 << (bn & (NBPC - 1))))
+#define unmarkdup(bn)	(dupPtr[bn >> LOGNBPC] ^= (1 << (bn & (NBPC - 1))))
+d180 8
+d211 1
+a211 1
+
+@
+
+
+1.3
+log
+@changes by cef to support large model.
+@
+text
+@d15 6
+@
+
+
+1.2
+log
+@update provided by epstein
+@
+text
+@d143 1
+a143 2
+#define	LOGNBPC	3		/* Log2 Number of Bits per Character    */
+
+d168 24
+a194 1
+
+d196 1
+a201 2
+
+#define putchar(c) { char b = c; write(1, &b, 1); }
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d85 1
+@

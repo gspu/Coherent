@@ -1,0 +1,1573 @@
+.TH sh "" "" Command
+.PC "The Bourne shell"
+\fBsh [\-ceiknstuvx] \fItoken ...\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB\-c\fI cmds\fR"
+Read commands from \fIcmds\fR
+.IC \fB\-e\fR
+Exit on any error if noninteractive
+.IC \fB\-i\fR
+Interactive even if no tty attached
+.IC \fB\-k\fR
+Place all keyword args into global environment
+.IC \fB\-n\fR
+Read commands but do not execute them
+.IC \fB\-s\fR
+Read commands from stdin, write output to stderr
+.IC \fB\-t\fR
+Read and execute one command only
+.IC \fB\-u\fR
+Report error if actual value of shell variable is null
+.IC \fB\-v\fR
+Print each line as read
+.IC \fB\-x\fR
+Print each command and argument as executed
+.IC \fB\-\fR
+Cancel \fB\-v\fR and \fB\-x\fR options
+.Pp
+The following reserved tokens may not be used in the first
+position of the command unless quoted:
+.Pp
+	\fBcase do done elif else fi for in then until while { } ( )\fR
+.Pp
+If the first token is not reserved, it is treated as the name of a command.
+The remaining tokens are treated as arguments.
+The characters \fB* ? [ ]\fR specify patterns that match file names.
+To quote characters or strings, these escape characters are provided:
+.Pp
+	\fB'...' "..." \e \fR
+.Pp
+Each \fItoken,\fR unless quoted, is checked for substitutions.
+.HE
+.II shell^Bourne
+.II "Bourne shell"
+.II "command, definition"
+.II "token, definition"
+.II "pipeline, definition"
+.II "background, execution in"
+.II "multiprocessing execution"
+.II "here document"
+The \*(CO system offers two command interpreters:
+.BR ksh ,
+the Korn shell; and
+.BR sh ,
+the Bourne shell.
+.B sh
+is the default \*(CO command interpreter.
+The tutorial included in this manual describes the Bourne shell in detail.
+.PP
+As you will see from the following description, a shell is both a command
+interpreter and a programming language in its own right.
+It would be worth your while to spend some time in learning the rudiment's
+of the shell's programming language; doing so will help you to use your
+\*(CO system to best advantage.
+.SH Commands
+A
+.I command
+consists of one or more tokens.
+A
+.I token
+is a string of text characters (i.e., one or more
+alphabetic characters, punctuation marks, and numerals)
+delineated by spaces, tabs, or newlines.
+.PP
+A \fIsimple command\fR consists of the command's name, followed by zero or
+more tokens that represent arguments to the command, names of files,
+or shell operators.
+A \fIcomplex command\fR uses shell constructs to execute one or more
+commands conditionally.
+In effect, a complex command is a mini-program that you write in the
+shell's programming language and that
+.B sh
+interprets.
+.SH "Shell Operators"
+.B sh
+recognizes a number of operators that form pipes, that redirect input
+and output to commands, and that let you define the conditions under which
+a given command are executed.
+.II |
+.II pipe
+.IP "\fIcommand \fB| \fIcommand\fR"
+The \fIpipe\fR operator:
+let the output of one command serve as the input to a second.
+You can combine commands with `|' to form
+.IR pipelines .
+A pipeline passes the standard output of the first (leftmost) command
+to the standard input of the second command.
+For example, in the pipeline
+.DM
+	sort customers | uniq | more
+.DE
+.IP
+.B sh
+invokes
+.B sort
+to sort the contents of file
+.BR customers .
+It then pipes the output of
+.B sort
+into the command
+.BR uniq ,
+which outputs one unique copy of the text that is input into it.
+.B sh
+then pipes the output of
+.B uniq
+to the command
+.BR more ,
+which displays it on your terminal one screenful at a time.
+Note that under \*(CO, unlike \*(MD, pipes are executed concurrently:
+that is,
+.B sort
+does not have to finish its work before
+.B uniq
+and
+.B more
+can begin to receive input and go to work.
+.II ;
+.IP "\fIcommand \fB; \fIcommand\fR"
+Execute commands on a command line sequentially.
+The command to the left of the `;' executes to completion; then the
+command to the right of it executes.
+For example, in the command line
+.DM
+	a | b ; c | d
+.DE
+.IP
+first executes the pipeline
+.B "a | b"
+then, when
+.B a
+and
+.B b
+are finished, executes the pipeline
+.BR "c | d" .
+.II &
+.II background
+.IP "\fIcommand \fB&\fR"
+Execute a command in the background.
+This operator must follow the command, not precede it.
+It prints the process identifier of the command on the standard output, so
+you can use the \fBkill\fR command to kill that process should something
+go wrong.
+This operator lets you execute more than one command simultaneously.
+For example, the command
+.DM
+	fdformat -v /dev/fha0 &
+.DE
+.IP
+formats a high-density, 5.25-inch floppy disk in drive 0 (that is, drive A);
+but while the disk is being formatted,
+.B sh
+returns the command line prompt so you can
+immediately enter another command and begin to work.
+If you did not use the `&' in this command, you would have to wait until
+formatting was finished before you could enter another command.
+.II &&
+.II "execute upon success"
+.IP "\fIcommand \fB&& \fIcommand\fR"
+Execute a command upon success.
+.B sh
+executes the command that follows the token `&&'
+only if the command that precedes it returns a zero exit status,
+which signifies success.
+For example, the command
+.DM
+	cd /etc
+	fdformat -v /dev/fha0 && badscan -o proto /dev/fha0 2400
+.DE
+.IP
+formats a floppy disk, as described above.
+If the format was successful,
+it then invokes the command
+.B badscan
+to scan the disk for bad blocks;
+if it was not successful, however, it does nothing.
+.II ||
+.II "execute upon failure"
+.IP "\fIcommand\fB || \fIcommand\fR
+Execute a command upon failure.
+This is identical to operator `&&', except that the second command is
+executed if the first returns a non-zero status, which signifies failure.
+For example, the command
+.DM
+	/etc/fdformat -v /dev/fha0 || echo "Format failed!"
+.DE
+.sp \n(pDu
+formats a floppy disk.
+If formatting failed, it echoes the message \fBFormat failed!\fR on your
+terminal; however, if formatting succeeds, it does nothing.
+.sp \n(pDu
+Note that the tokens
+newline, `;' and `&' bind less tightly than `&&' and `||'.
+.B sh
+parses command lines from left to right if separators bind equally.
+.II >
+.II "redirect standard output"
+.IP \fB>\fIfile\fR
+Redirect into
+.I file
+all text written to the standard output,
+which normally is written onto your screen.
+For example, the command
+.DM
+	sort customers >customers.sort
+.DE
+.IP
+sorts file
+.B customers
+and writes the sorted output into file
+.BR customers.sort .
+.B sh
+creates
+.B customers.sort
+if it does not exist, and destroys its previous contents if it does exist.
+.II >>
+.II "redirect standard output and append"
+.IP \fB>>\fIfile\fR
+Append onto
+.I file
+all text written to the standard output,
+which normally is written onto your screen.
+If
+.I file
+does not exist,
+.B sh
+creates it; however, if the file already exists,
+.B sh
+appends the output onto its contents rather than destroying them.
+For example, the command
+.DM
+	sort customers.now | uniq >>customers.all
+.DE
+.IP
+sorts file
+.BR customers.now ,
+pipes its output to command
+.BR uniq ,
+which throws away duplicate lines of
+input, and appends the results onto file
+.BR customers.all .
+.II <
+.II "redirect standard input"
+.IP "\fB<\fIfile\fR"
+Redirect input.
+Here,
+.B sh
+reads the contents of a file and processes them as if you
+had typed them from your keyboard.
+For example, the command
+.DM
+	ed textfile <edit.script
+.DE
+.IP
+invokes the line editor
+.B ed
+to edit
+.BR textfile ;
+however, instead of reading editing commands from your keyboard,
+.B sh
+passes to
+.B ed
+the contents of file
+.BR edit.script .
+This command would let you prepare an editing script that you could execute
+repeatedly upon files rather than having to type the same commands over
+and over.
+.II <<
+.II "here document"
+.IP "\fB<< \fItoken\fR\fR"
+Prepare a ``here document''.
+This operator tells
+.B sh
+to accept standard input from the shell input until it reads
+the next line that contains only
+.IR token .
+For example, the command
+.DM
+	cat >FOO <<\e!
+		Here is some text.
+	!
+.DE
+.IP
+redirects all text between `<<\e!' and `!' to the \fBcat\fR command.
+The operator `>' in turn redirects the output of
+.B cat
+into file
+.BR FOO .
+.B sh
+performs parameter substitution on the here document unless the leading
+.I token
+is quoted; parameter substitution and quoting are described below.
+.II 2>
+.II "redirect standard error"
+.IP "\fIcommand \fB2> \fIfile\fR"
+Redirect into
+.I file
+all text written to the standard error,
+which normally is written onto your screen.
+For example, the command
+.DM
+	nroff -ms textfile >textfile.p 2>textfile.err
+.DE
+.IP
+invokes the command
+.B nroff
+to format the contents of
+.BR textfile .
+It redirects the output of
+.B nroff
+(i.e., the standard output) into
+.BR textfile.p ;
+it also redirects any error messages that
+.B nroff
+may generate into file
+.BR textfile.err .
+.IP
+Please note that a command may use up to 20 streams.
+By default, stream 0 is the standard input; stream 1 is the standard output;
+and stream 2 is the standard error.
+.B sh
+lets you redirect any of these streams individually into a file,
+or combine streams into each other.
+.II <&
+.II "redirect file stream"
+.IP \fB<&\fIn\fR
+.B sh
+can redirect the standard input and output to duplicate other file descriptors.
+(See the Lexicon article
+.B "file descriptor"
+for details on what these are.)
+This operator duplicates the standard input from file descriptor
+.IR n .
+.II >&
+.II "duplicate file stream"
+.IP \fB>&\fIn\fR
+Merge one output stream with another.
+For example,
+.DM
+	2>&1
+.DE
+.IP
+merges the output of file descriptor 2 (the standard error)
+with that file descriptor 1 (the standard output).
+.II <&-
+.II "close standard input"
+.IP \fB<&-\fR
+Close the standard input.
+.II >&-
+.II "close the standard output"
+.IP \fB>&-\fR
+Close the standard output.
+.PP
+When you execute a command in the foreground,
+that command inherits the file descriptors and signal traps (described below)
+of the invoking shell, modified by any specified redirection.
+When you execute a command in the background,
+it receives its input from the null device
+.B /dev/null
+(unless you redirect its input and output),
+and ignores all interrupt and quit signals.
+.SH "File-Name Patterns"
+If a token contains any of the characters `?', `*', or `[',
+.B sh
+interprets it as being a file-name
+.IR pattern .
+.B sh
+``expands'' a pattern into the names of zero or more files in the
+current directory.
+These characters are sometimes called ``wildcards,'' because each
+can represent any of several values, depending upon how you use them:
+.IP \fB?\fR 0.3i
+Match any single character except newline.
+For example, the command
+.DM
+	ls name?
+.DE
+.IP
+prints the name of any file that consists of the string
+.B name
+plus any one character.
+If
+B name
+is followed by no characters, or is followed by two or more
+characters, it will not be printed.
+.IP \fB*\fR
+Match a string of zero or more characters, other than newline.
+For example, the command
+.DM
+	ls name*
+.DE
+.IP
+prints the name of any file that begins with the string
+.BR name ,
+followed by zero or more other characters.
+Likewise, the command
+.DM
+	ls name?*
+.DE
+.IP
+prints the name of any file that consists of the string
+.B name
+followed by at least one character.
+Unlike \fBname*\fR, the token \fBname?*\fR insists that be followed by
+at least one character before it will be printed.
+.IP \fB[!\fIxyz\fB]\fR
+Exclude characters \fIxyz\fR from the string search.
+For example, the command
+.DM
+	ls [!abc]*
+.DE
+.IP
+prints all files in the current directory except those that begin with
+.BR a ,
+.BR b ,
+or
+.BR c .
+.IP "\fB[\fIC\fB\-\fIc\fB]\fR"
+Enclose alternatives to match a single character.
+A hyphen `\-' indicates a range of characters.
+For example, the command
+.DM
+	ls name[ABC]
+.DE
+.IP
+prints the names of files
+.BR nameA ,
+.BR nameB ,
+and
+.B nameC
+(assuming, of course, that those files exist in the current directory).
+The command
+.DM
+	ls name[A-K]
+.DE
+.IP
+prints the names of files
+.B nameA
+through
+.B nameK
+(again, assuming that they exist in the current directory).
+.PP
+When
+.B sh
+reads a token that contains one of the above characters,
+it replaces the token in the command line with
+an alphabetized list of file names that match the pattern.
+If it finds no matches, it passes the token unchanged to the command.
+For example, when you enter the command
+.DM
+	ls name[ABC]
+.DE
+.PP
+.B sh
+replaces the token
+.B name[ABC]
+with
+.BR nameA ,
+.BR nameB ,
+and
+.B nameC
+(again, if they exist in the current directory), so the command now reads:
+.DM
+	ls nameA nameB nameC
+.DE
+.PP
+It then passes this second, transformed version of the command line to the
+command
+.BR ls .
+.PP
+Note that the slash `/' and leading period `.' must be matched explicitly in
+a pattern.
+The slash, of course, separates the elements of a path name;
+whereas a period at the begin of a file name usually
+(but not always) indicates that that file has special significance.
+.SH "Pattern Matching in Prefixes and Suffices"
+.B sh
+recognizes special constructs that let you match patterns
+in the prefices and suffices of a string:
+.IP \fB{#\fIparameter\^\fB}\fR
+This operator gives the number of characters in
+.IR parameter .
+For example, the command
+.DM
+	foo=BAZZ ; echo ${#foo}
+.DE
+.IP
+prints `4' on your screen, which is the number of characters that comprise
+variable
+.BR foo .
+.IP \fB{\fIstring1\^\fB%\fIstring2\^\fB}\fR
+This returns the longest string for which the beginning of
+.I string1
+matches
+.IR string2 .
+For example, if variable
+.B xyzzy
+is initialized to string
+.BR usr/bin/cpio ,
+then the command
+.DM
+	echo ${xyzzy%/*}
+.DE
+.IP
+echoes the string
+.BR usr/bin .
+.IP \fB{\fIstring1\^\fB%%\fIstring2\^\fB}\fR
+This returns the shortest string for which the beginning of
+.I string1
+matches
+.IR string2 .
+For example, if variable
+.B xyzzy
+is initialized to
+.BR usr/bin/cpio ,
+then the command
+.DM
+	echo ${xyzzy%/*}
+.DE
+.IP
+echoes the string
+.BR usr .
+.IP \fB{\fIstring1\^\fB#\fIstring2\^\fB}\fR
+This returns the longest string for which the end of
+.I string1
+matches
+.IR string2 .
+For example, if variable
+.B plugh
+is initialized to the string
+.BR usr/bin/cpio" ,
+the command
+.DM
+	echo ${plugh#*/}
+.DE
+.IP
+echoes
+.BR bin/cpio .
+.IP \fB{\fIstring1\^\fB##\fIstring2\^\fB}\fR
+This returns the shortest string for which the end of
+.I string1
+matches
+.IR string2 .
+For example, given that
+.BR "plugh=usr/bin/cpio" ,
+the command
+.DM
+	echo ${plugh##*/}
+.DE
+.IP
+echoes
+.BR cpio .
+.PP
+The following shows how to use these expressions to implement the command
+.BR basename :
+.DM
+	basename () {
+		set $(echo ${1##*/}) $2
+		echo ${1%$2}
+	}
+.DE
+.SH "Quoting Text"
+From time to time, you will want to ``turn off'' the special meaning of
+characters.
+For example, you may wish to pass a token that contains a literal asterisk
+to a command; to do so, you need a way to tell \fBsh\fR not to expand the
+token into a list of file names.
+Therefore,
+.B sh
+recognizes the \fBquotation operators\fR
+`\e', `"', and `''.
+These ``turn off'' (or \fIquote\fR) the special meaning of operators.
+.PP
+The backslash `\e' quotes the following character.
+For example, the command
+.DM
+	ls name\e*
+.DE
+.PP
+lists a file named
+.BR name* ,
+and no other.
+.PP
+The shell ignores a backslash immediately followed by a newline,
+called a
+.IR "concealed newline" .
+This lets you give more arguments to a command than will fit on one line.
+For example, the command
+.DM
+	cc -o output file1.c file2.c file3.c \e
+		file4.c file5.c file19.c
+.DE
+.PP
+invokes the C compiler
+.B cc
+to compile a set of C source files,
+the names of which extend over more than one line of input.
+You will find this to be extremely helpful, especially when you write
+scripts and \fBmakefile\fRs, to help you write neat, easily read commands.
+.PP
+A pair of apostrophes '\ '
+prevents interpretation of any enclosed special characters.
+For example, the command
+.DM
+	find . -name '*.c' -print
+.DE
+.PP
+finds and prints the name of any C-source file in the current directory
+and any subdirectory.
+The command
+.B find
+interprets the `*' internally;
+therefore, you want to suppress the shell's expansion of that operator,
+which is accomplished by enclosing that token between apostrophes.
+.PP
+A pair of quotation marks "\ " has the same effect.
+Unlike apostrophes, however,
+.B sh
+performs parameter substitution and command-output substitution
+(described below) between quotation marks.
+.SH "Environmental Variables"
+Environmental variables are names that can be assigned
+string values on a command line, in the form
+.DM
+	\fIname\fP=\fIvalue\fP
+.DE
+.PP
+.I name
+must begin with a letter, and can contain letters, digits, and the
+underscore character `_'.
+In shell input, `$\fIname\fR' or `${\fIname\fR}'
+represents the value of the variable.
+Consider, for example, the commands:
+.DM
+	TEXT=mytext
+	nroff -ms $TEXT >$TEXT.out
+.DE
+.PP
+Here,
+.B sh
+expands
+.B $TEXT
+before it executes the command
+.BR fBnroff .
+This technique is very useful in large, complex scripts:
+by using variables, you can change the behavior of the script by editing
+one line, rather than having to edit numerous variables throughout the script.
+.PP
+Note that if an assignment precedes a command on the same command line,
+the effect of the assignment is local to that command;
+otherwise, the effect is permanent.
+For example,
+.DM
+	kp=one testproc
+.DE
+.PP
+assigns variable
+.B kp
+the value
+.B one
+only for the execution of the script
+.BR testproc .
+.PP
+.B sh
+sets the following environmental variables by default:
+.IP \fB#\fR 0.3i
+The number of actual positional parameters given to the current command.
+.IP \fB@\fR
+The list of positional parameters ``$1 $2 ...''.
+.IP \fB*\fR
+The list of positional parameters ``$1'' ``$2'' ...
+(the same as `$@' unless quoted).
+.IP \fB\-\fR
+Options set in the invocation of the shell or by the
+.B set
+command.
+.IP \fB?\fR
+The exit status returned by the last command.
+.IP \fB!\fR
+The process number of the last command invoked with `&'.
+.IP \fB$\fR
+The process number of the current shell.
+.PP
+.B sh
+also references the following variables:
+.IP \fBCWD\fR 0.75i
+Current working directory:
+this is the name of the directory in which you are now working.
+Note that this variable is not common to other implementations of
+.BR sh .
+Code that uses it may not be portable to other operating systems.
+.IP \fBHOME\fR
+Initial working directory; usually specified in the password file
+.BR /etc/passwd .
+.IP \fBIFS\fR
+Delimiters for tokens; usually space, tab and newline.
+.IP \fBLASTERROR\fR
+Name of last command returning nonzero exit status.
+.IP \fBMAIL\fR
+Checked at the end of each command.
+If file specified in this variable is new since last command, the
+shell prints ``You have mail.'' on the user's terminal.
+.IP \fBPATH\fR
+Colon-separated list of directories searched for commands.
+.IP \fBPS1\fR
+First prompt string.
+By default, this is `$'.
+.IP \fBPS2\fR
+Second prompt string.
+By default, this is `>'.
+.B sh
+prints it when it expects more input, such as when
+an open quotation-mark has been typed but a close
+quotation-mark has not been typed, or within a shell construct.
+.PP
+Beginning with release 4.2, the \*(CO implementation of
+.B sh
+performs word-expansion on the values of the variables
+.B PS1
+and
+.BR PS2 .
+For example, setting the variables
+.DM
+	export SITE=$(uname -s)
+	PS1="$SITE $USER $(pwd) > "
+.DE
+.PP
+create a prompt that consists of your site name, your login identifier,
+and your current working directory.
+.PP
+The special forms `${\fInameCtoken\fR}'
+perform conditional parameter substition:
+.I C
+is one of the characters `-', `=', `+', or `?'.
+.B sh
+replaces the form `${\fIname-token\fR}' by the value of
+.I name
+if it is set, and by
+.I token
+otherwise.
+It handles the `=' form in the same way, but also sets the value of
+.I name
+to
+.I token
+if it was not set previously.
+.B sh
+replaces the `+' form by
+.I token
+if the given
+.I name
+is set.
+It replaces the `?' form by the value of
+.I name
+if set, and otherwise prints
+.I token
+and exits from the shell.
+.PP
+.II unset
+To unset an environmental variable, use the command
+.BR unset .
+The command
+.B "unset \-f"
+undefines a shell function (described below).
+.SH "Command Output Substitution"
+.B sh
+can use the output of a command as shell input
+(e.g., as command arguments)
+by enclosing the command between grave characters \(ga\ \(ga.
+For example, to list the contents of the directories named in file
+.BR dirs ,
+use the command
+.DM
+	ls -l \(gacat dirs\(ga
+.DE
+.SH Constructs
+.B sh
+lets you control execution of commands by the constructs
+.BR break ,
+.BR case ,
+.BR continue ,
+.BR for ,
+.BR if ,
+.BR until ,
+and
+.BR while .
+It recognizes each reserved word only if it occurs unquoted as
+the first token of a command.
+This implies that a separator
+must precede each reserved word in the following constructs;
+for example, newline or `;' must precede
+.B do
+in the
+.B for
+construct.
+.PP
+The following describes each shell construct:
+.IP "\fBbreak \fI[n]\fR"
+Exit from a
+.BR for ,
+.BR until ,
+or
+.B while
+loop.
+If
+.I n
+is given, exit
+from the preceding
+.I n
+levels of looping.
+.IP "\fBcase \fItoken \fBin [ \fIpattern [ | pattern ] ...\fB) \fIsequence\fB;; ] ... esac\fR"
+Check
+.I token
+against each
+.IR pattern ,
+and execute
+.I sequence
+associated with the first matching
+.IR pattern .
+.IP "\fBcontinue \fI[n]\fR"
+Branch to the end of the
+.IR n th
+enclosing
+.BR for ,
+.BR until ,
+or
+.B while
+construct.
+.IP "\fBfor \fIname [ \fBin \fItoken ... ] \fBdo \fIsequence \fBdone\fR"
+Execute
+.I sequence
+once for each
+.IR token .
+On each iteration,
+.I name
+takes the value of the next
+.IR token .
+If the
+.B in
+clause is omitted,
+.B $@
+is assumed.
+For example, to list all files ending with
+.B .c:
+.DM
+	for i in *.c
+	do
+		cat $i
+	done
+.DE
+.IP "\fBif \fIseq1 \fBthen \fIseq2 [ \fBelif \fIseq3 \fBthen \fIseq4 ] ... [ \fBelse \fIseq5 ] \fBfi\fR"
+Execute
+.IR seq1 .
+If the exit status is zero, execute
+.IR seq2 ;
+if not, execute the optional
+.I seq3
+if given.
+If the exit status of
+.I seq3
+is zero, then execute
+.IR seq4 ,
+and so on.
+If the exit status of all tested sequences is nonzero, execute
+.IR seq5 .
+.IP "\fBuntil \fIsequence1 [ \fBdo \fIsequence2 ] \fBdone\fR"
+Execute
+.I sequence2
+until the execution of
+.I sequence1
+results in an exit status of zero.
+.IP "\fBwhile \fIsequence1 [ \fBdo \fIsequence2 ] \fBdone\fR"
+Execute
+.I sequence2
+as long as the execution of
+.I sequence1
+results in an exit status of zero.
+.IP "\fB(\fIsequence\^\fB)\fR
+Execute
+.I sequence
+within a subshell.
+This allows
+.I sequence
+to change the current directory, for example,
+and not affect the enclosing environment.
+.IP "\fB$(( ))\fR"
+Perform arithmetic expansion, as described in the \*(PX standard.
+The expression syntax is that of C, but the only values are
+signed integers, and there are no side effects
+(i.e., no increment, decrement, or assignment operators).
+The expression given inside this form is first
+processed for further expansions, then evaluated according to the C
+rules for arithmetic; the result is placed on the output command line.
+This is most useful when used with
+.B return
+and
+.B exit
+to form return values from functions and scripts.
+.\" It can also be used with
+.\" .B shift
+.\" to process like $OPTIND.
+.IP
+To use
+.B "$(())"
+with the shell's logical operators and statements,
+you must use some indirection.
+For example:
+.DM
+	val () {
+		return $((! ($*)))
+	}
+.DE
+.IP
+Or:
+.DM
+	val $(($# < 5)) && {
+		echo Not enough arguments
+		exit 1
+	}
+.DE
+.IP
+Or:
+.DM
+	val $((${#foo} > 8)) {
+		echo $foo is too long; use 8 characters, maximum.
+		exit 2
+	}
+.DE
+.IP "\fB{\fIsequence\fR"
+.IS \fB}\fR
+Braces simply enclose a
+.IR sequence .
+Note that the closing `}' must appear on the line that follows \fIsequence\fR.
+.SH "Special Commands"
+.B sh
+usually executes commands with the
+.B fork
+system call, which creates another process.
+However,
+.B sh
+executes the commands in this section either directly or with an
+.B exec
+system call.
+See the Lexicon articles on
+.B fork()
+and
+.B exec
+for details on these calls.
+.IP "\fB. \fIscript\fR"
+Read and execute commands from
+.IR script .
+Positional parameters are not allowed.
+.B sh
+searches the directories named in the environmental variable
+.B PATH
+to find the given
+.IR script .
+.IP "\fB: \fI[token ...]\fR"
+A colon `:' indicates a \*(QLpartial comment\*(QR.
+.B sh
+normally ignores all commands on a line that begins with a colon,
+except for redirection and such symbols as
+.BR $ ,
+.BR { ,
+.BR ? ,
+etc.
+.IP \fB#\fR
+A complete comment:
+if
+.B #
+is the first character on a line, \fBsh\fR ignores all text that follows
+on that line.
+.IP "\fBcd \fIdir\fR"
+Change the working directory to
+.I dir.
+If no argument is given, change to the home directory.
+.IP "\fBcommand \fIcommand \fB[\fIarguments\^\fB]\fR"
+When you issue a command,
+.B sh
+by default looks for that command among its set of built-in functions;
+if it cannot find it there, it looks for the command in the directories set
+in the environmental variable
+.BR PATH .
+Thus, if you have given a shell function the same name as an executable
+command,
+.B sh
+will never find the executable.
+.IP
+The command
+.B command
+tells
+.B sh
+to look for
+.I command
+in the directories named in your
+.BR PATH ,
+and ignore any shell function with that name.
+.IP "\fBdirs\fR"
+.B sh
+lets you maintain a ``directory stack'', or stack of names of
+directories.
+You can push, pop, and otherwise manipulate the contents of this stack,
+which you can use for any purpose for which you need to access a number
+of directory names quickly.
+The command
+.B dirs
+prints the contents of the directory stack.
+The commands
+.B pushd
+and
+.B popd
+also manipulate the directory stack.
+.IP
+Please note that these commands are unique to the \*(CO implementation of
+.BR sh ,
+and are not portable to other shells.
+\fICaveat utilitor.\fR
+.IP "\fBeval \fI[token ...]\fR"
+Evaluate each
+.I token
+and treat the result as shell input.
+.IP "\fBexec \fI[command]\fR"
+Execute
+.I command
+directly rather than performing
+.BR fork .
+This terminates the current shell.
+.IP "\fBexit \fI[status]\fR"
+Set the exit status to
+.IR status ,
+if given; otherwise, the previous status is unchanged.
+If the shell is not interactive, terminate it.
+.IP "\fBexport \fI[name ...]\fR"
+.B sh
+executes each command in an
+.IR environment ,
+which is a set of shell-variable names and their corresponding values.
+When you invoke
+.BR sh ,
+it inherits all environmental variables that are currently set; and it,
+in turn, normally passes those variables to each command it invokes.
+.B export
+specifies that the shell should pass the modified value of each given
+.I name
+to the environment of subsequent commands.
+When no
+.I name
+is given,
+.B sh
+prints the name and value of each variable marked for export.
+.IP "\fBgetopts \fIoptstring name [arg ...]\fR"
+Parse the
+.IR arg s
+to
+.IR command.
+See the Lexicon entry for
+.B getopts
+for details.
+.IP "\fBpopd \fI[N ...]\fR"
+Pop the directory stack.
+When used without an argument, it pops the stack once.
+When used with one or more numeric arguments,
+.B popd
+pops the specified items from the stack; item 0 is the top of the stack.
+(For information on the directory stack, see the entry for the command
+.BR dirs ,
+above.)
+.IP "\fBpushd \fI[dir0 ... dirN]\fR"
+Push
+.I dir0
+through
+.I dirN
+onto the directory stack, and
+change the current directory to the last directory pushed onto the stack.
+When called without an argument,
+.B pushd
+exchanges the two top stack elements.
+(For information on the directory stack, see the entry for the command
+.BR dirs ,
+above.)
+.IP "\fBread \fIname ...\fR"
+Read a line from the standard input and assign each token of the input
+to the corresponding shell variable
+.IR name .
+If the input contains fewer tokens than the
+.I name
+list, assign the null string to extra variables.
+If the input contains more tokens, assign the last
+.I name
+the remainder of the input.
+.IP "\fBreadonly \fI[name ...]\fR"
+Mark each shell variable
+.I name
+as a read only variable.
+Subsequent assignments to read only variables will not be permitted.
+With no arguments, print the name and value of each read only variable.
+.IP "\fBset [\-ceiknstuvx \fI[name ...] ]\fR"
+Set listed flag.
+If
+.I name
+list is provided, set shell variables
+.I name ...
+to values of positional parameters beginning with
+.BR $1 .
+.IP \fBshift\fR
+Reset positional parameter
+.B 1
+to the value
+.BR $2 ,
+reset positional parameter
+.B 2
+to the value
+.BR $3 ,
+and so on.
+The original value of positional parameter
+.B 1
+is thrown away.
+.IP \fBtimes\fR
+Print the total user and system times for all executed processes.
+.IP "\fBtrap \fI[command] [n ...]\fR"
+Execute
+.I command
+if
+.B sh
+receives signal
+.I n.
+If
+.I command
+is omitted, reset traps to original values.
+To ignore a signal, pass null string as
+.I command.
+With
+.I n
+zero, execute
+.I command
+when the shell exits.
+With no arguments, print a description of the traps that have already been set.
+.IP "\fBumask \fI[nnn]\fR"
+Set user file creation mask to
+.I nnn.
+If no argument is given, print the current file creation mask.
+.IP "\fBwait \fI[pid]\fR"
+Delay execution of further commands until the process that has
+process identifier
+.I pid
+terminates.
+If
+.I pid
+is omitted, delay until every child process has finished executing.
+If no child process is active, this command finishes immediately.
+.SH "Shell Functions"
+Beginning with \*(CO release 4.2,
+.B sh
+lets you declare and use functions.
+In effect, a function is a script that you load permanently into memory.
+.PP
+A function takes the form
+.DM
+	function() {
+		command $1 $2
+		other_function $3 $4
+	}
+.DE
+.PP
+A function begins with its name.
+A pair of parentheses after the name tell
+.B sh
+that this is a function.
+.PP
+The body of the function is enclosed within braces.
+A function can call any command, plus any other function.
+Arguments are passed into the function using the syntax
+.BR $1 ,
+.BR $2 ,
+etc., just as with a shell script.
+.PP
+.B sh
+keeps an internal list of the functions that you have declared.
+When it reads an identifier, it first searches its list of functions;
+if the identifier is not a function,
+.B sh
+then assumes that the identifier names a command, and it attempts to find
+that command in the directories you have named in your
+environmental variable
+.BR PATH .
+Thus, if you give a function the same name as that of an existing command,
+.B sh
+will always use the function and never find the command.
+To suppress this behavior, use the command
+.BR command ,
+described above.
+.PP
+The following example function copies one file into another:
+.DM
+	copyfile(){
+		if [ $# -eq 1 ]; then
+			cat $1
+		else
+			cp $1 $2
+		fi
+	}
+.DE
+.SH "Shell Library"
+.II "shell^library"
+.II "/usr/lib/shell_lib.sh"
+The file
+.B /usr/lib/shell_lib.sh
+holds a library of shell functions.
+You can import these library with the `.' command.
+.PP
+This library holds the following functions:
+.PP
+\fBbasename "\fIpathname\^\fB" [ "\fIsuffix\^\fB" "\fIprefix\^\fB" ]\fR
+.IS
+.II basename
+.II "shell functions^basename"
+This function behaves the same as the command
+.BR basename ,
+except that you can include an option
+.I prefix
+to strip as well as a
+.IR suffix .
+.PP
+\fBfile_exists "\fIfilename\^\fB"\fR
+.IS
+.II file_exists
+.II "shell functions^file_exists"
+Return
+.B true
+if file
+.I filename
+exists.
+.PP
+\fBfind_file "\fIfilename\^\fB" "\fIpath\^\fB" "path\^\fB" ...\fR
+.IS
+.II "find_file"
+.II "shell functions^find_file"
+Seek
+.I file
+in every directory named in a
+.IR path .
+.PP
+\fBhas_prefix "\fIstring\^\fB" "\fIprefix\^\fB"\fR
+.IS
+.II has_prefix
+.II "shell functions^has_prefix"
+Return
+.B true
+if
+.I string
+is prefixed with the string
+.IR prefix .
+.PP
+\fBis_empty "\fIarg\^\fB"\fR
+.IS
+.II is_empty
+.II "shell functions^is_empty"
+Return true if
+.I arg
+is null.
+.PP
+\fBis_equal "\fIarg1\^\fB" "\fIarg2\^\fB"\fR
+.IS
+.II is_equal
+.II "shell functions^is_equal"
+Return true if
+.I arg1
+and
+.I arg2
+are equal.
+.PP
+\fBis_numeric "\fIargument\^\fB"\fR
+.IS
+.II is_numeric
+.II "shell functions^is_numeric"
+Return
+.B true
+if
+.I argument
+is numeric, or
+.B false
+if it is not.
+.PP
+\fBis_yes "\fIarg\^\fB"\fR
+.IS
+.II is_yes
+.II "shell_functions^is_yes"
+Return true if
+.I arg
+matches `Y', `y', ``YES'', or ``yes''; one if the
+argument matches `N', `n', ``NO'', or ``no''; two if it matches anything else.
+.PP
+\fBparent_of "\fIfile\^\fB" [ "\fIprefix\^\fB" "\fIsuffix\^\fB" ]\fR
+.IS
+.II parent_of
+.II "shell_functions^parent_of"
+By default, write the path name of
+.IR file .
+.I prefix
+and
+.I suffix
+are the prefix and suffix of a command run with the output path name.
+.PP
+\fBread_input "\fIprompt\^\fB" "\fIvariable\^\fB" "\fIdefault\^\fB" "\fIvalidate\^\fB"\fR
+.IS
+.II read_input
+.II "shell functions^read_input"
+Echo
+.I prompt
+onto the screen.
+Write what the user types into
+.IR variable .
+If the user does not respond, set
+.I variable
+to
+.IR default .
+The optional argument
+.I validate
+names a function that
+.B read_input
+calls to evaluate what the user types; often, this is the shell-library
+function
+.BR require_yes_or_no .
+.PP
+\fBrequire_yes_or_no "\fIarg\^\fB"\fR
+.IS
+.II require_yes_or_no
+.II "shell functions^require_yes_or_no"
+This is the validation function for
+.BR read_input .
+Check whether
+.I arg
+is properly affirmative or negative.
+.PP
+\fBsource_path "\fIscript\^\fB" [ "\fIcommand\^\fB " ]\fR
+.IS
+.II source_path
+.II "shell_functions^source_path"
+Echo the name of the directory that contains
+.IR script .
+Normally, this function is called with the
+.B $0
+of
+.IR script .
+It pipes its output into
+.I command
+if this argument is set; if it is not, it writes to the standard output.
+.PP
+\fBsplit_path "\fIstring\^\fB" "\fIprefix\^\fB" "\fIsuffix\^\fB"\fR
+.IS
+.II split_path
+.II "shell functions^split_path"
+This function dissects
+.IR string ,
+which must consist of colon-separated elements, such as a
+.B PATH
+string.
+.I prefix
+and
+.I suffix
+give, respectively, the prefix and suffix of the
+command that is run for every component of
+.IR string .
+.PP
+\fBval "\fIexpression\^\fB"\fR
+.IS
+.II val
+.II "shell functions^val"
+Return the negated value of
+.IR expression .
+You can use this function to turn shell arithmetic expressions into test
+results.
+.SH "Scripts"
+Shell commands can be stored in a file, or
+.I script.
+The command
+.DM
+	sh \fIscript\fP [ \fIparameter ...\fP ]
+.DE
+.PP
+executes the commands in
+.I script
+with a new subshell
+.BR sh .
+Each
+.I parameter
+is a value for a positional parameter, as described below.
+If you have used the command
+.B chmod
+to make
+.I script
+executable, you may omit the
+.B sh
+command.
+.PP
+.II "#!"
+To ensure that a script is executed by
+.BR sh ,
+begin the script with the line:
+.DM
+	#!/bin/sh
+.DE
+.PP
+Parameters of the form `$\fIn\fR'
+represent command-line arguments within a script.
+.I n
+can range from zero through nine; \fB$0\fR always gives the name of the script.
+These parameters are also called \fIpositional parameters\fR.
+.PP
+If no corresponding parameter is given on the command line,
+the shell substitutes the null string for that parameter.
+For example, if the script \fBformat\fR contains the following line:
+.DM
+	nroff -ms $1 >$1.out
+.DE
+.PP
+then invoking
+.B format
+with the command
+.DM
+	format mytext
+.DE
+.PP
+invokes the command
+.B nroff
+to format the contents of
+.BR mytext ,
+and writes the output into file
+.BR mytext.out .
+If, however, you invoke this command with the command line
+.DM
+	format mytext yourtext
+.DE
+.PP
+the script formats
+.B mytext
+but ignores
+.B yourtext
+altogether.
+.PP
+Reference \fB$*\fR represents all command-line arguments.
+If, for example, we change the contents of script \fBformat\fR
+to read
+.DM
+	nroff -ms $* >$1.out
+.DE
+.PP
+then the command
+.DM
+	format mytext yourtext
+.DE
+.PP
+invoke
+.B nroff
+to format the contents of
+.B mytext
+and
+.BR yourtext ,
+and write the output into file
+.BR mytext.out .
+.PP
+Commands in a script can also be executed with the \. (dot) command.
+It resembles the
+.B sh
+command, but the current shell executes the script commands
+without creating a new subshell or a new environment;
+therefore, you cannot use command-line arguments.
+.SH "Command-line Options"
+.IP "\fB\-c \fIstring\fR" 0.4i
+Read shell commands from
+.I string.
+.IP \fB\-e\fR
+Exit on any error (command not found or command returning nonzero status)
+if the shell is not interactive.
+.IP \fB\-i\fR
+The shell is interactive, even if the terminal is not attached to it;
+print prompt strings.
+For a shell reading a script, ignore the signals
+.B SIGTERM
+and
+.BR SIGINT .
+.IP \fB\-k\fR
+Place all keyword arguments into the environment.
+Normally,
+.B sh
+places only assignments to variables preceding
+the command into the environment.
+.IP \fB\-n\fR
+Read commands but do not execute them.
+.IP \fB\-s\fR
+Read commands from the standard input
+and write shell output to the standard error.
+.IP \fB\-t\fR
+Read and execute one command rather than the entire file.
+.IP \fB\-u\fR
+If the actual value of a shell variable is blank,
+report an error rather than substituting the null string.
+.IP \fB\-v\fR
+Print each line as it is read.
+.IP \fB\-x\fR
+Print each command and its arguments as it is executed.
+.IP \fB\-\fR
+Cancel the
+.B \-x
+and
+.B \-v
+options.
+.PP
+If the first character of argument 0 is `-',
+.B sh
+reads and executes the scripts
+.B /etc/profile
+and
+.B $HOME/.profile
+before reading the standard input.
+.B /etc/profile
+is a convenient place for initializing system-wide variables, such as
+.BR TIMEZONE .
+.SH Files
+\fB/etc/profile\fR \(em System-wide initial commands
+.br
+\fB$HOME/.profile\fR \(em User-specific initial commands
+.br
+\fB/dev/null\fR \(em For background input
+.br
+\fB/tmp/sh*\fR \(em Temporary files
+.br
+\fB/usr/lib/shell_lib.sh\fR \(em Library of shell functions
+.SH "See Also"
+.Xr "commands," commands
+.Xr "dup()," dup
+.Xr "environ," environ
+.Xr "exec," exec
+.Xr "fork()," fork
+.Xr "getopts," getopts
+.Xr "ksh," ksh
+.Xr "login," login
+.Xr "newgrp," newgrp
+.Xr "set," set
+.Xr "signal()," signal
+.Xr "test," test
+.Xr "Using COHERENT," using_coh
+.Xr "vsh" vsh
+.br
+\fIIntroduction to sh, the Bourne Shell\fR, tutorial
+.PP
+For a list of all commands associated with
+.BR sh ,
+see the section
+.B "Shell Commands"
+in the
+.B commands
+Lexicon article.
+.SH Diagnostics
+.B sh
+notes on the standard error all
+syntax errors in commands, and all commands that it cannot find.
+Syntax errors cause a noninteractive shell to exit.
+It gives error messages if I/O redirection is incorrect.
+.B sh
+returns the exit status of the last command executed or
+the status specified by an
+.B exit
+command.

@@ -1,0 +1,584 @@
+/*
+ * mkdev.c Wed Mar  2 08:14:20 1994 CST
+ *
+ * Allow the user to configure devices requiring loadable drivers.
+ * Uses common routines in build0.c: cc -o mkdev mkdev.c build0.c
+ * Usage: mkdev [ -bdv ] { scsi | at | floppytape } ...
+ * Options:
+ *	-b	Use special processing when invoked from /etc/build
+ *	-d	Debug; echo commands without executing
+ *	-v	Verbose
+ *
+ * Roughly, do the following for device "foo" ( at | aha154x | ss )
+ *
+ *	cp /drv/foo /tmp/drv/foo
+ *	make necessary patches "xxx" to /tmp/drv/foo
+ *	if not "at" device
+ *		make nodes (mknod -f) for the device
+ *	if build mode (bflag)
+ *		if rootdev
+ *			append to LDKERFILE:
+ *				HD=foo.a
+ *				HDUNDEF="-u foocon_"
+ *				HDPATCH="drvl_+xx0=foocon_"
+ *		/etc/drvld -r /tmp/drv/foo
+ *		append to PATCHFILE:
+ *			cp /tmp/drv/foo /mnt/drv/foo
+ *		if rootdev, also append to PATCHFILE:
+ *			/conf/patch /mnt/coherent xxx
+ *	else - not build mode
+ *		display message saying patched driver is at /tmp/drv/foo
+ */
+
+#define	__KERNEL__	1
+
+#include <stdio.h>
+#include <sys/devices.h>
+#include <sys/con.h>
+#include <string.h>
+
+#include "build0.h"
+
+#define	VERSION		"V4"		/* version number */
+#define	USAGEMSG	"Usage:\t/etc/mkdev [ -bdv ] [ scsi | at | floppytape ] ...\n"
+#define BUFLEN		50
+#define AHA_HDS		64
+#define AHA_SPT		32
+#define AHA_DMA		5
+#define AHA_IRQ		11
+#define AHA_BASE	0x330
+#define TANDY_HDS	16
+
+/*
+ * calculate the minor number for the specified floppy tape device:
+ *	uu:	unit # (0-3)
+ *	vv:	brand of drive: 0=Archive/Mountain/Summit, 1=CMS, 2&3=rsvd
+ *	s:	select: 0=hard select, 1=soft select
+ *	r:	rewind: 0=no rewind on close, 1=rewind on close
+ */
+#define	FL_TAPE_MINOR(uu,vv,s,r)   ((1<<6)|((uu)<<4)|((s)<<3)|((r)<<2)|(vv))
+#define	FL_TAPE_HARD_SEL	0
+#define	FL_TAPE_SOFT_SEL	1
+#define	FL_TAPE_NOREW		0
+#define	FL_TAPE_REW		1
+
+/* Forward. */
+void	scsi();
+void	at();
+void	floppy_tape();
+
+/* Globals. */
+int	bflag;				/* Invoked from /etc/build. */
+
+main(argc, argv) int argc; char *argv[];
+{
+	register char *s;
+
+	argv0 = argv[0];
+	usagemsg = USAGEMSG;
+	if (argc > 1 && argv[1][0] == '-') {
+		for (s = &argv[1][1]; *s; ++s) {
+			switch(*s) {
+			case 'b':	++bflag;	break;
+			case 'd':	++dflag;	break;
+			case 'v':	++vflag;	break;
+			case 'V':
+				fprintf(stderr, "mkdev: %s\n", VERSION);
+				break;
+			default:	usage();	break;
+			}
+		}
+		--argc;
+		++argv;
+	}
+
+	if (argc == 1) {
+		usage();
+	} else {
+		/* Do specified things. */
+		while (--argc > 0) {
+			if (strcmp (argv [1], "scsi") == 0)
+				scsi ();
+			else if (strcmp (argv [1], "at") == 0)
+				at ();
+			else if (strcmp (argv [1], "floppytape") == 0)
+				floppy_tape ();
+			else
+				usage ();
+			++argv;
+		}
+	}
+	exit (0);
+}
+
+void
+scsi()
+{
+	char *dev;
+	int id, lun;
+	int ss_dev = 0;
+	int fut_dev = 0;
+	unsigned nsdrive = 0;
+	int ss_int = 5, new_int;
+	unsigned int ss_base = 0xCA00, new_base;
+	unsigned char ss_patch[200], buf[BUFLEN];
+	FILE *fp;
+	int aha_dev = 0;
+	int sd_hds = AHA_HDS, sd_spt = AHA_SPT;
+	int sd_dma = AHA_DMA;
+	int hai_dev = 0;
+	int sd_irq = AHA_IRQ, sd_base = AHA_BASE;
+	int hai_tape = 0;
+	int hai_disk = 0;
+	int unit;
+	int choice;
+
+	static int sd_irq_list[] = { 9, 10, 11, 12, 14, 15 };
+	int sd_irq_ct = sizeof(sd_irq_list)/sizeof(sd_irq_list[0]);
+
+	static int sd_base_list[] =
+		  { 0x130, 0x134, 0x230, 0x234, 0x330, 0x334 };
+	int sd_base_ct = sizeof(sd_base_list)/sizeof(sd_base_list[0]);
+
+	static int sd_dma_list[] = { 0, 5, 6, 7 };
+	int sd_dma_ct = sizeof(sd_dma_list)/sizeof(sd_dma_list[0]);
+
+	static int sd_hds_list[] = { 64, 16, 255 };
+	int sd_hds_ct = sizeof(sd_hds_list)/sizeof(sd_hds_list[0]);
+
+	static int sd_spt_list[] = { 32 };
+	int sd_spt_ct = sizeof(sd_spt_list)/sizeof(sd_spt_list[0]);
+
+	printf(
+"\nCOHERENT currently supports the following SCSI host adapters:\n"
+"\n"
+"(1) Adaptec AHA-154x series, with or without tape support\n"
+"(2) Adaptec AHA-154x series, no tape support (alternate driver)\n\n"
+"(3) Seagate ST01 or ST02\n"
+"(4) Future Domain TMC-845/850/860/875/885\n"
+"(5) Future Domain TMC-840/841/880/881\n"
+"\n"
+		);
+retry:
+	switch(get_int(0, 5, "Enter a number from the above list or 0 to exit:")) {
+	case 0:
+		return;
+	case 1:
+		hai_dev = 1;
+		break;
+	case 2:
+		aha_dev = 1;
+		break;
+	case 3:
+		ss_dev = 1;
+		break;
+	case 4:
+		ss_dev = 1;
+		fut_dev = 1;
+		nsdrive |= 0x8000;
+		break;
+	case 5:
+		ss_dev = 1;
+		fut_dev = 1;
+		nsdrive |= 0x4000;
+		break;
+	default:
+		goto retry;		/* should never happen */
+	}
+
+	if (aha_dev || hai_dev) {
+		sd_irq = get_allowed_int(sd_irq_list, sd_irq_ct, ga_dec,
+		  sd_irq, ga_nonstrict,
+		  "\nWhich IRQ does the host adapter use? ");
+		sd_base = get_allowed_int(sd_base_list, sd_base_ct, ga_hex,
+		  sd_base, ga_nonstrict,
+		  "\nWhat is the hexadecimal host adapter base port address? ");
+		sd_dma = get_allowed_int(sd_dma_list, sd_dma_ct, ga_hex,
+		  sd_dma, ga_nonstrict,
+		  "\nWhich DMA channel does the host adapter use? ");
+		sd_hds = get_allowed_int(sd_hds_list, sd_hds_ct, ga_dec,
+		  sd_hds, ga_nonstrict,
+		  "\nHow many heads will be used for translation mode? ");
+		sd_spt = get_allowed_int(sd_spt_list, sd_spt_ct, ga_dec,
+		  sd_spt, ga_nonstrict,
+		  "\nHow many sectors per track will be used for translation mode? ");
+	}
+
+	/*
+	 * If Seagate or Future Domain, allow patching host adapter
+	 * variables SS_INT and SS_BASE.
+	 */
+	if (ss_dev) {
+printf("\nPlease refer to the installation guide for your host adapter.\n");
+
+		/* Get value to patch for SS_INT */
+printf("\nWhich IRQ number does the host adapter use [%d]? ", ss_int);
+		while (1) {
+			new_int = ss_int;
+			fgets(buf, BUFLEN, stdin);
+			sscanf(buf, "%d", &new_int);
+			if (new_int < 3 || new_int > 15)
+printf("Type a number between 3 and 15 or just <Enter> for the default: ");
+			else
+				break;
+		} /* endwhile */
+		ss_int = new_int;
+
+		/* Get value to patch for SS_BASE */
+printf("Your host adapter is configured for a base segment address.  Possible\n");
+printf("values are: C800, CA00, CC00, CE00, DC00, and DE00.\n");
+printf("What is your 4-digit hexadecimal base address [%04lx]? ", ss_base);
+		while (1) {
+			new_base = ss_base;
+			fgets(buf, BUFLEN, stdin);
+			sscanf(buf, "%x", &new_base);
+			if (new_base < 0xC800 || new_base > 0xDE00)
+printf("Type a number between C800 and DE00 or just <Enter> for the default: ");
+			else
+				break;
+		} /* endwhile */
+		ss_base = new_base;
+	}
+	
+	/* Make device nodes. */
+	printf(
+"You must specify a SCSI-ID (0 through 7) for each SCSI hard disk device.\n"
+"Each SCSI hard disk device can contain up to four partitions.\n\n"
+	);
+
+	for (;;) {
+
+		printf(
+	"1) Enter SCSI ID for SCSI hard disk (fixed or removable media)\n"
+	"2) End entering SCSI ID values.\n\n"
+		);
+		choice = get_int(1, 2, "Your choice:");
+
+		if (choice == 2)
+			break;
+
+		id = get_int(0, 7, "\nEnter the next disk device SCSI-ID:");
+
+		if(bflag) {
+			int y;
+			for(y = 0 ; y <= 3 ; y++){
+				sprintf(cmd,
+				"/bin/echo sd%dx sd%d%c %d %d >> /tmp/devices",
+				id, id, ( 'a' + y ), SCSI_MAJOR, ((16 * id) + y));
+				sys(cmd,S_FATAL);
+			}
+		}
+
+		hai_disk |= (1 << id);
+
+		lun = 0;
+		nsdrive |= (1 << id);
+
+		dev = "/dev";
+		printf("%s device has been installed at id %d\n\n", "Disk", id);
+	}
+
+	/* At this point all SCSI id's attached to the host are known. */
+
+	/*
+	 * Ugly patching stuff specific to "ss" driver.
+	 */
+	if (ss_dev) {
+
+		/* "ss" device driver requires patching to work at all. */
+		sprintf (ss_patch,
+			 "NSDRIVE=0x%04x SS_INT=%d SS_BASE=0x%04x",
+			 nsdrive, ss_int, ss_base);
+
+		/* for target kernel */
+
+		idenable_dev ("ss");
+
+		idtune_var("SS_DISK_SPEC", nsdrive & 0xff);
+		idtune_var("SS_HBATYPE", (nsdrive >> 8) & 0xff);
+		idtune_var("SS_INT_SPEC", ss_int);
+		idtune_var("SS_BASE_SPEC", ss_base);
+
+		/* for second boot kernel */
+		fp = fopen(PATCHFILE,"a");
+
+		fprintf (fp, "/conf/patch /mnt/coherent drvl+%d=sscon \n",
+			 SCSI_MAJOR * sizeof (DRV));
+
+		fprintf (fp, "/conf/patch /mnt/coherent %s\n", ss_patch);
+
+		fclose (fp);
+
+		/* for first boot kernel */
+
+		sprintf (cmd, "/conf/kpatch -v %s", ss_patch);
+		sys (cmd, S_FATAL);
+		sprintf (cmd, "/conf/kpatch -v sscon:%d:in", SCSI_MAJOR);
+		sys (cmd, S_FATAL);
+
+		/*
+		 * Allow patching of the loaded driver parameters.
+		 */
+		for (unit = 0; unit < 7; unit++) {
+			if (nsdrive & (1 << unit)) {
+				sprintf (cmd, "/etc/hdparms -%c%c %s/sd%dx",
+					 'r', fut_dev ? 'f' : 's', dev, unit);
+				sys (cmd, S_NONFATAL);
+			}
+		}
+	} /* end of "ss" stuff */
+
+	/*
+	 * Ugly patching stuff specific to "aha154x" driver.
+	 * At this point all SCSI id's attached to the host are known.
+	 */
+	if (aha_dev) {
+		/*
+		 * Tandy Adaptec BIOS spoofs different head count than
+		 * Adaptec's Own Translation Mode.
+		 */
+
+		sprintf (ss_patch, "AHA_SD_SPT=%d AHA_SD_HDS=%d AHA_SDDMA=%d "
+		"AHA_SDIRQ=%d AHA_SDBASE=0x%x ",
+		sd_spt, sd_hds, sd_dma, sd_irq, sd_base);
+
+		/* for target kernel */
+
+		idenable_dev ("aha");
+		idtune_var("AHA_SD_SPT_SPEC", sd_spt);
+		idtune_var("AHA_SD_HDS_SPEC", sd_hds);
+		idtune_var("HAI_AHADMA_SPEC", sd_dma);
+		idtune_var("HAI_AHAINTR_SPEC", sd_irq);
+		idtune_var("HAI_AHABASE_SPEC", sd_base);
+
+		/* for second boot kernel */
+		fp = fopen (PATCHFILE,"a");
+
+		fprintf (fp, "/conf/patch /mnt/coherent drvl+%d=sdcon\n",
+			 SCSI_MAJOR * sizeof (DRV));
+
+		fprintf (fp, "/conf/patch /mnt/coherent %s\n", ss_patch);
+
+		fclose (fp);
+
+		/* for first boot kernel */
+
+		sprintf (cmd, "/conf/kpatch -v %s", ss_patch);
+		sys (cmd, S_FATAL);
+		sprintf (cmd, "/conf/kpatch -v sdcon:%d:in", SCSI_MAJOR);
+		sys (cmd, S_FATAL);
+	}
+
+	/*
+	 * Ugly patching stuff specific to "hai" driver.
+	 * At this point all SCSI id's attached to the host are known.
+	 */
+	if (hai_dev) {
+		/*
+		 * Tandy Adaptec BIOS spoofs different head count than
+		 * Adaptec's Own Translation Mode.
+		 */
+		sprintf (ss_patch, "HAI_SD_SPT=%d HAI_SD_HDS=%d "
+		"HAI_AHADMA=%d:s HAI_AHAINTR=%d:s "
+		"HAI_AHABASE=0x%x:s HAI_DISK=%d HAI_TAPE=%d ",
+		sd_spt, sd_hds, sd_dma, sd_irq, sd_base, hai_disk, hai_tape);
+
+		/* for target kernel */
+
+		idenable_dev ("hai");
+
+		idtune_var("HAI_SD_SPT_SPEC", sd_spt);
+		idtune_var("HAI_SD_HDS_SPEC", sd_hds);
+		idtune_var("HAI_AHADMA_SPEC", sd_dma);
+		idtune_var("HAI_AHAINTR_SPEC", sd_irq);
+		idtune_var("HAI_AHABASE_SPEC", sd_base);
+		idtune_var("HAI_DISK_SPEC", hai_disk);
+		idtune_var("HAI_TAPE_SPEC", hai_tape);
+
+		/* for second boot kernel */
+		fp = fopen (PATCHFILE,"a");
+
+		fprintf (fp, "/conf/patch /mnt/coherent drvl+%d=scsicon \n",
+			 SCSI_MAJOR * sizeof (DRV));
+
+		fprintf (fp, "/conf/patch /mnt/coherent %s\n", ss_patch);
+
+		fclose (fp);
+
+		/* for first boot kernel */
+
+		sprintf (cmd, "/conf/kpatch -v %s", ss_patch);
+		sys (cmd, S_FATAL);
+		sprintf (cmd, "/conf/kpatch -v scsicon:%d:in", SCSI_MAJOR);
+		sys (cmd, S_FATAL);
+
+	} /* end of "hai" stuff */
+
+}
+
+void
+at()
+{
+	unsigned char at_patch[80];
+	FILE *fp;
+	int at_poll;
+	char line[512];
+	int normal_at_poll;
+	int fl_dsk_ch_prob;
+	int use_ps1;
+	int at_drive_ct;
+
+	/* Normal vs. alternate polling. */
+
+	printf(
+"\nMost AT-compatible controllers work with NORMAL polling.\n\n"
+"Perstor controllers and some IDE hard drives require ALTERNATE polling.\n\n"
+"If you get \"<Watchdog Timeout>\" or \"at0:TO\" errors with normal polling,\n"
+"use alternate polling.\n\n");
+
+	if (normal_at_poll = yes_no ("Use NORMAL polling")) {
+		strcpy (at_patch, "ATSREG=0x3F6 ");
+		at_poll = 0x3F6;
+	} else {
+		strcpy (at_patch, "ATSREG=0x1F7 ");
+		at_poll = 0x1F7;
+	}
+
+	printf("\n%s polling will be used.\n\n",
+	  normal_at_poll ? "NORMAL" : "ALTERNATE");
+
+/* Ask for the number of AT drives so that we add the proper number of
+ * AT drive device entries to the /tmp/devices file. When we return to build,
+ * we will eventually read the devices file to build our fdisk command.
+ * Bob H. (8/10/93)
+ */
+	at_drive_ct = get_int(1, 2,"Enter number of non-SCSI hard drives:");
+
+
+/* now add the appropriate number of AT drives to /tmp/devices. This file will
+ * be read by build() later when generating an fdisk command.
+ * Bob H. (8/10/93)
+ */
+	if(bflag) {
+		int y, z;
+
+		for(z = 0 ; z < at_drive_ct ; z++){
+			for(y = 0 ; y <= 3 ; y++){
+				sprintf(cmd,
+				"/bin/echo at%dx at%d%c %d %d >> /tmp/devices",
+				z, z, ( 'a' + y ), AT_MAJOR, ((4 * z) + y));
+				sys(cmd,S_FATAL);
+			}
+		}
+	}
+
+	/* Normal vs. PS1 hard disk counts. */
+	if (use_ps1 = yes_no(
+	  "Are you installing on an IBM PS1 or ValuePoint?")) {
+		fl_dsk_ch_prob = 1;
+	} else {
+		fl_dsk_ch_prob = 0;
+	}
+
+	/* for target kernel */
+
+	idenable_dev ("at");
+
+	idtune_var("ATSREG_SPEC", at_poll);
+	if (use_ps1)
+		idtune_var("AT_DRIVE_CT", at_drive_ct);
+	idtune_var("FL_DSK_CH_PROB", fl_dsk_ch_prob);
+
+	/* for second boot kernel */
+	fp = fopen (PATCHFILE,"a");
+	fprintf (fp, "/conf/patch /mnt/coherent drvl+%d=atcon \n",
+		 AT_MAJOR * sizeof (DRV));
+	fprintf (fp, "/conf/patch /mnt/coherent %s\n", at_patch);
+	fprintf (fp, "/conf/patch /mnt/coherent fl_dsk_ch_prob=%d\n",
+	  fl_dsk_ch_prob);
+	if (use_ps1)
+		fprintf (fp, "/conf/patch /mnt/coherent at_drive_ct=%d\n",
+		  at_drive_ct);
+	fclose (fp);
+
+	/* for first boot kernel */
+
+	sprintf (cmd, "/conf/kpatch -v %s", at_patch);
+	sys (cmd, S_FATAL);
+	sprintf (cmd, "/conf/kpatch -v fl_dsk_ch_prob=%d", fl_dsk_ch_prob);
+	sys (cmd, S_FATAL);
+	if (use_ps1) {
+		sprintf (cmd, "/conf/kpatch -v at_drive_ct=%d", at_drive_ct);
+		sys (cmd, S_FATAL);
+	}
+	/* For PS1, this step must come AFTER at_drive_ct is fixed. */
+	sprintf (cmd, "/conf/kpatch -v atcon:%d:in", AT_MAJOR);
+	sys (cmd, S_FATAL);
+
+}
+
+/*
+ * floppy_tape:	add support for floppy tape (a really disgusting device)
+ *
+ *	1) give user some info regarding COH support for floppy tape
+ *	2) display a list of supported drives
+ *	3) query the user for type of drive
+ *	4) create device nodes for specified drive
+ *	5) (optional) test for which unit number the drive is seen as
+ */
+void
+floppy_tape()
+{
+	int	brand;		/* which brand of drive (from menu) */
+	int	i;		/* loop counter */
+
+	printf(
+"\nThe COHERENT system supports several brands of \"floppy tape backup\" drives,\n"
+"including QIC-40 and QIC-80 models from Archive, Colorado Memory Systems (CMS),\n"
+"Mountain, and Summit.\n\n"
+"Please specify the brand of floppy tape drive on this computer:\n\n"
+"\t0) Archive, Mountain, or Summit\n"
+"\t1) Colorado Memory Systems (CMS)\n"
+"\t2) Other\n\n"
+	);
+	brand = get_int(0, 2, "Enter drive type:");
+	if (brand == 2) {
+		printf(
+"\nYou have specified a brand of tape drive which is currently unsupported.\n"
+		);
+		return;
+	}
+	
+	/*
+	 * now create the following nodes for the specified drive brand:
+	 *	 Rewind		No Rewind	 Unit #
+	 *	--------	---------	---------
+	 *	DEV/rct0	DEV/nrct0	(unit #0)
+	 *	DEV/rct1	DEV/nrct1	(unit #1)
+	 *	DEV/rct2	DEV/nrct2	(unit #2)
+	 *	DEV/rct3	DEV/nrct3	(unit #3)
+	 *	DEV/rctss	DEV/nrctss	(soft select)
+	 *
+	 * where DEV is /mnt/dev if called from /etc/build and /dev otherwise.
+	 */
+	for (i = 0; i <= 3; ++i) {
+		sprintf(cmd, "/etc/mknod -f %s/rct%d c %d %d",
+			(bflag) ? "/mnt/dev" : "/dev", i, FL_MAJOR,
+			FL_TAPE_MINOR(i, brand, FL_TAPE_HARD_SEL, FL_TAPE_REW));
+		sys(cmd, S_NONFATAL);
+		sprintf(cmd, "/etc/mknod -f %s/nrct%d c %d %d",
+			(bflag) ? "/mnt/dev" : "/dev", i, FL_MAJOR,
+			FL_TAPE_MINOR(i, brand, FL_TAPE_HARD_SEL, FL_TAPE_NOREW));
+		sys(cmd, S_NONFATAL);
+	}
+	sprintf(cmd, "/etc/mknod -f %s/rctss c %d %d",
+		(bflag) ? "/mnt/dev" : "/dev", FL_MAJOR,
+		FL_TAPE_MINOR(0, brand, FL_TAPE_SOFT_SEL, FL_TAPE_REW));
+	sys(cmd, S_NONFATAL);
+	sprintf(cmd, "/etc/mknod -f %s/nrctss c %d %d",
+		(bflag) ? "/mnt/dev" : "/dev", FL_MAJOR,
+		FL_TAPE_MINOR(0, brand, FL_TAPE_SOFT_SEL, FL_TAPE_NOREW));
+	sys(cmd, S_NONFATAL);
+}
+
+/* end of mkdev.c */

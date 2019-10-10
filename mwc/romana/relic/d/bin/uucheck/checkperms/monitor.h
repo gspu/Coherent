@@ -1,0 +1,20 @@
+void open_monitor_file();	/* Create a new monitor file.  */
+void close_monitor_file();	/* Destroy the monitor file.  */
+void putchar_monitor_file();	/* Write to the monitor file.  */
+int getchar_monitor_file();	/* Read from the monitor file.  */
+void rewind_monitor_file();	/* Rewind the monitor file.  */
+int fseek_monitor_file();	/* Seek to an arbitrary position in the
+				 * monitor file.
+				 */
+void ungetchar_monitor_file();	/* Push one character back onto the monitor file.  */
+int my_getchar();		/* Special getchar for diverting i/o.  */
+int my_ungetchar();		/* Special ungetchar for diverting i/o.  */
+
+EXTERN boolean saving_to_monitor_file EQUALS(FALSE); /* Are we saving input?  */
+EXTERN boolean reading_from_monitor_file EQUALS(FALSE); /* Are we saving input?  */
+EXTERN int oldlineno;	/* This marks the start of the monitor file relative
+			 * to the input file.  (Which is what we really care
+			 * about anyway!)
+			 */
+EXTERN boolean hava_delay EQUALS(FALSE);  /* Do we have a delayed character?  */
+EXTERN int delayed_char;

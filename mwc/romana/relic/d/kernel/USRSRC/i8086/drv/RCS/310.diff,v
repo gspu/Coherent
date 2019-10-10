@@ -1,0 +1,233 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.06.10.14.42.07;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version prov by hal
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@*** alx310.c	Sat Feb  2 16:44:45 1991
+--- alx.c	Sat Feb 16 01:27:53 1991
+***************
+*** 25,34 ****
+--- 25,42 ----
+  
+  #define DTRTMOUT  3	/* DTR timeout interval in seconds for close */
+  #define	IENABLE	(IE_RxI+IE_TxI+IE_LSI)
++ #define IE_ALL	(IE_RxI|IE_TxI|IE_LSI|IE_MSI)
+  
++ #define RTS_ON()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) | MC_RTS); }
++ #define RTS_OFF()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) & ~MC_RTS); }
++ 
+  int	al_sg_set = 0;
+  int	al_sg_clr = 0;
+  static int poll_divisor;  /* set by set_poll_rate(), read by alxclk() */
++ static int drlsd;	/* delta carrier detect - set by alxintr(), read
++ 			   by alxcycle() */
++ static int rawin_ct;	/* number of characters in input silo */			   
++ static int want_rts;
+  
+  /*
+   * functions herein
+***************
+*** 135,141 ****
+  
+  	b = ALPORT;
+  
+! 	if ( inb(b+IER) & ~IENABLE ) { /* chip not found */
+  		u.u_error = ENXIO;
+  		return;
+  	}
+--- 143,149 ----
+  
+  	b = ALPORT;
+  
+! 	if ( inb(b+IER) & ~IE_ALL ) { /* chip not found */
+  		u.u_error = ENXIO;
+  		return;
+  	}
+***************
+*** 190,195 ****
+--- 198,205 ----
+  			*irqtty = tp_table[AL_NUM];
+  			outb(b+MCR, MC_RTS|MC_DTR|MC_OUT2);
+  		}
++ 		RTS_ON();
++ 		want_rts = 0;
+  	
+  		outb(b+IER, IENABLE);        /* enable interrupts */
+  	
+***************
+*** 316,322 ****
+  		if (tp->t_rawout.si_ix == tp->t_rawout.si_ox  && state)
+  			state--;
+  	}
+! 	outb(b+MCR, 0);
+  	com_usage[AL_NUM] = COM_UNUSED;
+  	set_poll_rate();
+  	CDUMP("closed")
+--- 326,335 ----
+  		if (tp->t_rawout.si_ix == tp->t_rawout.si_ox  && state)
+  			state--;
+  	}
+! 	/*
+! 	 * Turn off MC_OUT2 so IRQ can be used by other port.
+! 	 */
+! 	outb(b+MCR, inb(b+MCR)&(~MC_OUT2));
+  	com_usage[AL_NUM] = COM_UNUSED;
+  	set_poll_rate();
+  	CDUMP("closed")
+***************
+*** 343,350 ****
+--- 356,365 ----
+  {
+  	register int	s, b;
+  	int stat1, stat2;
++ 	char ier_save;
+  
+  	s = sphi();
++ 	ier_save=inb(b+IER);	/* some chips need this */
+  	b = ALPORT;
+  	stat1 = inb(b+MCR);		/* get current MCR register status */
+  	stat2 = inb(b+LCR);		/* get current LCR register status */
+***************
+*** 384,389 ****
+--- 399,405 ----
+  	default:
+  		ttioctl(tp, com, vec);
+  	}
++ 	outb(b+IER, ier_save);
+  	spl(s);
+  }
+  
+***************
+*** 466,472 ****
+  		/*
+  		 * Carrier changed.
+  		 */
+! 		if ( b & MS_DRLSD ) {
+  			/*
+  			 * wakeup open
+  			 */
+--- 482,489 ----
+  		/*
+  		 * Carrier changed.
+  		 */
+! 		if ((b & MS_DRLSD) || drlsd) {
+! 			drlsd = 0;
+  			/*
+  			 * wakeup open
+  			 */
+***************
+*** 482,487 ****
+--- 499,505 ----
+  				 * clear carrier flag; send hangup signal
+  				 */
+  				tp->t_rawin.si_ox = tp->t_rawin.si_ix;
++ 				rawin_ct = 0;
+  				tthup( tp );
+  			}
+  		}
+***************
+*** 497,502 ****
+--- 515,521 ----
+  		else
+  			tp->t_rawin.si_ox++;
+  	}
++ 	rawin_ct = 0;
+  
+  	/*
+  	 * Calculate free output slot count.
+***************
+*** 520,530 ****
+  	 * (Re)start output, wake sleeping processes, etc.
+  	 */
+  	ttstart( tp );
+  
+  	/*
+  	 * Schedule next cycle.
+  	 */
+! 	timeout( &tp->t_rawtim, HZ/10, alxcycle, tp );
+  }
+  
+  /*
+--- 539,554 ----
+  	 * (Re)start output, wake sleeping processes, etc.
+  	 */
+  	ttstart( tp );
++ 	
++ 	if (want_rts) {
++ 		RTS_ON();
++ 		want_rts = 0;
++ 	}
+  
+  	/*
+  	 * Schedule next cycle.
+  	 */
+! 	timeout( &tp->t_rawtim, HZ/20, alxcycle, tp );
+  }
+  
+  /*
+***************
+*** 619,624 ****
+--- 643,659 ----
+  		tp->t_rawin.si_buf[ tp->t_rawin.si_ix ] = b;
+  		if ( ++tp->t_rawin.si_ix >= sizeof(tp->t_rawin.si_buf) )
+  			tp->t_rawin.si_ix = 0;
++ 			
++ 		/*
++ 		 * Preliminary code!
++ 		 * De-assert RTS if we are close to filling the input silo.
++ 		 */	
++ 		rawin_ct++;
++ 		if (!want_rts && rawin_ct > SI_BUFSIZ / 4) {
++ 			RTS_OFF();
++ 			want_rts = 1;
++ 		}
++ 		
+  		goto rescan;
+  
+  	case Tx_INTR:
+***************
+*** 650,655 ****
+--- 685,707 ----
+  			defer( alxcycle, tp );
+  		}
+  		goto rescan;
++ 		
++ 	case MS_INTR:
++ 		/*
++ 		 * This is preliminary code - use delta of CTS from
++ 		 * modem to implement flow control.
++ 		 *
++ 		 * Sense delta of RLSD for use by alxcycle().
++ 		 */
++ 		b = inb(ALPORT+MSR);
++ 		if (b & MS_DCTS)
++ 			if (b & MS_CTS)
++ 				tp->t_flags &= ~T_STOP;
++ 			else
++ 				tp->t_flags |= T_STOP;
++ 		if (b & MS_DRLSD)
++ 			drlsd = 1;		
++ 		goto rescan;
+  	}
+  }
+  
+@

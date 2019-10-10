@@ -1,0 +1,230 @@
+.TH savelog "" "" Command
+.PC "Save a mail log"
+\fB/usr/lib/mail/savelog [\-c \fIcycle\^\fB] [\-g \fIgroup\^\fB] [\-l]
+		[\-m \fImode\^\fB] [\-u \fIuser\^\fB] [\-t] \fIfile ...\fR
+.PP
+.HS
+.IC "\fB\-c \fIcycle\fR
+Save no more than
+.I cycle
+versions of 
+.I file
+.IC "\fB\-g \fIgroup\fR"
+Give \fIgroup\fR the group ownership of \fIfile\fR and its archives
+.IC "\fB\-l\fR"
+Do not compress the log files
+.IC "\fB\-m \fImode\fR"
+Set permissions on the log files to \fImode\fR
+.IC "\fB\-t\fR"
+Touch \fIfile\fR
+.IC "\fB\-u \fIuser\fR"
+Make \fIuser\fR the owner of \fIfile\fR's archives
+.HE
+The script
+.B savelog
+archives each
+.IR file .
+This script normally is used to save copies of
+.BR smail 's
+log files, and of other files that grow relentlessly.
+It copies each
+.I file
+into a special archiving directory, and gives the copy a name
+that reflects how recently it was created.
+Unless you request otherwise, it also compresses each
+.IR file .
+.PP
+When it saves
+.IR file ,
+.B savelog
+copies it into directory
+.BR $PWD/OLD ,
+where
+.B $PWD
+represents the directory within which the file normally resides.
+If sub-directory
+.B OLD
+does not exist,
+.B savelog
+creates it, and gives it mode 0755.
+.PP
+As you probably will invoke
+.B savelog
+periodically to save a log file, this directory can hold an indefinite
+number of archives of
+.IR file ,
+each created at a different time in the past.
+To help you distinguish among these archives,
+.B savelog
+names them as follows:
+.DS
+	\fIfile\fB.\fInumber\fB[.\fIcompression_suffix\fB]\fR
+.DE
+.PP
+.I number
+represents the order in which the archives were created, zero being the newest;
+and
+.I compression_suffix
+indicates the suffix that the compression program gives the file \(em
+.B .Z
+if the archive is compressed with
+.B compress
+(which
+.B savelog
+uses by default), or
+.BR .gz
+if compressed with
+.BR gzip .
+Note that archive `0' is never compressed, on the off chance that a process
+still has its corresponding file opened for input.
+.PP
+If
+.I file
+does not exist or has zero length,
+.B savelog
+performs no further processing.
+To override this behavior, use option
+.BR \-t .
+.PP
+When
+.I file
+exists and has a length greater than zero,
+.B savelog
+performs the following actions:
+.IP \(bu 0.3i
+First, it increases by one the version number of each existing copy of
+.IR file .
+For example, if you are saving file
+.B foo
+for the seventh time, then
+.B savelog
+moves file
+.B foo.6
+to
+.BR foo.7 ;
+then moves
+.B foo.5
+to
+.BR foo.6 ;
+and so on.
+.B savelog
+does this regardless of whether an archive is compressed, or whether you
+used option
+.B \-t
+on the command line.
+By default,
+.B savelog
+keeps only seven versions of a given
+.IR file ,
+and throws away those versions that exceed that limit.
+To increase or decrease this limit, use command-line option
+.BR \-c ,
+described below.
+.IP \(bu
+If you did
+.I not
+use command-line option
+.BR \-t ,
+.B savelog
+next compresses the new \fIfile\fB.1\fR.
+It also changes this file, subject to the command-line options
+.BR \-m ,
+.BR \-u ,
+and
+.B \-g
+(described below).
+.IP \(bu
+It moves
+.I file
+to \fBOLD/\fIfile\^.0\fR.
+.IP \(bu
+If you use any of the command-line options
+.BR -m ,
+.BR -u ,
+.BR -g ,
+or
+.BR -t ,
+.B savelog
+re-creates
+.IR file ,
+subject to the given flags.
+.IP \(bu
+Finally,
+.B savelog
+modifies the newly created file \fBOLD/\fIfile\fB.0\fR,
+subject to the settings of command-line options
+.BR \-m ,
+.BR \-u ,
+and
+.BR \-g .
+.SH "Command-line Options"
+.B savelog
+recognizes the following command-line options:
+.IP "\fB\-c \fIcycle\fR
+Save no more than
+.I cycle
+versions of 
+.IR file .
+The default is seven, numbered `0' through `6'.
+.I cycle
+must be no less than two.
+Note that because numbering begins with zero,
+version number
+.I cycle
+of
+.I file
+is never created.
+.IP "\fB\-g \fIgroup\fR"
+Use the command
+.B chgrp
+to give
+.I group
+the group ownership of
+.I file
+and its archives.
+.IP "\fB\-l\fR"
+Do not compress any log files.
+.IP "\fB\-m \fImode\fR"
+Invoke the command
+.B chmod
+to set permissions on the log files to
+.IR mode .
+.IP "\fB\-t\fR"
+Touch
+.IR file \(em
+that is, create a new, empty copy of
+.I file
+after archiving it.
+This lets you ensure that the log file is re-created with correct permissions.
+.IP "\fB\-u \fIuser\fR"
+Invoke the command
+.B chown
+to make
+.I user
+the owner of the archives of
+.IR file .
+.SH "See Also"
+.Xr "commands," commands
+.Xr "mail [overview]," mail.o
+.Xr "uulog" uulog
+.SH Notes
+If you do not use any of the command-line options
+.BR \-m ,
+.BR \-u ,
+or
+.BR \-g ,
+.B savelog
+does not re-create
+.I file
+after archiving it.
+.PP
+Copyright \(co 1987, 1988 Ronald S. Karr and Landon Curt Noll.
+Copyright \(co 1992 Ronald S. Karr.
+.PP
+For details on the distribution rights and restrictions
+associated with this software, see file
+.BR COPYING ,
+which is included with the source code to the
+.B smail
+system; or type the command:
+.BR "smail \-bc" .

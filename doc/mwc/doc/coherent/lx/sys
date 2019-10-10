@@ -1,0 +1,1771 @@
+.TH sys "" "" "System Administration"
+.PC "Data base for UUCP connections"
+.B /usr/lib/uucp/sys
+.PP
+The file
+.B /usr/lib/uucp/sys
+describes how to communicate with a remote system.
+The \*(UU daemon
+.B uucico
+uses the information in this file to telephone a remote system,
+log into a remote system,
+and control what it allows a remote system to do on your system.
+.PP
+Command
+.B cu
+also reads file
+.B sys
+for information on how it can call a remote system.
+However, the following descriptions concentrate on how
+.B sys
+is used by
+.BR uucico .
+.SH "Structure of the sys File"
+.B sys
+has the following structure:
+.nf
+.sp \n(pDu
+	\fRcommand \fIargument\fR
+		...
+	\fBalternate\fR
+	\fRcommand \fIargument\fR
+		...
+	\fBalternate\fR
+	\fRcommand \fIargument\fR
+		...	
+	\fBsystem \fIremotesystem\fR
+	\fRcommand \fIargument\fR
+		...	
+	\fBalternate\fR
+	\fRcommand \fIargument\fR
+		...	
+	\fBsystem \fIremotesystem\fR
+	\fRcommand \fIargument\fR
+		...	
+	\fBalternate\fR
+	\fRcommand \fIargument\fR
+		...	
+.sp \n(pDu
+.fi
+Blank lines in the file are ignored.
+The body of the file consists of a series of commands.
+Each command defines one or more values;
+each value, in turn, determines one aspect of how your system
+interacts with a remote system.
+A backslash at the end of a line lets an entry extend over more than one
+one line.
+.PP
+The commands from the top of
+.B sys
+to the first
+.B system
+command set global values \(em that is,
+the values used by default when dealing with every remote system.
+Note that
+.B uucico
+recognizes a number of global values that are not explicitly written in
+.BR sys .
+.PP
+The command
+.B system
+names a remote system.
+The commands from one
+.B system
+command to the next (or the end of the file, whichever comes first)
+define the values that
+.B uucico
+uses when it communicates with that system.
+These system-specific values can override any of the global values.
+.PP
+The command
+.B alternate
+introduces a block of alternate values.
+The commands from one
+.B alternate
+command to the next
+.B alternate
+command (or to the next
+.B system
+command or to the end of the file, whichever comes first)
+set a block of alternate values.
+.B uucico
+uses a block of alternate values when the default values
+(and all preceding blocks of alternate values) fail for any reason.
+By defining blocks of alternate values, you can define multiple ways to
+interact with a remote system.
+.SH "Order of Command Execution"
+As you can see the above display, both the global section and each
+system-specific section can contain blocks of alternate commands.
+The order in which
+.B uucico
+reads blocks of commands is important:
+each block can contain its own version of a given command, and
+.B uucico
+uses the value set by the command that it has read
+.IR last .
+.PP
+The following describes the order in which
+.B uucico
+reads commands when it attempts to call site
+.IR remotesite :
+.IP \fB1.\fR 0.3i
+.B uucico
+reads its default global values (which are described below).
+It then reads the global-values section of
+.BR sys ,
+up to the first
+.B alternate
+command.
+.IP \fB2.\fR
+.B uucico
+reads the section
+.IR remotesite ,
+from its
+.B system
+command to the first
+.B alternate
+command.
+.IP \fB3.\fR
+.B uucico
+calls
+.IR remotesite .
+.IP \fB4.\fR
+If the call to
+.I remotesite
+succeeds, then all is well.
+If it fails, however, then
+.B uucico
+reads the first block of alternate commands in the global section,
+then the first block of alternate commands in the section for
+.IR remotesite .
+.IP
+Note that a block of alternate values can simply reproduce values set
+previously.
+This in effect forces
+.B uucico
+to try the same values once again.
+.IP \fB5.\fR
+.B uucico
+again calls
+.IR remotesite .
+.IP \fB6.\fR
+If the call succeeds, then all is well.
+If it fails,
+.B uucico
+reads the second block of alternate values (should there be one)
+in the global-defaults section, then the second block of alternate values
+(again, should there be one) in the section for
+.IR remotesystem .
+.B uucico
+makes its third attempt to call
+.IR remotesite .
+.PP
+This process continues either until
+.B uucico
+succeeds in getting through to
+.IR remotesite ,
+or until it runs out of blocks of alternate values in both the global
+section and in the site-specific section.
+.PP
+As you can see, it can be difficult at times to tell just what values
+.B uucico
+is using at any given time.
+The command
+.B uuchk
+can help you untangle this skein of values.
+See its Lexicon entry for details.
+.SH "Structural Commands"
+The following commands help control the manner in which
+.B uucico
+reads commands from
+.BR sys :
+.IP "\fBsystem \fIremotesystem\fR"
+Name the remote system.
+All commands up to the next
+.B system
+command refer to the system
+.IR remotesystem .
+.IP "\fBalternate \fB[\fIname\^\fB]\fR"
+Introduce an alternate set of commands.
+The optional
+.I name
+lets you name this block of alternate commands;
+if
+.B uucico
+uses this block of alternate commands, it records
+.I name
+in the log file for
+.IR remotesystem .
+.IP "\fBdefault-alternates true|false\fR"
+If its argument is
+.BR false ,
+do not use any blocks of alternate values from the global section.
+The default is
+.BR true .
+.SH "Chat Commands"
+The command
+.B chat
+defines a chat script.
+A
+.I "chat script"
+summarizes the conversation that your system has with the remote system
+as it attempts to log into that system.
+.PP
+.B chat
+has the following structure:
+.DS
+	\fBchat \fIexpect respond expect respond ... expect respond\fR
+.DE
+.PP
+As you can see, a chat script consists of pairs of strings.
+Each pair contains an
+.I expect
+string, which gives what you expect the remote system to say to your system;
+and a
+.I respond
+string, which gives what your system sends in reply.
+When
+.B uucico
+runs out of
+.I expect/respond
+pairs, it assumes that it has succeeded in logging into
+.IR remotesystem .
+If you want to send something to the remote system without waiting an
+.I expect
+string, then the
+.I expect
+string in a
+.I expect/respond
+pair should be simply a pair of quotation marks with nothing between.
+.PP
+Each string in the chat script is demarcated by white space.
+Therefore, you must use the escape sequence `\fB\es\fR' to indicate
+white space within a string.
+You can embed other escape sequences within the
+.I respond
+string; these are given below.
+.PP
+An
+.I expect
+string can contain several sub-strings separated by hyphens.
+The sub-strings themselves comprise pairs of
+.I expect/respond
+strings.
+If your system does not receive the first expect sub-string, it can
+send the first
+.I respond
+string (to prod the remote system), then await the second
+.I expect
+string; and so on, until your system either
+runs out of sub-strings or it receives an expect sub-string that it recognizes.
+You can, of course, repeat the same
+.I expect/respond
+pair more than once.
+Because sub-strings are separated by hyphens, you cannot use a literal
+hyphen in a string; you should indicate a literal hyphen by the escape
+sequence `\e055' (ASCII for the hyphen character).
+.PP
+You can embed the following escape sequences in a
+.I respond
+string:
+.nf
+.sp \n(pDu
+.ta 0.5i 1.5i
+	\fB\e\e\fR	Literal backslash character
+	\fB\e\fIDDD\fR	Character with octal value \fIDDD\fR
+	\fB\eb\fR	Backspace
+	\fB\ec\fR	Suppress carriage return at end of send string
+	\fB\ed\fR	Delay sending for one or two seconds
+	\fB\eE\fR	Enable echo checking
+	\fB\ee\fR	Disable echo checking
+	\fB\eK\fR	Same as \fBBREAK\fR
+	\fB\eL\fR	Your system's login name
+	\fB\eN\fR	NUL
+	\fB\en\fR	Newline or line feed
+	\fB\eP\fR	The password on the system being contacted
+	\fB\ep\fR	Pause sending for a fraction of a second
+	\fB\er\fR	Carriage return
+	\fB\es\fR	Space
+	\fB\et\fR	Tab
+	\fB\ex\fIDDD\fR	Character with hexadecimal value \fIDDD\fR
+	\fB\eZ\fR	Send name of the system being called
+	\fBEOT\fR	End-of-transmission character (\fB<ctrl-D>\fR)
+	\fBBREAK\fR	Break character
+.fi
+.sp \n(pDu
+As in C, up to three octal digits may follow a backslash
+The escape sequence \fB\ex\fR can be followed by an indefinite number
+of hexadecimal digits.
+To follow a hexadecimal escape sequence with a hexadecimal digit,
+interpose a send string of `""'.
+.PP
+.B uucico
+sends a carriage return at the end of each send string,
+unless the escape sequence \fB\ec\fR appears in the string.
+.PP
+``Echo checking'' means that after
+.B uucico
+writes each character, it waits for the remote system to echo it.
+You must turn on echo checking
+separately for each send string for which you want it.
+.PP
+The following gives an example chat script;
+the numbers simply mark the elements of the chat script for the discussion
+that follows, and are not part of the chat script:
+.DM
+             1    2      3                            4     5     6
+	chat "" \er\ec ogin:-BREAK-ogin:-BREAK-ogin: nuucp word: public
+.DE
+.sp \n(pDu
+This script does the following:
+.IP \fB1.\fR 0.3i
+Expect nothing from the modem (as indicated by the empty string "").
+.IP \fB2.\fR
+Send newline and carriage-return characters, as indicated by the
+escape sequence \fB\er\ec\fR.
+.IP \fB3.\fR
+Expect the string \fBogin:\fR (or a string that ends with \fBogin:\fR).
+If this is not received within the defined pause period, send a break
+character (as indicated by the escape sequence \fBBREAK\fR), and wait
+again for \fBogin:\fR.
+If the procedure times out again, send another break character and
+wait again.
+If the third attempt times out, quit.
+.IP \fB4.\fR
+Having received
+.BR ogin:
+from
+.BR remotesystem ,
+send the string
+.BR nuucp . 
+.IP \fB5.\fR
+Wait for the string
+.BR word: ,
+that is, the tail of the prompt \fBPassword:\fR.
+.IP \fB6.\fR
+When the password prompt is received, reply with the password
+.BR public .
+.PP
+.II "SCO UNIX^accessing via UUCP"
+.II UUCP^dialing into SCO UNIX"
+Some users may experience trouble when logging into a machine that
+is running SCO \*(UN:
+it appears not to recognize carriage returns.
+The simplest work around is to embed the ``delay'' escape sequence \fB\ed\fR
+in the send strings.
+For example, if you were using the above chat script to communicate with
+a SCO \*(UN system, and the system was not responding to your transmission,
+you could modify it as follows:
+.DM
+	chat "" \er\ec ogin:-BREAK-ogin:-BREAK-ogin: \ed\ednuucp\ed\ed\ed\ed word: \ed\edpublic\ed\ed\ed
+.DE
+.PP
+This slows how your system responds to the SCO system; giving it enough time
+to ``digest'' your transmission appears to work around the problem.
+You can try adjusting the number of \ed characters to get best performance.
+.PP
+The following commands help control the chat your system has with a
+.IR "remotesystem" :
+.IP "\fBchat-fail \fIstring\fR"
+Abort the chat if
+.I string
+is received.
+.I string
+cannot contain white-space characters; use escape sequences instead.
+.IP
+The description for
+.I remotesystem
+can contain multiple
+.B chat-fail
+commands.
+The default is to have none.
+.IP "\fBchat-program \fIprogram \fIarguments\fR"
+Pass
+.I arguments
+(if any) to
+.IR program ,
+which is the path name of a program that you want
+.B uucico
+to execute before it executes your
+.B chat
+command.
+.I program
+can contain its own version of a chat script, but this is not required.
+If both a system's description contains both the commands
+.B chat-program
+and
+.BR chat ,
+.B uucico
+always executes the former first.
+.IP
+.I arguments
+can contain any of the following escape sequences:
+.DS
+	\fB\eY\fR	Port device name
+	\fB\eS\fR	Port speed
+	\fB\e\e\fR	Literal backslash
+.DE
+.IP
+.B uucico
+connects the standard input and standard output of
+.I program
+to the port in use, and connects the standard error of
+.I program
+to the \*(UU log file.
+If
+.I program
+does not exit with a status of zero,
+.B uucico
+assumes that it has failed.
+.IP
+.B uucico
+runs
+.I program
+as user
+.BR uucp ,
+and the environment is that of the process that invoked
+.BR uucico .
+Take care that by using
+.IR program ,
+you do not compromise your system's security.
+.IP "\fBchat-seven-bit true|false\fR"
+If the argument is
+.BR true ,
+.B uucico
+strips all incoming characters to seven bits before it compares them
+with the expect string; otherwise, it uses all eight bits.
+The default is
+.B true
+because some \*(UN systems generate parity bits during the login
+prompt that must be ignored while running a chat script.
+.IP "\fBchat-timeout \fIseconds\fR"
+Wait
+.I seconds
+for the remote system to respond to a send string.
+If send string times out,
+.B uucico
+sends the next send sub-string (if there is one), or fails.
+The default is timeout time is 60 seconds.
+.SH "Aliases and Identifiers"
+The following commands let you manipulate how your system identifies itself
+to a
+.IR remotesystem :
+.IP "\fBalias \fIsystemalias\fR"
+Define
+.I systemalias
+to be an alias for
+.IR remotesystem .
+The commands
+.B uucp
+and
+.B uux
+can use
+.IR systemalias ,
+as can
+.I remotesystem
+itself.
+This command is helpful should
+.I remotesystem
+change its name:
+it spares you the trouble of having
+to comb through your system to replace every occurrence of the old name.
+The default is to have no aliases.
+.IP "\fBmyname \fImysysname\fR"
+Tell your system to identify itself as
+.I mysysname
+instead of its true name
+(as kept in file \fB/etc/uucpname\fR) when it calls
+.IR remotesystem .
+.IP
+If the description of
+.I remotesystem
+includes the command
+.B called-login
+without the argument
+.BR ANY ,
+your system will identify itself as
+.I mysysname
+when it is called by
+.IR remotesystem .
+.IP "\fBcall-login \fIloginname\fR"
+Tell
+.B uucico
+how to expand the escape sequence \fB\eL\fR, which stands for the login name.
+With this command, you can use a default chat script with several different
+systems, expanding the login escape sequence
+(and password, as will be shown next) with the appropriate strings.
+.IP "\fBcall-password \fIpassword\fR"
+Tell
+.B uucico
+how to expand the escape sequence \fB\eP\fR, which stands for a password.
+As with the command
+.BR call-login ,
+described above, this command lets you use the same chat script with a number
+of different systems, by expanding the login and password
+escape sequences as needed.
+.SH "Accepting a Call"
+The following commands affect how your system handles a call from another
+system:
+.IP "\fBcalled-login \fIlogin_identifer \fB[\fIremotesystem ... \fB]\fR"
+Recognize the remote system with the name
+.I login_identifier
+when it attempts to log into your system.
+If you set
+.I login_identifier
+to
+.BR ANY ,
+.B uucico
+will accept any login identifier.
+The optional
+.I remotesystem
+arguments name each remote system that is allowed to
+log in under that login identifier.
+.IP
+Some systems use this command to select a number of different alternate
+sections within
+.BR sys ;
+in effect, this allows
+.B uucico
+to jump to a given portion of
+.B sys ,
+based upon the identity of the system that is attempting to log in.
+In this case, the
+.I remotesystem
+arguments will not be used.
+.IP "\fBcallback \fBtrue|false\fR"
+If
+.BR true ,
+this command tells
+.B uucico
+to hang up when the given remote system calls, and call it back.
+This is a security measure, to protect your system from being penetrated
+by remote systems.
+The default is
+.BR false .
+.IP "\fBcalled-chat  \'\' \'\' \er\ed\er in:--in: nuucp word: public word: \fIserialnumber\fR"
+.IS "\fBcalled-chat-fail \fIstring\fR"
+.IS "\fBcalled-chat-program \fIprogram \fIarguments\fR"
+.IS "\fBcalled-chat-seven-bit true|false\fR"
+.IS "\fBcalled-chat-timeout \fIseconds\fR"
+These commands control how a remote system logs into your system.
+They are analogous to the commands
+.BR chat ,
+.BR chat-fail ,
+.BR chat-program ,
+.BR chat-seven-bit ,
+and
+.BR chat-timeout ,
+and are structured just like them.
+.IP
+Note that
+.B called-chat
+the rest of these commands are invoked after
+protocol negotiation has been completed between
+.B uucico
+on your system and its counterpart on the remote system, but before data
+exchange has begun.
+How this chat sequence dovetails with the conversation that \*(CO has
+with the remote system when it logs into your system depends upon a
+number of factors, in particular whether \*(CO or
+.B uucico
+controls the port in question.
+It is customary to let \*(CO control logging in through serial ports,
+as these ports can be used by interactive users as well as by \*(UU sessions,
+while
+.B uucico
+usually is allowed to control its well-known TCP port (540).
+However,
+.B called-chat
+can be used to perform special tasks on normal serial lines, such as
+put the modem into a special state that is required by a given remote site's
+hardware.
+.SH "Time Strings and Time Commands"
+Many of the commands that you can use in
+.I sys
+commands use a special kind of string, the \fItime string\fR,
+to specify a range of time.
+The following describes the structure of a time string.
+.PP
+Each simple time string begins with a token that sets the day of the week.
+You can use any one of the following values:
+.DS
+.ta 0.5i 1.5i
+	\fBSu\fR	Sunday only
+	\fBMo\fR	Monday only
+	\fBTu\fR	Tuesday only
+	\fBWe\fR	Wednesday only
+	\fBTh\fR	Thursday only
+	\fBFr\fR	Friday only
+	\fBSa\fR	Saturday only
+	\fBWk\fR	Every week (Monday through Friday)
+	\fBAny\fR	Every day of the week
+.DE
+.PP
+You can name more than one day of the week in a time string:
+just use commas to separate entries.
+.PP
+After the day of the week comes a range of hours and minutes
+The beginning and ending times are separated by a hyphen.
+Military time is used, i.e.,
+hour 0 (midnight) through hour 23 (11 PM).
+.B uucico
+uses the local time on your system.
+The range of time can may cross midnight; for example
+.B "2300-0700"
+indicates 11 PM to 7 AM the following day.
+.PP
+If no time is given, any time applies.
+The word \fBNever\fR in place of the time string indicates that this
+remote system is never to be contacted.
+You should use this setting for systems that contact you but which you
+never contact.
+.PP
+You can specify more than one day/time combination in a time string;
+use commas to separate entries.
+.PP
+The following gives examples of time strings:
+.IP "\fBWk2305-0855,Sa,Su2305-1655\fR"
+Weekdays from 11:05 PM to 8:55 AM the following day;
+any time on Saturday; and Sunday from 11:05 PM to 4:55 PM the following day.
+.IP "\fBWk0905-2255,Su1705-2255\fR
+Weekdays from 9:05 AM to 10:55 PM, and Sunday from 5:05 PM to 10:55 PM.
+The remote system cannot be called on Saturday.
+.PP
+The following commands control when
+.I remotesystem
+is contacted:
+.IP "\fBtime \fItimestring \fB[\fIretry\^\fB]\fR"
+Specify when your system can call
+.IR remotesystem .
+.I timestring
+gives a time string; the section \fBTime Strings\fR, above, describes
+how to construct one.
+.IR retry ,
+if used, defines how long to wait before your system attempt to call
+.I remotesystem
+again.
+The default time for each
+.I remotesystem
+is
+.BR Never .
+.sp \n(pDu
+The optional argument
+.I retry
+sets many minutes your system will wait before it attempts
+to recontact
+.IR remotesystem ,
+should a call made during
+.I timestring
+fail.
+If
+.I retry
+is not defined,
+.B uucico
+uses an exponentially increasing retry time:
+after each failure the next retry period is longer.
+.sp \n(pDu
+The description of
+.I remotesystem
+can contain multiple
+.B time
+commands.
+.B uucico
+will call
+.I remotesystem
+if the current time matches the time defined by any of them.
+.IP "\fBtimegrade \fIgrade timestring \fB[retry\^\fB]\fR"
+This command tells
+.B uucico
+to call
+.I remotesystem
+only if a file with a grade greater than or equal to
+.I grade
+is awaiting transfer to that system.
+.sp \n(pDu
+.I grade
+gives the grade of file to await.
+It is a single letter or digit, from `0' to `9', `A' to `Z', and `a' to `z',
+in this order from highest grade to lowest.
+.sp \n(pDu
+.I timestring
+gives the period of time to which this command applies.
+.I retry
+gives the length of time, in minutes, that your system must wait before
+it recontacts
+.I remotesystem
+should a call made during
+.I timestring
+fail.
+.sp \n(pDu
+The command
+.B time
+is equivalent to the command
+.B timegrade
+with a grade of `z', which permits all jobs to be run.
+The command
+.B "uucico \-S"
+overrides
+.IR grade ;
+the command
+.B "uucico \-s"
+does not.
+.sp \n(pDu
+The
+.I grade
+applies only to calls made to
+.IR remotesystem ,
+not to calls that it makes to you.
+.sp \n(pDu
+The description of
+.I remotesystem
+can have multiple
+.B timegrade
+commands.
+.IP
+The command
+.BR call-timegrade ,
+described below, complements this command.
+.IP "\fBcall-timegrade \fIgrade timestring\fR"
+This command tells
+.B uucico
+to ask
+.I remotesystem
+to execute only the jobs with a grade of
+.I grade
+or higher, should it call
+.I remotesystem
+during the period of time defined in
+.IR timestring .
+This commands complements the command
+.BR timegrade :
+while
+.B timegrade
+limits what your system does with the remote system,
+.B call-timegrade
+attempts to limit what
+.I remotesystem
+does to your system.
+.sp \n(pDu
+.I grade
+gives the grade of the job to send.
+It is be a single letter or digit, from `0' to `9', `A' to `Z', and `a' to `z',
+in this order from highest grade to lowest.
+.I timestring
+gives the period of time to which this command applies.
+It is a time string, as defined above.
+.sp \n(pDu
+The description of a
+.I remotesystem
+can contain multiple
+.B call-timegrade
+commands.
+.sp \n(pDu
+Please note that not every implementation of \*(UU will cooperate in
+setting grades to its jobs.
+If this command does not appear, or if no time string matches,
+the remote system can send whatever grade of work it chooses.
+.SH "Retries and Waiting"
+The following commands define how often
+.B uucico
+will try to do something, and how long it will wait for a particular
+event to happen.
+.IP "\fBmax-retries \fIretries\fR"
+Recontact a
+.I remotesystem
+no more than than
+.I retries
+times during any time time period.
+The default number of retries is 26.
+.IP "\fBsuccess-wait \fIseconds\fR"
+Wait
+.I seconds
+before recontacting a
+.I remotesystem
+after a successful call.
+This limits the number of times a
+.I remotesystem
+will be contacted during a given time period.
+The default is zero.
+.SH "Ports and Telephones"
+The following commands govern how
+.B uucico
+selects a port and telephones
+.IR remotesystem .
+.IP "\fBaddress \fIip_address\^\fB|\fIdomain_name\fR"
+Name a remote system to contact a TCP/IP network.
+This command can name the remote system to contact either by its
+domain name (e.g., \fBlepanto.com\fR) or its IP address
+(e.g., 199.3.32.100).
+Note that if the port named by
+.B port
+command is not a TCP port,
+.B uucico
+ignores this command.
+.IP "\fBbaud \fIspeed\fR"
+.IS "\fBspeed \fIspeed\fR"
+Set the speed (or ``baud rate'') at which to call
+.IR remotesystem .
+This tells
+.B uucico
+to try every port defined in file
+.B /usr/lib/uucp/port
+until it finds an unlocked port that runs at
+.IR speed .
+.sp \n(pDu
+If the description of
+.I remotesystem
+contains both the
+.B baud
+and
+.BR port ,
+.B uucico
+uses both when it selects a port.
+.sp \n(pDu
+If you wish to try multiple speeds when contacting a
+.IR remotesystem ,
+you must embed each
+.B baud
+command in its own set of alternate commands.
+.sp \n(pDu
+.B uucico
+does not use a default speed.
+The command
+.DM
+	baud 0
+.DE
+.IP
+tells
+.B uucico
+to use the ``natural'' speed of a port (whatever that is), and override
+and overrides any
+.B baud
+or
+.B speed
+commands that appear in the global defaults.
+.sp \n(pDu
+To place a call to a
+.IR remotesystem ,
+its description (or the global defaults) must name a port through which
+to dial out, either with
+.B baud
+or with the command
+.B port
+(described below).
+.IP "\fBport \fIportname\fR"
+Name or describe the port through which to contact
+.IR remotesystem .
+.sp \n(pDu
+If used with only one argument,
+.B uucico
+assumes that that string names a port defined in the file
+.BR /usr/lib/uucp/port .
+.I portname
+may point to more than one physical device;
+.B uucico
+tries each in turn until it finds one that is unlocked.
+.sp \n(pDu
+If used with more than one string,
+.B uucico
+assumes that the strings define a port, in the same way as done in the file
+.BR port .
+.sp \n(pDu
+To place a call to a
+.IR remotesystem ,
+its description (or the global defaults) must name a port through which
+to dial out, either with
+.B port
+or with the command
+.B baud
+(described above).
+.IP "\fBphone \fInumber\fR"
+Give the telephone number of
+.IR remotesystem .
+An `=' character in the telephone number tells
+.B uucico
+to wait for a secondary dial tone.
+A `-' character tells
+.B uucico
+to pause for one second while dialing 
+.sp \n(pDu
+The description of a
+.I remotesystem
+can have more than one
+.B phone
+command, one for each number at which you can call that
+.IR remotesystem .
+If you want your system to telephone
+.IR remotesystem ,
+then its description must contain at least one
+.B phone
+command.
+.SH "Protocols and Protocol Variables"
+The command
+.DS
+	\fBprotocol \fIcodes\fR
+.DE
+.PP
+names the communication protocols to use with
+.IR remotesystem .
+.I code
+must one or more lower-case letters, each of which names a protocol.
+If more than one protocol is named,
+.B uucico
+considers them in the order in which you give them.
+.PP
+.B uucico
+recognizes the following protocol codes:
+.IP \fBt\fR 0.3i
+.IS \fBe\fR
+These protocols perform no checking at all.
+They are intended to be used over
+a communication path that has end-to-end reliability, e.g., TCP.
+.B uucico
+will consider them only when it is talking to a TCP port that is
+both reliable and eight-bit.
+.IP \fBi\fR 0.3i
+This is a bidirectional protocol;
+that is, your system and
+.I remotesystem
+can both send and receive simultaneously.
+It requires an eight-bit connection.
+This protocol is preferred for a serial connection, as it offers the
+fastest transmission of data.
+.IP \fBg\fR
+This is the first, and the commonest \*(UU protocol.
+Every implementation of \*(UU supports this protocol; some support no other.
+It requires an eight-bit connection.
+.II "Baker, Steven"
+For a detailed description of how this protocol works, see the article by
+Steven Baker, cited below.
+.IP \fBG\fR
+This is the System V Release 4 version of the
+.B g
+protocol.
+.IP \fBa\fR
+.II "Evans, Doug"
+This mimics the Z-Modem protocol.
+It requires an eight-bit connection; but unlike the
+.B g
+and
+.B i
+protocols, it works even if certain control characters cannot be transmitted.
+(Code for this protocol was contributed by Doug Evans.)
+.IP \fBj\fR
+This is a variant of the
+.B i
+protocol, which can avoid certain control characters.
+The set of characters it avoids can be set by a parameter.
+It is useful over a eight-bit connection that
+will not transmit certain control characters.
+.IP \fBf\fR
+This protocol supports X.25 connections.
+It checksums each file as a whole,
+so any error causes the entire file to be retransmitted.
+It requires a reliable connection, but uses only seven-bit transmissions.
+It is a streaming protocol;
+therefore, you can use it with a serial port, but the port must be
+completely reliable and flow controlled.
+.PP
+If you do not use the
+.B protocol
+command to specify a protocol,
+.B uucico
+considers the protocols in the order given above, and
+chooses one based on the characteristics of the port and the
+dialer specified in the files
+.B /usr/lib/uucp/port
+and
+.BR /usr/lib/uucp/dial .
+The port and dial must meet
+the requirements of a protocol before
+.B uucico
+will consider it during negotiation with
+.IR remotesystem .
+.PP
+If neither the
+.B seven-bit
+nor the
+.B reliable
+command
+is used,
+.B uucico
+will use
+.\"t' protocol will be used over a TCP connection and
+.\"the `i' protocol will be used over any other type of connection
+the
+.B i
+protocol (subject, of course, to what is supported by the remote system; you
+cannot assume that all systems support the
+.B i
+protocol).
+No current protocol can be used with a port for which you have specified
+.B "seven-bit true"
+and
+.BR "reliable false" .
+You must use the
+.B protocol
+command for the system, or
+.B uucico
+will select no protocol at all.
+(The only reasonable choice would be
+.BR "protocol f" .)
+You can use the command
+.DS
+	\fBprotocol-parameter \fIprotocol parameter \fB[\fIargument ... \fB]\fR
+.DE
+.PP
+to modify a protocol's default parameters.
+.PP
+The
+.B i
+protocol recognizes the following parameters:
+.IP "\fBwindow \fIsize\fR"
+Request that
+.I remotesystem
+use a
+.I size
+window, between one and 31, inclusive.
+The default is 16.
+.IP "\fBpacket-size \fIsize\fR"
+Request that
+.I remotesystem
+use a packet of
+.I size
+bytes, between one and 4,095, inclusive.
+The default is 1,024.
+.IP "\fBremote-window \fIsize\fR"
+Ignore the window size requested by
+.IR remotesystem ,
+and instead us a window of
+.IR size .
+The default is zero, which means that the request of
+.I remotesystem
+is honored.
+.IP "\fBremote-packet-size \fIsize\fR"
+Ignore the packet size requested by
+.IR remotesystem ,
+and instead use a packet of
+.I size
+bytes.
+The default is zero, which means that the request of
+.I remotesystem
+is honored.
+.IP "\fBsync-timeout \fIseconds\fR"
+Wait
+.I seconds
+for a SYNC packet from
+.IR remotesystem .
+The default is ten.
+.IP "\fBsync-retries \fInumber\fR"
+Resend a SYNC packet
+.I number
+times before giving up.
+The default is six.
+.IP "\fBtimeout \fIseconds\fR"
+Wait
+.I seconds
+for an incoming packet before sending a NAK (negative acknowledgement)
+The default is ten.
+.IP "\fBretries \fInumber\fR"
+Resend a packet or negative acknowedgement
+.I number
+times before giving and closing the connection.
+The default is six.
+.IP "\fBerrors \fInumber\fR"
+Quit after
+.I number
+errors have occurred.
+The default is 100.
+.IP "\fBerror-decay \fInumber\fR"
+Decrease the count of errors by one after receiving
+.I number
+packets.
+This keeps occasional errors from accumulating during a long conversation,
+and so aborting what is actually a successful transmission.
+The default is ten.
+.IP "\fBack-frequency \fInumber\fR"
+Send an acknowledgement after receiving
+.I number
+packets.
+By default, this is set to half the requested size of the window.
+.PP
+The protocols
+.B g
+and
+.B G
+recognize the following parameters:
+.IP "\fBwindow \fIsize\fR"
+Request that
+.I remotesystem
+use a
+.I size
+window, between one and seven, inclusive.
+The default is seven.
+.IP "\fBpacket-size \fIsize\fR"
+Request that
+.I remotesystem
+use a packet size of
+.I size
+bytes.
+.B size
+must be a power of two, between 32 and 4,096, inclusive.
+The default is 64, which is the only packet size supported by
+many older \*(UU packages.
+.IP "\fBstartup-retries \fInumber\fR"
+Retry the entire initialization sequence
+.I number
+times before quitting.
+The default is eight.
+.IP "\fBinit-retries \fInumber\fR"
+Retry one phase of the initialization sequence
+.I number
+times before quitting.
+The default is four.
+.IP "\fBinit-timeout \fIseconds\fR"
+Wait for
+.I seconds
+before timing out one phase of the initialization sequence.
+The default is ten.
+.IP "\fBretries \fInumber\fR"
+Resend a packet or a request for a packet
+.I number
+times before quitting.
+The default is six.
+.IP "\fBtimeout \fIseconds\fR"
+Wait for
+.I seconds
+for a packet or an acknowledgement before timing out.
+The default is ten.
+.IP "\fBgarbage \fInumber\fR"
+Drop the connection after receiving
+.I number
+unrecognized characters.
+.I number
+must be larger than the packet size.
+The default is 10,000.
+.IP "\fBerrors \fInumber\fR"
+Quit after
+.I number
+errors have occurred.
+Errors include malformed packets, out-of-order packets,
+bad checksums, and packets rejected by the remote system.
+The default is 100.
+.IP "\fBerror-decay \fInumber\fR"
+Decrease the count of errors by one after receiving
+.I number
+packets.
+This keeps occasional errors from accumulating during a long conversation,
+and so aborting what is actually a successful transmission.
+The default is ten.
+.IP "\fBremote-window \fIsize\fR"
+Ignore the window size requested by
+.IR remotesystem ,
+and instead us a window of
+.IR size .
+The default is zero, which means that the request of
+.I remotesystem
+is honored.
+.IP "\fBremote-packet-size \fIsize\fR"
+Ignore the packet size requested by
+.IR remotesystem ,
+and instead use a packet of
+.I size
+bytes.
+The default is zero, which means that the request of
+.I remotesystem
+is honored.
+.IP "\fBshort-packets true|false\fR"
+If
+.BR true ,
+optimize transmission by sending
+shorter packets when there is less data to send.
+This confuses some \*(UU packages; when connecting to such a
+package, this parameter must be set to
+.BR false .
+The default is
+.B true
+for the
+.B g
+protocol and
+.B false
+for the
+.B G
+protocol.
+.PP
+The
+.B a
+protocol mimics the Z-modem protocol.
+It supports the following parameters:
+All take numeric arguments, except for
+.BR escape-control ,
+which takes a Boolean argument:
+.IP "\fBtimeout \fIseconds\fR"
+Wait
+.I seconds
+for a packet before timing out.
+The default is ten.
+.IP "\fBretries \fInumber\fR"
+Resend a packet
+.I number
+times before quitting.
+The default is ten.
+.IP "\fBstartup-retries \fInumber\fR"
+Retry sending the initialization sequence
+.I number
+times before quitting.
+The default is four.
+.IP "\fBgarbage \fInumber\fR"
+Drop the connection after receiving
+.I number
+unrecognized ``garbage'' characters.
+.I number
+must be larger than the packet size.
+The default is 2,400.
+.IP "\fBsend-window \fInumber\fR"
+Send
+.I number
+characters before waiting for an acknowledgement.
+The default is 1,024.
+.IP "\fBescape-control true|false\fR"
+If
+.BR true ,
+.B uucico
+can use the protocol over a connection that does not
+transmit certain control characters, such as
+.B XON
+or
+.BR XOFF .
+The connection must still transmit eight-bit characters
+other than control characters.
+The default is
+.BR false .
+.PP
+The
+.B j
+protocol can be used over an eight-bit connection that will
+not transmit certain control characters.
+It accepts the same parameters as the
+.B i
+protocol, plus the following:
+.IP "\fBavoid \fIstring\fR"
+Avoid every character defined in
+.IR string .
+.I string
+can contain escape sequences, as defined above for the chat script.
+Each character must be a non-printable ASCII character (i.e.,
+ASCII values less than 32 or greater than 126).
+Each must be defined using using the escape sequence \fB\e\fIDDD\fR,
+where \fIDDD\fR gives three octal digits.
+.IP
+The default value is \fB\e021\e023\fR (i.e., \fBXON\fR and \fBXOFF\fR).
+If the package is configured to use
+.BR HAVE_BSD_TTY ,
+then you may have to avoid \fB\e377\fR as well.
+.PP
+The
+.B f
+protocol is intended for use with error-correcting modems only.
+It checksums each file as a whole, so any error causes the
+entire file to be retransmitted.
+It recognizes the following parameters:
+.IP "\fBtimeout \fIseconds\fR"
+Wait
+.I seconds
+before timing out.
+The default is 120.
+.IP "\fBretries \fInumber\fR"
+Retry sending a file
+.I number
+times before quitting.
+The default is two.
+.PP
+The protocols
+.B t
+and
+.B e
+recognize the following parameter:
+.IP "\fBtimeout \fIseconds\fR"
+Wait
+.I seconds
+before timing out.
+The default is 120.
+.PP
+Note that the command
+.B protocol-parameter
+can be used in files
+.B /usr/lib/uucp/dial
+and
+.B /usr/lib/uucp/port
+as well as in
+.BR sys .
+In case of a conflict between the entries in these files, the entries in
+.B dial
+takes precendence; then those in
+.BR port .
+The entries in
+.B sys
+have lowest precedence.
+.SH "File Transfers"
+The following commands help to control the transfer of files.
+.IP "\fBsend-request yes|no\fR"
+Set whether
+.I remotesystem
+can request files from your system.
+The default is
+.BR yes ,
+that is,
+.I remotesystem
+may request files.
+.IP "\fBreceive-request yes|no\fR"
+Set whether
+.I remotesystem
+can send files to your system.
+The default is
+.BR yes ,
+that is,
+.I remotesystem
+may send files.
+.IP "\fBrequest yes|no\fR"
+This combines the commands
+.B send-request
+and
+.B receive-request
+into one.
+.IP "\fBcall-transfer yes|no\fR"
+Set whether your system may transfer files to
+.I remotesystem
+when it calls
+.IR remotesystem .
+The default is
+.BR yes .
+.IP "\fBcalled-transfer yes|no\fR"
+Set whether your system may transfer files to
+.I remotesystem
+when
+.I remotesystem
+calls your system.
+The default is
+.BR yes .
+.IP "\fBtransfer yes|no\fR"
+This combines commands
+.B call-transfer
+and
+.B called-transfer
+into one.
+.IP "\fBcall-local-size \fInumber timestring\fR"
+Send or receive no file larger than
+.I number
+bytes
+when your system calls
+.I remotesystem
+during the time defined in
+.IR timestring .
+You can use this command to help limit the length of a call made
+during times when toll charges are higher.
+The description of a system may contain multiple
+.B call-local-size
+commands, one for each period during which you wish to limit activity.
+The default is to have no limit.
+.IP
+Please note that the size-control commands, are guaranteed only to limit
+the size of files being sent by your system.
+The size of files being sent from
+.IR remotesystem
+can be checked if the other system is running the Taylor \*(UU package.
+Other \*(UU packages do not understand a maximum-size request, nor do
+they inform this package of the size of the files they are sending.
+.IP "\fBcall-remote-size \fInumber timestring\fR"
+Limit to
+.I number
+bytes the size of a file that can be fetched by
+remote request (either by your system on
+.I remotesystem
+or by it on your system)
+when your system calls
+.I remotesystem
+during the time defined in
+.IR timestring .
+The description of a
+.I remotesystem
+can contain multiple
+.B call-local-size
+commands, one for each period during which you wish to limit activity.
+The default is to have no limit.
+.IP "\fBcalled-local-size \fInumber timestring\fR"
+Send or receive no file larger than
+.I number
+bytes when
+.I remotesystem
+calls your system during the time defined in
+.IR timestring .
+The description of a system may contain multiple
+.B call-local-size
+commands, one for each period during which you wish to limit activity.
+The default is to have no limit.
+.IP "\fBcalled-remote-size \fInumber timestring\fR"
+Limit to
+.I number
+bytes the size of a file that can be fetched by
+remote request (either by your system on
+.I remotesystem
+or by it on your system) when
+.I remotesystem
+calls your system during the time defined in
+.IR timestring .
+The description of a
+.I remotesystem
+can contain multiple
+.B call-local-size
+commands, one for each period during which you wish to limit activity.
+The default is to have no limit.
+.IP "\fBlocal-send \fIdirectorylist ...\fR"
+Limit to
+.I directorylist
+the directories from which your system can send files to
+.IR remotesystem .
+Each directory in
+.I directorylist
+must be separated by white space.
+You can use a tilde `~' for the public directory, i.e.,
+.BR /usr/spool/uucppublic .
+Listing a directory within
+.I directorylist
+lets your system send all files within that directory and its subdirectories.
+.IP
+Prefixing a directory with an exclamation point `!' specifically excludes
+it and its subdirectories from being sent.
+For example, the command
+.DM
+	local-send /v/fwb !/v/fwb/Personal
+.DE
+.IP
+means that your system can send all files in directory
+.B /v/fwb
+to
+.I remotesytem
+except for the files in directory
+.BR /v/fwb/Personal .
+.IP
+.B uucico
+reads
+.I directorylist
+from left to right, and the last directory to apply takes effect.
+Therefore, you should list directories from top down.
+The default is the root directory,
+i.e., your system can send any file to
+.IR remotesystem .
+.IP "\fBremote-send \fIdirectorylist\fR"
+Limit to
+.I directorylist
+the directories from which
+.I remotesystem
+can request files.
+The default is
+.BR /usr/spool/uucppublic .
+.IP "\fBlocal-receive \fIdirectorylist\fR"
+Limit to
+.I directorylist
+the directories into which your system can write files requested from
+.IR remotesystem .
+The default is
+.BR /usr/spool/uucppublic .
+.IP "\fBremote-receive \fIdirectorylist\fR"
+Limit to
+.I directorylist
+the directories on
+.I remotesystem
+into which your system can write files.
+The default is
+.BR /usr/spool/uucppublic .
+This command cannot override permissions that
+.I localsystem
+has granted to your system.
+.IP "\fBforward-to \fIsystemlist\fR"
+Limit the systems to which your system will forward files to those named in
+.IR systemlist .
+A
+.I systemlist
+of
+.B ANY
+lets
+.I remotesystem
+forward files through your system to any system it wants.
+The default is not to permit forwarding to other systems.
+Note that if you permit
+.I remotesystem
+to execute the command
+.B uucp
+on your system, it effectively has permission to forward to any system.
+.IP "\fBforward-from \fIsystemlist\fR"
+Limit the systems from which
+.I remotesystem
+request files through your system to those named in
+.IR systemlist .
+A
+.I systemlist
+of
+.B ANY
+lets
+.I remotesystem
+request files from any system.
+The default is not to permit
+.I remotesystem
+to request files from anywhere.
+Note that if you permit
+.I remotesystem
+to execute the command
+.B uucp
+on your system, it effectively has permission to fetch files
+through your system from any other system.
+.IP "\fBforward \fIsystemlist\fR"
+This command combines the commands
+.B forward-to
+and
+.BR forward-from .
+.SH "Miscellaneous Commands"
+The following gives miscellaneous commands that can be used in
+.BR sys :
+.IP "\fBsequence yes|no\fR"
+If
+.BR true ,
+this commands tells
+.B uucico
+to use the conversation sequencing for
+.IR "remotesystem" .
+This means that if somebody impersonates
+.I remotesystem
+and logs into your system,
+that fact will be discovered the next time
+.I remotesystem
+actually calls.
+The default is
+.BR false .
+.IP "\fBcommand-path \fIpath\fR"
+Limit to
+.I path
+the directories that a command file forwarded from
+.I remotesystem
+can search for commands to execute.
+The directories named in
+.I path
+must be separated by white space.
+.IP "\fBcommands \fIcommandlist\fR"
+Limit the commands that
+.I remotesystem
+can execute on your system to those named in
+.IR commandlist .
+A
+.I commandlist of
+.B ALL
+lets
+.B remotesystem
+execute all programs on your system.
+The default is
+.BR "rnews rmail" .
+.IP "\fBfree-space \fInumber\fR"
+This command tells
+.B uucico
+always to leave free
+.I number
+bytes of space in a file system.
+This command ensures that
+.B uucico
+will not permit
+.I remotesystem
+to fill up your file system.
+If an incoming file is too large to leave
+.I number
+bytes free on the file system,
+.B uucico
+refuses the file or aborts its downloading.
+.IP
+Note that not every version of \*(UU supports this.
+.IP "\fBpubdir \fIdirectory\fR"
+Name the public directory available to remote \*(UU systems.
+The default is
+.BR /usr/spool/uucppublic .
+.IP "\fBdebug \fIactivitylist\fR"
+Log each \*(UU activity named in
+.I activitylist
+when talking with
+.IR remotesystem .
+These logs can help you debug problems with
+.B uucico
+and
+.BR cu .
+.B uucico
+recognizes the following activities:
+.DS
+.ta 0.5i 2.0i 4.5i
+.B
+	abnormal	chat	handshake
+	uucp-proto	proto	port
+	config	spooldir	execute
+	incoming	outgoing
+.R
+.DE
+.sp \n(pDu
+.B none
+tells
+.B uucico
+to log nothing.
+.IP "\fBmax-remote-debug \fItypelist\fR"
+Limit to
+.I typelist
+the types of debugging that
+.I remotesystem
+can request on your system.
+This command is designed to stop
+.I remotesystem
+from filling your disk with debugging information.
+.SH "Defaults"
+The following gives the default settings for all systems.
+You should regard these as appearing at the head of
+.BR /usr/lib/uucp/sys ,
+even though they do not explicit appear in that file:
+.DM
+	time Never
+	chat "" \er\ec ogin:-BREAK-ogin:-BREAK-ogin: \eL word: \eP
+	chat-timeout 10
+	callback n
+	sequence n
+	request y
+	transfer y
+	local-send /
+	remote-send ~
+	local-receive ~
+	remove-receive ~
+	commands rnews rmail
+	max-remote-debug abnormal,chat,handshake
+.DE
+.SH Example
+The following gives the entry in
+.B /usr/lib/uucp/sys
+for the system
+.BR mwcbbs ,
+which is the Mark Williams bulletin board:
+.DM
+	system mwcbbs
+	time Any
+	baud 2400
+	port MODEM
+	phone 17085590412
+	chat "" \er\ed\er in:--in: nuucp word: public word: \fIserialnumber\fP
+	protocol g
+	protocol-parameter g window 3
+	protocol-parameter g packet-size 64
+	myname bbsuser
+	request yes
+	transfer yes
+	remote-send /usr/spool/uucppublic /tmp 
+	remote-receive /usr/spool/uucppublic /tmp 
+	commands rmail uucp
+.DE
+.PP
+The following describes each command in detail:
+.IP "\fBsystem mwcbbs\fR"
+Name the sytem being described, in this case
+.BR mwcbbs .
+.IP "\fBtime Any\fR"
+Set the time during your system can contact
+.BR mwcbbs ,
+in this case any time.
+.IP "\fBbaud 2400\fR"
+Set the speed at which your system can contact
+.BR mwcbbs ;
+here 2400 baud.
+.IP "\fBport MWCBBS\fR"
+Set the port through which your system can dial out to
+.BR mwcbbs ;
+here, port \fBMWCBBS\fR.
+This port is defined in the file
+.BR /usr/lib/uucp/port ;
+for details on this file and how to modify its data, see the Lexicon entry for
+.BR port .
+.IP "\fBphone 17085590412\fR"
+This gives the telephone number of
+.BR mwcbbs .
+.IP "\fBchat \'\' \'\' \er\ed\er in:--in: nuucp word: public word: \fIserialnumber\fR"
+Give the chat script with which your system logs into
+.BR mwcbbs .
+See the section on chat scripts, above, for details on how to interpret this
+command.
+.IP "\fBprotocol g\fR"
+Use the
+.B g
+protocol.
+.IP "\fBprotocol-parameter g window 3\fR"
+Set the window used with protocol
+.B g
+to three.
+.IP "\fBprotocol-parameter g packet-size 64\fR"
+Set the size of the packet used with protocol
+.B g
+to 64 bytes.
+.IP "\fBmyname bbsuser\fR"
+Identify yourself to
+.B mwcbbs
+as user
+.BR bbsuser .
+.IP "\fBrequest yes\fR"
+Let
+.B mwcbbs
+send files to your system, and request files from your system.
+Setting this to
+.B no
+would forbid
+.B mwcbbs
+to do so.
+.IP "\fBtransfer yes\fR"
+Permit files to be transferred
+from your system to
+.BR mwcbbs ,
+and vice versa, regardless of whether your system calls
+.B mwcbbs
+or vice versa.
+.IP "\fBremote-send /usr/spool/uucppublic /tmp\fR"
+Permit
+.B mwcbbs
+to request files only from directories
+.B /usr/spool/uucppublic
+and
+.BR /tmp .
+.IP "\fBremote-receive /usr/spool/uucppublic /tmp\fR"
+Limit the directories into which your system will write files
+requested from
+.B mwcbbs
+to
+.B /usr/spool/uucppublic
+.BR /tmp .
+.IP "\fBcommands rmail uucp\fR"
+Limit the commands that
+.B mwcbbs
+can execute on your system to
+.B rmail
+and
+.BR uucp .
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "dial," dial
+.Xr "port," port
+.Xr "UUCP" uucp
+.br
+.II "Baker, Steven"
+Baker, S.: From \*(UU to eternity.
+\fIUNIX Review\fR, April 1993, pp. 15-26.
+\fISummarizes the history of UUCP and describes the working of
+the \fBg\fP protocol.\fR
+.SH Notes
+Only the superuser
+.B root
+can edit
+.BR /usr/lib/uucp/sys .
+.PP
+The file
+.B sys
+supports many commands in addition to the ones described here.
+This article describes only those commands that might be used
+in typical \*(UU connections.
+For more information, see the original Taylor \*(UU documentation,
+which is in the archive
+.BR /usr/src/alien/uudoc104.tar.Z .

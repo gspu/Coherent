@@ -1,0 +1,235 @@
+.TH signal() "" "" "System Call (libc)"
+.PC "Specify action to take upon receipt of a given signal"
+.B "#include <signal.h>
+\fBint (*signal(\fIsigtype, function\^\fB))()\fR
+\fBint \fIsigtype\^\fB, (*\fIfunction\^\fB)();\fR
+.PP
+A process can receive a
+.IR signal ,
+or interrupt, from a hardware exception, terminal input, or a
+.B kill()
+call made by another process.
+A hardware exception might be caused by an illegal instruction
+or a bad machine address.
+The terminal interrupt character
+(described in detail in the Lexicon entry
+.BR tty )
+generates a process interrupt (and in one case a core dump
+file for debugging purposes).
+.PP
+.B signal()
+tells the signal handler what to do when the current process receives signal
+.IR sigtype .
+.I sigtype
+is the signal to process, as defined below.
+.I function
+points to the routine to execute when
+.I sigtype
+is received.
+This can be a function of your own creation; or you can use one of the following
+macros, which expand into pointers to system-defined functions:
+.IP \fBSIG_DFL\fR
+This is the default action.
+The process terminates just as if it called the function
+.BR exit() .
+In addition, the system writes a core file in the current working directory if
+.I sigtype
+is any of the following:
+.BR SIGQUIT ,
+.BR SIGSYS ,
+.BR SIGTRAP ,
+or
+.BR SIGSEGV .
+(Note that this behavior applies only to executables for which you have
+write permission.
+If you lack write permission on an executable, then no core file is written.)
+For more information on core files, see the Lexicon entry
+.BR core .
+.IP \fBSIG_IGN\fR
+Ignore
+.IR sigtype .
+The system discards all signals of this type.
+.PP
+.B signal()
+returns a pointer to the previous action.
+If
+.I sigtype
+is not a recognized signal,
+.B signal()
+returns
+.BR "(int (*)())-1" .
+.PP
+With the exception of
+.B SIGKILL
+and
+.BR SIGTRAP ,
+caught signals are reset to the default action
+.BR SIG_DFL .
+To catch a signal again, the routine to which
+.I function
+points must reissue the call to
+.BR signal() .
+.PP
+The following list names the signals that
+.B signal()
+can process, as defined in the header file
+.BR signal.h .
+Note that the signal
+.BR SIGKILL ,
+which kills a process, can be neither caught nor ignored.
+Signals marked by an asterisk produce a core dump if the action is
+.BR SIG_DFL :
+.LB
+\fBSIGHUP\fR	Hangup
+\fBSIGINT\fR	Interrupt
+\fBSIGQUIT\fR*	Quit
+\fBSIGILL\fR*	Illegal instruction
+\fBSIGTRAP\fR*	Trace trap
+\fBSIGIOT\fR	IOT instruction
+\fBSIGABRT\fR*	To be replaced by SIGIOT
+\fBSIGEMT\fR	Emulator trap
+\fBSIGFPE\fR*	Floating-point exception
+\fBSIGKILL\fR	Kill
+\fBSIGBUS\fR	Bus error
+\fBSIGSEGV\fR*	Segmentation violation
+\fBSIGSYS\fR*	Bad argument to system call
+\fBSIGPIPE\fR	Write to pipe with no readers
+\fBSIGALRM\fR	Alarm
+\fBSIGTERM\fR	Software termination signal
+\fBSIGUSR1\fR	User-defined signal
+\fBSIGUSR2\fR	User-defined signal
+\fBSIGCLD\fR	Death of a child
+\fBSIGCHLD\fR	Death of a child
+\fBSIGPWR\fR	Restart
+\fBSIGWINCH\fR	Window change
+\fBSIGPOLL\fR	Polled event in stream
+.PP
+A signal may be caught during a system call that has not yet returned.
+In this case, the system call appears to fail, with
+.B errno
+set to
+.B EINTR.
+If desired,
+such an interrupted system call may be reissued.
+System calls which may be interrupted in this way include
+.BR pause() ,
+.B read()
+on a device such as a terminal,
+.B write()
+on a pipe,
+and
+.BR wait() .
+.SH Example
+The following program demonstrates
+.BR signal() ,
+.BR kill() ,
+.BR getpid() ,
+and
+.BR fork() .
+.DM
+#include <signal.h>
+.DE
+.DM
+int got_it;	/* Each side gets its own copy of all data at the fork */
+int errset;
+.DE
+.DM
+/*
+ * Control comes here on SIGTRAP.  Do no I/O in signal function.
+ * Reset the signal if you ever want another.
+ */
+.DE
+.DM
+void
+sig_ser()
+{
+	got_it = 1;	/* tell the child we got it */
+.DE
+.DM
+	if (0 > signal(SIGTRAP, sig_ser))	/* reset the signal */
+		errset = 1;
+}
+.DE
+.DM
+main()
+{
+	int count;
+	int child, parent;
+.DE
+.DM
+	parent = getpid();	/* Both sides will get a copy */
+.DE
+.DM
+	if (signal(SIGTRAP, sig_ser) < 0) {	/* sets for both sides */
+		perror("signal set failed");
+		exit(0);
+	}
+.DE
+.DM
+	if (child = fork()) {	/* parent gets the child's id */
+		for (count = 0; count < 3; count++) {
+			kill(child, SIGTRAP);	/* signal the child */
+.DE
+.DM
+			while(!got_it)		/* wait for signal */
+				sleep(1);
+			if (errset)
+				perror("parent: signal reset failed");
+.DE
+.DM
+			printf("parent got signal %d\en", count);
+			got_it = errset = 0;
+		}
+		exit(0);
+	}
+.DE
+.DM
+	for (count = 0; count < 3; count++) {
+		while(!got_it)			/* wait for signal */
+			sleep(1);
+		if (errset)
+			perror("child: signal reset failed");
+		printf("child got signal %d\en", count);	/* show we got it */
+.DE
+.DM
+		kill(parent, SIGTRAP);		/* signal the parent */
+		got_it = errset = 0;
+	}
+	exit(0);
+}
+.DE
+.SH "See Also"
+.Xr "kill," kill
+.Xr "kill()," kill.s
+.Xr "libc," libc
+.Xr "ptrace()," ptrace
+.Xr "sh," sh
+.Xr "sigaction()," sigaction
+.Xr "signame," signame
+.Xr "sigset()" sigset
+.br
+\*(AS, \(sc7.7.1.1
+.SH Notes
+The function
+.B signal()
+predates the
+.B sigset()
+and
+.B sigaction()
+sets of signal-handling functions.
+.I Never
+combine
+.B signal()
+with any of the
+.B sigset()
+or
+.B sigaction()
+families of functions:
+use one or the other, but not both.
+For a description of how
+.B signal()
+differs from
+.B sigset()
+and
+.BR sigaction() ,
+see their Lexicon entries.

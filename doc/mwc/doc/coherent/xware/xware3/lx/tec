@@ -1,0 +1,322 @@
+.TH tec "" "" "X Application"
+.PC "Model planetary plate tectonics"
+\fBtec [\fIparameterfile\^\fB]\fR
+.PP
+.B tec
+draws a map of some imaginary world and puts one big continent on it.
+The program then graphically simulates the breakup of this supercontinent by
+rifts and the drifting of the continents.
+Mountains are built by subsuming and by continental collision,
+and are reduced by erosion.
+As time passes, the continents tend to drift back into a supercontinent
+and split up again, forming what some authors call a ``supercontinent cycle.''
+.PP
+The program produces a map of an imaginary world which contains realistic
+looking mountain ranges and continents that sometimes look like they fit
+together (like South America and Africa on Earth).
+.SH "How Do I Run It?"
+To run
+.BR tec ,
+simply invoke it.
+It takes one optional argument,
+.IR parameterfile ;
+this names a file that holds parameters that describe the planet to be built.
+The file name `-' indicates the standard input.
+.B tec
+writes its output to the standard output.
+.PP
+When
+.B tec
+runs, it opens a graphics screen.
+A big purple blob pops up.
+This is the initial supercontinent.
+Every second or so (depending on machine speed) it computes another ``step''.
+.PP
+.B tec
+uses colors to represent altitudes on the land masses:
+black is the lowest (ocean), and goes through the spectrum
+from lowest to highest: purple, blue, green, yellow, orange, red,
+and finally white.
+There are about 30 visibly different altitude
+ranges, since each color has several shades.
+.PP
+As time passes, you will see the supercontinent split up; green and yellow
+mountains will appear on the leading edges of drifting continent.
+When continents slow down, reverse course, and collide, higher orange and red
+mountains appear.
+If you watch carefully, you can see erosion on
+mountains that are not growing; they turn darker and travel down through
+the color ranges.
+.PP
+At any time, you can type `Q'; this ends the program.
+It also stop automatically after 100 steps.
+.SH Parameters
+As noted above, the argument
+.I parameterfile
+is optional;
+all of the parameters you can change have defaults.
+Thus,
+.I parameterfile
+need contain only the parameters you wish to change.
+A parameter file looks like LISP; for example,
+to change the parameter
+.BR XSIZE ,
+the file would have the one line:
+.DM
+	(XSIZE 40)
+.DE
+.PP
+Parameters can also be vectors; for example:
+.DM
+	(MOVERATE (1 1 1))
+.DE
+.PP
+The parameters are either easy or difficult.
+This rating concerns how much
+you have to know about the simulation to change the parameters:
+easy parameters just affect run time, resolution, and so on; whereas
+you should change hard parameters only if you understand the code well.
+.PP
+The following gives the easy parameters:
+.IP \fBPRINTMODE\fR
+This sets the mode of output, as follows:
+.DS
+	0	No output
+	1	Long text file
+	3	Summary text file
+	4	PostScript gray-scale drawings
+.DE
+.IP
+The default is one.
+.IP \fBDRAWEVERY\fR
+The number of steps iterated for each output.
+The default is one, but this produces a large quantity of text.
+Reasonable values for non-interactive runs are five or ten.
+Supercontinents appear every 25 steps or so.
+Zero tells
+.B tec
+to print only the final map, the one generated at last time-step.
+.IP \fBMAXSTEP\fR
+How many steps to run before terminating.
+The default is 100.
+.IP \fBXSIZE\fR
+Horizontal size of arrays.
+The default is 90.
+To produce summaries that fit on a normal page, use 72.
+.IP \fBYSIZE\fR
+Vertical size of arrays.
+The default is 90.
+The summaries included in files
+.B tec.out.[1-3]
+were built with a value of 48.
+.IP \fBHYDROPCT\fR
+The percentage of the grid that should be covered by water.
+The default is 70.
+A threshold is found for the initial blob to meet
+this goal within about 2 to 3%.
+If
+.B DRAWEVERY
+is also set to zero,
+then at the last step the ocean level is forced up or
+down to satisfy the requirement.
+This may cause a panic error if there is not enough land to do it.
+.IP \fBUNDERSCAN\fR
+If a potential rift gets within this many squares of the edge, it
+is thrown away.
+This keeps new fragments from appearing near the edge,
+which in turn means that far less land falls off the edge of the map.
+This is a hack; the default is zero, which is no change.
+For 100\(mu100 maps, ten is the best choice.
+Therefore, to produce a text file with ten pictures, use the command:
+.DM
+	(PRINTMODE 2) (DRAWEVERY 10) (XSIZE 72) (YSIZE 48)
+.DE
+.IP
+To produce a 20-page PostScript output with a little more detail, use
+the command:
+.DM
+	(PRINTMODE 4) (DRAWEVERY 5)
+.DE
+.PP
+The following gives the hard parameters:
+.IP \fBZINIT\fR
+Initial altitude of supercontinent.
+The default is 22.
+.IP \fBZSUBSUME\fR
+Altitude added to leading edge of drifting plate.
+The default is 16.
+.IP \fBZCOAST\fR
+Sea level.
+Everything below this is under water.
+The default is 16.
+.IP \fBZSHELF\fR
+Minimum altitude for continental shelf.
+The default is eight.
+.IP \fBZMOUNTAIN\fR
+Used in
+.BR "PRINTMODE 2" ;
+altitude above which a square is counted as mountain instead of land.
+The default is 48.
+.IP \fBZERODE\fR
+Minimum altitude used in erosion.
+The default is 16.
+Decrease this number and continents grow faster at the margins;
+increase it, and they grow more slowly.
+Increase it too much and weird things happen to your mountains.
+.IP \fBMAXBUMP\fR
+If two plates overlap on more than this number of squares,
+the plates must be merged together.
+The default is 50. 
+.IP \fBBUMPTOL\fR
+If the relative velocity of two touching plates is less than this value,
+the plates will be merged together.
+The default is 50.
+.IP \fBMOVERATE\fR
+A vector of real numbers that describes the rate at which plates
+move apart, slow down, then drift back together.
+Each plate has an age, measured in steps from its creation.
+The age is used as an offset into the vector.
+The result is a real number
+between \-1.0 and +1.0, which is multiplied by the plate's original
+movement vector.
+The default vector is
+.DM
+	(1.0 1.0 1.0 0.7 0.4 0.1 -0.2 -0.5 -0.8 -1.0)
+.DE
+.IP
+Interpret it as follows:
+The first three steps during which a plate is
+in motion, it moves at its normal velocity.
+During steps four through six, it slows down.
+During steps seven through ten, it moves the
+opposite way from the way it started, at increasing speeds.
+Thereafter, it keeps moving at its final velocity.
+.IP \fBRIFTPCT\fR
+Percent chance that a rift will occur in a given step.
+The default is 40.
+.IP \fBMAXCTRTRY\fR
+The number of tries the rift routine will make to find an
+acceptable place to start a rift.
+The default is 50.
+.IP \fBRIFTDIST\fR
+The minimum allowable distance between a proposed rift center
+and the nearest coast.
+The default is five.
+.IP \fBDOERODE\fR
+Whether compute erosion.
+The default is one, that is, do compute it.
+If you set this to zero (do not compute erosion),
+.B tec
+runs about twice as fast but will generate far too many mountains,
+since the only thing that gets rid of mountains is erosion.
+.IP \fBERODERND\fR
+The rounding factor used in erosion.
+This value is an integer from zero (no erosion) through seven
+(fastest erosion).
+The default is four.
+.IP \fBBENDEVERY\fR
+Each time a rift grows by this many squares, it is allowed to bend a little.
+The default is six.
+.IP \fBBENDBY\fR
+When a rift bends, it bends by a random angle in the range of
+.B \-BENDBY through
+.B +BENDBY
+multiplied by \(*p/2000.
+Default value is 100.
+If
+.B BENDBY
+is too high or
+.B BENDEVERY
+is too low,
+.B tec
+generates very curvy rifts, with unrealistic results.
+.IP \fBSPPEDBASE\fR
+The minimum speed at which new plates will travel.
+The default is 200.
+.IP \fBSPEEDRNG\fR
+The actual speed at which a plate travels is
+.DM
+	SPEEDBASE + rnd(SPEEDRNG).
+.DE
+.IP
+Default value is 300.
+.SH Example
+To see
+.B tec
+in action, type the following:
+.DM
+	cat > tecexample
+	(XSIZE 60) (YSIZE 30) (MAXSTEP 20) (PRINTMODE 3)
+	<ctrl-D>
+.DE
+.PP
+Note that
+.B <ctrl-D>
+is not literal text.
+.PP
+To process the example file through
+.BR tec ,
+use the following command:
+.DM
+	tec tecexample > tecexmaple.out
+.DE
+.PP
+Let the
+.B tec
+animation run through to its end.
+When the animation is completed,
+.B tec
+writes a map of your planet to the standard output
+(which, in this example, is redirected into file
+.BR tecexample.out ).
+To create a map of your planet at a different point in its geologic
+evolution, change the value of the
+.B MAXSTEP
+instruction
+from 20 to some other value.
+.PP
+To display a globe of your newly designed planet, type the following:
+.DM
+	globe tecexample.out
+.DE
+.PP
+To see the climate of your planet, type the command:
+.DM
+	clim tecexample.out
+.DE
+.SH "See Also"
+.B
+clim,
+globe,
+X applications
+.R
+.SH Notes
+Files
+.BR tec.out.[1-3] ,
+included with the source code to the
+.B planetge
+package, give examples of
+.BR tec 's
+brief text output.
+In them, 0's indicate ocean, 1's indicate land, and 2's indicate
+mountains.
+.PP
+File
+.BR about.tec ,
+which is included with the source code to
+.BR planetge ,
+discusses
+.B tec
+in greater deal, and gives references to relevant literature.
+If you wish to explore
+.B tec
+further, you will find it helpful.
+.PP
+.II "Allen David"
+Copyright \(co 1991 by David Allen (allen@viewlogic.com).
+You may distribute this freely as long
+as you leave the author's name and copyright notice intact.
+The author invites your comments.
+Please send e-mail to the above address, or send surface mail to
+David Allen, 10 O'Moore Ave., Maynard, MA 01754.
+

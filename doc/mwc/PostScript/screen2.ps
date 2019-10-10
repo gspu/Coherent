@@ -1,0 +1,69 @@
+%% Here's a very slightly better version of the test program from earlier,
+%% probably too late to do any good with the printer.  I realized that since
+%% our output device is known to be 300 DPI, the frequency set in the outer
+%% for-loop should be an even divisor of 300; thus, where it used frequencies
+%% 30, 40, 50, ..., 100 before, now it uses 300/10, 300/9, 300/8, ..., 300/3,
+%% which gives screens of size 10x10, 9x9, ..., 3x3; looks better than previous.
+%% ------------------------------------------------------------------------
+% lib/box.ps 10/25/93
+
+% Draw rectangular box.
+% linewidth linegray fillgray dx dy x y box -
+% Ignore setgray and linegray if fillgray is -1;
+% this is useful for filling a box with a different fill pattern.
+/box
+{
+	gsave
+		newpath			% linewidth linegray fillgray dx dy x y
+		moveto			% linewidth linegray fillgray dx dy
+		1 index 0 rlineto	% linewidth linegray fillgray dx dy
+		0 exch rlineto		% linewidth linegray fillgray dx
+		neg 0 rlineto		% linewidth linegray fillgray
+		closepath
+		dup -1 ne
+		{			% linewidth linegray fillgray
+			% use fillgray and linegray if fillgray is not -1
+			gsave
+				setgray	% linewidth linegray
+				fill
+			grestore
+			setgray		% linewidth
+		}
+		{			% linewidth linegray fillgray
+			% ignore fillgray and linegray if fillgray is -1
+			pop pop		% linewidth
+			fill
+		} ifelse
+		setlinewidth stroke	% -
+	grestore
+} bind def
+
+/inch { 72 mul } bind def
+.25 inch .25 inch translate
+
+% Reset the screen frequency to the given value.
+% nfreq newfreq -
+/newfreq
+{
+	/nfreq exch def		% new frequency
+	currentscreen		% freq angle proc
+	3 -1 roll		% angle proc freq
+	pop nfreq		% angle proc nfreq
+	3 1 roll		% nfreq angle proc
+	setscreen
+} bind def
+
+% Print eight columns of boxes, screen size from 10x10 pixels to 3x3 pixels.
+10 -1 3 {
+	300 exch div newfreq
+	% Print 11 rows of boxes, gray level from 0 to 1.
+	0 1 10 {
+		/n exch def
+		% linewidth linegray fillgray    dx      dy   x   y    box -
+		     1         0     n 10 div .9 inch .9 inch 0 n inch box
+	} for
+	1 inch 0 translate
+} for
+showpage
+
+% end of lib/box.ps

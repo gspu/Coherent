@@ -1,0 +1,104 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @@;
+
+
+1.1
+date     92.04.30.14.10.07;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@////////
+/
+/ Intel 8086 C runtime.
+/ SMALL model.
+/
+////////
+
+	.globl	vldiv
+	.globl	vrdiv
+
+////////
+/
+/ unsigned long
+/ vrdiv(a, b);
+/ unsigned long a;
+/ unsigned long b;
+/
+/ unsigned long
+/ vldiv(a, p);
+/ unsigned long a;
+/ unsigned long *p;
+/
+/ these two routines perform 32 bit unsigned divide.
+/ they are called by the compiler when a user program performs an
+/ unsigned long division, and are called by the library routines
+/ that perform long division.
+/
+////////
+
+alow	=	8
+ahigh	=	10
+blow	=	0
+bhigh	=	2
+
+vldiv:	mov	ax,bx			/ save bx.
+	mov	bx,sp			/ point bx at
+	mov	bx,6(bx)		/ the operand and
+	jmp	L0			/ go to common end.
+
+vrdiv:	mov	ax,bx			/ save bx.
+	mov	bx,sp			/ point bx at
+	lea	bx,6(bx)		/ the operand.
+
+L0:	push	si			/ standard
+	push	di			/ c
+	push	bp			/ function
+	mov	bp,sp			/ linkage.
+
+	push	ax			/ save saved bx.
+	mov	dx,ahigh(bp)		/ pick up
+	mov	ax,alow(bp)		/ dividend.
+	sub	si,si			/ clear out the
+	sub	di,di			/ the upper half of the mq.
+
+	mov	cx,$32			/ step count.
+
+L1:	shl	ax,$1			/ shift
+	rcl	dx,$1			/ one
+	rcl	di,$1			/ bit
+	rcl	si,$1			/ left.
+
+	cmp	si,bhigh(bx)		/ does it go in ??
+	jb	L3			/ nope.
+	ja	L2			/ yes.
+	cmp	di,blow(bx)		/ maybe ??
+	jb	L3			/ nope.
+
+L2:	sub	di,blow(bx)		/ subtract the
+	sbb	si,bhigh(bx)		/ divisor and poke a 1 bit
+	inc	ax			/ into the quotient.
+
+L3:	loop	L1			/ do this 32 times.
+
+	pop	bx			/ restore saved bx.
+	mov	sp,bp			/ standard
+	pop	bp			/ c
+	pop	di			/ function
+	pop	si			/ linkage.
+	ret				/ done.
+@

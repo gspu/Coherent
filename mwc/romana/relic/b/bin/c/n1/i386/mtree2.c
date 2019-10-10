@@ -1,0 +1,512 @@
+/*
+ * n1/i386/mtree2.c
+ * Machine dependent parts of the tree modifier.
+ * A conditionalization handles machines that have an 80x87.
+ * i386.
+ */
+
+#ifdef   vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+int	blkflab;
+
+#if	SPLIT_CC1
+/*
+ * Function prolog.
+ * Clear "BLK function" label.
+ */
+doprolog()
+{
+	blkflab = 0;
+}
+
+/*
+ * Copy auto information.
+ */
+doautos()
+{
+	iput(iget());
+	iput(iget());
+}
+#endif
+
+/*
+ * This function performs machine specific tree modifications.
+ * It is called from "modtree" after all of the machine
+ * independent transformations have been done.
+ * It returns either a pointer to the new tree
+ * (telling "modtree" to do another pass)
+ * or NULL (which implies that no changes were made).
+ */
+TREE *
+modoper(tp, ac, ptp) register TREE *tp; int ac; TREE *ptp;
+{
+	register TREE	*lp, *rp, *tp1, *tp2, *tp3;
+	register int	c, op, nseg;
+	register int	tt, lt, rt;
+	sizeof_t	offs;
+
+	c = ac;
+	if (c==MRETURN || c==MSWITCH || c==MINIT)
+		c = MRVALUE;
+	op = tp->t_op;
+	if (isleaf(op)) {
+		if (op==AID || op==PID) {
+			/* Modify autos and parameters to "*(%ebp+offset)". */
+			offs = tp->t_offs;
+			tp->t_op = STAR;
+			tp->t_rp = NULL;
+			tp->t_lp  = tp2 = makenode(ADD, PTR);
+			tp2->t_lp = tp3 = makenode(REG, PTR);
+			tp3->t_reg = EBP;
+			tp2->t_rp = ivalnode((ival_t)offs);
+			return tp;
+		} else
+			goto done;
+	}
+
+	/*
+ 	 * Beat on lvalue fields.
+	 */
+	if ((op==ASSIGN || (op>=AADD && op<=ASHR)
+	||  (op>=INCBEF && op<=DECAFT))
+	&&   tp->t_lp->t_op==FIELD && tp->t_lp->t_type<FLD8)
+		return modlfld(tp, c);
+
+	/*
+ 	 * Non leaf.
+	 * Gather up subtrees.
+	 * Rewrite some things as calls to library routines.
+	 */
+	tt = tp->t_type;
+	lp = tp->t_lp;
+	if (lp != NULL)
+		lt = lp->t_type;
+	rp = NULL;
+	if (op != FIELD) {
+		rp = tp->t_rp;
+		if (rp != NULL)
+			rt = rp->t_type;
+	}
+
+	/*
+	 * If there is an NDP, rewrite conversions
+	 * from bytes and unsigned things
+	 * and all conversions from float to fixed
+	 * as calls of support routines.
+	 */
+	if (isvariant(VNDP)) {
+		if (isflt(tt)) {
+			if (op==CONVERT || op==CAST) {
+				if ((lp->t_flag&T_REG) != 0
+				|| (lp->t_flag&T_LEAF) == 0
+				|| (lt!=S16 && lt!=S32 && lt!=F32))
+					return modxfun(tp);
+			}
+		} else if ((op>=GT && op<=LT) && isflt(lt))
+			tp->t_op += UGT-GT;
+		else if ((op==CONVERT || op==CAST) && isflt(lt))
+			return modxfun(tp);
+	}
+	switch (op) {
+
+	case FIELD:
+		if (c != MLADDR)
+			return modefld(tp->t_lp, tp, c, 1);
+		break;
+
+	case ASSIGN:
+		if (tt == BLK) {
+			tp = modsasg(lp, rp, tp->t_size);
+			if (c != MEFFECT)
+				tp = leftnode(STAR, tp, BLK, tp->t_size);
+			return tp;
+		}
+		break;
+
+	case CONVERT:
+	case CAST:
+		if (modkind(tt) == modkind(lp->t_type)) {
+			lp->t_type = tt;
+			return lp;
+		}
+	}
+
+	/*
+	 * If this tree is the return value of a structure function,
+	 * arrange to copy the value into a secret place
+	 * and return the address of the place.
+	 */
+done:
+	if (tp->t_type==BLK && ac==MRETURN) {
+		if (blkflab == 0) {
+			blkflab = newlab();
+			nseg = newseg(SBSS);
+			genlab(blkflab);
+			bput(BLOCK);
+			iput((ival_t) tp->t_size);
+			newseg(nseg);
+		}
+		lp = makenode(LID, BLK, tp->t_size);
+		lp->t_label = blkflab;
+		lp->t_seg = SBSS;
+		return modsasg(lp, tp, tp->t_size);
+	}
+	return NULL;
+}
+
+/*
+ * Given a type, return a kind that is used to see
+ * if two objects are just different names for the same bits.
+ */
+modkind(t) register int t;
+{
+	if (t == U8)
+		t = S8;
+	else if (t == U16)
+		t = S16;
+	else if (t == U32)
+		t = S32;
+	return t;
+}
+
+/*
+ * Build a call node for the assignment of structure data.
+ * The rep and a copy operation are not used so that the ES need not be used.
+ * The type of the CALL is PTR.
+ * The size is valid.
+ */
+TREE *
+modsasg(lp, rp, s) register TREE *lp, *rp;
+{
+	register TREE	*tp;
+
+	rp = leftnode(ADDR, rp, PTR);
+	rp = leftnode(ARGLST, rp, PTR);
+	rp->t_rp = ivalnode((ival_t)s);
+	lp = leftnode(ADDR, lp, PTR);
+	lp = leftnode(ARGLST, lp, PTR);
+	lp->t_rp = rp;
+	tp = makenode(GID, PTR);
+	tp->t_sp = gidpool("memcpy");
+	tp->t_seg = SANY;
+	tp = leftnode(CALL, tp, PTR);
+	tp->t_size = s;
+	tp->t_rp = lp;
+	return tp;
+}
+
+/*
+ * Modify function calls.
+ * Handle functions that return objects of type "BLK"
+ * by adding a free indirection node.
+ */
+TREE *
+modcall(tp, c) register TREE *tp; int c;
+{
+	fixtoptype(tp);
+	tp->t_lp = modtree(tp->t_lp, MLADDR, tp);
+	tp->t_rp = modargs(tp->t_rp, tp);
+	if (tp->t_type == BLK) {
+		tp->t_type = PTR;
+		if (c != MEFFECT)
+			tp = leftnode(STAR, tp, BLK, tp->t_size);
+	}
+	return tp;
+}
+
+/*
+ * Modify argument lists.
+ */
+TREE *
+modargs(tp, ptp) register TREE *tp; TREE *ptp;
+{
+	if (tp == NULL)
+		return NULL;
+	if (tp->t_op == ARGLST) {
+		tp->t_lp = modargs(tp->t_lp, tp);
+		tp->t_rp = modargs(tp->t_rp, tp);
+		return tp;
+	}
+	if (tp->t_type == BLK) {
+		tp = leftnode(ADDR, tp,	PTB, tp->t_size);
+		return modtree(tp, MRVALUE, ptp);
+	}
+	return modtree(tp, MFNARG, ptp);
+}
+
+static	char	modoptab[] = {
+	'i',	'u',		/* S8	U8		*/
+	'i',	'u',		/* S16	U16		*/
+	'i',	'u',		/* S32	U32		*/
+	'f',	'd',		/* F32	F64		*/
+	'b',			/* BLK			*/
+	'i',	'i',	'i',	/* FLD8	FLD16	FLD32	*/
+	'p',	'p'		/* PTR	PTB		*/
+};
+
+/*
+ * Rewrite a TREE node which describes an operation
+ * that the machine cannot directly perform as a CALL to a magic routine.
+ * On the i386 we rewrite NDP floating point conversions.
+ * This used to rewrite software fp as subroutine calls,
+ * now the code tables generate the calls directly instead.
+ */
+TREE *
+modxfun(tp)
+TREE *tp;
+{
+	register TREE	*lp, *rp;
+	register char	*p1, *p2;
+	register TREE	*tp1;
+	register int	tt, lt, op;
+
+	op  = tp->t_op;
+	lp  = tp->t_lp;
+	rp  = tp->t_rp;
+	tt  = tp->t_type;
+	if (lp != NULL)
+		lt  = lp->t_type;
+	p1  = id;
+	*p1++ = '_';
+	*p1++ = modoptab[tt];
+	if (lt==F32 && tt!=F64)
+		lt = F64;
+	*p1++ = modoptab[lt];
+	p2 = "cvt";
+	while (*p1++ = *p2++)
+		;
+	*p1 = '\0';
+	tp1 = makenode(GID, PTR);
+	tp1->t_sp = gidpool(id);
+	tp1->t_seg = SANY;
+	tp->t_op = CALL;
+	tp->t_lp = tp1;
+	tp->t_rp = lp;
+	fixtoptype(tp);
+	if (tp->t_type!=tt && tt!=F32)
+		tp = leftnode(CONVERT, tp, tt);
+	if (isrelop(op)) {
+		tp = leftnode(op, tp, TRUTH);
+		tp->t_rp = ivalnode((ival_t)0);
+	}
+	return tp;
+}
+
+/*
+ * Zap a DCON into a block of memory with a double in it.
+ */
+storedcon(tp) register TREE *tp;
+{
+	if (tp->t_op != DCON)
+		return;
+	pool(tp);
+	tp->t_flag = T_DIR;
+}
+
+/*
+ * Test if 1) the tree pointed to by "tp" is a register
+ * and     2) the operation "op" can be computed in it.
+ */
+isokareg(tp, op) register TREE *tp; register op;
+{
+	if (op==MUL || op==DIV || op==REM)
+		return 0;
+	if (tp->t_op!=REG || !isword(tp->t_type))
+		return 0;
+	return 1;
+}
+
+/*
+ * Modify bit fields in lvalue contexts.
+ * The "tp" argument is a pointer to the tree node
+ * with the FIELD operation on the left side.
+ * This routine has two tasks.
+ * First, it rewrites the type in the FIELD node to be the type used by
+ * select to match the tree; this is also used as a flag
+ * to prevent this routine from being called twice on a node.
+ * Second, it inserts explict shift nodes to
+ * the operands and results so that all of the optimizations
+ * applied to shifts work for fields.
+ * A pointer to the new top of the tree is returned.
+ */
+TREE *
+modlfld(tp, c) register TREE *tp; int c;
+{
+	register TREE *lp, *rp;
+	register lt, tt;
+	register op;
+	register bmop;
+	register MASK mask;
+
+	op = tp->t_op;
+	tt = tp->t_type;
+	lp = tp->t_lp;
+	if (lp != NULL)
+		lt = lp->t_type;
+	if (op!=AMUL && op!=ADIV && op!=ASHL && op!=ASHR) {
+		rp = tp->t_rp;
+		rp = leftnode(SHL, rp, rp->t_type);
+		rp->t_rp = ivalnode((ival_t)lp->t_base);
+		tp->t_rp = rp;
+	}
+	if (op==AAND || op==AOR || op==AXOR || op==ASSIGN) {
+		mask = ((MASK)01<<lp->t_width) - 1;
+		mask = mask << lp->t_base;
+		bmop = AND;
+		if (op == AAND) {
+			mask = ~mask;
+			bmop = OR;
+		}
+		/* rp set above */
+		rp = leftnode(bmop, rp, rp->t_type);
+		fixtoptype(rp);
+		if (rp->t_type != rp->t_lp->t_type)
+			rp->t_lp = leftnode(CONVERT, rp->t_lp, rp->t_type);
+		rp->t_rp = ivalnode((ival_t)mask);
+		tp->t_rp = rp;
+	}
+	if (c != MEFFECT)
+		tp = modefld(tp, lp, c, 0);
+	if (isbyte(lt))
+		lp->t_type = FLD8;
+	else if (isword(lt))
+		lp->t_type = FLD16;
+	else
+		lp->t_type = FLD32;
+	return tp;
+}
+
+/*
+ * Rewrite field extraction.
+ * The argument "tp" is the base of the field.
+ * The argument "fp" is a FIELD node that supplies the width and the base.
+ * The argument "flag" is true to enable the mask off in unsigned field extract.
+ */
+TREE *
+modefld(tp, fp, c, flag) register TREE *tp, *fp; int c, flag;
+{
+	register int n, tt;
+	register MASK mask;
+
+	if (isbyte(tt = tp->t_type) || isword(tt)) {
+		/* Byte and word fields.  Make the top a computational type. */
+		tp = leftnode(CONVERT, tp, tt);
+		fixtoptype(tp);
+		tt = tp->t_type;
+	}
+	if (c == MFLOW) {
+		/* In a flow context, the field offset is irrelevant. */
+		mask = ((MASK)1 << fp->t_width) - 1;
+		if ((n = fp->t_base) != 0)
+			mask <<= n;
+		tp = leftnode(AND, tp, tt);
+		tp->t_rp = ivalnode((ival_t)mask);
+		return tp;
+	}
+	if (isuns(tt) || fp->t_width==1) {
+		/* Unsigned fields: shift right and mask to extract. */
+		/* Field width 1 is a special case, can be treated like unsigned. */
+		if ((n = fp->t_base) != 0) {
+			tp = leftnode(SHR, tp, tt);
+			tp->t_rp = ivalnode((ival_t)n);
+		}
+		if (flag) {
+			tp = leftnode(AND, tp, tt);
+			tp->t_rp = ivalnode(((ival_t)1 << fp->t_width) - 1);
+		}
+		return tp;
+	}
+	/* Signed fields: shift left and then right to extract and sign extend. */
+	if ((n = 32 - (fp->t_base + fp->t_width)) != 0) {
+		tp = leftnode(SHL, tp, tt);
+		tp->t_rp = ivalnode((ival_t)n);
+	}
+	if ((n = 32 - fp->t_width) != 0) {
+		tp = leftnode(SHR, tp, tt);
+		tp->t_rp = ivalnode((ival_t)n);
+	}
+	return tp;
+}
+
+/*
+ * Check if a tree should have its left and right subtrees swapped.
+ * Do it if it is required.
+ * Sometimes the relational operation must be adjusted.
+ */
+modswap(tp, ptp) register TREE *tp; TREE *ptp;
+{
+	register TREE *lp, *rp;
+	FLAG lf, rf;
+
+	switch (tp->t_op) {
+
+	case ADD:
+	case MUL:
+	case AND:
+	case OR:
+	case XOR:
+	case EQ:
+	case NE:
+	case GT:
+	case GE:
+	case LT:
+	case LE:
+	case UGT:
+	case UGE:
+	case ULT:
+	case ULE:
+		lp = tp->t_lp;
+		rp = tp->t_rp;
+		lf = lp->t_flag;
+		rf = rp->t_flag;
+		if (lf!=0 || rf!=0) {
+			if ((lf&T_CON) != 0
+			||  (rf&T_REG) != 0
+			||  (lf!=0 && rf==0))
+				swapit(tp);
+		} else if (lp->t_cost > rp->t_cost)
+			swapit(tp);
+	}
+}
+	
+/*
+ * Swap subtrees.
+ * Fix up relational ops.
+ */
+swapit(tp) register TREE *tp;
+{
+	register TREE *xp;
+	register op;
+
+	xp = tp->t_lp;
+	tp->t_lp = tp->t_rp;
+	tp->t_rp = xp;
+	op = tp->t_op;
+	if (isrelop(op))
+		tp->t_op = fliprel[op-EQ];
+}
+
+/*
+ * Convert integer constant val to type t.
+ */
+lval_t
+constcvt(t, val) register int t; lval_t val;
+{
+	if (isbyte(t))
+		val &= 0xFFL;
+	else if (isword(t))
+		val &= 0xFFFFL;
+	if (!isuns(t)) {
+		if (isbyte(t) && (val & 0x80L) != 0)
+			val |= 0xFFFFFF00L;
+		else if (isword(t) && (val & 0x8000L) != 0)
+			val |= 0xFFFF0000L;
+	}
+	return val;
+}
+
+/* end of n1/i386/mtree2.c */

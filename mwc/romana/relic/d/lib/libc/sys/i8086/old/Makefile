@@ -1,0 +1,141 @@
+# /usr/src/libc/sys/i8086/Makefile 2/14/91
+
+OBJ=\
+	access.o\
+	acct.o\
+	alarm.o\
+	alarm2.o\
+	brk.o\
+	chdir.o\
+	chmod.o\
+	chown.o\
+	chroot.o\
+	close.o\
+	creat.o\
+	dup.o\
+	execk.o\
+	execve.o\
+	fcntl.o\
+	fork.o\
+	fstat.o\
+	ftime.o\
+	getegid.o\
+	geteuid.o\
+	getgid.o\
+	getpgrp.o\
+	getpid.o\
+	getuid.o\
+	ioctl.o\
+	kill.o\
+	link.o\
+	lock.o\
+	lseek.o\
+	mknod.o\
+	mount.o\
+	nice.o\
+	open.o\
+	pause.o\
+	pipe.o\
+	poll.o\
+	profil.o\
+	ptrace.o\
+	read.o\
+	sbrk.o\
+	setgid.o\
+	setpgrp.o\
+	setuid.o\
+	signal.o\
+	sload.o\
+	stat.o\
+	stime.o\
+	suload.o\
+	sync.o\
+	tick.o\
+	times.o\
+	umask.o\
+	umount.o\
+	unique.o\
+	unlink.o\
+	utime.o\
+	wait.o\
+	write.o
+
+UNUSED=	_brk.s\
+	msgctl.s\
+	msgget.s\
+	msgrcv.s\
+	msgsnd.s
+	
+# Primary target.
+SYSI8086:	$(OBJ)
+	ar rkus libc.a $?
+	touch $@
+	: libc/sys/i8086 done.
+
+# Secondary targets.
+access.o:	access.s
+acct.o:		acct.s
+alarm.o:	alarm.s
+alarm2.o:	alarm2.s
+brk.o:		brk.s
+chdir.o:	chdir.s
+chmod.o:	chmod.s
+chown.o:	chown.s
+chroot.o:	chroot.s
+close.o:	close.s
+creat.o:	creat.s
+dup.o:		dup.s
+execk.o:	execk.s
+execve.o:	execve.s
+fcntl.o:	fcntl.s
+fork.o:		fork.s
+fstat.o:	fstat.s
+ftime.o:	ftime.s
+getegid.o:	getegid.s
+geteuid.o:	geteuid.s
+getgid.o:	getgid.s
+getpgrp.o:	getpgrp.s
+getpid.o:	getpid.s
+getuid.o:	getuid.s
+ioctl.o:	ioctl.s
+kill.o:		kill.s
+link.o:		link.s
+lock.o:		lock.s
+lseek.o:	lseek.s
+mknod.o:	mknod.s
+mount.o:	mount.s
+nice.o:		nice.s
+open.o:		open.s
+pause.o:	pause.s
+pipe.o:		pipe.s
+poll.o:		poll.s
+profil.o:	profil.s
+ptrace.o:	ptrace.s
+read.o:		read.s
+sbrk.o:		sbrk.c
+setgid.o:	setgid.s
+setpgrp.o:	setpgrp.s
+setuid.o:	setuid.s
+signal.o:	signal.s
+sload.o:	sload.s
+stat.o:		stat.s
+stime.o:	stime.s
+suload.o:	suload.s
+sync.o:		sync.s
+tick.o:		tick.s
+times.o:	times.s
+umask.o:	umask.s
+umount.o:	umount.s
+unique.o:	unique.s
+unlink.o:	unlink.s
+utime.o:	utime.s
+wait.o:		wait.s
+write.o:	write.s
+
+# Unused.
+msgctl.o:	msgctl.s
+msgget.o:	msgget.s
+msgrcv.o:	msgrcv.s
+msgsnd.o:	msgsnd.s
+
+# end of libc/sys/i8086/Makefile

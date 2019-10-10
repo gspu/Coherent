@@ -1,0 +1,129 @@
+.TH physiock() "" "" "DDI/DKI Kernel Routine"
+.PC "Request and validate raw I/O"
+.B "#include <sys/buf.h>"
+.B "#include <sys/types.h>"
+.B "#include <sys/types.h>"
+\fBint physiock(\fIstrategy\^\fB, \fIbuf_ptr\^\fB, \fIdevice\^\fB, \fIrwflag\^\fB, \fIblocks\^\fB, \fIuio_ptr\^\fB)\fR
+\fBint (*\fIstrategy\^\fB); \fBbuf_t *\fIbuf_ptr\^\fB; \fBdev_t \fIdevice\^\fB;\fR
+\fBint \fIrwflag\^\fB; daddr_t \fIblocks\^\fB; IO *\fIuio_ptr\^\fB;\fR
+.PP
+.B physiock()
+uses a buffer header to perform unbuffered I/O.
+Thus, it provides block drivers with a character (or ``raw'') interface
+to a device.
+.PP
+When it executes a request for raw I/O,
+.B physiock()
+performs the following tasks:
+.IP \fB1.\fR 0.3i
+Check whether the request runs to or past the end of the device.
+If a read request runs past the end of the device or a write request runs
+to or past the end of the device, the request is invalid and
+.B physiock()
+rejects it.
+See the description of return values, below, for details on how it handles
+this situation.
+.IP \fB2.\fR
+Set up a buffer header to describe the I/O task.
+For details, see the Lexicon entry for the function
+.BR getrbuf() .
+.IP \fB3.\fR
+Lock pages so they cannot be swapped out of memory.
+(NB, this currently does not apply to \*(CO, but will when demand paging
+is added to its kernel.)
+.IP \fB3.\fR
+Call the driver's
+.B strategy
+routine.
+.IP \fB4.\fR
+Sleep until the transfer is complete.
+It awakens when the I/O-done handler calls
+.B biodone()
+to awaken it.
+(For details on the I/O-done handler, see the Lexicon entry for
+.BR getrbuf() .)
+.IP \fB5.\fR
+Update various structures where necessary, tidy up memory, and return.
+.PP
+.B physiock()
+takes the following parameters:
+.IP \fIstrategy\fR
+The address of the driver's strategy routine.
+.IP \fIbuf_ptr\fR
+The address of the instance of type
+.B buf
+that describes the I/O request.
+If this is initialized to NULL,
+.B physiock()
+allocates a buffer and a buffer header from the buffer pool,
+then frees them after the I/O request has been executed.
+.IP \fIdevice\fR
+The number of the external device with which I/O is to be performed.
+.IP \fIrwflag\fR
+The direction of I/O.
+If it is set to
+.BR B_READ ,
+the data moves from the kernel into the user's buffer;
+if to
+.BR B_WRITE ,
+then the data moves in the opposite direction.
+.IP \fIblocks\fR
+The number of blocks that a logical device can support.
+One block equals
+.B NBPSCTR
+bytes, as defined by header file
+ .BR <sys/param.h> .
+Note that for some devices (e.g., tape devices),
+this should be set to an arbitrarily large value.
+.IP \fIuio_ptr\fR
+The address of the instance of type
+.BR IO
+that defines the user space which the I/O procedure is to use.
+Note that under \*(UN's implementation of the DDI/DKI, this argument has type
+.BR uio_t .
+.SH "Return Values"
+.B physiock()
+returns zero if the I/O executed without trouble or if it read data
+at the end of a device.
+It returns a value other than zero if any of the following conditions
+occurred:
+.IP \(bu 0.3i
+Only a partial transfer of data occurred.
+.B physiock()
+updates the
+.B uio
+instance to which
+.I uio_ptr
+points to reflect this partial transfer, and returns a non-zero value.
+.IP \(bu
+The I/O request attempts to read beyond the end of this device, or write
+at or beyond the end of a device.
+.B physiock()
+returns
+.BR ENXIO .
+.IP \(bu
+The user memory to which
+.I uio_ptr
+points is not valid.
+.B physiock()
+returns
+.BR EFAULT .
+.IP \(bu
+.B physiock()
+could not lock pages for DMA.
+It returns
+.BR EAGAIN .
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+freerbuf(),
+getrbuf(),
+strategy
+.SH Notes
+.B physiock()
+has base level.
+It can sleep.
+.PP
+A function cannot hold a basic lock or read/write lock across a call to this
+function.
+It can, however, hold a sleep lock.

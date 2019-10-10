@@ -1,0 +1,316 @@
+/* $Header: /kernel/kersrc/coh.286/RCS/sig.c,v 1.1 92/07/17 15:18:46 bin Exp Locker: bin $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Coherent.
+ * Signal handling.
+ *
+ * $Log:	sig.c,v $
+ * Revision 1.1  92/07/17  15:18:46  bin
+ * Initial revision
+ * 
+ * Revision 1.1	88/03/24  16:14:24	src
+ * Initial revision
+ * 
+ * 87/11/05	Allan Cornish		/usr/src/sys/coh/sig.c
+ * New seg struct now used to allow extended addressing.
+ *
+ * 86/11/19	Allan Cornish		/usr/src/sys/coh/sig.c
+ * sigdump() initializes the (new) (IO).io_flag field to 0.
+ */
+#include <sys/coherent.h>
+#include <errno.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <sys/io.h>
+#include <sys/proc.h>
+#include <sys/ptrace.h>
+#include <sys/sched.h>
+#include <sys/seg.h>
+#include <signal.h>
+
+/*
+ * Send a signal to the process `pp'.
+ */
+sendsig(sig, pp)
+register unsigned sig;
+register PROC *pp;
+{
+	register sig_t f;
+	register int s;
+
+	f = ((sig_t)1) << (sig-1);
+	if ((pp->p_isig&f) != 0)
+		return;
+	pp->p_ssig |= f;
+	if (pp->p_state == PSSLEEP) {
+		s = sphi();
+		pp->p_lback->p_lforw = pp->p_lforw;
+		pp->p_lforw->p_lback = pp->p_lback;
+		addu(pp->p_cval, (utimer-pp->p_lctim)*CVCLOCK);
+		setrun(pp);
+		spl(s);
+	}
+}
+
+/*
+ * Return signal number if we have a non ignored signal, else zero.
+ */
+nondsig()
+{
+	register PROC *pp;
+	register sig_t mask;
+	register int signo;
+
+	pp = SELF;
+	signo = 0;
+	pp->p_ssig &= ~pp->p_isig;
+	if (pp->p_ssig != 0) {
+		mask = (sig_t) 1;
+		signo += 1;
+		while ((pp->p_ssig&mask) == 0) {
+			mask <<= 1;
+			signo += 1;
+		}
+	}
+	return (signo);
+}
+
+/*
+ * If we have a signal that isn't ignored, activate it.
+ */
+actvsig()
+{
+	register int n;
+	register PROC *pp;
+	register int (*f)();
+
+#if EBUG_VM > 0
+	printf("actvsig ");	/** DEBUG **/
+#endif
+
+	if ((n = nondsig()) == 0)
+		return;
+	pp = SELF;
+	--n;
+	pp->p_ssig &= ~((sig_t)1<<n);
+	f = u.u_sfunc[n];
+	u.u_signo = ++n;
+	if (f != SIG_DFL) {
+		msigint(n, f);
+		return;
+	}
+	msysgen(&u.u_sysgen);
+	if ((pp->p_flags&PFTRAC) != 0) {
+		pp->p_flags |= PFWAIT;
+		n = ptret();
+		pp->p_flags &= ~(PFWAIT|PFSTOP);
+		if (n == 0)
+			return;
+	}
+	if (n>SIGKILL || n==SIGQUIT || n==SIGSYS) {
+		if (sigdump())
+			n |= 0200;
+	}
+	pexit(n);
+}
+
+/*
+ * Create a dump of ourselves onto the file `core'.
+ */
+sigdump()
+{
+	register INODE *ip;
+	register SR *srp;
+	register SEG * sp;
+	register int n;
+	register paddr_t ssize;
+
+	if ((SELF->p_flags&PFNDMP) != 0)
+		return (0);
+	u.u_io.io_seg  = IOSYS;
+	u.u_io.io_flag = 0;
+	/* Make the core with the real owners */
+	schizo();
+	if (ftoi("core", 'c') != 0) {
+		schizo();
+		return (0);
+	}
+	if ((ip=u.u_cdiri) == NULL) {
+		if ((ip=imake(IFREG|0644, 0)) == NULL) {
+			schizo();
+			return (0);
+		}
+	} else {
+		if ((ip->i_mode&IFMT)!=IFREG
+		 || iaccess(ip, IPW)==0
+		 || getment(ip->i_dev, 1)==NULL) {
+			idetach(ip);
+			schizo();
+			return (0);
+		}
+		iclear(ip);
+	}
+	schizo();
+	u.u_error = 0;
+	u.u_io.io_seek = 0;
+	for (srp=u.u_segl; u.u_error==0 && srp<&u.u_segl[NUSEG]; srp++) {
+		if ((sp = srp->sr_segp)==NULL || (srp->sr_flag&SRFDUMP)==0)
+			continue;
+		u.u_io.io_seg = IOPHY;
+		u.u_io.io_phys = sp->s_paddr;
+		u.u_io.io_flag = 0;
+		ssize = sp->s_size;
+		sp->s_lrefc++;
+		while (u.u_error == 0 && ssize != 0) {
+			n = ssize > SCHUNK ? SCHUNK : ssize;
+			u.u_io.io_ioc = n;
+			iwrite(ip, &u.u_io);
+			u.u_io.io_phys += (paddr_t)n;
+			ssize -= (paddr_t)n;
+		}
+		sp->s_lrefc--;
+	}
+	idetach(ip);
+	return (u.u_error==0);
+}
+
+/*
+ * Send a ptrace command to the child.
+ */
+ptset(req, pid, addr, data)
+unsigned req;
+int *addr;
+{
+#ifdef TINY
+	sendsig(SELF, SIGSYS);
+	return (0);
+#else
+	register PROC *pp;
+
+	lock(pnxgate);
+	for (pp=procq.p_nforw; pp!=&procq; pp=pp->p_nforw)
+		if (pp->p_pid == pid)
+			break;
+	unlock(pnxgate);
+	if (pp==&procq || (pp->p_flags&PFSTOP)==0 || pp->p_ppid!=SELF->p_pid) {
+		u.u_error = ESRCH;
+		return;
+	}
+	lock(pts.pt_gate);
+	pts.pt_req = req;
+	pts.pt_pid = pid;
+	pts.pt_addr = addr;
+	pts.pt_data = data;
+	pts.pt_errs = 0;
+	pts.pt_rval = 0;
+	pts.pt_busy = 1;
+	wakeup((char *)&pts.pt_req);
+	while (pts.pt_busy != 0)
+		sleep((char *)&pts.pt_busy, CVPTSET, IVPTSET, SVPTSET);
+	u.u_error = pts.pt_errs;
+	unlock(pts.pt_gate);
+	return (pts.pt_rval);
+#endif
+}
+
+/*
+ * This routine is called when a child that is being traced receives a signal
+ * that is not caught or ignored.  It follows up on any requests by the parent
+ * and returns when done.
+ */
+ptret()
+{
+#ifdef TINY
+	return (SIGKILL);
+#else
+	register PROC *pp;
+	register PROC *pp1;
+	register int sign;
+
+	pp = SELF;
+next:
+	u.u_error = 0;
+	if (pp->p_ppid == 1)
+		return (SIGKILL);
+	sign = -1;
+	lock(pnxgate);
+	pp1 = &procq;
+	for (;;) {
+		if ((pp1=pp1->p_nforw) == &procq) {
+			sign = SIGKILL;
+			break;
+		}
+		if (pp1->p_pid != pp->p_ppid)
+			continue;
+		if (pp1->p_state == PSSLEEP)
+			wakeup((char *)pp1);
+		break;
+	}
+	unlock(pnxgate);
+	while (sign < 0) {
+		if (pts.pt_busy==0 || pp->p_pid!=pts.pt_pid) {
+			sleep((char *)&pts.pt_req, CVPTRET, IVPTRET, SVPTRET);
+			goto next;
+		}
+		switch (pts.pt_req) {
+		case 1:
+			pts.pt_rval = getuwi(pts.pt_addr);
+			break;
+		case 2:
+			pts.pt_rval = getuwd(pts.pt_addr);
+			break;
+		case 3:
+			if ((unsigned)pts.pt_addr < UPASIZE)
+				pts.pt_rval = *(int *)((char *)&u+pts.pt_addr);
+			else
+				u.u_error = EINVAL;
+			break;
+		case 4:
+			putuwi(pts.pt_addr, pts.pt_data);
+			break;
+		case 5:
+			putuwd(pts.pt_addr, pts.pt_data);
+			break;
+		case 6:
+			if (msetuof(pts.pt_addr, pts.pt_data) == 0)
+				u.u_error = EINVAL;
+			break;
+		case 7:
+			goto sig;
+		case 8:
+			sign = SIGKILL;
+			break;
+		case 9:
+			msigsin();
+		sig:
+			if (pts.pt_data<0 || pts.pt_data>NSIG) {
+				u.u_error = EINVAL;
+				break;
+			}
+			sign = pts.pt_data;
+			if (pts.pt_addr != SIG_IGN)
+				msetppc((vaddr_t)pts.pt_addr);
+			break;
+		default:
+			u.u_error = EINVAL;
+		}
+		if ((pts.pt_errs=u.u_error) == EFAULT)
+			pts.pt_errs = EINVAL;
+		pts.pt_busy = 0;
+		wakeup((char *)&pts.pt_busy);
+	}
+	return (sign);
+#endif
+}

@@ -1,0 +1,17 @@
+/v/doc/coherent/lx/va_arg
+/v/doc/coherent/lx/va_end
+/v/doc/coherent/lx/va_start
+/v/doc/coherent/lx/varargs.h
+/v/doc/coherent/lx/vfprintf
+/v/doc/coherent/lx/vi
+/v/doc/coherent/lx/vidattr
+/v/doc/coherent/lx/vidputs
+/v/doc/coherent/lx/view
+/v/doc/coherent/lx/virtual_c
+/v/doc/coherent/lx/void
+/v/doc/coherent/lx/volatile
+/v/doc/coherent/lx/vprintf
+/v/doc/coherent/lx/vsh
+/v/doc/coherent/lx/vsprintf
+/v/doc/coherent/lx/vtkb
+/v/doc/coherent/lx/vtnkb

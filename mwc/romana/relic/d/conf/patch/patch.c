@@ -1,0 +1,416 @@
+static char Copyright[] =	"$Copyright: (c) 1985, INETCO Systems, Ltd.$";
+static char Release[] =		"$Release: INETCO COHERENT V8.0$";
+static char Date[] =		"$Date: 91/04/24 14:20:20 $";
+
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.35
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Patch binary system images
+ * and possibly the running system.
+ * This program is not expected to work other than on PC Coherent.
+ * Certain hot patches may not be effective, since some values are only
+ * referenced once at system initialization.
+ *
+ * $Log:	/newbits/conf/patch/patch.c,v $
+ * Revision 1.1	91/04/24  14:20:20 	bin
+ * Initial revision
+ * 
+ * 87/02/01	Allan Cornish		/usr/src/cmd/conf/patch.c
+ * myatol() routine added which recognizes numeric base specifications.
+ * All references to atol() modified to use myatol().
+ * main() now enables buffering on standard output.
+ *
+ */
+char helpmessage[] = "\
+patch -- alter coherent binary image\n\
+Usage:	patch [ -k ] imagename symbol=value [ ... ]\n\
+Options:\n\
+	-k	patch running system via /dev/kmem\n\
+Patch alters the value of 'symbol' to 'value' in the binary 'imagename'.\n\
+Both 'symbol' and 'value' may be composed of a decimal numeric constant\n\
+or of a symbol in the image's symbol table, trailing '_' is significant,\n\
+optionally offset by + or - a decimal numeric constant.\n\
+The 'value' field may be optionally composed of 'makedev(d1, d2)' where 'd1'\n\
+and 'd2' are decimal numbers and the result is a dev_t value.\n\
+The size of the altered field is by default sizeof(int), but the 'value'\n\
+specification may be followed by a ':' and a 'c', 's', 'i', or 'l' to\n\
+explicitly specify a char, short, int, or long sized patch.\n\
+\
+";
+
+#include <stdio.h>
+#include <l.out.h>
+#include <canon.h>
+#include <ctype.h>
+
+#include <sys/machine.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+/*
+ * Nlist tables and patch records.
+ */
+#define NNLS	512
+int	nnls;	/* Number of nlist elements used */
+struct nlist nl[NNLS*2];
+struct plist {
+	struct	nlist *p_lvnp, *p_rvnp;
+	long	p_lval, p_rval;
+	int	p_type;
+	char	p_char;
+	short	p_short;
+	int	p_int;
+	long	p_long;
+} pl[NNLS];
+char *namep;
+struct ldheader ldh;
+int hotpatch = 0;
+
+main(argc, argv)
+char *argv[];
+{
+	static char obuf[BUFSIZ];
+
+	/*
+	 * Enable output buffering.
+	 */
+	setbuf( stdout, obuf );
+
+	if (argc > 1 && strcmp(argv[1], "-k") == 0) {
+		hotpatch += 1;
+		argv += 1;
+		argc -= 1;
+	}
+	if (argc < 3)
+		usage();
+	namep = argv[1];
+	if (getnames(argc-2, &argv[2]) == 0) {
+		setfile(argc-2);
+		if (hotpatch)
+			setkmem(argc-2);
+		exit(0);
+	}
+	exit(1);
+}
+
+getnames(nn, npp)
+int nn;
+char **npp;
+{
+	register int i;
+	register struct plist *p;
+	register struct nlist *np;
+	int nbad;
+
+	nbad = 0;
+	for (i = 0; i < nn; i += 1)
+		if (i < NNLS-1)
+			getone(i, npp[i]);
+	nlist(namep, nl);
+	for (i = 0; i < nn; i += 1)
+		if (i >= NNLS)
+			printf("Too many patches: %s ignored\n", npp[i]);
+		else {
+			p = &pl[i];
+			if ((np = p->p_lvnp) != NULL) {
+				if (np->n_type || np->n_value)
+					p->p_lval += np->n_value;
+				else {
+					nbad += 1;
+					badsym(np->n_name);
+				}
+			}
+			if ((np = p->p_rvnp) != NULL) {
+				if (np->n_type || np->n_value)
+					p->p_rval += np->n_value;
+				else {
+					nbad += 1;
+					badsym(np->n_name);
+				}
+			}
+			switch (p->p_type) {
+			case 'c': p->p_char	= p->p_rval; break;
+			case 's': p->p_short	= p->p_rval; break;
+			case 'i': p->p_int	= p->p_rval; break;
+			case 'l': p->p_long	= p->p_rval; break;
+			default:
+				nbad += 1;
+				printf("Bad type in %s\n", npp[i]);
+				break;
+			}
+		}
+	return (nbad);
+}
+
+badsym(np)
+char *np;
+{
+	printf("%*.*s not found in %s\n", NCPLN, NCPLN, np, namep);
+}
+
+getone(i, np)
+int i;
+register char *np;
+{
+	register int n;
+	register char *cp;
+	long myatol();
+
+	pl[i].p_lvnp = NULL;
+	pl[i].p_lval = 0;
+	pl[i].p_rvnp = NULL;
+	pl[i].p_rval = 0;
+	pl[i].p_type = 'i';
+	if (isalpha(*np) || *np == '_') {
+		pl[i].p_lvnp = nl + nnls;
+		cp = nl[nnls].n_name;
+		nnls += 1;
+		for (n = 0; ; n += 1) {
+			if ( ! isalnum(*np) && *np != '_')
+				break;
+			if (n < NCPLN)
+				*cp++ = *np;
+			np += 1;
+		}
+/* printf(" %s", nl[nnls-1].n_name); */
+	}
+	if (*np == '+')
+		np += 1;
+	pl[i].p_lval = myatol(np);
+/* printf(" %D =", pl[i].p_lval); */
+	np = index(np, '=');
+	if (np != NULL) {
+		np += 1;
+		if (strncmp(np, "makedev(", 8) == 0) {
+			int d1, d2;
+
+			np = index(np, '(') + 1;
+			d1 = myatol(np);
+			np = index(np, ',');
+			if (np != NULL) {
+				d2 = myatol(np + 1);
+				np = index(np, ')');
+			} else
+				d2 = 0;
+			pl[i].p_rval = makedev(d1, d2);
+			if (np == NULL)
+				np = "";
+			else
+				np += 1;
+			goto tail;
+		} else if (isalpha(*np) || *np == '_') {
+			pl[i].p_rvnp = nl + nnls;
+			cp = nl[nnls].n_name;
+			nnls += 1;
+			for (n = 0; ; n += 1) {
+				if ( ! isalnum(*np) && *np != '_')
+					break;
+				if (n < NCPLN)
+					*cp++ = *np;
+				np += 1;
+			}
+/* printf(" %s", nl[nnls-1].n_name); */
+		}
+		if (*np == '+')
+			np += 1;
+		pl[i].p_rval = myatol(np);
+/* printf(" %D", pl[i].p_rval); */
+tail:
+		np = index(np, ':');
+		if (np != NULL)
+			pl[i].p_type = np[1];
+	}
+/* printf(" : %c\n", pl[i].p_type); */
+}
+
+setfile(n)
+int n;
+{
+	int u;
+	register int i;
+	long seekoff, minval, maxval;
+	long seek;
+
+	if ((u=open(namep, 2)) < 0) {
+		printf("Cannot open %s\n", namep);
+		exit(1);
+	}
+	if (read(u, &ldh, sizeof(ldh)) != sizeof(ldh)) {
+		printf("Cannot read %s\n", namep);
+		exit(1);
+	}
+	canint(ldh.l_magic);
+	if (ldh.l_magic != L_MAGIC) {
+		printf("%s is not an image\n", namep);
+		exit(1);
+	}
+	canint(ldh.l_flag);
+	cansize(ldh.l_ssize[L_SHRI]);
+	cansize(ldh.l_ssize[L_PRVI]);
+	cansize(ldh.l_ssize[L_SHRD]);
+	cansize(ldh.l_ssize[L_PRVD]);
+	seekoff = sizeof(ldh);
+	minval = 0;
+	if (ldh.l_flag&LF_SEP)	/* Separate i and d */
+		seekoff += ldh.l_ssize[L_SHRI] + ldh.l_ssize[L_PRVI];
+	else
+		minval = ldh.l_ssize[L_SHRI] + ldh.l_ssize[L_PRVI];
+	maxval = minval + ldh.l_ssize[L_SHRD] + ldh.l_ssize[L_PRVD];
+	for (i = 0; i < n; i += 1) {
+		seek = pl[i].p_lval;
+		if (seek < minval || seek >= maxval) {
+			printf("%s: cannot patch\n", nl[i].n_name);
+			continue;
+		}
+		lseek(u, seekoff+seek, 0);
+		if (patch(u, &pl[i]) < 0)
+			printf("Write error in %s\n", namep);
+	}
+	close(u);
+}
+
+setkmem(n)
+int n;
+{
+	int u;
+	register int i;
+
+	if ((u=open("/dev/kmem", 2)) < 0) {
+		printf("Cannot open /dev/kmem\n");
+		return;
+	}
+	for (i = 0; i < n; i += 1) {
+		lseek(u, pl[i].p_lval, 0);
+		if (patch(u, &pl[i]) < 0)
+			printf("Write error in /dev/kmem\n");
+	}
+	close(u);
+}
+
+patch(fd, p)
+int fd;
+struct plist *p;
+{
+	register char *bp;
+	register int nc;
+
+	switch (p->p_type) {
+	case 'c':
+		bp = &p->p_char; nc = sizeof(char); break;
+	case 's':
+		bp = &p->p_short; nc = sizeof(short); break;
+	case 'i':
+		bp = &p->p_int; nc = sizeof(int); break;
+	case 'l':
+		bp = &p->p_long; nc = sizeof(long); break;
+	}
+	if (write(fd, bp, nc) != nc)
+		return (-1);
+	return (0);
+}
+
+/**
+ *
+ * long
+ * myatol( s )		-- Ascii to Long integer conversion.
+ * char * s;
+ *
+ *	Input:	s = pointer to string containing a numeric prefix.
+ *
+ *	Action:	Parse input string.
+ *		Parse optional leading sign character '-'.
+ *		Parse optional numeric base specification '0', '0o', and '0x'.
+ *		Parse following numeric digits.
+ *
+ *	Return:	Long integer value.
+ *
+ *	Notes:	Numeric parsing terminates on first non-digit.
+ */
+long
+myatol( s )
+register char * s;
+{
+	register int base;
+	register int sign;
+	auto 	long valu;
+
+	/*
+	 * Check for leading negative sign.
+	 */
+	sign = 1;
+	if ( *s == '-' ) {
+		sign = -1;
+		s++;
+	}
+
+	/*
+	 * Check for base specification.
+	 */
+	base = 10;
+	if ( *s == '0' ) {
+		switch ( *++s ) {
+		case 'x':	base = 16;	++s;	break;
+		case 'o':	base =  8;	++s;	break;
+		default:	base =  8;
+		}
+	}
+
+	for ( valu = 0L; *s != '\0'; s++ ) {
+
+		/*
+		 * Decimal digit.
+		 */
+		if ( ('0' <= *s) && (*s <= '9') ) {
+			valu *= base;
+			valu += *s - '0';
+		}
+
+		/*
+		 * Upper case hex digit.
+		 */
+		else if	( (base == 16) && ('A' <= *s) && (*s <= 'F') ) {
+			valu *= base;
+			valu += *s - ('A' - 10);
+		}
+
+		/*
+		 * Lower case Hex digit.
+		 */
+		else if	( (base == 16) && ('a' <= *s) && (*s <= 'f') ) {
+			valu *= base;
+			valu += *s - ('a' - 10);
+		}
+
+		/*
+		 * Not a digit.
+		 */
+		else
+			break;
+	}
+
+	if ( sign < 0 )
+		valu = -valu;
+
+	return valu;
+}
+
+/*
+ * Print out an usage message.
+ */
+usage()
+{
+	printf(helpmessage);
+	exit(1);
+}
+

@@ -1,0 +1,40 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__COMMON___TIME_H__
+#define	__COMMON___TIME_H__
+
+/*
+ * This internal header file defines the internal data type "__time_t".
+ * This type is equivalent to the ISO C data type "time_t", but has an
+ * internal name so that header files man refer to it without exporting
+ * the user-level type.
+ *
+ * The System V ABI and the iBCS2 specification set define "time_t" as a long.
+ * A POSIX.1 system is permitted to use "unsigned long" to extend the range of
+ * time values since the POSIX.1 epoch, because conforming applications should
+ * be using ((time_t) -1) to detect errors.
+ *
+ * For now, we resolve this conflict by use of the _POSIX_SOURCE feature-test
+ * macro. If _POSIX_SOURCE is defined, then we use the "unsigned long" form as
+ * the client has contracted us in a POSIX guise.
+ */
+
+#include <common/feature.h>
+
+#if	_POSIX_C_SOURCE
+
+typedef	unsigned long	__time_t;
+
+#else
+
+typedef	long		__time_t;
+
+#endif
+
+
+#endif	/* ! defined (__COMMON___TIME_H__) */

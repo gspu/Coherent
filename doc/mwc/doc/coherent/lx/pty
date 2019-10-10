@@ -1,0 +1,175 @@
+.TH pty "" "" "Device Driver"
+.PC "Device driver for pseudoterminals"
+.PP
+.II /dev/ptyp?
+.II pseudoterminal
+.II "terminal^pseudo"
+.II "driver^pseudoterminal"
+.II "device driver^pseudoterminal"
+The \*(CO device driver
+.B pty
+lets your system support up to 128 pairs of pseudoterminals, or
+.IR ptys .
+.PP
+A
+.I pseudoterminal
+is a means of letting a process masquerade as a terminal.
+For example, when you run the program
+.B xterm
+under X, that program passes what you type into \*(CO through a
+pseudoterminal device.
+.PP
+Each pseudoterminal consists of a pair of devices:
+a master device and a slave device.
+The program that is accepting input from a human at a keyboard
+(e.g.,
+.BR xterm )
+is ``plugged'' into the slave device; the program that is accepting
+and processing the input (e.g., a shell) is plugged into the master device.
+The following diagram shows how this pair of devices relate to each other:
+.ie p .PH 1 1 \\*(XD/pty.eps
+.el \{
+.ie \n(HT .PH pty.xbm
+.el \{
+.B1
+		app     master          line    slave   app
+		using    pty            disc.   pty     using
+		master  device          module  device  slave
+	                \e....................../
+	                        pty driver
+.B2\}
+\}
+.PP
+As you can see, the slave device talks to the keyboard through
+a sub-module that performs line discipline.
+.II "line discipline^definition"
+.I "Line-discipline"
+handles backspace characters,
+handles special interrupt characters (such as \fB<ctrl-C>\fR),
+and converts line-feed characters
+into carriage-return\(emline-feed character pairs:
+it bundles what you type into a package that can be passed to the
+master application and processed.
+.\" .PP
+.\" Within the driver, input to the master device becomes output from the
+.\" slave, and vice versa.
+.\" Typically, the slave device is connected to a
+.\" process that expects input from a keyboard device \(em the command shells
+.\" .B sh
+.\" and
+.\" .B ksh
+.\" are examples of such processes.
+.\" The master device is connected to a process that handles raw data,
+.\" such as ``script''-type utilities
+.\" (programs that transcribe both sides of a login session to a file) and
+.\" multisession or windowing managers.
+.PP
+Only one process at a time can open a master device;
+the device is opened as soon as requested.
+Several processes can open a slave device,
+but blocks until the matching master device has been open.
+When blocked in this way, the slave is said to be
+``waiting for pseudocarrier.''
+.PP
+An attempt to read a master device when no input is available, or to write
+to a master device when the slave cannot accept data,
+will block unless nonblocking I/O has been specifically requested;
+in this case, the system calls
+.B read()
+or
+.B write()
+fail and
+.B errno
+is set to EAGAIN.
+.PP
+You can use the system call
+.B ioctl()
+on slave devices with all valid line-discipline commands, including
+.BR TCGETA ,
+.BR TCSETA ,
+.BR TCSETAW ,
+.BR TCSETAF ,
+and
+.BR TCFLSH .
+There are no valid
+.B ioctl()
+commands for master devices.
+.PP
+The system call
+.B poll()
+is allowed with both master and slave
+.B pty
+devices.
+However, priority polls (\fBPOLLPRI\fR) are not supported.
+.PP
+Master devices are named
+.BR /dev/pty[p-w][0-f] .
+Corresponding slaves are
+.BR /dev/tty[p-w][0-f] .
+Like any other device, each
+.B pty
+has a major and minor number.
+The major number is 9 (\fBPTY_MAJOR\fR in system header file
+.BR <sys/devices.h> ).
+For slave devices, minor numbers are assigned according to the following scheme:
+.DM
+.ta 1.5i 3.0iC 4.5iC
+	\fIdevice	Major number	Minor number\fP
+	/dev/ttyp0	9	0
+	/dev/ttyp1	9	1
+	...
+.DE
+.DM
+.ta 1.5i 3.0iC 4.5iC
+	/dev/ttyp9	9	9
+	/dev/ttypa	9	10
+	/dev/ttypb	9	11
+	...
+.DE
+.DM
+.ta 1.5i 3.0iC 4.5iC
+	/dev/ttypf	9	15
+	/dev/ttyq0	9	16
+	...
+.DE
+.DM	
+.ta 1.5i 3.0iC 4.5iC
+	/dev/ttyw0	9	112
+	...
+.DE
+.DM
+.ta 1.5i 3.0iC 4.5iC
+	/dev/ttywf	9	127
+.DE
+.PP
+For master devices, use
+.B pty
+instead of
+.B tty
+in the device name, and add 128 to the minor number.
+.PP
+The configurable parameter
+.B NUPTY_SPEC
+sets the number of
+.B pty
+pairs that may be used.
+The default is eight.
+If you want to change this value, invoke the script
+.BR /etc/conf/pty/mkdev
+and enter the new value at the appropriate prompt.
+Then use the command
+.B /etc/conf/bin/idmkcoh
+to build a new kernel that incorporates this change; when the new kernel
+is built, boot it.
+For details, see the Lexicon entry for the command
+.BR idmkcoh .
+.PP
+Specifying a value of zero for
+.B NUPTY_SPEC
+will cause the
+.B pty
+device to be omitted from the next kernel that
+.B idmkcoh
+generates.
+.SH "See Also"
+.Xr "device drivers" device_dr

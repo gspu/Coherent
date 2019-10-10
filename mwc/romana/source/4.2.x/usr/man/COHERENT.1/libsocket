@@ -1,0 +1,228 @@
+lliibbssoocckkeett -- Overview
+
+Library of communications routines
+
+lliibbssoocckkeett  is  a library  of  routines that  emulate  the Berkeley  ssoocckkeettss
+library.  It includes the following functions:
+
+aacccceepptt().............. Accept a connection on a socket
+bbiinndd()................ Bind a name to a socket
+ccoonnnneecctt()............. Connect to a socket
+eennddnneetteenntt()........... Close network file
+eennddpprroottooeenntt()......... Close protocols file
+eennddsseerrvveenntt().......... Close protocols file
+ggeettnneettbbyyaaddddrr()........ Get a network entry by address
+ggeettnneettbbyynnaammee()........ Get a network entry by address
+ggeettnneetteenntt()........... Fetch a network entry
+ggeettppeeeerrnnaammee()......... Get name of connected peer
+ggeettpprroottoobbyynnaammee()...... Get protocol entry by protocol name
+ggeettpprroottoobbyynnuummbb()...... Get protocol entry by protocol name
+ggeettpprroottooeenntt()......... Get protocol entry
+ggeettsseerrvvbbyynnaammee()....... Get a service entry by port number
+ggeettsseerrvvbbyyppoorrtt()....... Get a service entry by port number
+ggeettsseerrvveenntt().......... Get a service entry
+ggeettssoocckknnaammee()......... Get the name of a socket
+ggeettssoocckkoopptt().......... Get a socket option
+lliisstteenn().............. Listen for a connection on a socket
+sseelleecctt().............. Perform synchronous I/O multiplexing
+sseettnneetteenntt()........... Open a networks file
+sseettpprroottooeenntt()......... Open the protocols file
+sseettsseerrvveenntt().......... Open the services file
+sseettssoocckkoopptt().......... Set an option on a socket
+ssoocckkeett().............. Create a socket
+
+Function ssoocckkeett() creates a socket;  the caller dictates the type of socket
+to  be  created,  and  the  communications  protocol that  it  comprehends.
+ssoocckkeett() returns a descriptor,  which resembles a file descriptor and which
+can  be  passed  to  the  system  calls  rreeaadd()  and  wwrriittee()  to  exchange
+information with whatever plugs itself into that socket.  (For details, see
+the NNootteess section at the end of this article.)
+
+Function bbiinndd() binds the newly created socket to a file that you name.  To
+await a connection with another process, invoke the function lliisstteenn(); this
+alerts the system to the fact  that you (via your socket) await messages of
+a given  type.  When a message becomes  available, invoke function aacccceepptt()
+to accept  communication with  the process that  wishes to connect  to your
+socket.  These functions generally are used by ``server'' sockets.
+
+Function ccoonnnneecctt() directly establishes connection with a server socket via
+its name (that is, via the  file to which it is bound).  Once connection is
+established,  information can  be exchanged via  the COHERENT  system calls
+rreeaadd() and wwrriittee().
+
+_E_x_a_m_p_l_e
+The following example gives  two programs, sseerrvveerr.cc and cclliieenntt.cc. They give
+a simple example of how two processes can communicate via ssoocckkeettss. When you
+compile each,  be sure to  place the option  -llssoocckkeett at the end  of the cccc
+command, to  ensure that the  ssoocckkeettss emulation library is  linked into the
+program.   When you  run the  programs,  be sure  to invoke  sseerrvveerr in  the
+background first, and then invoke cclliieenntt.
+
+The following gives the source for sseerrvveerr.cc:
+
+#include <stdio.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/select.h>
+
+#define MY_PORT 30000
+#define TRUE 1
+
+extern int errno;
+
+main()
+{
+    int sd, nsd, err;
+    struct sockaddr_in server;
+    char buf[20];
+    char *term = "**EXIT**";
+    fd_set listener;
+
+    /* clear our address */
+    bzero((char *)&server, sizeof(server));
+
+    /* create socket */
+    if ((sd = socket(AF_INET, SOCK_STREAM, 0)) <= 0) {
+        err = errno;
+        fprintf(stderr, "server: can't create socket\n");
+        fprintf(stderr, "server: errno = %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = htonl(INADDR_ANY);
+    server.sin_port = htons(MY_PORT);
+
+      /* bind the socket */
+    if ((bind(sd, (struct sockaddr *)&server, sizeof(server))) != 0) {
+        err = errno;
+        fprintf(stderr, "server: can't bind socket\n");
+        fprintf(stderr, "server: errno = %d\n", err);
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+      /* listen on the socket */
+    if ((listen(sd, 1)) != 0) {
+        err = errno;
+        fprintf(stderr, "server: can't listen on socket\n");
+        fprintf(stderr, "server: errno = %d\n", err);
+        close(sd);
+        exit(1);
+    }
+
+    /* use select to wait for connection request */
+    FD_ZERO (& listener);
+    FD_SET (sd, & listener);
+    select (FD_SETSIZE, & listener, NULL, NULL, NULL);
+
+    /* accept connections on the socket */
+    if ((nsd = accept(sd, (struct sockaddr*)0, (int *)0)) == -1) {
+        err = errno;
+        fprintf(stderr, "server: can't accept connection\n");
+        fprintf(stderr, "server: errno = %d\n", err);
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    /* echo every message back to client, exit on terminate string */
+    while (TRUE) {
+        bzero(&buf[0], sizeof(buf));
+        read(nsd, &buf[0], sizeof(buf));
+
+        if (!strncmp(buf, term, strlen(term)))
+            break;
+        write(nsd, &buf[0], sizeof(buf));
+    }
+    fprintf(stdout, "server: terminate string received\n");
+
+    /* close sockets */
+    close(nsd);
+    close(sd);
+    exit(EXIT_SUCCESS);
+}
+
+The following gives the source for cclliieenntt.cc:
+
+#include <stdio.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+#define MY_PORT 30000
+
+extern int errno;
+
+main()
+{
+    int sd, err;
+    struct sockaddr_in client;
+    char buf[20];
+    char *msg = "hello world";
+    char *term = "**EXIT**";
+
+    /* clear our address */
+    bzero((char *)&client, sizeof(client));
+
+    /* create socket */
+    if ((sd = socket(AF_INET, SOCK_STREAM, 0)) <= 0) {
+        err = errno;
+        fprintf(stderr, "client: can't create socket\n");
+        fprintf(stderr, "client: errno = %d\n", err);
+        exit(EXIT_FAILURE);
+    }
+
+    client.sin_family = AF_INET;
+    client.sin_addr.s_addr = htonl(INADDR_ANY);
+    client.sin_port = htons(MY_PORT);
+
+    /* connect to the socket */
+    if (connect(sd, (struct sockaddr*)&client, sizeof(client))) {
+        err = errno;
+        fprintf(stderr, "client: can't connect socket\n");
+        fprintf(stderr, "client: errno = %d\n", err);
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+    /* send "hello world" to server */
+    fprintf(stdout, "client: send to server: <%s>\n", msg);
+    write(sd, msg, strlen(msg));
+
+    /* now receive from server */
+    read(sd, &buf[0], sizeof(buf));
+    fprintf(stdout, "client: answer from server: <%s>\n", buf);
+
+    /* send termination string to server */
+    fprintf(stdout, "client: send terminate string to server\n");
+    write(sd, term, strlen(term));
+
+    /* close socket */
+    close(sd);
+    exit(EXIT_SUCCESS);
+}
+
+_S_e_e _A_l_s_o
+ddeevviiccee  ddrriivveerr,   lliibbrraarriieess,  mmssggggeett(),  nnaammeedd   ppiippeess,  ppiippee(),  sseemmggeett(),
+sshhmmggeett(), SSTTRREEAAMMSS
+
+_N_o_t_e_s
+The version of sockets included with COHERENT is not built into the kernel.
+Rather,  it uses  a library  of routines  that use  named pipes  to emulate
+sockets.   You should  not invoke  the  system calls  rreeaadd() or  wwrriittee() to
+manipulate directly any descriptor  returned by a call to ssoocckkeett(), because
+this descriptor defines only one of  a set of named pipes required to mimic
+a true  kernel-level socket.  Header file socket.h  replaces these with the
+macros that  perform the task correctly.   This means that in  every C file
+where you perform  a rreeaadd(), wwrriittee(), iiooccttll(), or cclloossee()  on a socket, you
+must include <ssyyss/ssoocckkeett.hh>.
+
+This   library   was    adapted   from   Berkeley   sources   by   P.Garbha
+(pgd@compuram.bbt.se),  and  was   extensively  revised  by  Mark  Williams
+Company.
+
+This product  includes software developed by  the University of California,
+Berkeley, and its contributors.

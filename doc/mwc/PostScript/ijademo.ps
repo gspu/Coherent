@@ -1,0 +1,346 @@
+/state save def
+% lib/centershow.ps 10/26/93
+% Show str centered at currentpoint.
+% str centershow -
+/centershow { dup stringwidth pop 2 div neg 0 rmoveto show } bind def
+
+% end of lib/centershow.ps
+% lib/circletext.ps 10/26/93
+% Circular text setting routines from:
+% PostScript Language Tutorial and Cookbook, pp. 167-169.
+
+/circtextdict 16 dict def
+/pi 3.1415926 def
+
+/outsidecircletext
+{
+	circtextdict begin
+
+	/radius exch def
+	/centerangle exch def
+	/ptsize exch def
+	/str exch def
+
+	/xradius radius ptsize 4 div add def
+	gsave
+		centerangle str findhalfangle add rotate
+		str {
+			/charcode exch def
+			(X) dup 0 charcode put outsideplacechar
+		} forall
+	grestore
+	end	% circtextdict
+} bind def
+
+/insidecircletext
+{
+	circtextdict begin
+
+	/radius exch def
+	/centerangle exch def
+	/ptsize exch def
+	/str exch def
+
+	/xradius radius ptsize 3 div sub def
+	gsave
+		centerangle str findhalfangle sub rotate
+		str {
+			/charcode exch def
+			(X) dup 0 charcode put insideplacechar
+		} forall
+	grestore
+	end	% circtextdict
+} bind def
+
+circtextdict begin
+
+/findhalfangle
+{
+	stringwidth pop 2 div
+	2 xradius mul pi mul div 360 mul
+} bind def
+
+/outsideplacechar
+{
+	/char exch def
+	/halfangle char findhalfangle def
+
+	gsave
+		halfangle neg rotate
+		radius 0 translate
+		-90 rotate
+		char stringwidth pop 2 div neg 0 moveto
+		char show
+	grestore
+	halfangle 2 mul neg rotate
+} bind def
+
+/insideplacechar
+{
+	/char exch def
+	/halfangle char findhalfangle def
+
+	gsave
+		halfangle rotate
+		radius 0 translate
+		90 rotate
+		char stringwidth pop 2 div neg 0 moveto
+		char show
+	grestore
+	halfangle 2 mul rotate
+} bind def
+
+end	% circtextdict
+
+% end of lib/circletext.ps
+% lib/club.ps 10/26/93
+% Draw a juggling club.
+
+/inch { 72 mul } bind def
+
+/clubdict 5 dict def			% x1 y1 x2 y2 gray
+
+% Draw a club section with linear sides.
+% x2 y2 x1 y1 section -
+/section
+{
+	clubdict begin
+	/y1 exch def
+	/x1 exch def
+	/y2 exch def
+	/x2 exch def
+
+	x1 y1 moveto
+	x2 y2 lineto
+	x2 neg y2 lineto
+	x1 neg y1 lineto
+	closepath
+	end
+} bind def
+
+% Stroke and fill the current path with given gray level.
+% gray draw -
+/draw { gsave setgray fill grestore stroke} bind def
+
+% Draw an upright Dube custom European longhandled club
+% with base centered at (0,0).
+% Measurements by hand without decent instruments, yours may be different.
+% Current Dube catalog says diameter=3.25", length=20.5",
+% but my club measures more like diameter=3", length=20.25".
+% The arguments are gray levels: g10==knob, g9==handle, etc.
+% g1 g2 g3 g4 g5 g6 g7 g8 g9 g10 club -
+/club
+{
+	clubdict begin
+	currentgray /gray exch def
+
+	% Knob.
+	 .625 inch 0 moveto
+	 .625 inch .45 inch lineto
+	 .325 inch .45 inch .3 inch 0 90 arc
+	-.325 inch .75 inch lineto
+	-.325 inch .45 inch .3 inch 90 180 arc
+	-.625 inch 0 lineto
+	closepath draw
+
+	% Handle.
+	.4 inch 8.25 inch .3 inch .75 inch section draw
+
+	% Tape.
+	.5 inch 9 inch .4 inch 8.25 inch section draw
+
+	% Center arc.
+	1.1 inch 12.5 inch .5 inch 9 inch section draw
+
+	% Tape.
+	1.2 inch 13 inch 1.1 inch 12.5 inch section draw
+
+	% Body.
+	1.2 inch 13 inch moveto
+	1.3 inch 13.5 inch 1.5 inch 15 inch 1.5 inch 15.5 inch curveto
+	1.5 inch 16 inch 1.475 inch 16.25 inch 1.425 inch 16.75 inch curveto
+	-1.425 inch 16.75 inch lineto
+	-1.475 inch 16.25 inch -1.5 inch 16 inch -1.5 inch 15.5 inch curveto
+	-1.5 inch 15 inch -1.3 inch 13.5 inch -1.2 inch 13 inch curveto
+	closepath draw
+
+	% Tape.
+	1.375 inch 17.25 inch 1.425 inch 16.75 inch section draw
+
+	% End arc.
+	.9375 inch 19.5 inch 1.375 inch 17.25 inch section draw
+
+	% Tape.
+	.8125 inch 20 inch .9375 inch 19.5 inch section draw
+
+	% End.
+	.75 inch 20.25 inch .8125 inch 20 inch section draw
+
+	% Restore original gray level.
+	gray setgray
+	end
+
+} bind def
+
+% end of lib/club.ps
+% lib/outlinefont.ps 6/18/91
+% See "PostScript Language Tutorial and Cookbook" (Blue Book),
+% program 16, pp. 203ff.
+% Slightly modified by steve for sanity.
+
+/makeoutlinedict 5 dict def			% local dictionary
+makeoutlinedict begin /id 0 def end		% define static unique id
+
+% newname oldname width MakeOutlineFont -
+% Make an outline font.
+% newname should be a literal giving the new font name,
+% oldname should be a literal giving a known PS font name.
+% width is a relative outline width which scales with the font;
+% it is the pointsize at which the outline of the new font is 1 point wide.
+/MakeOutlineFont
+{
+	makeoutlinedict begin			% load local dictionary
+	/width 1000 3 -1 roll div def		% save stroke width
+	/oldfont exch findfont def		% find old font
+	/newname exch def			% save new name
+	/newfont oldfont maxlength 2 add dict def	% make new font dict
+	oldfont
+	{					% key value pair on stack
+		exch dup /FID ne		
+		{ exch newfont 3 1 roll put }	% copy key value pair to newfont
+		{ pop pop }			% skipping /FID
+		ifelse
+	} forall
+	newfont /FontName newname put		% store new name
+	newfont /PaintType 2 put		% store type==outline
+	newfont /StrokeWidth width put		% store stroke width
+	/id id 1 add def			% bump static id
+	newfont /UniqueID
+		oldfont dup /UniqueID known
+		{ /UniqueID get id add }	% UniqueID known, bump by id
+		{ pop id }			% No UniqueID, use id
+		ifelse put			% store unique id
+	newname newfont definefont pop		% and define the font
+	end					% pop dictionary
+} def
+
+% Examples.
+% /Helvetica-Outline1 /Helvetica-Bold 54 MakeOutlineFont
+% /Helvetica-Outline1 findfont 36 scalefont setfont
+% 72 704 moveto (outline1@36) show
+% /Helvetica-Outline1 findfont 54 scalefont setfont
+% 72 632 moveto (outline1@54) show
+% /Helvetica-Outline2 /Helvetica-Bold 36 MakeOutlineFont
+% /Helvetica-Outline2 findfont 36 scalefont setfont
+% 72 444 moveto (outline2@36) show
+% /Helvetica-Outline2 findfont 54 scalefont setfont
+% 72 372 moveto (outline2@54) show
+% showpage
+
+% end of outlinefont.ps
+% lib/ija.ps 10/26/93
+% by Steve Ness (Email: steve@mwc.com)
+% IJA logo, more or less; see detailed comments below.
+% The actual logo is (R) IJA.
+% These clubs are Dube, the clubs in the actual IJA logo are Jugglebug.
+% Text is in TimesBold (for now), real logo uses lousy hand-drawn all caps font.
+% Uses save.ps, centershow.ps, circletext.ps, club.ps, outlinefont.ps.
+
+/FS { findfont exch scalefont setfont } bind def
+
+% Draw a Dube club with shading and an outline font letter.
+% The clubs on the actual logo appear to be Jugglebugs and
+% have highlights and shading to enhance their 3D appearance.
+% str logoclub -
+/logoclub
+{
+	.2 0 .8 0 1 0 .8 0 .8 .2 club
+	0 15.875 inch moveto 180 rotate
+	centershow
+} bind def
+
+% Draw an 8" x 10.125" IJA logo centered at the current point.
+% N.B. this routine knows that club length (in "club") is 20.25",
+% i.e. 10.125" at scale 1::2.
+/ijalogo
+{
+	% Make an outline font for the "IJA" letters in the clubs.
+	/TimesB-Outline /Times-Bold 54 MakeOutlineFont
+	220 /TimesB-Outline FS
+
+	% Draw circles behind clubs.
+	% The part overlapping the handles will be redrawn below with text added.
+	gsave
+		4 inch 0 moveto
+		0 0 4 inch 0 360 arc
+		2.75 inch 0 moveto
+		0 0 2.75 inch 0 360 arc
+		stroke
+	grestore
+
+	% Draw three clubs with handles crossed at 1::2 scale.
+	% Add outline font "IJA" on club bodies.
+	% "club" draws a club with the handle down, requiring the rotation here.
+	gsave
+		0 5.0625 inch translate		% to top of center club handle
+		180 rotate			% handle will point up
+		.5 .5 scale
+
+		% Left club.
+		gsave
+			-2 inch .5 inch translate
+			-22 rotate
+			(I) logoclub
+		grestore
+
+		% Right club.
+		gsave
+			2 inch .5 inch translate
+			22 rotate
+			(A) logoclub
+		grestore
+
+		% Center club, on top.
+		(J) logoclub
+	grestore
+	
+	% White out top semicircle to erase overlapped club handles.
+	4 inch 0 moveto
+	0 0 4 inch 0 180 arc
+	0 0 2.75 inch 180 0 arcn
+	closepath
+	1 setgray fill
+	0 setgray
+
+	% Restroke top semicircles.
+	0 0 4 inch 0 180 arc
+	2.75 inch 0 moveto
+	0 0 2.75 inch 0 180 arc
+	stroke
+
+	% Logo text.
+	% The IJA logo stickers sometimes use "Jugglers'", sometimes "Juggler's".
+	% The logo text is all caps, this is not.
+	% The clubs just overlap the start and end of logo text in the actual logo.
+	70 /Times-Bold FS
+	(International Jugglers' Association) 70 90 3.07 inch outsidecircletext
+
+	% Registered (R) symbol.
+	10 /Symbol FS
+	3 inch -2.875 inch moveto
+	(\342) show
+
+} bind def
+
+% end of lib/ija.ps
+% ijademo.ps 10/26/93
+% IJA logo full-page demo.
+% Uses save.ps, centershow.ps, circletext.ps, club.ps, outlinefont.ps, ija.ps.
+
+4.25 inch 5.5 inch translate		% to center of page
+.2 .2 scale				% draw full size 8" x 10.125" logo
+ijalogo
+showpage
+state restore
+
+% end of ijademo.ps

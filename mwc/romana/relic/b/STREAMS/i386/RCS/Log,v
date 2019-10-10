@@ -1,0 +1,500 @@
+head     2.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.2;
+comment  @# @;
+
+
+2.2
+date     93.08.09.13.38.42;  author bin;  state Exp;
+branches ;
+next     2.1;
+
+2.1
+date     93.07.20.11.14.17;  author bin;  state Exp;
+branches ;
+next     2.0;
+
+2.0
+date     93.07.16.20.02.32;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+2.2
+log
+@Kernel 82 changes
+@
+text
+@Changes to kernel and related files for version #80:
+
+NOTE: The SCSI-problems reported by Nigel in R79 seem to be related to
+hardware problems on his 486, as the HAI driver fails similarly on that
+hardware, and the AHA drivers works fine everywhere else.
+
+The following headers have been deleted:
+	access.h, action.h, disp.h, ebcdic.h, larges.h, timef.h
+	sys/ascii.h, sys/fun.h, sys/chars.h, sys/dir.h sys/malloc.h
+
+The following headers have been moved to /usr/include/kernel, and are no
+longer accessible to user-level code (more will follow):
+	sys/alloc.h, sys/const.h, sys/fakeff.h, sys/machine.h, sys/param.h,
+	sys/reg.h, sys/typed.h
+
+The above header changes plus the following changes from Nigel have required
+global modification to almost every single kernel module.
+	The global u.u_regl in the U area has been removed, requiring vast
+	changes to system-call handling, signalling, and subtle changes to
+	much system-call code, in addition to changing the U area.
+
+	The stack-access constants from <kernel/reg.h> moved to <ieeefp.h>,
+	and are no longer used in the kernel.
+
+	The u.u_args global was removed from the U area, requiring further
+	changes to system calls and signalling.
+
+	The u.u_direct and u.u_io global structures removed from the U area,
+	requiring changes to all filesystem-related system calls, and
+	considerably changing the calling protocol of ftoi ().
+
+08/01	curses.h: Colour modifications.
+08/01	sys/patch.h: Added, ioctl () interface to patch driver.
+
+Before R80 was turned over to Nigel:
+07/19  haiscsi.h,haiinst.h,hai154x.c,haicfg.c,haict.c,haisd.c,haiscsi.c:
+       revision 2 from Chris Hilton
+07/19  rlock.c: return EACCES, not EAGAIN when locking fails.
+07/19  reg.h,as.s: make setspace() stuff part of saved context.
+07/19  sys5.c: io_seg was uninitialized in dirio.
+07/19  sys2.c: upoll() needed to use fdget().
+
+Changes to kernel and related files for version #79:
+
+NOTE (Nigel): The outstanding issue is the [pre-Chris-Hilton] Adaptec
+driver; switching virtual terminals (or sometimes, doing console printf
+()'s while debugging) cause I/O requests to fail mysteriously and/or go
+into oblivion (causing deadlocks); it is not clear whether this is
+caused by the console drivers, or is a race condition exacerbated by
+them.
+
+07/16  timeb.h,sys1632.c: ftime() is again a system call.  oldtimeb.h
+       is obsolete.
+07/16  Chris Hilton's Adaptec (hai) SCSI disk and tape driver
+07/16  as.s, trap.c: hlt instruction in reboot no longer causes gp fault
+07/16  kb.c,kb_d.c,kb_f.c,nkb.c,vtkb.c,vtkb_d.c,vtkb_f.c,vtnkb.c -
+       X11 mods from RTR.
+07/16  kb.c,kb_d.c,kb_f.c,nkb.c,vtkb.c,vtkb_d.c,vtkb_f.c,vtnkb.c -
+       Function key update (Word Perfect compatibility?) from Louis.
+07/16  fl386.c - New floppy minor devices skip cylinder 0, autosense format.
+07/16  syscoh.c - int11 now available to user code for installation (Louis)
+07/12  fs1.c,sys[235].c: exec perms for root on directories fixed (Vlad)
+07/12  msg386.c: Pemission fix from Vlad
+07/12  Nigel: Signal handling (almost) totally rewritten, and is now
+       built around "sigaction" structures rather than an array of
+       pointers and legion bitmasks... all code affecting signal state
+       properly centralized, requiring numerous tiny driver mods.
+07/12  Nigel: Worst of the u.u_regl stupidity removed, fixing nasty
+       signalling bugs.
+07/12  Nigel: Limits on the user code and data chopped to 0x7FFFFFF
+       rather than all of linear space; this exposed numerous small
+       problems in e.g. ustime () where kernel data was being treated as
+       user data via kucopy ()/ukcopy ().
+07/12  Nigel: Everything to do with user-kernel copying (mainly in as.s
+       and fakedma.c) changed; now %es == %ds in the kernel, which is
+       vital for using normal C library routines, most important of
+       which are the GCC inlines. Now, %fs in the kernel holds an RPL 3
+       user data selelector, and %gs is scratch.  Much simplified, these
+       should run much faster now (fakedma.c is now about half the size
+       it was).
+07/12  Nigel: The bogus kclear () in kalloc () (actually, alloc () in
+       coh.386/alloc.c) removed, exposing numerous problems where kernel
+       data structures were not fully initialised, including the buffer
+       cache, in-core inode table, SCSI requests in io.386/scsi.c and more.
+07/12  Nigel: The bogus memory-clear at startup has been removed, with
+       no noticeable effect other than exacerbating some of the problems
+       mentioned above, which have hopefully all been fixed.
+07/12  Nigel: <sys/ktty.h> defined numerous predicates which dug bits
+       out of tty control structures by implicitly referencing local
+       variables of the routines where they were embedded via magic
+       names. All the predicates have sensible names and take parameters
+       now, which meant changing the tty code and every function that
+       called it to use the sane predicates, including the serial
+       drivers and the legion *kb* "modules".
+07/12  Nigel: Removed dead code and bogus FFCOPY () from io.386/vt*kb*.c
+07/12  Nigel: selkcopy () removed from trap.c (changed to ffbyte ()
+       instead), and the SDUMP ()/RDUMP () hacks changed to use a real
+       routine that uses a real register-set structure (created for the
+       signalling work) and can do proper stack backtracing in the
+       kernel.
+07/12  Nigel: Several small changes to coh.386/fs[23].c aimed at
+       increasing performance, along with a change to the locking in
+       bclaim (), all to negligible effect on the results as reported by
+       iozone ().
+07/12  exec.c,fd.c: close on exec bug fixed (Nigel)
+07/12  tty.c,pty.c,pipe.c: return 0 if O_NDELAY and -1/EAGAIN if
+       O_NONBLOCK when no input available (Nigel)
+07/01  sig.c: fail with EFAULT if trying to access nonexistent NDP state
+07/01  shm.h,shm0.c,shm1.c: fixed define/int conflict with SHMMAX
+07/01  sig.c: botched variable in sigdump() broke core file writes
+06/17  fl386.c,fdc.c,fdc765.h: change CMD... to FDC_CMD_...
+06/14  as.s,xdt.s: call gate for hlt instruction to fix reboot panic
+
+Changes to kernel and related files for version #78:
+
+NOTES:
+New libc.a needed for support of nap() system call.
+New kbmain.o is needed, (just recompile current kbmain.c) and new
+  /conf/kbd/us, etc as well, due to change in kb.h (or else you won't
+  be able to switch sessions with virtual consoles).
+New db needed from Steve since uproc.h changed.
+File name changes in kernel file set:
+  lp.c is replaced by lp386.c
+  fl.c is replaced by fdc.c, fl386.c, and <sys/fdc765.h>.
+
+06/10  fl386.c: some open failures left diskette drive locked
+06/04  sys2.c, var.c: add nap() system call
+06/03  exec.c: vlad's fix - kernel blew up in pexece() when out of memory
+05/26  uproc.h: change u_error from char to int so errnos > 127 come out ok
+05/24  xl.h,xlfdc.h,xlft.h,xlft.c,xl_dec.c,xla.s: Archive floppy tape driver
+05/24  seg.h,shm0.c,shm1.c: vlad - allow deferred removal of live shm segments
+05/24  as.s: increase i/o map upper limit (3ff->1fff) for newer vga cards
+05/19  mmu.c: add getDmaMem for aligned contiguous memory allocation
+05/18  sig.c: patchable variable CATCH_SEGV for nonportable software
+05/18  sig.c: signal to traced process wrongly caused core dump
+05/14  sys3.c: read on file set for APPEND should not be forced to end
+05/14  mmu.c: growing segments beyond 4 megabytes caused a panic
+05/14  kb.h: Add lots more function keys; change vt keydefs. (mlk)
+05/11  sig.c, signal.h, msig.c: sigpause() and reliable signals
+05/11  sys1.c: upause() should set EINTR.
+05/11  sys1.c: part of waitpid(), done by Michael
+05/07  lp386.c: fix interrupt mask and wakeup problems
+05/07  tty.c: fix sign extension bug in vmin/vtime handling
+05/07  fl386.c: delete scratch_buffer code - had ugly bug [mlk found this]
+05/07  fl386.c,fdc.c,fdc765.h: split floppy driver for floppy tape
+05/03  ndp.c: delete "Bad Em write..." printf, just do SIGSEGV
+04/27  tty.c: change defer(wakeup,...) to wakeup(...) since all wakeups
+       are deferred.  This should cut down on defer overflows.
+04/27  sig.c: set SRFDUMP flag for all dumped segments
+04/27  move acct.h from /usr/include/ to /usr/include/sys
+04/26  reg.h,md.c: setivec return status added, for floppy tape support.
+04/20  fl.c: another FL_DSK_CH_PROB change from Michael
+
+Changes to kernel and related files for version #77:
+
+04/19  proc.h,sem.h,proc.c,sem386.c: sem_undo and other semaphore final test
+       changes from Vlad.
+04/20  fl.c: FL_AUTO_PARM added by Michael for PS/2-L40 compatibility.
+
+Changes to kernel and related files for version #76:
+
+NOTES:
+"dcore" utility groks r75 and later core files
+"dlout" utility is like "cdmp" for l.out's
+--
+04/15  fakedma.c: dmaout() sometimes wrote garbage over the start of a click
+04/14  sig.c: DUMP_TEXT if patched causes text segment to appear in core files
+
+Changes to kernel and related files for version #75:
+
+NOTES:
+New "file" command groks fixed core file format.
+New kbmain.o needed for Greek keyboards.
+New db needed from steve (later than 93/04/08) for revised core file format.
+--
+04/08  sem386.c,Makefiles,bld: vlad's new, improved semaphores
+04/08  sig.c: put magic number back at start of core file
+04/08  vtnkb.c,kbmain.c,kb.h: Greek keyboard, with patchable variable VTGREEK
+04/07  various headers: the definitive (!) paddr_t cleanup
+04/07  ndpas.s: change fdiv to fdivr to reflect change in assembler
+04/07  sys/kb.h: added function key definitions from mlk
+04/07  fl.c: further PS/1 fixes from mlk
+03/22  exec.c: exsread(): do only one iread() per section
+03/20  a.out.h,exec.c: allow more than 1 text section for coff executables
+03/18  var.c: change argument count for uwait() from 0 to 3 for waitpid()
+03/18  exec.c: delete redundant kkcopy()
+03/18  aha.c: nigel's fix to prevent defer overflows
+03/18  sys/__paddr.h added to header suite
+
+Changes to kernel and related files for version #74:
+
+NOTES:
+--
+03/10  fl.c: workaround for incorrect detection of nspt on some 3-1/2" drives
+03/05  aha.c: nigel's interrupt fix
+03/05  fs1.c: verbose panic output in case idetach panic
+03/05  fs2.c: once again, restore verbose inode busy diagnostic
+03/04  alloc.c: verbose panic output in case of bad free
+
+
+Changes to kernel and related files for version #73:
+
+NOTES:
+
+1.  You will need a new libc.a to use waitpid() and chsize().
+2.  There is a new fsck from epstein.
+3.  "putq()" and "getq()" from prior kernels are now "cltputq()" and "cltgetq()"
+4.  sleep() and v_sleep() have been superseded by x_sleep() - see the comments
+    in proc.c for argument list and return values.
+5.  new ps needed
+
+03/01  sys1.c,proc.c,sig.c: numerous fixes to sleep/wakeup/wait().
+       waitpid() is still a stub.
+02/23  fs1.c,sys2.c,sys5.c,timeout.c,var.c,fs2.c,pipe.c,sys3.c,atcon.c,
+       trap.c,usswan.c,vtnkb.c: epstein's file system changes - pipe fix,
+       chsize(), enforce ulimit on file size...,allow Swan kb support
+       by patching VTSWAN=1.
+02/18  types.h et al - Nigel replaced vaddr_t with caddr_t and made other
+       header changes in preparation for STREAMS.
+02/17  fd.c: Nigel's fix - open was creating files even when it failed
+02/12  tty.c: make sure VEOF is initialized properly on first opens.
+02/10  sys2.c: allow upoll() to succeed when number of fd's is 0
+02/09  seg.h,mmu.c,shm0.c: allow individual shm seg references to be RW/RO
+02/04  reg.h,con.h,bio.c,fs2.c,fs3.c,sys3.c,sys5.c,md.c,as.s,clock.c: Nigel's
+       fixes (1) call STREAMS at key places via macros;  (2) add extra
+       parameters to dopen()/dclose()/dioctl();  (3) support mask register
+       for interrupts.
+02/04  shm1.c: don't allow attempts to create shm segments of size 0
+02/02  fs2.c: restore verbose inode busy diagnostic
+02/02  as.inc,as.s,clist.c,tty.c: replace getq() and putq() with cltgetq()
+       and cltputq() since the old names conflict with standard STREAMS
+       externals.
+02/02  coherent.h,proc.c,rlock.c,alx.c,asy.c,dmareq.c,hs.c,lf.c,msg386.c,sem.c:
+       stop passing 2nd and 3rd magic arguments to sleep as they were always
+       ignored.  sleep() vanishes;  v_sleep() becomes a macro calling
+       w_sleep(char * event, int cl, char * msg)
+01/22  sys1.c: utimes() - check for null or otherwise invalid user pointer
+01/22  fs1.c: imode() - access() as superuser returns exec perm set only
+       if the file is executable.
+01/22  fs3.c: iopen() - a non-superuser trying to write to a directory
+       gets EISDIR, not EPERM.
+01/22  tty.c: sgtty-type TIOCSETx ioctl's no longer set ISTRIP.
+01/22  sys1.c: add interface for waitpid(); fix uwait return value for
+       stopped processes (i.e., processes that hit a breakpoint)
+
+Changes to kernel and related files for version #72:
+
+NOTES:
+
+1.  You will need an upgraded libc.a or at least shmemul.o to use S5
+    shared memory.
+2.  You will need tboot 1.2.6 or later if you are using FP emulation.
+3.  Epstein has given us another fsck.
+
+01/17  sys5.c: sysi86(SI86FPHW, &data) supported to get ndp type
+01/17  sig.c: ptrace can examine modify fp state in emulator
+01/14  fs2.c,fs3.c,sys2.c,pipe.c,sys/inode.h: epstein's pollable pipes
+01/14  main.c,at.c,fl.c: michael's PS1 mods
+01/11  ndp.c,mmu.c,bld: hooks for linking Linux/cef floating point emulator
+12/29  new shm1.c from vlad, after testing preliminary ipcs
+12/29  mmu.c: fix bug allocating ram disk slots in page directory
+12/29  mmu.c,ndp.c,uproc.h: fp emulator state save/restore
+12/23  typed.h and .c files containing it: remove use of T_NULL which
+       conflicts with use of that identifier in coff.h
+12/23  rm.c,mmu.c: move start of RAM disk to virtual 0x8800_0000 for
+       compatibility with shm as assigned on other systems.
+12/23  shm1.c,sys5.c,shm.h,Makefiles,bld: S5 shared memory
+12/23  mmu.c: leave room for ndp state in user stack, per cef's request
+12/21  fs1.c,fs2.c: epstein's fix to inode busy bug
+
+Changes to kernel and related files for version #71:
+
+12/18  fd.c, fs1.c, fs3.c, pipe.c, sys2.c, sys3.c: merge epstein's pipe
+       fixes.
+12/17  shm0.c: minor cleanup, add shmAtt() for vlad
+12/10  sys[235].c,tty.c: enhanced useracc(), ttioctl no longer allowed to
+       overwrite kernel text
+12/10  ndp.c: fix interrupt 13 attachment in case of 287
+12/10  shm0.c: add shmDetachP() in support of ipcrm et al
+12/10  syscoh.c(): add cohcall(COH_WTEXT,dest,src,numBytes) so a process can
+       write into its text segment.  This is mainly for cef's NDP emulator
+       thunks.
+12/10  sys5.c,atcon.c,main.c,uproc.h: add code for ulimit();  add kernel
+       patchable variable BPFMAX = max # of 512 byte blocks when writing
+       a file.  Warning: ulimit(2,..) is not yet enforced!  ulimit(3) returns
+       the maximum possible break value (with 64 kbytes of cushion).
+12/09  sys1632.c: make 286 stime() work as before
+12/09  sys5.c: fix return values from ustatfs(),ufstatfs()
+12/08  null.c,as.s,work.c,fakedma.c,ndp.c,shm0.c,as.inc,mmu.h: replace
+       use of WORK0 and WORK1 with calls to workAlloc() and workFree().
+12/07  sig.c,ndp.c: allow ptrace() to transfer NDP state
+12/04  sys1.c: stime() gets value, not pointer (undocumented part of BCS
+       compatibility)
+12/02  shm0.c,bio.c,sys3.c,proc.c,syscoh.c,mmu.c,exec.c: kernel support
+       for shared memory
+
+Changes to kernel and related files for version #70:
+
+11/30  sys2.c,pty.c: fix typo in POLLOUT polling
+11/25  ktty.h,tty.c: XTABS under sgtty becomes TABDLY=TAB3 under termio
+11/25  sys1.c: ulseek() once again rejects absolute offsets outside
+       the range 0..0x7ffff_ffff.
+11/25  null.c: /dev/kmemhi
+11/25  null.c: can now read/write /dev/mem more than 4096 bytes
+11/25  tty.h,ktty.h,asy.c,*kb*.c: support IXANY
+11/24  tty.c: block before first character if -icanon, vmin > 0.
+
+New /bin/stty, accepts decimal min/time values, ^? for DEL, ^- for <undef>.
+New /conf/patch needed since we can no longer seek past 0x7ffff_ffff!
+
+Changes to kernel and related files for version #69:
+
+Warning: old COHERENT 286-style (was never part of S5) TIOC[C]BREAD is
+no longer supported.  It conflicts with termio-style VMIN/VTIME.  Norm
+said it was ok to drop this.
+
+11/20  fl.c: fix at least one endless retry condition
+11/20  asy.c: setting BAUD 0 now hangs up the line
+11/19  asy.c: TCSBRK now sends 0.25 second break
+11/19  tty.c,asy: TCSETAF,TCSBRK weren't draining output
+11/19  tty.c: TCFLSH was ignoring third argument
+11/18  sys1.c: fix improper u_error setting in setuid()/setgid()
+11/17  mmu.c: fix startup arithmetic bug
+11/17  misc.c: use strchirp() in panic() if paging not enabled
+11/17  as.s: fix comparison in paging()
+11/12  mmu.c: add DV() macro for debugging
+11/12  asy.c: drain port fully on TCSETAW/TIOCSETP
+11/12  tty.c: add support for OCRNL, VMIN, VTIME
+
+Changes to kernel and related files for version #68:
+
+New /bin/ps needed!
+setfpe no longer supported.
+
+11/10  mmu.c,md.c,syscoh.c,as.s: add window server support (iomapOr(),
+       iomapAnd, kiopriv(), mapPhysUser()).
+11/10  msg386.c: vlad's permission 0 fix.
+... ker 67 was in here somewhere but had fatal character processing bug...
+11/06  null.c: improved ps command, uses new /dev/ps
+11/04  sys/ktty.h,tty.c: fix ONLCR/ICRNL check in tty module
+11/04  at.c,misc.c,as.s: atbsyw() and atdrqw() no longer depend on CPU speed
+11/04  sys/ktty.h,*kb*.c: fix ctrl-s/ctrl-q test to check IXON flag
+10/29  sys1.c: fix utimes() return value.
+10/28  287 support (untested)
+10/25  Fix floating point exception handling for 387.  Add NDP sensing.
+
+Changes to kernel and related files for version #66:
+
+New /bin/ps needed!
+
+NOTICE: /usr/include/sys/dirent.h and /usr/include/sys/dir.h are
+obsolete and should be removed from the /usr/include/sys directory!
+All references to them should include /usr/include/dirent.h instead.
+
+10/19  trap.c - stub for floating point exceptions
+10/20  as.s,mmu.h,uproc.h - reserve space just below u area for NDP state
+10/20  trap.c - device not available trap rewritten for NDP
+10/22  floating point context switching, exceptions, and signal handlers
+
+Changes to kernel and related files for version #65:
+10/08  fl.c - fix open/close count imbalance
+10/11  as.s,trap.c - fix runaway resulting from bad user pointer in system call
+
+Changes to kernel and related files for version #64:
+New /etc/reboot (source in ker386/tools).
+09/24  sig.c: ptrace fix, going from single step to full speed
+10/01  trap.c: revise retry policy for iret bug
+10/01  syscoh.c,param.h: superuser-callable reboot function
+10/02  as.s: revise IODELAY to solve install problems on some systems
+10/02  syscoh.c: update breakpoint code for new trap handler
+10/02  msg386.c,sys2.c: vlad's new msg handler (no longer a device driver)
+10/02  die.c: shorter code for print8/16/32, without need for data seg.
+10/05  mmu.c: add PHYS_MEM and getPhysMem() for NCM and others (allocate
+       blocks of contiguous physical memory).
+10/06  fl.c: flopen() would occasionally hang the system
+10/06  as.s,as.inc,xdt.s: mmu update call gate to speed interrupt response
+
+Changes to kernel and related files for version #63:
+
+09/08  sys5.c: fix permission problem in mkdir()
+09/08  fl.c: fix end-of-volume problem
+09/08  uproc.h, sys1.c, exec.c: S5-compatible setuid()/setgid()
+09/09  coherent.h,misc.c: replace kkcopy(), kclear() with macro calls to
+       memcpy and memset.
+09/09  tty.c: TCSETAW was losing buffer contents;  add ttrtp() call.
+09/10  seg.c: vlad's fix for recursive exec's
+09/16  bio.c,tioc.c,al.c,hs.c,asy.c,pty.c,*kb*.c: get rid of tioc286()
+       kluge in device drivers;  move tioc() call into dioctl()
+09/17  null.c: /dev/proc for leaner ps, courtesy of La Monte.
+09/17  uproc.h,md.c,sig.c,sys1.c,trap.c: fixes for db support
+09/22  ptrace.h: add constants for ptrace() commands (no BCS standard for these)
+09/22  fs2.c: Steve's conjectured fix for inode busy
+09/22  as.s,xdt.s,as.inc: further changes for db support
+09/24  fdioctl.h,sdioctl.h,mtioctl.h,buf.h,fl.c: clean up ioctl name space junk
+
+Related to kernel changes above:
+ 	new bin/ps must be used due to yet another change in u area
+	watch for new cron from vlad that doesn't spawn lots more crons
+	new db has at least some working features
+
+still to do: ptrace(), floating point
+clean up __cinit()/__putchar() stuff
+
+Changes to kernel and related files for version #62:
+
+08/28  memset.s:  yet another segment botch fixed (sorry!)
+08/31  fl.c:  Jack's improved floppy driver;  much quicker on dd; warns on
+       attempting to mount write-protected floppy for read/write.
+09/01  stdio.h,sys/param.h,sys/uproc.h,sys/select.h,libc.a,misc.tar.Z
+       (bedaemon.c, select.c),bin/ps,exec.c,fd.c,sys2.c,sys1632.c:  up
+       to 60 open files per process.  If you are building kernels from
+       #62 sources, best rm ALL older .o files and start over due to
+       change in value of NOFILE in sys/param.h.
+09/01  conf/kgen - allows you to link a new kernel with same configuration
+       as your original 4.0.0/4.0.1 installation.  This script is NFG on
+       systems not built by doing a full COH install of 4.0.0/4.0.1.  Its
+       main purpose is to allow developers & customers to replace one or
+       more kernel binary files, then make a new kernel with all the right
+       drivers and patches for their systems.
+
+Changes to kernel for version #61:
+
+08/18  new memset.s,memcpy.s
+08/21  vtkb.c - vlad
+08/21  null.c - fix bug with /dev/null input
+08/24  vtkb_d.c,vtkb_f.c - vlad
+08/25  trap.c,as.s: fix IRET GP fault bug
+08/25  trap.c: separate GP fault handler
+08/25  trap.c,as.s,syscoh.c,param.h: kernel breakpoints
+
+Changes to kernel for version #60:
+
+08/05  as.s:  set IOPL to 1, not 3.  Requires new /etc/ATclock.
+08/05  xdt.s:  source cleanup
+08/05  mmu.h,as.inc:  add SEG_RNG0_STK, SEG_RNG0_TXT, SEG_RNG1_STK
+08/14  null.c:  set seek limit of 256 on /dev/cmos.  Add /dev/clock.
+08/18  as.s,as.inc,xdt.s,mmu.h,mmu.c,vtnkb.c,mmas.s: Ring 1 kernel (use new ps)
+08/18  mmu.c:  replace zero_fill() with memset()
+
+Changes to kernel for version #59:
+
+07/24  mmu.c:  zero_fill now uses register variables and long* for speed
+07/20  kb_d.c, kb_f.c:  fix Alt-Gr bug.
+?????  limit.h, coff.h cleaned up by steve
+07/24  typed.h,mmu.h fixed
+07/24  mmu.c: vaddr() checks MAX_VADDR; round CMOS RAM amt down to click bdry
+07/24  die.c: hex output
+07/24  main.c: t_piggy stuff
+@
+
+
+2.1
+log
+@*** empty log message ***
+@
+text
+@d3 33
+@
+
+
+2.0
+log
+@*** empty log message ***
+@
+text
+@d1 9
+@

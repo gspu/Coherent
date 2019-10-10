@@ -1,0 +1,485 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @@;
+
+
+1.1
+date     91.06.10.10.22.16;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version prov by hal
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@From emory.mathcs.emory.edu!cyclone!esa  Mon Feb 18 13:14:39 1991 remote from uunet
+Received: by mwc.UUCP (smail2.5)
+	id AA17103; 18 Feb 91 13:14:39 
+Received: from emory.mathcs.emory.edu by uunet.UU.NET (5.61/1.14) with UUCP 
+	id AA04365; Mon, 18 Feb 91 04:16:30 -0500
+Received: from emory.UUCP by rutgers.edu (5.59/SMI4.0/RU1.4/3.08) with UUCP 
+	id AA27253; Mon, 18 Feb 91 00:22:09 EST
+Received: from cyclone.UUCP by
+	emory.mathcs.emory.edu (5.59/2.17.EUCC-MathCS) via UUCP
+	id AA07538 ; Sun, 17 Feb 91 23:42:17 EST
+Received: by cyclone.UUCP (smail2.5)
+	id AA04284; 17 Feb 91 23:40:45 
+X-Mailer: W-MAIL 3.63/Coherent (11/12/90)
+To: mwc!hal
+Subject: diffs
+Message-Id: <9102172340.AA04282@@cyclone.UUCP>
+Date: 17 Feb 91 23:40:43 
+From: uunet!emory.mathcs.emory.edu!cyclone!esa (Esa Ahola)
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README 310.diff 311.diff
+# Wrapped by root@@cyclone on Sun Feb 17 23:39:49 1991
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(1760 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XHere are two sets of diffs against the alx.c that I'm currently running.
+XIt was derived from your RTS/CTS-enhanced version (that I dubbed "3.11").
+X
+XThe two sets of diffs are:
+X
+X- version 3.10 alx.c against my current version
+X- your enhanced "version 3.11" alx.c against mine.
+X
+XImportant note:  I'm out of my league here.  I'm a reasonably competent
+XC programmer, but completely ignorant of asynch communications programming
+Xand issues.  Don't look for deep insight in the changes that you see; in
+Xmany cases I merely removed code from your enhanced version that I didn't
+Xunderstand, attempting to narrow down the number of changes involved.
+X
+XI *have* tested and demonstrated that the code DOES toggle RTS correctly;
+Xthe persistent packet errors must be caused by delays in the chain well 
+Xpast the driver.
+X
+XAs I mentioned earlier, this version does cure the SSS (Sudden Sluggishness
+XSyndrome ;-) -- but introduces the following new anomalies:
+X
+X- My version of ckermit does not get any response from the modem.  The modem
+X  lights indicate that the modem is sending stuff (e.g. after an ATN?), but
+X  nothing comes out.  The native plain old kermit does work.
+X
+X- Recall that I use a fixed-at-9600 line speed, and let the Telebit cope
+X  with slower modems.  This has worked without incident in the past, but
+X  no longer.  While uucicos work  (with reduced speed), interactive 
+X  dial-ups at 2400 hang up the modem as soon as a "large" amount of 
+X  characters is sent (e.g. "ls -l").  The symptom is that the characters
+X  come across VERY slowly, and after the output is complete, further 
+X  keystrokes aren't echoed or responded to by the system.  It's almost as
+X  if the line speed gets changed from 9600 !?
+X
+XI look forward to further testing material from you.
+X
+END_OF_FILE
+if test 1760 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f '310.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'310.diff'\"
+else
+echo shar: Extracting \"'310.diff'\" \(4270 characters\)
+sed "s/^X//" >'310.diff' <<'END_OF_FILE'
+X*** alx310.c	Sat Feb  2 16:44:45 1991
+X--- alx.c	Sat Feb 16 01:27:53 1991
+X***************
+X*** 25,34 ****
+X--- 25,42 ----
+X  
+X  #define DTRTMOUT  3	/* DTR timeout interval in seconds for close */
+X  #define	IENABLE	(IE_RxI+IE_TxI+IE_LSI)
+X+ #define IE_ALL	(IE_RxI|IE_TxI|IE_LSI|IE_MSI)
+X  
+X+ #define RTS_ON()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) | MC_RTS); }
+X+ #define RTS_OFF()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) & ~MC_RTS); }
+X+ 
+X  int	al_sg_set = 0;
+X  int	al_sg_clr = 0;
+X  static int poll_divisor;  /* set by set_poll_rate(), read by alxclk() */
+X+ static int drlsd;	/* delta carrier detect - set by alxintr(), read
+X+ 			   by alxcycle() */
+X+ static int rawin_ct;	/* number of characters in input silo */			   
+X+ static int want_rts;
+X  
+X  /*
+X   * functions herein
+X***************
+X*** 135,141 ****
+X  
+X  	b = ALPORT;
+X  
+X! 	if ( inb(b+IER) & ~IENABLE ) { /* chip not found */
+X  		u.u_error = ENXIO;
+X  		return;
+X  	}
+X--- 143,149 ----
+X  
+X  	b = ALPORT;
+X  
+X! 	if ( inb(b+IER) & ~IE_ALL ) { /* chip not found */
+X  		u.u_error = ENXIO;
+X  		return;
+X  	}
+X***************
+X*** 190,195 ****
+X--- 198,205 ----
+X  			*irqtty = tp_table[AL_NUM];
+X  			outb(b+MCR, MC_RTS|MC_DTR|MC_OUT2);
+X  		}
+X+ 		RTS_ON();
+X+ 		want_rts = 0;
+X  	
+X  		outb(b+IER, IENABLE);        /* enable interrupts */
+X  	
+X***************
+X*** 316,322 ****
+X  		if (tp->t_rawout.si_ix == tp->t_rawout.si_ox  && state)
+X  			state--;
+X  	}
+X! 	outb(b+MCR, 0);
+X  	com_usage[AL_NUM] = COM_UNUSED;
+X  	set_poll_rate();
+X  	CDUMP("closed")
+X--- 326,335 ----
+X  		if (tp->t_rawout.si_ix == tp->t_rawout.si_ox  && state)
+X  			state--;
+X  	}
+X! 	/*
+X! 	 * Turn off MC_OUT2 so IRQ can be used by other port.
+X! 	 */
+X! 	outb(b+MCR, inb(b+MCR)&(~MC_OUT2));
+X  	com_usage[AL_NUM] = COM_UNUSED;
+X  	set_poll_rate();
+X  	CDUMP("closed")
+X***************
+X*** 343,350 ****
+X--- 356,365 ----
+X  {
+X  	register int	s, b;
+X  	int stat1, stat2;
+X+ 	char ier_save;
+X  
+X  	s = sphi();
+X+ 	ier_save=inb(b+IER);	/* some chips need this */
+X  	b = ALPORT;
+X  	stat1 = inb(b+MCR);		/* get current MCR register status */
+X  	stat2 = inb(b+LCR);		/* get current LCR register status */
+X***************
+X*** 384,389 ****
+X--- 399,405 ----
+X  	default:
+X  		ttioctl(tp, com, vec);
+X  	}
+X+ 	outb(b+IER, ier_save);
+X  	spl(s);
+X  }
+X  
+X***************
+X*** 466,472 ****
+X  		/*
+X  		 * Carrier changed.
+X  		 */
+X! 		if ( b & MS_DRLSD ) {
+X  			/*
+X  			 * wakeup open
+X  			 */
+X--- 482,489 ----
+X  		/*
+X  		 * Carrier changed.
+X  		 */
+X! 		if ((b & MS_DRLSD) || drlsd) {
+X! 			drlsd = 0;
+X  			/*
+X  			 * wakeup open
+X  			 */
+X***************
+X*** 482,487 ****
+X--- 499,505 ----
+X  				 * clear carrier flag; send hangup signal
+X  				 */
+X  				tp->t_rawin.si_ox = tp->t_rawin.si_ix;
+X+ 				rawin_ct = 0;
+X  				tthup( tp );
+X  			}
+X  		}
+X***************
+X*** 497,502 ****
+X--- 515,521 ----
+X  		else
+X  			tp->t_rawin.si_ox++;
+X  	}
+X+ 	rawin_ct = 0;
+X  
+X  	/*
+X  	 * Calculate free output slot count.
+X***************
+X*** 520,530 ****
+X  	 * (Re)start output, wake sleeping processes, etc.
+X  	 */
+X  	ttstart( tp );
+X  
+X  	/*
+X  	 * Schedule next cycle.
+X  	 */
+X! 	timeout( &tp->t_rawtim, HZ/10, alxcycle, tp );
+X  }
+X  
+X  /*
+X--- 539,554 ----
+X  	 * (Re)start output, wake sleeping processes, etc.
+X  	 */
+X  	ttstart( tp );
+X+ 	
+X+ 	if (want_rts) {
+X+ 		RTS_ON();
+X+ 		want_rts = 0;
+X+ 	}
+X  
+X  	/*
+X  	 * Schedule next cycle.
+X  	 */
+X! 	timeout( &tp->t_rawtim, HZ/20, alxcycle, tp );
+X  }
+X  
+X  /*
+X***************
+X*** 619,624 ****
+X--- 643,659 ----
+X  		tp->t_rawin.si_buf[ tp->t_rawin.si_ix ] = b;
+X  		if ( ++tp->t_rawin.si_ix >= sizeof(tp->t_rawin.si_buf) )
+X  			tp->t_rawin.si_ix = 0;
+X+ 			
+X+ 		/*
+X+ 		 * Preliminary code!
+X+ 		 * De-assert RTS if we are close to filling the input silo.
+X+ 		 */	
+X+ 		rawin_ct++;
+X+ 		if (!want_rts && rawin_ct > SI_BUFSIZ / 4) {
+X+ 			RTS_OFF();
+X+ 			want_rts = 1;
+X+ 		}
+X+ 		
+X  		goto rescan;
+X  
+X  	case Tx_INTR:
+X***************
+X*** 650,655 ****
+X--- 685,707 ----
+X  			defer( alxcycle, tp );
+X  		}
+X  		goto rescan;
+X+ 		
+X+ 	case MS_INTR:
+X+ 		/*
+X+ 		 * This is preliminary code - use delta of CTS from
+X+ 		 * modem to implement flow control.
+X+ 		 *
+X+ 		 * Sense delta of RLSD for use by alxcycle().
+X+ 		 */
+X+ 		b = inb(ALPORT+MSR);
+X+ 		if (b & MS_DCTS)
+X+ 			if (b & MS_CTS)
+X+ 				tp->t_flags &= ~T_STOP;
+X+ 			else
+X+ 				tp->t_flags |= T_STOP;
+X+ 		if (b & MS_DRLSD)
+X+ 			drlsd = 1;		
+X+ 		goto rescan;
+X  	}
+X  }
+X  
+END_OF_FILE
+if test 4270 -ne `wc -c <'310.diff'`; then
+    echo shar: \"'310.diff'\" unpacked with wrong size!
+fi
+chmod +x '310.diff'
+# end of '310.diff'
+fi
+if test -f '311.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'311.diff'\"
+else
+echo shar: Extracting \"'311.diff'\" \(3284 characters\)
+sed "s/^X//" >'311.diff' <<'END_OF_FILE'
+X*** alx311.c	Sat Feb  2 16:45:12 1991
+X--- alx.c	Sat Feb 16 01:27:53 1991
+X***************
+X*** 27,32 ****
+X--- 27,35 ----
+X  #define	IENABLE	(IE_RxI+IE_TxI+IE_LSI)
+X  #define IE_ALL	(IE_RxI|IE_TxI|IE_LSI|IE_MSI)
+X  
+X+ #define RTS_ON()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) | MC_RTS); }
+X+ #define RTS_OFF()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) & ~MC_RTS); }
+X+ 
+X  int	al_sg_set = 0;
+X  int	al_sg_clr = 0;
+X  static int poll_divisor;  /* set by set_poll_rate(), read by alxclk() */
+X***************
+X*** 195,201 ****
+X  			*irqtty = tp_table[AL_NUM];
+X  			outb(b+MCR, MC_RTS|MC_DTR|MC_OUT2);
+X  		}
+X! 		want_rts = 1;
+X  	
+X  		outb(b+IER, IENABLE);        /* enable interrupts */
+X  	
+X--- 198,205 ----
+X  			*irqtty = tp_table[AL_NUM];
+X  			outb(b+MCR, MC_RTS|MC_DTR|MC_OUT2);
+X  		}
+X! 		RTS_ON();
+X! 		want_rts = 0;
+X  	
+X  		outb(b+IER, IENABLE);        /* enable interrupts */
+X  	
+X***************
+X*** 206,212 ****
+X  					SVTTOUT);	/* wait for carrier */
+X  		 		if (SELF->p_ssig && nondsig()) {  /* signal? */
+X  					outb(b+MCR, inb(b+MCR)&MC_OUT2);
+X- 					want_rts = 0;
+X  	                    		/*
+X  					 * make sure port is hungup
+X  					 * disable all ints except for TxI
+X--- 210,215 ----
+X***************
+X*** 300,306 ****
+X  		 * Hangup port
+X  		 */
+X  		outb(b+MCR, inb(b+MCR)&MC_OUT2);
+X- 		want_rts = 0;
+X  		/*
+X  		 * Hold dtr low for timeout
+X  		 */
+X--- 303,308 ----
+X***************
+X*** 422,428 ****
+X  		if (tp->t_flags & T_MODC) {  /* modem control? */
+X  			tp->t_flags &= ~T_CARR;  /* indicate no carrier */
+X  			outb(b+MCR, inb(b+MCR) & MC_OUT2); /* hangup */
+X- 			want_rts = 0;
+X  		}
+X  	}
+X  
+X--- 424,429 ----
+X***************
+X*** 515,522 ****
+X  			tp->t_rawin.si_ox++;
+X  	}
+X  	rawin_ct = 0;
+X- 	if (want_rts)
+X- 		outb(b+MCR, inb(b+MCR) | MC_RTS);
+X  
+X  	/*
+X  	 * Calculate free output slot count.
+X--- 516,521 ----
+X***************
+X*** 540,550 ****
+X  	 * (Re)start output, wake sleeping processes, etc.
+X  	 */
+X  	ttstart( tp );
+X  
+X  	/*
+X  	 * Schedule next cycle.
+X  	 */
+X! 	timeout( &tp->t_rawtim, HZ/10, alxcycle, tp );
+X  }
+X  
+X  /*
+X--- 539,554 ----
+X  	 * (Re)start output, wake sleeping processes, etc.
+X  	 */
+X  	ttstart( tp );
+X+ 	
+X+ 	if (want_rts) {
+X+ 		RTS_ON();
+X+ 		want_rts = 0;
+X+ 	}
+X  
+X  	/*
+X  	 * Schedule next cycle.
+X  	 */
+X! 	timeout( &tp->t_rawtim, HZ/20, alxcycle, tp );
+X  }
+X  
+X  /*
+X***************
+X*** 639,652 ****
+X  		tp->t_rawin.si_buf[ tp->t_rawin.si_ix ] = b;
+X  		if ( ++tp->t_rawin.si_ix >= sizeof(tp->t_rawin.si_buf) )
+X  			tp->t_rawin.si_ix = 0;
+X! 			rawin_ct++;
+X  		/*
+X  		 * Preliminary code!
+X  		 * De-assert RTS if we are close to filling the input silo.
+X  		 */	
+X! 		if (want_rts && (sizeof(tp->t_rawin.si_buf) - rawin_ct < 4))
+X! 			outb(b+MCR, inb(b+MCR) & ~MC_RTS);
+X! 			goto rescan;
+X  
+X  	case Tx_INTR:
+X  		/*
+X--- 643,660 ----
+X  		tp->t_rawin.si_buf[ tp->t_rawin.si_ix ] = b;
+X  		if ( ++tp->t_rawin.si_ix >= sizeof(tp->t_rawin.si_buf) )
+X  			tp->t_rawin.si_ix = 0;
+X! 			
+X  		/*
+X  		 * Preliminary code!
+X  		 * De-assert RTS if we are close to filling the input silo.
+X  		 */	
+X! 		rawin_ct++;
+X! 		if (!want_rts && rawin_ct > SI_BUFSIZ / 4) {
+X! 			RTS_OFF();
+X! 			want_rts = 1;
+X! 		}
+X! 		
+X! 		goto rescan;
+X  
+X  	case Tx_INTR:
+X  		/*
+X***************
+X*** 693,698 ****
+X--- 701,707 ----
+X  				tp->t_flags |= T_STOP;
+X  		if (b & MS_DRLSD)
+X  			drlsd = 1;		
+X+ 		goto rescan;
+X  	}
+X  }
+X  
+END_OF_FILE
+if test 3284 -ne `wc -c <'311.diff'`; then
+    echo shar: \"'311.diff'\" unpacked with wrong size!
+fi
+chmod +x '311.diff'
+# end of '311.diff'
+fi
+echo shar: End of shell archive.
+exit 0
+
+@

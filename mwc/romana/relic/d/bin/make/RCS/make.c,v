@@ -1,0 +1,2114 @@
+head     1.8;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.8;
+comment  @ * @;
+
+
+1.8
+date     93.03.01.12.11.47;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.01.22.11.17.34;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.11.30.16.17.01;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.10.12.12.14.07;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.07.13.07.13.15;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.11.04.15.30.11;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.02.21.20.22.36;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.16.43.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.8
+log
+@michael: fixed bug handling quoted strings.
+@
+text
+@/*
+ * make -- maintain program groups
+ * td 80.09.17
+ * things done:
+ *	20-Oct-82	Made nextc properly translate "\\\n[ 	]*" to ' '.
+ *	15-Jan-85	Made portable enough for z-8000, readable enough for
+ *			human beings.
+ *	06-Nov-85	Added free(t) to make() to free used space.
+ *	07-Nov-85	Modified docmd() to call varexp() only if 'cmd'
+ *			actually contains macros, for efficiency.
+ *	24-Feb-86	Minor fixes by rec to many things.  Deferred
+ *			macro expansion in actions until needed, deferred
+ *			getmdate() until needed, added canonicalization in
+ *			archive searches, allowed ${NAME} in actions for
+ *			shell to expand, put macro definitions in malloc,
+ *			entered environ into macros.
+ *	17-Oct-86	Very minor MS-DOS changes by steve: add _cmdname[],
+ *			conditionalize archive code as #if COHERENT || GEMDOS.
+ *	 8-Dec-86	Rec makes inpath() search current directory first,
+ *			and allows : in dependency list under MSDOS && GEMDOS.
+ *	 8-Feb-91	steve: fix comment handling, allow "\#", allow ${VAR}.
+ *			Add docmd0() to make $< and $* work in Makefiles.
+ *	12-Feb-91	steve: add $SRCPATH source path searching.
+ *	 1-Nov-91	steve: fix bug in nextc() to handle "\n\t\n" correctly
+ *      29-Sep-92	michael: fix problem with defining a rule that also
+ *				exists in the ACTIONFILE.	
+ *      08-Oct-92	michael: fix problem with making targets with no
+ *				specified actions (empty productions).
+ */
+
+#include	"make.h"
+
+#if	MSDOS
+char	_cmdname[] = "make";
+#endif
+
+char usage[] = "Usage: make [-deinpqrst] [-f file] [macro=value] [target]";
+char nospace[] = "out of space";
+char badmac[] = "bad macro name";
+char incomp[] = "incomplete line at end of file";
+
+/* Command line flags. */
+int iflag;			/* ignore command errors */
+int sflag;			/* don't print command lines */
+int rflag;			/* don't read built-in rules */
+int nflag;			/* don't execute commands */
+int tflag;			/* touch files rather than run commands */
+int qflag;			/* zero exit status if file up to date */
+int pflag;			/* print macro defns, target descriptions */
+int dflag;			/* debug mode -- verbose printout */
+int eflag;			/* make environ macros protected */
+
+/* Globals. */
+unsigned char	backup[NBACKUP];
+int		defining;	/* nonzero => do not expand macros */
+int		instring;	/* Are we in the middle of a string? */
+SYM		*deflt;
+char		*deftarget;
+FILE		*fd;
+int		lastc;
+int		lineno;
+MACRO		*macro;
+char		macroname[NMACRONAME+1];
+char		*mvarval[4];		/* list of macro variable values */
+int		nbackup;
+time_t		now;
+char		*srcpath;
+struct stat	statbuf;
+SYM		*suffixes;
+SYM		*sym;
+char		tokbuf[NTOKBUF];
+char		*token;
+int		toklen;
+char		*tokp;
+int 		inactionfile = 0;
+
+/* Forward function declarations. */
+DEP	*adddep();
+SYM	*dexists();
+char	*extend();
+char	*fpath();
+TOKEN	*listtoken();
+SYM	*lookup();
+char	*mexists();
+char	*mmalloc();
+SYM	*sexists();
+
+/* cry and die */
+/* VARARGS */
+die(s) char *s;
+{
+	fflush(stdout);
+	fprintf(stderr, "make: %r\n", &s);
+	exit(ERROR);
+}
+
+/* print lineno, cry and die */
+/* VARARGS */
+err(s) char *s;
+{
+	fprintf(stderr, "make: %d: %r\n", lineno, &s);
+	exit(ERROR);
+}
+
+/* Malloc nbytes and abort on failure */
+char *
+mmalloc(n) int n;
+{
+	char *p;
+	if (p = malloc(n))
+		return p;
+	err(nospace);
+}
+
+/* read characters from backup (where macros have been expanded) or from
+ * whatever the open file of the moment is. keep track of line #s.
+ */
+readc()
+{
+	if (nbackup!=0)
+		return(backup[--nbackup]);
+	if (lastc=='\n')
+		lineno++;
+	lastc=getc(fd);
+	return(lastc);
+}
+
+/* put c into backup[] */
+putback(c)
+{
+	if (c==EOF)
+		return;
+	if (nbackup == NBACKUP)
+		err("macro definition too long");
+	backup[nbackup++]=c;
+}
+
+/* put s into backup */
+unreads(s) register char *s;
+{
+	register char *t;
+
+	t = &s[strlen(s)];
+	while (t > s)
+		putback(*--t);
+}
+
+/* return a pointer to the macro definition assigned to macro name s.
+ * return NULL if the macro has not been defined.
+ */
+char *
+mexists(s) register char *s;
+{
+	register MACRO *i;
+
+	for (i = macro; i != NULL; i=i->next)
+		if (Streq(s, i->name))
+			return (i->value);
+
+	return (NULL);
+}
+
+/* install macro with name name and value value in macro[]. Overwrite an
+ * existing value if it is not protected.
+ */
+define(name, value, protected) register char *name, *value; int protected;
+{
+	register MACRO *i;
+
+	if (dflag)
+		printf("define %s = %s\n", name, value);
+	for (i = macro; i != NULL; i=i->next)
+		if (Streq(name, i->name)) {
+			if (!i->protected) {
+				free(i->value);
+				i->value = value;
+				i->protected = protected;
+			} else if (dflag)
+				printf("... definition suppressed\n");
+			return;
+		}
+	i = (MACRO *)mmalloc(sizeof(*i));
+	i->name = name;
+	i->value = value;
+	i->protected = protected;
+	i->next = macro;
+	macro = i;
+}
+
+/* Accept single letter user defined macros */
+ismacro(c) register int c;
+{
+	return ((c>='0'&&c<='9')
+		|| (c>='a'&&c<='z')
+		|| (c>='A'&&c<='Z'));
+}
+
+/*
+ * Return the next character from the input file.
+ * Eat comments.
+ * Return EOS for newline not followed by an action.
+ * Return '\n' for newline followed by an action.
+ * If not in a macro definition or action specification,
+ * then expand macro in backup or complain about the name.
+ */
+nextc()
+{
+	register char *s;
+	register int c, endc;
+
+Again:
+	if ((c = readc()) == '\\') {
+		c = readc();
+		if (c == '\n') {		/* escaped newline */
+			while ((c=readc())==' ' || c=='\t')
+				;		/* eat following whitespace */
+			putback(c);
+			return(' ');
+		} else if (c == '#')
+			return c;		/* "\#" means literal '#' */
+		putback(c);
+		return '\\';
+	}
+	if ((c=='#') && !instring) {
+		do
+			c = readc();
+		while (c != '\n' && c != EOF);
+	}
+	if ((c=='"') || (c=='\''))
+	{
+		instring = !instring;
+		return c;
+	}
+	if (c == '\n') {
+		instring = 0;
+Again2:
+		if ((c = readc()) != ' ' && c != '\t') {
+			putback(c);
+			if (c == '#')
+				goto Again;	/* "\n# comment" */
+			return EOS;		/* no action follows */
+		}
+		do
+			c = readc();
+		while (c == ' ' || c == '\t');	/* skip whitespace */
+		if (c == '\n')
+			goto Again2;		/* "\n\t\n" */
+		putback(c);
+		if (c == '#')
+			goto Again;		/* "\n\t# comment" */
+		return '\n';			/* action follows */
+	}
+	if (!defining && c=='$'){
+		c=readc();
+		if (c == '(' || c == '{') {
+			endc = (c == '(') ? ')' : '}';
+			s = macroname;
+			while (' ' < (c = readc()) && c < 0177 && c != endc)
+				if (s != &macroname[NMACRONAME])
+					*s++=c;
+			if (c != endc)
+				err(badmac);
+			*s++ = '\0';
+		} else if (ismacro(c)) {
+			macroname[0]=c;
+			macroname[1]='\0';
+		} else
+			err(badmac);
+		if ((s=mexists(macroname))!=NULL)
+			unreads(s);
+		goto Again;
+	}
+
+	return(c);
+}
+
+/* Get a block of l0+l1 bytes copy s0 and s1 into it, and return a pointer to
+ * the beginning of the block.
+ */
+char *
+extend(s0, l0, s1, l1) char *s0, *s1; int l0, l1;
+{
+	register char *t;
+
+ 	if (s0 == NULL)
+ 		t = mmalloc(l1);
+ 	else {
+ 		if ((t = realloc(s0, l0 + l1)) == NULL)
+			err(nospace);
+	}
+	strncpy(t+l0, s1, l1);
+	return(t);
+}
+
+/* Return 1 if c is EOS, EOF, or one of the characters in s */
+delim(c, s) register char c; char *s;
+{
+	return (c == EOS || c == EOF || index(s, c) != NULL);
+}
+
+/* Prepare to copy a new token string into the token buffer; if the old value
+ * in token wasn't saved, tough matzohs.
+ */
+starttoken()
+{
+	token=NULL;
+	tokp=tokbuf;
+	toklen=0;
+}
+
+/* Put c in the token buffer; if the buffer is full, copy its contents into
+ * token and start agin at the beginning of the buffer.
+ */
+addtoken(c)
+{
+	if (tokp==&tokbuf[NTOKBUF]){
+		token=extend(token, toklen-NTOKBUF, tokbuf, NTOKBUF);
+		tokp=tokbuf;
+	}
+	*tokp++=c;
+	toklen++;
+}
+
+/* mark the end of the token in the buffer and save it in token. */
+endtoken()
+{
+	addtoken('\0');
+	token=extend(token, toklen-(tokp-tokbuf), tokbuf, tokp-tokbuf);
+}
+
+/* Install value at the end of the token list which begins with next; return
+ * a pointer to the beginning of the list, which is the one just installed if
+ * next was NULL.
+ */
+TOKEN *
+listtoken(value, next) char *value; TOKEN *next;
+{
+	register TOKEN *p;
+	register TOKEN *t;
+
+	t=(TOKEN *)mmalloc(sizeof *t);	/*Necessaire ou le contraire?*/
+	t->value=value;
+	t->next=NULL;
+	if (next==NULL)
+		return(t);
+	for(p=next;p->next!=NULL;p=p->next);
+	p->next=t;
+	return(next);
+}
+
+/* Free the overhead of a token list */
+TOKEN *
+freetoken(t) register TOKEN *t;
+{
+	register TOKEN *tp;
+	while (t != NULL) {
+		tp = t->next;
+		free(t);
+		t = tp;
+	}
+	return t;
+}
+
+/* Read macros, dependencies, and actions from the file with name file, or
+ * from whatever file is already open. The first string of tokens is saved
+ * in a list pointed to by tp; if it was a macro, the definition goes in
+ * token, and we install it in macro[]; if tp points to a string of targets,
+ * its depedencies go in a list pointed to by dp, and the action to recreate
+ * it in token, and the whole shmear is installed.
+ */
+input(file) char *file;
+{
+	TOKEN *tp = NULL, *dp = NULL;
+	register c;
+	char *action;
+	int twocolons;
+
+	if (file!=NULL && (fd=fopen(file, "r"))==NULL)
+		die("cannot open %s", file);
+	lineno=1;
+	lastc=EOF;
+	for(;;){
+		c=nextc();
+		for(;;){
+			while(c==' ' || c=='\t')
+				c=nextc();
+			if (delim(c, "=:;\n"))
+				break;
+			starttoken();
+			while(!delim(c, " \t\n=:;")){
+				addtoken(c);
+				c=nextc();
+			}
+			endtoken();
+			tp=listtoken(token, tp);
+		}
+		switch(c){
+		case EOF:
+			if (tp!=NULL)
+				err(incomp);
+			fclose(fd);
+			return;
+		case EOS:
+			if (tp==NULL)
+				break;
+		case '\n':
+			err("newline after target or macroname");
+		case ';':
+			err("; after target or macroname");
+		case '=':
+			if (tp==NULL || tp->next!=NULL)
+				err("= without macro name or in token list");
+			defining++;
+			while((c=nextc())==' ' || c=='\t');
+			starttoken();
+			while(c!=EOS && c!=EOF) {
+				addtoken(c);
+				c=nextc();
+			}
+			endtoken();
+			define(tp->value, token, 0);
+			defining=0;
+			break;
+		case ':':
+			if (tp==NULL)
+				err(": without preceding target");
+			c=nextc();
+			if (c==':'){
+				twocolons=1;
+				c=nextc();
+			} else
+				twocolons=0;
+			for(;;){
+				while(c==' ' || c=='\t')
+					c=nextc();
+				if (delim(c, "=:;\n"))
+					break;
+				starttoken();
+				while(!delim(c, TDELIM)){
+					addtoken(c);
+					c=nextc();
+				}
+				endtoken();
+				dp=listtoken(token, dp);
+			}
+			switch(c){
+#if	!MSDOS && !GEMDOS
+			case ':':
+				err("::: or : in or after dependency list");
+#endif
+			case '=':
+				err("= in or after dependency");
+			case EOF:
+				err(incomp);
+			case ';':
+			case '\n':
+				++defining;
+				starttoken();
+				while((c=nextc())!=EOS && c!=EOF)
+					addtoken(c);
+				endtoken();
+				defining = 0;
+				action=token;
+				break;
+			case EOS:
+				action=NULL;
+			}
+			install(tp, dp, action, twocolons);
+		}
+		tp = freetoken(tp);
+		dp = freetoken(dp);
+		dp = NULL;
+	}
+}
+
+/* Input with library lookup */
+inlib(file) char *file;
+{
+	register char *p, *cp;
+	if ((p = getenv("LIBPATH")) == NULL)
+		p = DEFLIBPATH;
+	cp = path(p, file, AREAD);
+	input(cp ? cp : file);
+}
+
+/* Input first file in list which is found via SRCPATH. */
+/* Look in current directory first */
+inpath(file) char *file;
+{
+	register char **vp, *cp;
+
+	cp = NULL;
+	for (vp = &file; *vp != NULL; vp += 1)
+		if (access(*vp, AREAD) >= 0) {
+			cp = *vp;
+			break;
+		}
+	if ( ! cp)
+		for (vp = &file; *vp != NULL; vp += 1)
+			if ((cp = path(srcpath, *vp, AREAD)) != NULL)
+				break;
+	input(cp ? cp : file);
+}
+
+/* Return the last modified date of file with name name. If it's an archive,
+ * open it up and read the insertion date of the pertinent member.
+ */
+time_t
+getmdate(name) char *name;
+{
+#if	_I386
+	char	*subname;
+	char	*lwa;
+	int	fd, x;
+	char	magic[SARMAG];
+	int	size;
+
+	time_t	result;
+	struct ar_hdr	hdrbuf;
+#endif
+
+	if (stat(name, &statbuf) == 0)
+		return(statbuf.st_mtime);
+
+
+#if	_I386
+	subname = index(name, '(');
+	if (subname == NULL)
+		return (0);
+	lwa = &name[strlen(name) - 1];
+	if (*lwa != ')')
+		return (0);
+	*subname = NUL;
+	fd = open(name, READ);
+	*subname++ = '(';
+	if (fd == EOF)
+		return (0);
+	if (read(fd, magic, SARMAG) != SARMAG)
+	{
+		close(fd);
+		return (0);
+	}
+	if (!strcmp(magic, ARMAG)) {
+		close(fd);
+		return (0);
+	}
+	*lwa = NUL;
+	result = 0;
+	while (read(fd, &hdrbuf, sizeof hdrbuf) == sizeof hdrbuf) {
+		if ((strncmp(hdrbuf.ar_name, subname, x = strlen(subname)) == 0)
+		    && (hdrbuf.ar_name[x] == '/'))
+		{
+			result = atoi(hdrbuf.ar_date);
+			break;
+		}
+		size = atoi(hdrbuf.ar_size);
+		lseek(fd, size, SEEK_CUR);
+	}
+	*lwa = ')';
+
+	return (result);
+#else
+	return 0;
+#endif
+}
+
+
+/* Does file name exist? */
+fexists(name) char *name;
+{
+#if 0
+	if (dflag)
+		printf("fexists(%s) = %d getmdate(name) = %d\n", name,
+		getmdate(name) != 0, getmdate(name));
+#endif
+	return getmdate(name) != 0;
+}
+
+/*
+ * Find name on srcpath.
+ * Return 'name' unchanged if file exists as 'name', 'name' is absolute,
+ * or 'name' not found on sourcepath.
+ * If successful, return pointer to allocated copy.
+ */
+char *
+fpath(name) char *name;
+{
+	register char *s;
+
+	if (fexists(name)
+	 || *name == PATHSEP
+	 || srcpath == NULL
+	 || (s = path(srcpath, name, AREAD)) == NULL)
+		return name;
+	starttoken();
+	while (*s)
+		addtoken(*s++);
+	endtoken();
+	return token;
+}
+
+/* Return a pointer to the symbol table entry with name "name", NULL if it's
+ * not there.
+ */
+SYM *
+sexists(name) register char *name;
+{
+	register SYM *sp;
+
+	for(sp=sym;sp!=NULL;sp=sp->next)
+		if (Streq(name, sp->name))
+			return(sp);
+	return(NULL);
+}
+
+/*
+ * Return a pointer to the member of deplist which has name as the last
+ * part of it's pathname, otherwise return NULL.
+ */
+SYM *
+dexists(name, dp) register char *name; register DEP *dp;
+{
+	register char *p;
+	while (dp != NULL) {
+		if ((p = rindex(dp->symbol->name, PATHSEP)) && Streq(name, p+1))
+			return dp->symbol;
+		else
+			dp = dp->next;
+	}
+	return NULL;
+}
+
+/* Look for symbol with name "name" in the symbol table; install it if it's
+ * not there; initialize the action and dependency lists to NULL, the type to
+ * unknown, zero the modification date, and return a pointer to the entry.
+ */
+SYM *
+lookup(name) char *name;
+{
+	register SYM *sp;
+
+	if ((sp=sexists(name))!=NULL)
+		return(sp);
+	sp = (SYM *)mmalloc(sizeof (*sp));	/*necessary?*/
+	sp->name=name;
+	sp->filename=fpath(name);
+	sp->action=NULL;
+	sp->deplist=NULL;
+	sp->type=T_UNKNOWN;
+	sp->moddate=0;
+	sp->next=sym;
+	sym=sp;
+	return(sp);
+}
+
+/* Install a dependency with symbol having name "name", action "action" in
+ * the end of the dependency list pointed to by next. If s has already
+ * been noted as a file in the dependency list, install action. Return a
+ * pointer to the beginning of the dependency list.
+ */
+DEP *
+adddep(name, action, next) char *name, *action; DEP *next;
+{
+	register DEP *v;
+	register SYM *s;
+	DEP *dp;
+
+	s=lookup(name);
+	for(v=next;v!=NULL;v=v->next)
+		if (s==v->symbol){
+			if (action != NULL) {
+				if (v->action!=NULL)
+					err("multiple detailed actions for %s",
+						s->name);
+				v->action=action;
+			}
+			return(next);
+		}
+	v = (DEP *)malloc(sizeof (*v));	/*necessary?*/
+	v->symbol=s;
+	v->action=action;
+	v->next=NULL;
+	if (next==NULL)
+		return(v);
+	for(dp=next;dp->next!=NULL;dp=dp->next);
+	dp->next=v;
+	return(next);
+}
+
+/* Do everything for a dependency with left-hand side cons, r.h.s. ante,
+ * action "action", and one or two colons. If cons is the first target in the
+ * file, it becomes the default target. Mark each target in cons as detailed
+ * if twocolons, undetailed if not, and install action in the symbol table
+ * action slot for cons in the latter case. Call adddep() to actually create
+ * the dependency list.
+ */
+install(cons, ante, action, twocolons) TOKEN *ante, *cons; char *action;
+{
+	SYM *cp;
+	TOKEN *ap;
+
+	if (deftarget==NULL && cons->value[0]!='.')
+		deftarget=cons->value;
+	if (dflag){
+		printf("Ante:");
+		ap=ante;
+		while(ap!=NULL){
+			printf(" %s", ap->value);
+			ap=ap->next;
+		}
+		printf("\nCons:");
+		ap=cons;
+		while(ap!=NULL){
+			printf(" %s", ap->value);
+			ap=ap->next;
+		}
+		printf("\n");
+		if (action!=NULL)
+			printf("Action: '%s'\n", action);
+		if (twocolons)
+			printf("two colons\n");
+	}
+	for (; cons != NULL; cons = cons->next) {
+		cp=lookup(cons->value);
+		if (cp==suffixes && ante==NULL)
+			cp->deplist=NULL;
+		else{
+			if (twocolons){
+				if (cp->type==T_UNKNOWN)
+					cp->type=T_DETAIL;
+				else if (cp->type!=T_DETAIL)
+					err("'::' not allowed for %s",
+						cp->name);
+			} else {
+				if (cp->type==T_UNKNOWN)
+					cp->type=T_NODETAIL;
+				else if (cp->type!=T_NODETAIL)
+					err("must use '::' for %s", cp->name);
+				if (action != NULL) {
+					if (cp->action != NULL)
+					{
+						if (!inactionfile)
+							err("multiple action"
+							"s for %s", cp->name);
+					}
+					else
+						cp->action = action;
+				}
+			}
+			for(ap=ante;ap!=NULL;ap=ap->next)
+				cp->deplist=adddep(ap->value,
+					twocolons?action:NULL, cp->deplist);
+		}
+	}
+}
+
+/* Make s; first, make everything s depends on; if the target has detailed
+ * actions, execute any implicit actions associated with it, then execute
+ * the actions associated with the dependencies which are newer than s.
+ * Otherwise, put the dependencies that are newer than s in token ($?),
+ * make s if it doesn't exist, and call docmd.
+ */
+make(s) register SYM *s;
+{
+	register DEP *dep;
+	register char *t, *name;
+	int update;
+	int type;
+
+	if (s->type==T_DONE)
+		return;
+	name = s->filename;
+	if (dflag) {
+		if (s->name == name)
+			printf("Making %s\n", name);
+		else
+			printf("Making %s (file %s)\n", s->name, name);
+	}
+	type=s->type;
+	s->type=T_DONE;
+	s->moddate=getmdate(name);
+	for(dep=s->deplist;dep!=NULL;dep=dep->next)		
+		make(dep->symbol);
+	if (type==T_DETAIL){
+		implicit(s, "", 0);
+		for(dep=s->deplist;dep!=NULL;dep=dep->next)
+			if (dep->symbol->moddate>s->moddate)
+				docmd0(s, dep->action, name, dep->symbol->filename);
+	} else {
+		update=0;
+		starttoken();
+		for(dep=s->deplist;dep!=NULL;dep=dep->next){
+			if (dflag)
+				printf("%s time=%ld %s time=%ld\n",
+				    dep->symbol->filename, dep->symbol->moddate,
+				    name, s->moddate);
+			if (dep->symbol->moddate>s->moddate){
+				update++;
+				addtoken(' ');
+				for(t=dep->symbol->filename;*t;t++)
+					addtoken(*t);
+			}
+		}
+		endtoken();
+		t = token;
+		if (!update && !fexists(name)) {
+			update = TRUE;
+			if (dflag)
+				printf("'%s' made due to non-existence\n",
+					name);
+		}
+		if (s->action==NULL)
+			implicit(s, t, update);
+		else if (update)
+			docmd0(s, s->action, name, t);
+		free(t);
+	}
+}
+
+/*
+ * Expand substitutes the macros in actions and returns the string.
+ */
+expand(str) register char *str;
+{
+	register int c;
+	register char *p;
+	int endc;
+
+	while (c = *str++) {
+		if (c == '$') {
+			c = *str++;
+			switch (c) {
+			case '\0':	err(badmac);
+			case '$':	addtoken(c);	continue;
+			case '@@':	p = mvarval[0]; break;
+			case '?':	p = mvarval[1]; break;
+			case '<':	p = mvarval[2]; break;
+			case '*':	p = mvarval[3]; break;
+			case '{':
+			case '(':
+				endc = (c == '(') ? ')' : '}';
+				c = '(';
+				p = str;
+				do c = *str++; while (c != 0 && c != endc);
+				if (c == 0)
+					err(badmac);
+				*--str = 0;
+				p = mexists(p);
+				*str++ = endc;
+				break;
+			default:
+				if ( ! ismacro(c))
+					err(badmac);
+				c = *str;
+				*str = 0;
+				p = mexists(str-1);
+				*str = c;
+				break;
+			}
+			if (p != NULL)
+				expand(p);
+		} else
+			addtoken(c);
+	}
+}
+
+/* Like docmd(), except builds its own dependency list and prefix args. */
+docmd0(s, cmd, at, ques) SYM *s; char *cmd, *at, *ques;
+{
+	register char *cp;
+	register DEP *dep;
+	char *less, *prefix;
+
+	/* Build dependency list. */
+	starttoken();
+	for (dep = s->deplist; dep != NULL; dep = dep->next) {
+		addtoken(' ');
+		for (cp = dep->symbol->filename; *cp; cp++)
+			addtoken(*cp);
+	}
+	endtoken();
+	less = token;
+
+	/* Build prefix. */
+	starttoken();
+	for (cp = s->name; *cp; cp++)
+		addtoken(*cp);
+	endtoken();
+	prefix = token;
+
+	if ((cp = rindex(prefix, '.')) != NULL)
+		*cp = '\0';
+	docmd(s, cmd, at, ques, less, prefix);
+	free(less);
+	free(prefix);
+}
+
+/* Mark s as modified; if tflag, touch s, otherwise execute the necessary
+ * commands.
+ */
+docmd(s, cmd, at, ques, less, star) SYM *s; char *cmd, *at, *ques, *less, *star;
+{
+	if (dflag)
+		printf("ex '%s'\n\t$@@='%s'\n\t$?='%s'\n\t$<='%s'\n\t$*='%s'\n",
+			cmd, at, ques, less, star);
+	if (qflag)
+		exit(NOTUTD);
+	s->moddate = now;
+	if (tflag)
+		cmd = "touch $@@";
+	if (cmd == NULL)
+		return;
+	mvarval[0] = at;
+	mvarval[1] = ques;
+	mvarval[2] = less;
+	mvarval[3] = star;
+	starttoken();
+	expand(cmd);
+	endtoken();
+	doit(token);
+	free(token);
+}
+
+
+/* look for '-' (ignore errors) and '@@' (silent) in cmd, then execute it
+ * and note the return status.
+ */
+doit(cmd) register char *cmd;
+{
+	register char *mark;
+	int sflg, iflg, rstat;
+
+	if (nflag) {
+		printf("%s\n", cmd);
+		return;
+	}
+	do {
+		mark = index(cmd, '\n');
+		if (mark != NULL)
+			*mark = NUL;
+		if (*cmd == '-') {
+			++cmd;
+			iflg = TRUE;
+		} else
+			iflg = iflag;
+		if (*cmd == '@@') {
+			++cmd;
+			sflg = TRUE;
+		} else
+			sflg = sflag;
+		if (!sflg)
+			printf("%s\n", cmd);
+		fflush(stdout);
+		rstat = system(cmd);
+		if (rstat != 0 && !iflg)
+			if (sflg)
+				die("%s	exited with status %d",
+					cmd, rstat);
+			else
+				die("	exited with status %d", rstat);
+		cmd = mark + 1;
+	} while (mark != NULL && *cmd != NUL);
+}
+
+
+/* Find the implicit rule to generate obj and execute it. Put the name of
+ * obj up to '.' in prefix, and look for the rest in the dependency list
+ * of .SUFFIXES. Find the file "prefix.foo" upon which obj depends, where
+ * foo appears in the dependency list of suffixes after the suffix of obj.
+ * Then make obj according to the rule from makeactions. If we can't find
+ * any rules, use .DEFAULT, provided we're definite.
+ */
+implicit(obj, ques, definite) SYM *obj; char *ques; int definite;
+{
+	register char *s;
+	register DEP *d;
+	char *prefix, *file, *rulename, *suffix;
+	SYM *rule;
+	SYM *subj;
+
+	if (dflag)
+		printf("Implicit %s (%s)\n", obj->name, ques);
+	if ((suffix=rindex(obj->name, '.')) == NULL
+	 || suffix==obj->name) {
+		if (definite)
+			defalt(obj, ques);
+		return;
+	}
+	starttoken();
+	for(s=obj->name; s<suffix; s++)
+		addtoken(*s);
+	endtoken();
+	prefix=token;
+	for(d=suffixes->deplist;d!=NULL;d=d->next)
+		if (Streq(suffix, d->symbol->name))
+			break;
+	if (d==NULL){
+		free(prefix);
+		if (definite)
+			defalt(obj, ques);
+		return;
+	}
+	while((d=d->next)!=NULL){
+		starttoken();
+		for(s=obj->name; s!=suffix; s++)
+			addtoken(*s);
+		for(s=d->symbol->name;*s;s++)
+			addtoken(*s);
+		endtoken();
+		file=token;
+		if ((s = fpath(file)) != file) {
+			free(file);
+			file = s;
+		}
+		subj=NULL;
+		if (fexists(file) || (subj=dexists(file, obj->deplist))){
+			starttoken();
+			for(s=d->symbol->filename;*s!='\0';s++)
+				addtoken(*s);
+			for(s=suffix;*s!='\0';s++)
+				addtoken(*s);
+			endtoken();
+			rulename=token;
+			if ((rule=sexists(rulename))!=NULL){
+				if (subj != NULL || (subj=sexists(file))) {
+					free(file);
+					file=subj->name;
+				} else
+					subj=lookup(file);
+				make(subj);
+				if (definite || subj->moddate>obj->moddate)
+					docmd(obj, rule->action,
+						obj->name, ques, file, prefix);
+				free(prefix);
+				free(rulename);
+				return;
+			}
+			free(rulename);
+		}
+		free(file);
+	}
+	free(prefix);
+	if (definite)
+		defalt(obj, ques);
+}
+
+/*
+ * Deflt uses the commands associated to '.DEFAULT' to make the object
+ * 'obj'.
+ */
+defalt(obj, ques) SYM *obj; char *ques;
+{
+	if (deflt == NULL)
+	{
+		if (obj->deplist == NULL)
+			die("do not know how to make %s", obj->name);
+	}
+	else
+		docmd0(obj, deflt->action, obj->name, ques);
+}
+
+main(argc, argv, envp) int argc; char *argv[], *envp[];
+{
+	register char	*s, *value;
+	register char	*namesave;
+	register int c;
+	int	len, numtargets = 0;
+	char 	**dtarget;
+	TOKEN	*fp = NULL;
+	SYM	*sp;
+	DEP	*d;
+	MACRO	*mp;
+
+
+	if ((dtarget = malloc(argc * sizeof(char *))) == NULL)
+		err(nospace);
+
+	time(&now);
+	++argv;
+	--argc;
+
+	while (argc > 0)
+	{
+		if (argv[0][0] == '-')
+		{
+			for (--argc, s = *argv++; *++s != NUL;)
+				switch (*s) {
+				case 'd': dflag++; break;
+				case 'e': eflag++; break;
+				case 'i': iflag++; break;
+				case 'n': nflag++; break;
+				case 'p': pflag++; break;
+				case 'q': qflag++; break;
+				case 'r': rflag++; break;
+				case 's': sflag++; break;
+				case 't': tflag++; break;
+				case 'f':
+					if (--argc < 0)
+						Usage();
+					fp=listtoken(*argv++, fp);
+					break;
+				default:
+					Usage();
+				}
+		}
+		else if ((value = index(*argv, '=')) != NULL)
+		{
+			s = *argv;
+			while (*s != ' ' && *s != '\t' && *s != '=')
+				++s;
+			*s = '\0';
+			define(*argv++, value+1, 1);
+			--argc;
+		}
+		else
+		{
+			dtarget[numtargets++] = *argv++;
+			--argc;
+		}
+	}
+	while (*envp != NULL) {
+		if ((value = index(*envp, '=')) != NULL
+		 && index(value, '$') == NULL) {
+			s = *envp;
+			while ((c=*s) != ' ' && c != '\t' && c != '=')
+				++s;
+
+			len = s - *envp;
+			namesave=mmalloc(len+1);
+			strncpy(namesave, *envp, len);
+			namesave[len] = '\0';
+
+			if (eflag)
+				define(namesave, value+1, 1);
+			else {
+				starttoken();
+				while (*++value) addtoken(*value);
+				endtoken();
+				define(namesave, token, 0);
+			}
+		}
+		++envp;
+	}
+	srcpath = mexists("SRCPATH");
+	suffixes=lookup(".SUFFIXES");
+	if (!rflag)
+		inlib(MACROFILE);
+	deftarget = NULL;
+	if (fp == NULL)
+		inpath("makefile", "Makefile", NULL);
+	else {
+		fd = stdin;
+		do {
+			input( strcmp(fp->value, "-") == 0 ? NULL : fp->value);
+			fp = fp->next;
+		} while (fp != NULL);
+	}
+	if (!rflag)
+	{
+		inactionfile = 1;
+		inlib(ACTIONFILE);
+		inactionfile = 0;
+	}
+
+	if (sexists(".IGNORE") != NULL)
+		++iflag;
+	if (sexists(".SILENT") != NULL)
+		++sflag;
+	deflt = sexists(".DEFAULT");
+	if (pflag){
+		if (macro != NULL) {
+			printf("Macros:\n");
+			for (mp = macro; mp != NULL; mp=mp->next)
+				printf("%s=%s\n", mp->name, mp->value);
+		}
+		printf("Rules:\n");
+		for(sp=sym;sp!=NULL;sp=sp->next){
+			if (sp->type!=T_UNKNOWN){
+				printf("%s:", sp->name);
+				if (sp->type==T_DETAIL)
+					putchar(':');
+				for(d=sp->deplist;d!=NULL;d=d->next)
+					printf(" %s", d->symbol->name);
+				printf("\n");
+				if (sp->action)
+					printf("\t%s\n", sp->action);
+			}
+		}
+	}
+	if (numtargets)
+
+	{
+		int i;
+
+		for (i=0;i<numtargets;i++)
+			make(lookup(dtarget[i]));		
+	} else
+		make(lookup(deftarget));
+
+	exit(ALLOK);
+}
+
+/* Whine about usage and then quit */
+Usage()
+{
+	fprintf(stderr, "%s\n", usage);
+	exit(1);
+}
+
+/* end of make.c */
+@
+
+
+1.7
+log
+@michael: fixed bug with > 24 productions
+@
+text
+@d56 1
+d224 1
+a224 1
+	if (c=='#') {
+d229 5
+d235 1
+d273 1
+@
+
+
+1.6
+log
+@michael: fix numerous bugs
+@
+text
+@d27 1
+a27 1
+ *      08-Oct-92	michael: fix problem with making targets with no 
+d91 1
+d155 2
+a156 2
+	for (i = macro; i != NULL; i=i->next) 
+		if (Streq(s, i->name)) 
+d358 1
+a358 1
+ * in a list pointed to by tp; if it was a macro, the definition goes in 
+d503 1
+a503 1
+#if	COHERENT3 || GEMDOS
+d506 4
+a509 2
+	int	fd;
+	int	magic;
+d518 1
+a518 1
+#if	COHERENT3 || GEMDOS
+d530 2
+a531 1
+	if (read(fd, &magic, sizeof magic) != sizeof magic) {
+d535 1
+a535 2
+	canint(magic);
+	if (magic != ARMAG) {
+d542 4
+a545 4
+		if (strcmp(hdrbuf.ar_name, subname) == 0) {
+ 			cantime(hdrbuf.ar_date); 
+			result = hdrbuf.ar_date;
+
+d548 2
+a549 2
+		canlong(hdrbuf.ar_size);
+		lseek(fd, hdrbuf.ar_size, SEEK_CUR);
+d552 1
+a552 1
+printf("%s %s\n", hdrbuf.ar_name, ctime(&hdrbuf.ar_date));
+d563 6
+a568 1
+	return stat(name, &statbuf) >= 0;
+d648 3
+a650 3
+/* Install a dependency with symbol having name "name", action "action" in 
+ * the end of the dependency list pointed to by next. If s has already 
+ * been noted as a file in the dependency list, install action. Return a 
+d682 1
+a682 1
+/* Do everything for a dependency with left-hand side cons, r.h.s. ante, 
+d685 1
+a685 1
+ * if twocolons, undetailed if not, and install action in the symbol table 
+d751 2
+a752 2
+ * the actions associated with the dependencies which are newer than s. 
+ * Otherwise, put the dependencies that are newer than s in token ($?), 
+d958 2
+a959 2
+/* Find the implicit rule to generate obj and execute it. Put the name of 
+ * obj up to '.' in prefix, and look for the rest in the dependency list 
+d962 1
+a962 1
+ * Then make obj according to the rule from makeactions. If we can't find 
+d1045 1
+a1045 1
+	if (deflt == NULL) 
+d1060 1
+a1060 1
+	char 	*dtarget[24];
+d1066 4
+d1074 1
+a1074 1
+	while (argc > 0) 
+d1098 1
+a1098 1
+		else if ((value = index(*argv, '=')) != NULL) 
+d1111 1
+a1111 1
+		} 
+@
+
+
+1.5
+log
+@michael: various fixes (dujour) (post 401a)
+@
+text
+@d502 1
+a502 1
+#if	COHERENT || GEMDOS
+d513 3
+a515 1
+#if	COHERENT || GEMDOS
+d542 1
+a542 1
+printf("%s %s\n", hdrbuf.ar_name, ctime(&hdrbuf.ar_date));
+d549 1
+a1057 4
+
+	getmdate("mm.a(z.o)");
+	exit(1);
+
+@
+
+
+1.4
+log
+@stevesf: mods to fix problems with ${vars}
+@
+text
+@d25 4
+d74 1
+d511 1
+a511 1
+	if (stat(name, &statbuf) ==0)
+d538 1
+a538 1
+			cantime(hdrbuf.ar_date);
+d540 1
+d722 7
+a728 3
+						err("multiple actions for %s",
+							cp->name);
+					cp->action = action;
+d763 1
+a763 1
+	for(dep=s->deplist;dep!=NULL;dep=dep->next)
+d1034 7
+a1040 3
+	if (deflt == NULL)
+		die("do not know how to make %s", obj->name);
+	docmd0(obj, deflt->action, obj->name, ques);
+d1048 2
+a1049 1
+	int	len;
+d1055 4
+d1062 22
+a1083 14
+	while (argc > 0 && argv[0][0] == '-')
+		for (--argc, s = *argv++; *++s != NUL;)
+			switch (*s) {
+			case 'd': dflag++; break;
+			case 'e': eflag++; break;
+			case 'i': iflag++; break;
+			case 'n': nflag++; break;
+			case 'p': pflag++; break;
+			case 'q': qflag++; break;
+			case 'r': rflag++; break;
+			case 's': sflag++; break;
+			case 't': tflag++; break;
+			case 'f':
+				if (--argc < 0)
+d1085 16
+a1100 12
+				fp=listtoken(*argv++, fp);
+				break;
+			default:
+				Usage();
+			}
+	while (argc > 0 && (value = index(*argv, '=')) != NULL) {
+		s = *argv;
+		while (*s != ' ' && *s != '\t' && *s != '=')
+			++s;
+		*s = '\0';
+		define(*argv++, value+1, 1);
+		--argc;
+d1140 2
+d1143 3
+d1171 7
+a1177 4
+	if (argc > 0){
+		do{
+			make(lookup(*argv++));
+		} while (--argc > 0);
+d1180 1
+@
+
+
+1.3
+log
+@stevesf fixed bug reported by hal where whitespace-only lines between
+macros caused problems. This is for version 321.
+@
+text
+@d113 1
+a113 1
+	if(nbackup!=0)
+d115 1
+a115 1
+	if(lastc=='\n')
+d124 1
+a124 1
+	if(c==EOF)
+d163 1
+a163 1
+	if(dflag)
+d202 1
+a202 1
+	register c;
+d240 1
+a240 1
+	if(!defining && c=='$'){
+d242 5
+a246 4
+		if (c == '(') {
+			s=macroname;
+			while (' ' < (c = readc()) && c < 0177 && c != ')')
+				if(s!=&macroname[NMACRONAME])
+d248 1
+a248 1
+			if (c != ')')
+d256 1
+a256 1
+		if((s=mexists(macroname))!=NULL)
+d302 1
+a302 1
+	if(tokp==&tokbuf[NTOKBUF]){
+d330 1
+a330 1
+	if(next==NULL)
+d364 1
+a364 1
+	if(file!=NULL && (fd=fopen(file, "r"))==NULL)
+d373 1
+a373 1
+			if(delim(c, "=:;\n"))
+d385 1
+a385 1
+			if(tp!=NULL)
+d390 1
+a390 1
+			if(tp==NULL)
+d397 1
+a397 1
+			if(tp==NULL || tp->next!=NULL)
+d411 1
+a411 1
+			if(tp==NULL)
+d414 1
+a414 1
+			if(c==':'){
+d422 1
+a422 1
+				if(delim(c, "=:;\n"))
+d586 1
+a586 1
+		if(Streq(name, sp->name))
+d617 1
+a617 1
+	if((sp=sexists(name))!=NULL)
+d645 1
+a645 1
+		if(s==v->symbol){
+d647 1
+a647 1
+				if(v->action!=NULL)
+d658 1
+a658 1
+	if(next==NULL)
+d677 1
+a677 1
+	if(deftarget==NULL && cons->value[0]!='.')
+d679 1
+a679 1
+	if(dflag){
+d693 1
+a693 1
+		if(action!=NULL)
+d695 1
+a695 1
+		if(twocolons)
+d700 1
+a700 1
+		if(cp==suffixes && ante==NULL)
+d703 2
+a704 2
+			if(twocolons){
+				if(cp->type==T_UNKNOWN)
+d706 1
+a706 1
+				else if(cp->type!=T_DETAIL)
+d710 1
+a710 1
+				if(cp->type==T_UNKNOWN)
+d712 1
+a712 1
+				else if(cp->type!=T_NODETAIL)
+d715 1
+a715 1
+					if(cp->action != NULL)
+d741 1
+a741 1
+	if(s->type==T_DONE)
+d744 1
+a744 1
+	if(dflag) {
+d755 1
+a755 1
+	if(type==T_DETAIL){
+d758 1
+a758 1
+			if(dep->symbol->moddate>s->moddate)
+d764 1
+a764 1
+			if(dflag)
+d768 1
+a768 1
+			if(dep->symbol->moddate>s->moddate){
+d783 1
+a783 1
+		if(s->action==NULL)
+d785 1
+a785 1
+		else if(update)
+d798 1
+a798 1
+	int end;
+d804 6
+a809 6
+			case 0: err(badmac);
+			case '$': addtoken(c); continue;
+			case '@@': p = mvarval[0]; break;
+			case '?': p = mvarval[1]; break;
+			case '<': p = mvarval[2]; break;
+			case '*': p = mvarval[3]; break;
+d812 1
+a812 1
+				end = (c == '(') ? ')' : '}';
+d815 1
+a815 1
+				do c = *str++; while (c != 0 && c != end);
+d820 1
+a820 1
+				*str++ = ')';
+d952 1
+a952 1
+	if(dflag)
+d966 1
+a966 1
+		if(Streq(suffix, d->symbol->name))
+d968 1
+a968 1
+	if(d==NULL){
+d987 1
+a987 1
+		if(fexists(file) || (subj=dexists(file, obj->deplist))){
+d995 1
+a995 1
+			if((rule=sexists(rulename))!=NULL){
+d1002 1
+a1002 1
+				if(definite || subj->moddate>obj->moddate)
+d1115 2
+a1116 2
+	if(pflag){
+		if(macro != NULL) {
+d1123 1
+a1123 1
+			if(sp->type!=T_UNKNOWN){
+d1125 1
+a1125 1
+				if(sp->type==T_DETAIL)
+d1130 1
+a1130 1
+				if(sp->action)
+d1135 1
+a1135 1
+	if(argc > 0){
+@
+
+
+1.2
+log
+@updated version provided by stevesf for v311
+@
+text
+@d24 1
+d223 1
+d233 2
+d565 1
+a565 1
+	 || *name == '/'
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d17 2
+d21 3
+d28 3
+a30 4
+char usage[] = "Usage: make [-isrntqpd] [-f file] [macro=value] [target]";
+char nospace[] = "Out of space";
+char badmac[] = "Bad macro name";
+char incomp[] = "Incomplete line at end of file";
+d32 6
+d48 21
+d70 10
+a79 35
+FILE *fd;
+int defining = 0;		/* nonzero => do not expand macros */
+time_t now;
+unsigned char backup[NBACKUP];
+int nbackup = 0;
+int lastc;
+int lineno;
+char macroname[NMACRONAME+1];
+struct token{
+	struct token *next;
+	char *value;
+};
+char *token;
+char tokbuf[NTOKBUF];
+int toklen;
+char *tokp;
+struct macro {
+	struct macro *next;
+	char *value;
+	char *name;
+	int protected;
+};
+struct macro *macro;
+char *deftarget = NULL;
+struct sym{
+	struct sym *next;
+	char *action;
+	char *name;
+	struct dep *deplist;
+	int type;
+	time_t moddate;
+};
+struct sym *sym = NULL;
+struct sym *suffixes;
+struct sym *deflt;
+a80 20
+struct dep{
+	struct dep *next;
+	char *action;
+	struct sym *symbol;
+};
+
+struct stat statbuf;
+char	*mvarval[4];		/* list of macro variable values */
+
+/* Interesting function declarations */
+
+char *mexists();
+char *extend();
+char *mmalloc();
+struct token *listtoken();
+struct sym *sexists();
+struct sym *dexists();
+struct sym *lookup();
+struct dep *adddep();
+
+d82 2
+a83 2
+die(str)
+char	*str;
+d85 1
+a85 1
+	fprintf(stderr, "make: %r\n", &str);
+d88 1
+d90 2
+a91 2
+err(s)
+char *s;
+d98 2
+a99 1
+char *mmalloc(n) int n;
+a109 1
+
+a120 1
+
+d126 1
+a126 1
+		err("Macro definition too long");
+d131 1
+a131 3
+
+unreads(s)
+register char *s;
+d143 4
+a147 4
+char *mexists(s) register char *s;
+{
+	register struct macro *i;
+
+d158 3
+a161 5
+define(name, value, protected)
+register char *name, *value;
+{
+	register struct macro *i;
+
+d174 1
+a174 1
+	i = (struct macro *)mmalloc(sizeof(*i));
+d185 3
+a187 5
+	if ((c>='0'&&c<='9')
+	 || (c>='a'&&c<='z')
+	 || (c>='A'&&c<='Z'))
+		return 1;
+	return 0;
+d189 8
+a196 4
+/* return the next character from the input file. eat comments, return EOS
+ * for a newline not followed by an action, \n for newlines that are followed
+ * by actions;  if not in a macro definition or action specification
+ * then expand the macro in backup or complain about the name.
+a197 1
+
+d204 13
+a216 1
+	if((c=readc())=='#'){
+d218 2
+a219 2
+			c=readc();
+		while(c!='\n' && c!=EOF);
+d221 2
+a222 2
+	if(c=='\n'){
+		if((c=readc())!=' ' && c!='\t'){
+d224 3
+a226 1
+			return(EOS);
+d229 2
+a230 2
+			c=readc();
+		while(c==' ' || c=='\t');
+d232 3
+a234 1
+		return('\n');
+d236 1
+a236 1
+	if(c=='\\'){
+d238 1
+a238 12
+		if(c=='\n') {
+			while ((c=readc())==' ' || c=='\t')
+				;
+			putback(c);
+			return(' ');
+		}
+		putback(c);
+		return('\\');
+	}
+	if(!defining && c=='$'){
+		c=readc();
+		if(c=='(') {
+d240 1
+a240 1
+			while(' '<(c=readc()) && c<0177 && c!=')')
+a260 1
+
+d262 1
+a262 2
+extend(s0, l0, s1, l1)
+char *s0, *s1;
+d277 1
+a277 4
+
+delim(c, s)
+register char	c;
+char	*s;
+a284 1
+
+a294 1
+
+a305 1
+
+d316 5
+d322 1
+a322 9
+struct token *
+listtoken(value, next)
+char *value;
+struct token *next;
+{
+	register struct token *p;
+	register struct token *t;
+
+	t=(struct token *)mmalloc(sizeof *t);	/*Necessaire ou le contraire?*/
+d333 2
+a334 1
+struct token *freetoken(t) register struct token *t;
+d336 1
+a336 1
+	register struct token *tp;
+d352 1
+a352 3
+
+input(file)
+char *file;
+d354 1
+a354 1
+	struct token *tp = NULL, *dp = NULL;
+d360 1
+a360 1
+		die("can't open %s", file);
+d388 1
+a388 1
+			err("Newline after target or macroname");
+a419 5
+#if MSDOS || GEMDOS
+#define TDELIM	" \t\n=;"
+#else
+#define TDELIM	" \t\n=:;"
+#endif
+d428 1
+a428 1
+#if ! MSDOS && ! GEMDOS
+d467 1
+a467 1
+/* Input first file in list which is found via path */
+d471 2
+a472 1
+	register char **vp, *p, *cp;
+a473 2
+	if ((p = getenv("PATH")) == NULL)
+		p = DEFPATH;
+d481 1
+a481 1
+			if ((cp = path(p, *vp, AREAD)) != NULL)
+a488 1
+
+d490 1
+a490 2
+getmdate(name)
+char	*name;
+d492 1
+d499 1
+d503 1
+d533 1
+a533 1
+		lseek(fd, hdrbuf.ar_size, REL);
+d537 3
+d544 4
+d549 8
+a556 2
+fexists(name)
+char *name;
+d558 12
+a569 1
+	return(stat(name, &statbuf)>=0);
+d575 4
+a579 4
+struct sym *sexists(name) register char *name;
+{
+	register struct sym *sp;
+
+d590 2
+a591 1
+struct sym *dexists(name, dp) register char *name; register struct dep *dp;
+d602 1
+d607 4
+a611 6
+struct sym *
+lookup(name)
+char *name;
+{
+	register struct sym *sp;
+
+d614 1
+a614 1
+	sp = (struct sym *)mmalloc(sizeof (*sp));	/*necessary?*/
+d616 1
+d631 6
+a637 9
+struct dep *
+adddep(name, action, next)
+char *name, *action;
+struct dep *next;
+{
+	register struct dep *v;
+	register struct sym *s;
+	struct dep *dp;
+
+d643 1
+a643 1
+					err("Multiple detailed actions for %s",
+d649 1
+a649 1
+	v = (struct dep *)malloc(sizeof (*v));	/*necessary?*/
+d667 4
+a671 7
+install(cons, ante, action, twocolons)
+struct token *ante, *cons;
+char *action;
+{
+	struct sym *cp;
+	struct token *ap;
+
+d708 1
+a708 1
+					err("Must use '::' for %s", cp->name);
+d711 1
+a711 1
+						err("Multiple actions for %s",
+d729 1
+a729 3
+
+make(s)
+register struct sym *s;
+d731 2
+a732 2
+	register struct dep *dep;
+	register char *t;
+d738 7
+a744 2
+	if(dflag)
+		printf("Making %s\n", s->name);
+d747 1
+a747 1
+	s->moddate=getmdate(s->name);
+d754 1
+a754 2
+				docmd(s, dep->action, s->name,
+					dep->symbol->name, "", "");
+d761 2
+a762 2
+				    dep->symbol->name, dep->symbol->moddate,
+				    s->name, s->moddate);
+d766 1
+a766 1
+				for(t=dep->symbol->name;*t;t++)
+d772 1
+a772 1
+		if (!update && !fexists(s->name)) {
+d776 1
+a776 1
+					s->name);
+d781 1
+a781 1
+			docmd(s, s->action, s->name, t, "", "");
+d793 2
+a800 1
+			case '{': addtoken('$'); addtoken(c); continue;
+d805 1
+d807 2
+d810 1
+a810 1
+				do c = *str++; while (c!=0 && c!=')');
+d833 31
+d867 1
+a867 3
+docmd(s, cmd, at, ques, less, star)
+struct sym *s;
+char *cmd, *at, *ques, *less, *star;
+a868 2
+	static char	touch[] = "touch $@@";
+
+d876 1
+a876 1
+		cmd = touch;
+d894 1
+a894 3
+
+doit(cmd)
+register char	*cmd;
+d939 1
+a939 4
+
+implicit(obj, ques, definite)
+struct sym *obj;
+char *ques;
+d942 1
+a942 1
+	register struct dep *d;
+d944 2
+a945 2
+	struct sym *rule;
+	struct sym *subj;
+d977 4
+d984 1
+a984 1
+			for(s=d->symbol->name;*s!='\0';s++)
+a1012 1
+
+d1017 1
+a1017 4
+
+defalt(obj, ques)
+struct sym	*obj;
+char		*ques;
+d1020 2
+a1021 2
+		die("Don't know how to make %s", obj->name);
+	docmd(obj, deflt->action, obj->name, ques, "", "");
+d1024 1
+a1024 2
+
+main(argc, argv, envp) char *argv[], *envp[];
+d1029 5
+a1033 5
+	int len;
+	struct token	*fp = NULL;
+	struct sym	*sp;
+	struct dep	*d;
+	struct macro	*mp;
+d1041 2
+d1044 4
+a1048 2
+			case 'r': rflag++; break;
+			case 'n': nflag++; break;
+a1049 4
+			case 'q': qflag++; break;
+			case 'p': pflag++; break;
+			case 'd': dflag++; break;
+			case 'e': eflag++; break;
+d1089 1
+a1139 1
+
+d1146 1
+@

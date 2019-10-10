@@ -1,0 +1,70 @@
+#include "mprec.h"
+#include <assert.h>
+
+
+/*
+ *	Sdiv divides the mint pointed to by "a" by the int "n".  It sets
+ *	the mint pointed to by "q" to the quotient and the int pointed to
+ *	by "r" to the remainder.
+ *	Note that it is assumed that 1 <= "n" <= BASE.
+ *	The division is performed such that the following two properties
+ *	hold :
+ *		1. r + q * n = a.
+ *		2. the sign of r = the sign of q.
+ *		3. the abs. value of r < the abs. value of b.
+ *	Note that "a" == "q" is permissable.
+ */
+
+void
+sdiv(a, n, q, r)
+mint *a, *q;
+register int n;
+int *r;
+{
+	register char	*qp, *ap;
+	char	*res;
+	int	npfl;	/* numerator positive flag */
+	char	dmfl;	/* denominator minus flag */
+	mint	al;
+	register int	rem;
+
+	if (n == 0)
+		mperr("division by zero attempted");
+	if (dmfl = n < 0)
+		n = -n;
+	assert(1 <= n && n <= BASE);
+
+	/* set npfl and negate a if necessary */
+	npfl = ispos(a);
+	if (!npfl) {
+		minit(&al);
+		mneg(a, &al);
+		a = &al;
+	}
+
+	/* allocate space for result */
+	res = (char *)mpalc(a->len);
+
+	/* compute quotient, most sig. digit first */
+	qp = res + a->len;
+	ap = a->val + a->len;
+	rem = 0;
+	while (qp > res) {
+		rem = BASE * rem + *--ap;
+		*--qp = rem / n;
+		rem %= n;
+	}
+	mpfree(q->val);
+	q->val = res;
+	q->len = a->len;
+	norm(q);
+
+	/* fix up sign if a was negative */
+	if (npfl ? dmfl : !dmfl) {
+		rem = -rem;
+		mneg(q, q);
+	}
+	if (!npfl)
+		mpfree(al.val);
+	*r = rem;
+}

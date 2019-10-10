@@ -1,0 +1,62 @@
+# Getheaders
+
+. /usr/lib/shell_lib.sh
+
+# Ask before making a directory
+askmkdir () {
+	if [ -d $1 ]; then
+		return 0
+	fi
+	read_input "Make new directory $1" yesno "n" require_yes_or_no
+	is_yes $yesno && {
+#		/u1/gnu/bin/mkdir -p $1 -m 777 || exit 1
+		mkdir -p $1 || exit 1
+		return 0
+	}
+	return 2
+}
+
+# Check out a full header suite into the current directory.
+
+SRC=/source
+HERE=$(pwd)
+
+# Ask if user really wants to do this.
+read_input "Create/update headers in $HERE" yesno "n" require_yes_or_no
+is_yes $yesno || {
+	echo "Cancelled."
+	exit 1
+}
+
+# Walk through source tree of headers.
+# To do:
+#   Permissions and ownership.
+#   Specific revisions.
+
+cd $SRC
+
+# Target tree needs usr/.
+askmkdir $HERE/usr || {
+	echo "Ok, then I can't make a header tree in $HERE/usr/include for you."
+	exit 1
+}
+
+# Iterate over usr/include and its subdirectories.
+for d in $(find usr/include -type d); do
+	askmkdir $HERE/$d || {
+		echo "Skipping directory $d"
+		continue
+	}
+	(
+		cd $d
+		for f in *.h,v; do
+
+			# $f is, e.g. stdio.h,v
+			# $h is, e.g. stdio.h
+			h=${f%%,v}
+
+			echo "$f => $HERE/$d/$h"
+			co -M $f $HERE/$d/$h
+		done
+	)
+done

@@ -1,0 +1,154 @@
+.TH ptrace() "" "" "System Call (libc)"
+.PC "Trace process execution"
+.B "#include <signal.h>"
+\fBint ptrace(\fIcommand, pid, location, value\^\fB)\fR
+\fBint \fIcommand, pid\^\fB, *\fIlocation\^\fB, \fIvalue\^\fB;\fR
+.PP
+.B ptrace()
+provides a parent process with primitives
+to monitor and alter the execution of a child process.
+These primitives typically are used by a debugger such as
+.BR db ,
+which needs to examine and change memory,
+plant breakpoints, and single-step
+the child process being debugged.
+.PP
+Once a child process indicates it
+wishes to be traced,
+its parent issues various
+.IR command s
+to control the child.
+.I pid
+identifies the affected process.
+The parent may issue a command only when the child process
+is in a stopped state,
+which occurs when the child encounters a signal.
+A special return value of 0177 from
+.B wait()
+informs the parent that the child has entered the
+stopped state.
+The parent may then examine or change the child process memory space
+or restart the process at any point.
+.PP
+When the child process issues an
+.BR exec() ,
+the child stops with signal
+.B SIGTRAP
+to enable the parent to plant breakpoints.
+The set user id and set group id modes
+are ineffective when a traced process performs an
+.BR exec() .
+.PP
+The following list describes each available
+.IR command .
+A
+.I command
+ignores any arguments not mentioned.
+.IP \fB0\fR 0.5i
+This is the only
+.I command
+the child process may issue.
+It tells the system that the child wishes to be traced.
+Parent and child must agree
+that tracing should occur to achieve the desired effect.
+Only the
+.I command
+argument is significant.
+.IP \fB1,2\fR
+The
+.B int
+at
+.I location
+is the return value.
+Command 1 signifies that
+.I location
+is in the instruction space,
+whereas command 2 signifies
+.I data
+space.
+Often these two spaces are equivalent.
+.IP \fB3\fR
+The return value is the
+.B int
+of the process description,
+as defined in
+.B sys/uproc.h.
+This call may be used to obtain
+values such as hardware register contents and
+segment allocation information.
+.IP \fB4,5\fR
+Modify the child process's memory by changing the
+.B int
+at
+.I location
+to
+.I value.
+Command 4 means instruction space and
+command 5 means data space.
+Shared segments may be written only if no other executing process
+is using them.
+.IP \fB6\fR
+Modify the
+.B int
+at
+.I location
+in the process description area, as with command 3.
+The permissible values for
+.I location
+are restricted to such things as hardware registers
+and bits of machine status registers that
+the user may safely change.
+.IP \fB7\fR
+This command restarts the stopped child process after
+it encounters a signal.
+The process resumes execution at
+.I location,
+or
+from where the process was stopped if
+.I location
+is
+.B "(int *)1."
+.I value
+gives a signal number that the process receives as it restarts.
+This is normally the number of the signal that
+caused the process to stop,
+fetched from the process description area
+by a \fB3\fR command.
+If
+.I value
+is zero,
+the effect of the signal is ignored.
+.IP \fB8\fR
+Force the child process to exit.
+.IP \fB9\fR
+Like command \fB7\fR,
+except that the child stops again with signal
+.B SIGTRAP
+as soon as practicable after the execution of at least one instruction.
+The actual hardware method used to implement this
+command varies from machine to machine,
+explaining the imprecise nature of its definition.
+This call may provide part of the basis for breakpoints.
+.SH Files
+.B <signal.h>
+.br
+.B <sys/uproc.h>
+.SH "See Also"
+.Xr "db," db
+.Xr "exec," exec
+.Xr "libc," libc
+.Xr "ptrace.h," ptrace.h
+.Xr "signal()," signal
+.Xr "wait()" wait.s
+.SH Diagnostics
+.B ptrace()
+returns \-1 if
+.I pid
+is not the process id of an eligible child process
+or if some other argument is invalid or out of bounds.
+Some commands may return an arbitrary data value, in which case
+.B errno
+should be checked to distinguish a return
+value of \-1 from an error return.
+.SH Notes
+There is no way to specify which signals should not stop the process.

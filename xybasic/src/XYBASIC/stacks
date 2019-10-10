@@ -1,0 +1,344 @@
+;STACKS 5/23/79
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979 by Mark Williams Company, Chicago
+;symbol table and control stack manipulation routines
+
+
+;FNDTK finds the location of a token in the keyword table.
+;Call:	A	character or token
+;Retn:	Carry	Reset if character, set if token
+;	A	Preserved if character, 0 if token
+;	BC,DE	Preserved
+;	HL	Preserved if character, address of table entry if token
+	if	not compl
+fndtk:	ora	a
+	if	key80
+	jm	fndt1		;command or function token
+	cpi	20H
+	rnc			;printable char, return Carry reset
+	cpi	rwdtk
+	cmc
+	rnc			;<cr> or <bell>, return Carry reset
+	lxi	h,rwdta		;elese reserved word token
+	sui	(rwdtk-1) and 0FFH	;token bias
+	jmp	fndt2
+	else			;not KEY80
+	rp			;return Carry reset if positive
+	endif
+fndt1:	lxi	h,keyta
+	adi	nkeys+1		;token bias
+fndt2:	dcr	a		;decement token count
+	jnz	fndt3		;not there yet
+	stc			;else set Carry
+	ret			;and return
+fndt3:	push	psw		;save token count
+fndt4:	mov	a,m		;fetch char
+	inx	h
+	ora	a
+	jp	fndt4		;skip more chars in same keyword
+	pop	psw		;restore token count
+	jmp	fndt2		;and keep looking
+	endif
+
+;STPSH builds a new symbol table entry.
+;Call:	A	token
+;	HL	entry length
+;	(bufad)	symbol name
+;Retn:	(symta)	(symta) - length
+;	((symta))	length
+;	((symta)+1)	token
+;	((symta)+2...)	name
+;Other bytes in the entry are zeroed
+;	A	token
+;	BC	preserved
+;	DE	address of name
+;	HL	address following name
+stpsh:	push	b
+	push	psw		;save token
+	xchg			;length to DE
+	mvi	a,254
+	cmp	e		;Carry set iff (E) is 255
+	sbb	a		;A is 255 if (E) is 255, 0 otherwise
+	ora	d		;Zero set iff (DE) <= 254
+	jz	stps1
+	inx	d
+	inx	d
+stps1:	push	d		;save length
+	call	cplde		;- length to DE
+	lhld	symta
+	dad	d		;old - length = new symbol table address
+	jnc	omerr		;much too big, OM error
+	xchg
+	lhld	cstkp
+	xchg			;CSTKP to DE
+	call	cmdhu		;compare to new SYMTA
+	jnc	omerr		;CSTKP >= new SYMTA, OM error
+	shld	symta		;store new SYMTA
+	pop	d		;restore length
+	push	d		;and save
+	push	h		;and save SYMTA
+stps2:	mvi	m,0		;zero a byte
+	inx	h
+	dcx	d
+	mov	a,d
+	ora	e
+	jnz	stps2		;zero more bytes
+	pop	h		;restore pointer
+	pop	d		;and length
+	mov	a,d
+	ora	a
+	jz	stps3
+	mvi	m,255		;long entry
+	inx	h
+	mov	m,d
+	inx	h
+stps3:	mov	m,e		;store length
+	inx	h
+	pop	psw		;recover token
+	push	psw
+	mov	m,a		;store token
+	inx	h
+	push	h		;save name pointer
+	call	cpys0		;copy name from bufad
+	pop	d		;return name pointer in DE
+	pop	psw		;restore token to A
+	pop	b
+	ret
+omerr:	error	f, O, M		;fatal OM error
+
+;STNXT gets the address of the next symbol table entry.
+;Call:	HL	address of current symbol table entry length byte
+;Retn:	Carry	set iff no more entries
+;	BC	preserved
+;	DE	current entry type byte address
+;	HL	next entry address
+stnxt:	mov	a,m		;fetch length byte
+	ora	a
+	stc
+	rz			;return carry set if at end of table
+	mov	d,h
+	mov	e,l
+	inx	d		;point to type byte
+	cpi	255		;check if long entry
+	jnz	adahl		;no, so length + current = next and return
+	xchg			;current to DE, length byte addr to HL
+	mov	a,m
+	inx	h
+	push	h		;save type byte addr - 1
+	mov	l,m
+	mov	h,a		;length to HL
+	dad	d		;current + length = next
+	pop	d		;type byte addr to DE
+	inx	d
+	ret
+
+;STLKU looks up a symbol in the symbol table.
+;Call:	(bufad)	symbol name string
+;	(varty)	symbol type token
+;Retn:	Carry	set iff not found, otherwise:
+;	DE	entry type address
+;	HL	address following name in entry
+stlku:	lda	varty
+stlk0:	lhld	symta
+	mov	b,a		;desired type to B
+stlk1:	call	stnxt		;address next entry
+	rc			;return carry set iff not found
+	ldax	d		;fetch entry type
+	ani	1FH		;mask to type
+	cmp	b
+	jnz	stlk1		;not the right type, try next
+	push	h		;save next
+	push	d		;save type byte addr
+	xchg
+	inx	h		;point to name
+	lxi	d,bufad
+	call	cmpst		;compare to desired name
+	pop	d		;restore type addr to DE
+	jz	pop1		;matched, pop next to BC and retn Carry reset
+	pop	h		;else next to HL
+	jmp	stlk1		;and try next
+
+;STZAP resets BREAK and FN entries in the symbol table.
+;Retn:	BC	preserved
+;	A,DE,HL	clobbered
+stzap:	lhld	symta
+stza1:	call	stnxt
+	if	compl
+	rc			;end of table, done if no line breaks to zap
+	else
+	jc	unbkl		;unbreak lines if not compl
+	endif
+	ldax	d
+	ani	1FH		;mask to type
+	if	not compl
+	cpi	brkst
+	jz	stza2		;break
+	endif
+	cpi	ufnst		;check if user-defined fn
+	jnz	stza1		;neither FN nor break, try next
+stza2:	xra	a
+	stax	d		;store 0 type byte
+	jmp	stza1
+
+	if	not compl
+;UNBKL removes all line breakpoints.
+unbkl:	if	romsq		;first loc to test to HL
+	lhld	sourc
+	call	rtest
+	rnz			;done if ROM
+	else
+	lxi	h,srcad
+	endif
+unbl1:	mov	a,m
+	ora	a
+	rz			;done
+	push	h
+	call	unbr1		;unbreak a line
+	pop	h
+	call	adahl		;point to next line
+	jmp	unbl1		;and keep going
+	endif
+
+;CPUSH checks that sufficient free memory remains to build a control stack
+;entry and if not issues an OM error.  Otherwise it pushes a token, (TEXTP) and
+;(LNNUM) to the control stack, and updates the stack pointer.
+;Call:	A	token (l.s. 5 bits give entry length)
+;Retn:	A,BC	clobbered
+;	DE	return text pointer
+;	HL	(cstkp) - 4
+;	(cstkp)	(cstkp) + (A4-A0)
+;	((cstkp))	token
+;	((cstkp)-1:(cstkp)-2)	line # address
+;	((cstkp)-3:(cstkp)-4)	return text pointer
+cpush:	lhld	textp
+	push	h
+cpsh1:	mov	b,a		;save token
+	lhld	cstkp
+cpsh2:	ani	1FH		;mask to length
+	call	adahl
+	jc	cpsh3		;new stacktop > 64K, OM error
+	call	cspst		;store new control stack pointer
+	xchg			;cstack pointer to DE
+	lhld	symta		;symbol table pointer to HL
+	call	cmdhu		;compare
+	jnc	cpsh3		;OM -- flush and continue
+	lhld	lnnum
+	if	not compl
+	mov	a,h
+	ora	l
+	cz	icstd		;increment CSTACK direct count if direct
+	endif
+	xchg			;current line # address to DE
+	mov	m,b		;token to control stack
+	call	mvmde		;return line # address to control stack
+	pop	d
+	jmp	mvmde		;return text pointer to control stack & return
+cpsh3:	call	clea2		;reset CSTACK pointer
+	error	n, O, M		;nonfatal OM error
+	mov	a,b		;restore token
+	jmp	cpsh2		;try again
+
+;CSPOP is used to pop information from the control stack for RETURNs from
+;GOSUBs and interrupts, for CONTinues, and for NEXTs.
+;If the entry was made from direct mode, the dmode count CSTKD is
+;decremented and an ID error issued if < 0.
+;Call:	HL	address of control stack entry type/length byte
+;Retn:	(lnnum)	control stack entry line # bytes
+;	(textp)	control stack entry return address
+;	PSW,BC	preserved
+;	DE	new textp
+;	HL	(HL) - 5
+cspop:	if	compl
+	dcx	h
+	call	mvdem		;line # to DE
+	else			;non COMPL version must update CSTKD
+	push	psw
+	push	h		;save type byte addr
+	dcx	h
+	call	mvdem		;line # of entry to DE
+	xthl			;save entry pointer, type byte addr to HL
+	if	not compl
+	mov	a,d
+	ora	e		;test if direct mode entry
+	jnz	cspo1		;no -- restore and return
+	call	dcstd		;yes -- decrement CSTACK direct count
+	mov	a,m		;fetch type byte
+	cpi	csfor		;check if doing a NEXT
+	cz	icstd		;undecrement count if so
+	endif
+cspo1:	pop	h		;restore entry ptr
+	pop	psw
+	endif
+	xchg
+	shld	lnnum		;store new lnnum
+	xchg
+	call	mvdem
+	xchg
+	shld	textp		;store new textp
+	xchg
+	ret			;and continue from there
+
+;CSDIG digs in the control stack for an entry with type matching B or C.
+;Call:	B,C	desired type/length bytes
+;Retn:	A	type/length byte found, 0 if none
+;	BC,DE	preserved
+;	HL	addr of type/length byte, eofad if not found
+;	Carry	set iff not found
+csdig:	lhld	cstkp
+csdi1:	mov	a,m		;fetch type/length byte
+	cmp	b
+	rz			;found
+	cmp	c
+	rz			;found
+	ani	1FH		;mask to length
+	stc
+	rz			;not found
+	call	sbahl		;address next
+	jmp	csdi1		;and try it
+
+;CSRST resets the control stack after purging an entry.
+;Call:	A	type/length byte of entry to be purged
+;	HL	address of next entry in stack
+;Retn:	BC	preserved
+;	HL	new cstkp
+csrst:	push	b
+	inx	h		;point to destination
+	push	h		;and save it
+	ani	1FH		;mask A to length
+	call	adahl		;destination + offset = source
+	push	h		;saved
+	xchg
+	call	cplde
+	lhld	cstkp
+	dad	d		;# of bytes to move -1 to HL
+	inx	h
+	xchg			;and then to DE
+	pop	b		;source to BC
+	pop	h		;destination to HL
+	cc	moved		;move rest  of stack
+	pop	b		;restore BC
+	dcx	h		;readdress cstkp
+	jmp	cspst		;and reset it
+
+;ICSTD increments the CSTACK direct count CSTKD.  DCSTD decrements CSTKD and
+;issues an ID error if negative.  CSTKD counts how many CSTACK entries
+;have been built from direct mode, and catches errors such as attempting to
+;RETURN or NEXT when the GOSUB or FOR context has been lost.
+;Status bits affected, all registers preserved.
+	if	not compl
+icstd:	push	h
+	lxi	h,cstkd
+	inr	m		;increment cstack direct count
+	pop	h
+	ret
+dcstd:	push	h
+	lxi	h,cstkd
+	dcr	m		;decrement cstack direct count
+	pop	h
+	rp			;ok if nonnegative
+	jmp	iderr		;fatal ID error if negative
+	endif
+
+
+;end of STACKS
+	page

@@ -1,0 +1,140 @@
+/*
+ * ld/data.c
+ * General Loader-Binder
+ *
+ * Knows about FILE struct to the extent it is revealed in putc
+ * if BREADBOX is non-zero
+ */
+
+#include "data.h"
+
+/*
+ * Start variables & constants
+ */
+
+sym_t	*symtable[NHASH];	/* hashed symbol table */
+mod_t	*modhead, *modtail;	/* module list head and tail */
+seg_t	oseg[NLSEG];		/* output segment descriptors */
+int	nundef;			/* number of undefined symbols */
+uaddr_t	comnb;			/* byte aligned commons */
+uaddr_t	comns;			/* short aligned commons */
+uaddr_t	comnl;			/* long aligned commons */
+sym_t	*etext_s, *edata_s, *end_s;	/* special loader generated symbols */
+char	etext_id[SYMNMLEN] = "etext",	/* and their names */
+	edata_id[SYMNMLEN] = "edata",
+	end_id[SYMNMLEN]   = "end";
+
+FILEHDR fileh			/* output load file header */
+		= { C_386_MAGIC };
+AOUTHDR aouth;
+SCNHDR secth[NLSEG];
+
+char	*mchname[]		/* names of known machines */
+		= {	"Turing Machine",
+			"PDP-11",
+			"VAX-11",
+			"3sickly",
+			"Z8001",
+			"Z8002",
+			"iAPX 86",
+			"i8080",
+			"6800",
+			"6809",
+			"68000",
+			"80386",
+			"68020"
+		};
+uaddr_t	segsize[]		/* size of segment on target machine */
+		= {	0,
+			8192,
+			512,
+			2048,
+			0,
+			512,
+			16,
+			0,
+			0,
+			0,
+			0,
+			16,
+			0
+		},
+	drvbase[]		/* base of loadable driver */
+		= {	0,
+			0120000,
+			0,
+			0,
+			0,
+			0xD000,
+			0xD000,
+			0,
+			0,
+			0,
+			0,
+			0xFFC00000L,
+			0
+		},
+	drvtop[]		/* address limit of loadable driver */
+		= {	0,
+			0140000,
+			0,
+			0,
+			0,
+			0xF000,
+			0xF000,
+			0,
+			0,
+			0,
+			0,
+			0xFFFFFFFFL,
+			0
+		};
+flag_t	noilcl,			/* discard internal symbols `L...' */
+	nolcl,			/* discard local symbols */
+	watch,			/* watch everything happen */
+	worder,			/* byte order in word; depends on machine */
+	comflag,		/* don't flag comm of diff size */
+	reloc,			/* write reloc symbols */
+	dcomm;			/* define commons even if reloc out */
+
+int	errCount;		/* Count of errors */
+char	*outbuf;		/* buffer for in-memory load */
+FILE	*outputf[NLSEG];	/* output ptrs (for each segment) */
+FILE	*outputr[NLSEG];	/* output pointerf for relocation */
+/*
+ * Structures associated with storage economy
+ */
+mod_t	*mtemp;			/* only one module in core at a time */
+FILE	*mfp;			/* temp file for module structures */
+int	mdisk,			/* flag <>0 means module struct to disk */
+	nmod,			/* module count */
+	mxmsym;			/* max # of symbols ref'd by 1 module */
+
+/*
+ * Seconds between ranlib update and archive modify times
+ */
+#define	SLOPTIME 150
+
+/* values for worder */
+#define	LOHI	0
+#define	HILO	1
+
+/*
+ * For pass 2; these will change if format of relocation changed
+ */
+#define	getaddr	getlohi
+#define	putaddr(addr, fp, sgp)	putlohi((short)(addr), fp, sgp)
+#define	getsymno getlohi
+#define	putsymno putlohi
+
+/*
+ * C requires this...
+ */
+void	setbase(), endbind(), undef();
+uaddr_t newpage(), lentry();
+void	symredef(), rdsystem();
+sym_t	*addsym(), *symref(), *newsym();
+fsize_t	symoff(), baseall();
+void	loadmod();
+unsigned short	getword(), getlohi(), gethilo();
+void	message(), fatal(), usage(), filemsg(), modmsg(), mpmsg(), spmsg();

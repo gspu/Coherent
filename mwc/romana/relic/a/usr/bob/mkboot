@@ -1,0 +1,55 @@
+
+export SHIP=/ship
+export USE_BINARIES=/interim
+KERNEL=$SHIP/distrib1/coherent
+
+case $1 in
+
+	fva0) BLOCKS=2880;MINOR=15;DEV=fva0;BOOT=boot.fva;;
+	fha0) BLOCKS=2400;MINOR=14;DEV=fha0;BOOT=boot.fha;;
+	fva1) BLOCKS=2880;MINOR=15;DEV=fva1;BOOT=boot.fva;;
+	fha1) BLOCKS=2400;MINOR=14;DEV=fha1;BOOT=boot.fha;;
+	   *) echo "\007Usage: cobble [device name (fva0, fha0, fva1, fha1)] [version]";
+	      exit 1;;
+esac
+
+	
+echo "Place a blank diskette in your floppy drive and press <return>\c"
+read NIL
+
+
+# format and mkfs floppy
+
+#fdformat -av /dev/$DEV
+#mkfs /dev/$DEV $BLOCKS
+
+# write boot block to floppy
+
+echo "Writing boot block..."
+cp $USE_BINARIES/conf/$BOOT /dev/$DEV
+
+# mount floppy and copy kernel to floppy
+
+/etc/mount /dev/$DEV /f0
+cpdir -ad $SHIP/distrib1 /f0
+cpdir -ad dev /f0/dev
+
+: Patch the /coherent image and link it to /begin.
+
+cp $KERNEL /f0/coherent
+
+# patch floppy for diskette parameters, place appropriate permissions on kernel
+
+/conf/patch  /f0/coherent rootdev_=makedev\(4,$MINOR \)
+/conf/patch  /f0/coherent pipedev_=makedev\(8,131 \)
+/conf/patch  /f0/coherent ronflag_=1
+chown sys /f0/coherent
+chgrp sys /f0/coherent
+chmod 400 /f0/coherent
+
+ln -f /f0/coherent /f0/autoboot
+ln -f /f0/etc/brc.build /f0/etc/brc
+
+: Cleanup.
+/etc/umount /dev/$DEV
+sync

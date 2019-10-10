@@ -1,0 +1,209 @@
+;WILD 10/22/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1980 by Mark Williams Company, Chicago
+;routines for Wild Heerbrugg version
+
+
+	if	wild
+
+;BUFFER function
+;BU error occurs if buffer contains no <cr>
+wbuff:	lxi	h,wdbuf		;HL points into data buffer
+	mov	d,h
+	mov	e,l		;DE contains address of first byte
+	mvi	c,wdbl+1	;max # chars + 1 to C
+wbuf1:	mov	a,m		;fetch data buffer char
+	inx	h
+	dcr	c
+	jz	buerr		;no <cr> found, issue BU error
+	cpi	cr
+	jnz	wbuf1		;scan buffer until <cr>
+	dcx	h		;back up to not include <cr> in result
+	mov	a,l		;last
+	sub	e		;- first = char count
+	mov	c,a		;to C
+	ret
+buerr:	error	f, B, U		;fatal BU error
+
+;GETBUF command
+;GB error occurs if monitor returns error code
+wgbuf:	mvi	a,3
+	call	wmon		;monitor GETBUF command
+	ora	a		;check result status
+	rz			;no error, OK
+	error	f, G, B		;fatal GB error
+
+;[LET] BUFFER = <string expr>
+wletb:	call	gtequ		;skip = token
+	call	evals		;evaluate expr
+	cpi	strst
+	jnz	snerr		;not a string expr -- SN error
+	inx	h		;address length byte
+	mov	a,m		;fetch length
+	cpi	wdbl
+	jnc	buerr		;issue BU error if length >= max
+	mov	e,a		;length to E
+	inx	h
+	mov	c,m		;low order address to C
+	inx	h
+	mov	b,m		;high order address to B
+	lxi	h,wdbuf		;destination to HL
+	mov	a,e
+	ora	a
+	cnz	movd0		;move to central data buffer
+	mvi	m,cr		;followed by delimiting <cr>
+	ret
+
+;PRINT @<expr>, <item>
+print:	mvi	d,'@'
+	if	rtpak
+	call	gtdsn		;PRINT <item> not allowed in runtime version
+	else
+	call	gtd
+	jc	prin0		;PRINT <item> means to console
+	endif
+	call	gtexp		;get <expr>
+	call	gtcom		;skip comma
+	lxi	d,6
+	call	cmbdu
+	jnc	snerr		;arg >= 6, issue SN error
+	mov	a,c
+	ora	a
+	if	rtpak
+	jz	snerr		;arg 0 is SN error in runtime version
+	else
+	jz	prin0		;arg 0 PRINTs to console in development version
+	endif
+	lxi	h,omode
+	mov	a,m		;fetch current OMODE
+	push	psw		;and save
+	mov	m,c		;replace OMODE with arg
+	call	prin0		;print the item
+	pop	psw		;recover old OMODE
+	sta	omode		;and restore it
+	ret
+
+;WWRIT is called from WRITC to write char in C to Wild monitor.
+;Call:	A	PRINT @ arg (1 - 5)
+;	C	char to write
+;Returns via POP4 to restore registers.
+wwrit:	mov	b,a
+	push	b		;save arg in case error
+	adi	3		;1 becomes 4, ..., 5 becomes 8
+	call	wmon		;write char to monitor
+	pop	b
+	ora	a		;check error status
+	jz	pop4		;no error, just return
+	mov	a,b		;else recover arg
+	cpi	4
+	jc	dierr		;issue DI error if error on 1, 2, 3
+	jz	pop4		;no error return from 4
+	error	f, C, O		;CO error from 5
+dierr:	error	f, D, I
+
+	if	rtpak		;routines for runtime module version
+
+conin:	mvi	a,1
+	jmp	wmon		;read char from console
+
+cstat:	xra	a
+	jmp	wmon		;console status
+
+gtlin:	mvi	a,2
+	call	wmon		;get line for INPUT
+	shld	textp		;reset TEXTP to scan line
+	ret
+
+roerr:	error	f, R, O		;fatal RO error
+save	equ	uferr		;SAVE gives UF error
+load	equ	uferr		;LOAD gives UF error
+
+;WTOKE is the tokenization module entry point for the runtime package.
+;Call:	BC	first destination loc for tokenized program
+;	BC+80H	first location of ASCII source program
+;	DE	last location of ASCII source program
+;	HL	last location available for tokenized program
+;Retn:	BC	last destination used by tokenized program
+;An IP error is issued if any loading error occurs.
+wtoke:	shld	wmemt		;save last available memory loc
+	xchg
+	shld	weof		;save source eof
+	mvi	a,cr
+	stax	b		;store cr preceding source text
+	inx	b		;and point to next
+	push	b		;push first destination
+	lxi	h,0
+	shld	wlast		;last line seen was 0
+	lxi	h,7FH
+	dad	b		;address first source byte
+wtok1:	push	h		;save source
+	lxi	h,nlnad		;destination
+	shld	textp		;set TEXTP for tokenizer
+	mov	b,h
+	mov	c,l		;destination to BC
+	pop	h		;restore source
+	mvi	d,nlmax+1	;max char count to D
+wtok2:	mov	a,m		;fetch a source char
+	stax	b		;stick it into input buffer
+	inx	h
+	inx	b
+	dcr	d
+	jz	iperr		;line too long, IP error
+	cpi	cr
+	jnz	wtok2		;keep scanning until cr
+	mov	a,m		;fetch char after cr
+	cpi	lf		;check for lf
+	jnz	wtok3		;not lf
+	inx	h		;skip linefeed
+wtok3:	shld	wnext		;save address of next source char
+	call	tkize		;tokenize the line
+	jc	iperr		;no line number, IP error
+	lda	lnlen		;fetch length
+	ora	a
+	jz	iperr		;empty line, IP error
+	lhld	wmemt
+	xchg			;last avail mem loc to DE
+	pop	h		;next destination to HL
+	push	h
+	call	adahl		;+ length
+	call	cmdhu
+	jc	iperr		;program would be too long, IP error
+	lhld	wlast
+	xchg			;previous line # to DE
+	lhld	lnnum		;current to HL
+	call	cmdhu
+	jnc	iperr		;previous >= current, IP error
+	shld	wlast		;current becomes next previous
+	xchg			;line number to DE
+	pop	h		;destination to HL
+	lda	lnlen		;length to A
+	mov	m,a		;store length
+	inx	h
+	mov	m,e		;low order line number
+	inx	h
+	mov	m,d		;high order line number
+	inx	h
+	mvi	m,0		;0 break byte
+	inx	h		;address first destination
+	sui	4		;length - overhead
+	mov	e,a		;to E
+	lxi	b,tlnad		;source to BC
+	call	movd0		;block move new line into position
+	push	h		;save destination
+	lhld	weof
+	xchg			;eof to DE
+	lhld	wnext
+	call	cmdhu
+	jnc	wtok1		;eof >= next, keep tokenizing
+	pop	b		;next destination to BC
+	xra	a
+	stax	b		;store eof
+	ret			;and return
+iperr:	error	f, I, P
+	
+
+	endif			;end of RTPAK conditional
+
+	endif			;end of WILD conditional
+;end of module WILD
+	page

@@ -1,0 +1,251 @@
+head     2.0;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.0;
+comment  @ * @;
+
+
+2.0
+date     93.07.16.20.06.50;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+2.0
+log
+@*** empty log message ***
+@
+text
+@/*
+ * Functions for dealing with filesystem open object handles.
+ */
+/*
+ *-IMPORTS:
+ *	<common/ccompat.h>
+ *		__USE_PROTO__
+ *		__ARGS ()
+ *	<sys/debug.h>
+ *		ASSERT ()
+ *	<sys/errno.h>
+ *		EMFILE
+ *	<string.h>
+ *		NULL
+ *		memcpy ()
+ */
+
+#include <common/ccompat.h>
+#include <sys/debug.h>
+#include <sys/errno.h>
+#include <string.h>
+
+#include <kernel/fhsys.h>
+
+
+/*
+ * About open file handles; pointers to objects of type "fhandle_t" are used
+ * in the kernel to represent information about abstract open file objects.
+ * The handles contain pointers to tables of entry points to dispatch abstract
+ * operations such as read and write to routines specific to the type of
+ * object that is referred to.
+ *
+ * Unlike the "vnode" VFS system used in System V and BSD Unix, this system
+ * follows the lead of the Sprite operating system in separating the functions
+ * of naming objects and providing the services specific to the different
+ * types of objects that may be named.
+ *
+ * Neither the internal structure of a handle nor the function dispatch table
+ * is available to implementations of file systems, so that file systems can
+ * be written with maximum binary portability.
+ */
+
+
+/*
+ * "fdprocs" structures should be constructed by automated tools like the
+ * device configuration mechanism. As such, users do not get to deal with the
+ * definition of the structure that "fprocs_t" actually refers to.
+ */
+
+struct fprocs {
+	fh_open_t	fh_open;
+	fh_close_t	fh_close;
+	fh_read_t	fh_read;
+	fh_write_t	fh_write;
+	fh_ioctl_t	fh_ioctl;
+	fh_poll_t	fh_poll;
+	fh_lseek_t	fh_lseek;
+	fh_sync_t	fh_sync;
+	fh_getpmsg_t	fh_getpmsg;
+	fh_putpmsg_t	fh_putpmsg;
+	fh_fstat_t	fh_fstat;
+	fh_statvfs_t	fh_statvfs;
+	fh_mmap_t	fh_mmap;
+	fh_attach_t	fh_attach;
+	fh_detach_t	fh_detach;
+};
+
+
+/*
+ * The definition of the body of the "fhandle_t" structure is also kept
+ * totally opaque for maximum binary compatibility between installable
+ * filesystems.
+ */
+
+
+#define	FHOPAQUESZ	32
+
+struct fhandle {
+	fprocs_t      *	fh_procs;
+	char		fh_opaque [FHOPAQUESZ];
+};
+
+
+/*
+ * This function looks up a system file table entry based on the file
+ * descriptor number.
+ */
+
+#if	__USE_PROTO__
+sftab_t * (fd_get_sftab) (int fd)
+#else
+sftab_t *
+fd_get_sftab __ARGS ((fd))
+int		fd;
+#endif
+{
+	return NULL;
+}
+
+
+/*
+ * This function looks up a file handle based on the file descriptor number.
+ */
+
+#if	__USE_PROTO__
+fhandle_t * (fd_get_handle) (int fd)
+#else
+fhandle_t *
+fd_get_handle __ARGS ((fd))
+int		fd;
+#endif
+{
+	return NULL;
+}
+
+
+/*
+ * This function tries to add a file descriptor to the currently running
+ * process as a clone of some existing system file table entry. The file
+ * descriptor number assigned to the file is returned in the value pointed to
+ * by the "fdp" parameter.
+ *
+ * The file descriptor will be default be set to remain open across exec ()
+ * system calls.
+ *
+ * Returns 0 on success, or an error number on failure.
+ */
+
+#if	__USE_PROTO__
+int (fd_add_sftab) (sftab_t * sftabp, int * fdp)
+#else
+int
+fd_add_sftab __ARGS ((sftabp, fdp))
+sftab_t	      *	sftabp;
+int	      *	fdp;
+#endif
+{
+	return EMFILE;
+}
+
+
+/*
+ * This function tests to see whether it is possible to add a new file entry
+ * to the current process (ie, it attempts to tell whether fd_add_sftab ()
+ * would fail with EMFILE).
+ *
+ * Reutrn 0 on success, or an error number on failure.
+ */
+
+#if	__USE_PROTO__
+int (fd_can_add) (void)
+#else
+int
+fd_can_add __ARGS (())
+#endif
+{
+	return EMFILE;
+}
+
+
+/*
+ * This function returns a pointer to the "fprocs" structure member of a file
+ * handle.
+ */
+
+#if	__USE_PROTO__
+fprocs_t * (fh_procs) (fhandle_t * handle)
+#else
+fprocs_t *
+fh_procs __ARGS ((handle))
+fhandle_t     *	handle;
+#endif
+{
+	ASSERT (handle != NULL);
+	ASSERT (handle->fh_procs != NULL);
+
+	return handle->fh_procs;
+}
+
+
+/*
+ * This function returns a pointer to the opaque part of the file handle.
+ */
+
+#if	__USE_PROTO__
+__VOID__ * (fh_get_cookie) (fhandle_t * handle)
+#else
+__VOID__ *
+fh_get_cookie __ARGS ((handle))
+fhandle_t     *	handle;
+#endif
+{
+	ASSERT (handle != NULL);
+
+	return handle->fh_opaque;
+}
+
+
+/*
+ * This function accepts a pointer to a data area that will be copied into
+ * the file handle somehow. The only guarantee that is made by this function
+ * is that fh_get_cookie () will return a pointer to data that is identical
+ * in value to that passed to this function.
+ *
+ * This function returns 0 on success or non-zero on failure (such as being
+ * unable to allocate space for the cookie).
+ *
+ * May sleep.
+ */
+
+#if	__USE_PROTO__
+int (fh_set_cookie) (fhandle_t * handle, __VOID__ * cookie, size_t len)
+#else
+int
+fh_set_cookie __ARGS ((handle, cookie, len))
+fhandle_t     *	handle;
+__VOID__      *	cookie;
+size_t		len;
+#endif
+{
+	if (len > FHOPAQUESZ || cookie == NULL)
+		return -1;
+
+	(void) memcpy (handle->fh_opaque, cookie, len);
+	return 0;
+}
+@

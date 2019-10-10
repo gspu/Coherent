@@ -1,0 +1,62 @@
+/*
+ * Sleep -- suspent execution for interval
+ * See that alarms previously
+ * and intermediately set are properly handled.
+ */
+
+#include "signal.h"
+
+extern	int	func();		/* Allow pause to return */
+
+sleep(sec)
+register unsigned sec;
+{
+	register unsigned osec;
+	int (*ofunc)();
+
+	for (;;) {
+		ofunc = signal(SIGALRM, func);
+		osec = alarm(sec);
+		if (sec == 0) {
+			break;
+		} else if (osec == 0) {		/* No current alarm */
+			func(0);
+			break;
+		} else if (osec < sec) {	/* Current alarm precedes us */
+			alarm(osec);
+			func(0);
+			(*ofunc)();
+			sec -= osec;
+			continue;
+		} else if (osec == sec) {	/* Contemporaneous */
+			func(0);
+			(*ofunc)();
+			sec -= osec;
+			continue;
+		} else if (osec > sec) {	/* Current alarm follows us */
+			osec -= sec;
+			func(0);
+			break;
+		}
+	}
+	signal(SIGALRM, ofunc);
+	alarm(osec);
+}
+
+/*
+ * Called to wait for SIGALRM,
+ * and to catch SIGALRM thus waking up the pause half.
+ */
+static
+func(n)
+int n;
+{
+	static int done;
+
+	if (n == 0) {
+		done = 0;
+		do pause(); while (done == 0);
+	} else {
+		++done;
+	}
+}

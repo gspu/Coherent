@@ -1,0 +1,875 @@
+;STATES1 12/02/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;statement routines for statements ASSIGN through EXEC
+
+
+;ASSIGN {LST# | PUN# | RDR# | CON#} <expr>
+	if	(not camac) and (not wild)
+;ASSIGN changes the value of the specified field of IOBYTE.
+assig:	call	gtcha		;fetch token
+	sui	contk		;subtract CON# token bias
+	jc	snerr		;too small
+	cpi	4
+	jnc	snerr		;too big
+	rlc			;*2 bits  = shift count (0, 2, 4, 6)
+	mov	e,a		;shift count to E
+	call	gtexp		;arg to BC
+	mov	a,c
+	ani	0FCH
+	ora	b		;check if arg > 3
+	cnz	fcern		;yes, nonfatal FC error
+	mvi	a,3
+	mov	b,a		;mask to B
+	ana	c
+	mov	c,a		;masked new bits to C1-0
+	if	nonst
+	mov	a,e
+	ora	a		;check if CON#
+	jnz	assi1		;no, just update IOBYTE
+	mov	b,a		;0 to B
+	lxi	h,jmpta+60	;base of console status jump vector to HL
+	dad	b
+	dad	b
+	dad	b		;+3 bytes * desired CON#
+	shld	cstat+1		;becomes new console status jump
+	mvi	b,3		;restore mask to B
+	endif
+assi1:	call	lshft		;shift mask and bits to desired position
+	mov	a,b
+	cma
+	lxi	h,iobyt
+	ana	m		;mask out old field
+	ora	c		;OR in the new field
+	mov	m,a		;store the new iobyte
+	ret
+	endif
+
+;AUTO [<line #> [, <line #>]]
+	if	editc
+	if	compl
+auto	equ	uferr
+	else
+auto:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	lxi	h,10
+	push	h		;default increment = 10
+	push	h		;default first line # = 10
+	call	gtlno		;look for <line #>
+	jc	auto1		;no args, take defaults
+	xchg			;<line #> to HL
+	xthl			;and replaces default <line #>
+	call	gtcnd		;look for comma
+	jc	auto1		;no second arg
+	call	gtlno		;look for increment arg
+	jc	snerr		;not found
+	xchg			;increment to HL
+	pop	d
+	xthl			;and replaces default incrment
+	push	d
+auto1:	call	iitst		;AUTO illegal indirect
+;At AUTO2 the next desired line # and the increment are on the stack.
+auto2:	pop	b		;next line # to BC
+	push	b
+	call	wrtbu		;write the line #
+	mov	d,b
+	mov	e,c		;line # to DE
+	call	findl		;look for it in current source text
+	mvi	a,' '
+	jc	auto3		;write a space if no such line exists
+	mvi	a,'*'		;else write a *
+auto3:	call	writc
+	call	lnnu0		;reset LNNUM to 0 in case ^C typed
+	call	gtlin		;get line from user
+	call	tkize		;tokenize it
+	jz	dmod2		;return to DMODE if user types <cr>
+	cnc	lnnu0
+	jnc	snerr		;SN error if <line #> typed
+	pop	h
+	push	h
+	shld	lnnum		;set LNNUM to desired line
+	call	addln		;add new line to source text
+	pop	h
+	pop	d
+	dad	d		;new line # is line # + increment
+	jc	auto4		;OV error if > 65535
+	push	d
+	push	h
+	jmp	auto2		;else get next line
+auto4:	call	lnnu0
+	mvi	a,cr
+	sta	nlnad		;reset input buffer for error message
+	call	iover		;issue OV error
+	jmp	dmod2		;and return to direct mode
+	endif
+	else
+auto	equ	exerr		;EX error in non-EDITC versions
+	endif
+
+;BREAK {<var list> | <line #> [,<expr>] [;<var list>] [;$]}
+;BREAK <var list> creates variable breaks by setting symbol table entry bits.
+;BREAK <line #>... creates line breakpoints by setting the line break byte,
+;and also building a symbol table line break entry if necessary.
+	if	compl
+break	equ	uferr		;UF error in COMPL version
+	else
+break:	call	gtlno		;look for line #
+	jc	bkvar		;no line #, must be var break
+	if	romsq
+	call	isrom		;line breaks only if running in RAM
+	endif
+	call	fdlno		;find the line
+	inx	h
+	inx	h
+	inx	h		;address break byte
+	push	h		;save break byte addr
+	call	gtcom		;look for comma
+	lxi	b,1		;default count = 1 to BC
+	cnc	gtexp		;get count if comma
+	push	b		;save count
+	dcx	b
+	mov	a,b
+	ora	c		;Zero set iff count = 1
+	mvi	a,1		;break byte value to A
+	jz	brkl1
+	ori	2		;bit 1 on iff count <> 1
+;At BRKL1 the break byte addr and count are PUSHed, the break byte is in A.
+brkl1:	mov	e,a		;save the break byte
+	mvi	d,semic
+	call	gtd		;look for ;
+	shld	txtp2		;save varlist address
+	jnz	brkl4		;no ; present
+brkl2:	push	d
+	call	gtvar		;look for var ref
+	pop	d
+	jc	brkl3		;none, must be $
+	call	idtst		;BREAK illegal direct if <var list> present
+	mov	a,e
+	ori	6		;set varlist bits in break byte
+	mov	e,a
+	call	gtcom		;look for comma
+	jnc	brkl2		;more vars
+	call	gtd		;look for ;
+	jnz	brkl4
+brkl3:	mvi	d,'$'
+	call	gtdsn		;skip $
+	mov	a,e
+	ori	8		;set bit 3 to indicate break to DMODE
+	mov	e,a
+brkl4:	mov	a,e		;break byte value to A
+	pop	b		;count to BC
+	pop	h		;restore break byte addr
+	mov	m,a		;store break byte
+	ani	6		;check if must build symbol table entry
+	rz			;no, done
+;Now a symbol table line break entry is built.  The entry contains
+;a length byte, type byte, three 'name' bytes with the encoded line #,
+;two count bytes (how many passes until next break), two reset bytes (the
+;value for resetting count when it reaches zero), and two varlist addr bytes.
+	push	b		;save count
+	dcx	h
+	dcx	h		;HL contains line # addr
+	call	bknam		;form break entry name in BUFAD
+	lxi	h,11		;entry length = 11
+	mvi	a,brkst		;token to A
+	call	stpsh		;build the entry
+	pop	d		;count to DE
+	mov	m,e
+	inx	h
+	mov	m,d		;count to entry
+	call	momde		;reset to entry
+	xchg
+	lhld	txtp2
+	xchg			;varlist address to DE
+	endif
+momde:	inx	h
+	mov	m,e
+	inx	h
+	mov	m,d		;varlist address to entry
+	ret			;and return
+	if	not compl
+;BKVAR sets type byte bits in symbol table entries to indicate variable breaks.
+bkvar:	call	fdvar		;find variable name
+	jc	snerr		;no var
+	ldax	d
+	ori	80H		;set break bit in type byte
+	stax	d
+	call	gtcnd		;look for comma
+	jnc	bkvar		;break another var
+	ret
+	endif
+
+;CALL <expr> [, {<var ref> | * <var name>}]*
+calcm:	lxi	h,nextc
+	push	h		;push return address to scan to next statement
+	call	gtexp		;get location
+	push	b
+	ret			;branch to user routine
+
+;CAMAC commands are in module CAMAC.
+
+;CLEAR
+;CLEAR <expr>		[in STRNG versions]
+;CLEAR @ <expr>		[in CPM SDISK versions]
+;DCLR0 is in module SDISK.
+clear:	if	strng
+	call	dtst0		;check if delimiter follows
+	jnc	clea1		;yes, keep same string space
+	if	cpm and sdisk
+	call	gtatn		;look for @ <expr>
+	jnc	dclr0		;change max number of disk files
+	endif
+	call	gtexp		;otherwise get argument
+	mov	a,b
+	ora	a
+	jm	fcerf		;fatal FC error if negative string space given
+	mov	d,b
+	mov	e,c		;to DE
+	call	cplde		;complement desired amount of string space
+	lhld	eofad
+	lxi	b,9
+	dad	b		;leave enough room to compute trivial exprs
+	push	h		;save eof top pointer
+	lhld	strt		;top of string space to HL
+	dad	d		;new MEMT value to HL
+	pop	d		;eof pointer to DE
+	call	cmdhu		;make sure sufficient space available
+	jnc	omerr		;no -- fatal OM error
+cle0a:	shld	memt		;yes -- store new MEMT value
+	mvi	m,0		;and initialize symbol table
+	endif
+clea1:	if	not compl
+	call	unbkl		;unbreak line breaks
+	endif
+	lhld	memt
+	if	strng
+	shld	strpt		;initialize string pointer
+	shld	strp2		;and string temp pointer
+	endif
+	shld	symta		;and symbol table
+	if	strng or float	;reset default type buffer entries
+	if	float		;default token to B, buffer length 26 to C
+	lxi	b,(sngst shl 8) or 26
+	else
+	lxi	b,(intst shl 8) or 26
+	endif
+	lxi	h,tybuf		;default type buffer address to HL
+	call	fillm		;reset default type buffer
+	endif			;end of STRNG or FLOAT conditional
+	if	camac and c3908	;reset BKSET parameters if CAMAC on 3908
+	lxi	b,7		;0 to B, 7 to C
+	lxi	h,cmblk
+	call	fillm		;reset BKSET parameters to 0
+	endif
+	if	packi
+	call	pinit		;reset Packard FIELD and data buffer
+	sta	paonl		;and reset mode to OFFLINE
+	endif
+clea2:	lhld	eofad
+	jmp	cspst		;reset the control stack
+
+;CONT
+	if	compl
+cont	equ	uferr		;UF error in COMPL version
+	else
+cont:	call	iitst		;CONT illegal indirect
+	lhld	cstkp
+	mov	a,m
+	cpi	csbrk		;see if BREAK entry atop control stack
+	jz	cont1		;yes -- pop it
+	cpi	cslbk		;see if line break entry
+	jnz	cnerr		;no -- CN error
+	call	cont1		;pop entry
+	pop	b		;pop CONT return address
+	jmp	xstat		;continue at XSTAT, skipping break test
+cont1:	call	cspop		;yes -- pop it
+	jmp	cspst		;reset control stack pointer and return
+cnerr:	error	f, C, N		;fatal CN error
+	endif
+
+;DATA [<expr>] [,<expr>]*
+;DATA is ignored when encountered, so the command dispatch table branches
+;to GTDEL to scan to next command for DATA.
+
+;DEF FN <var name> [(<var name> [, <var name>]* )] = <expr>
+;DEF {INT | STR | SNG | CAMVAR} <letter> [- <letter>]
+def:	call	gtcha		;get following token
+	cpi	udfnt
+	jnz	defvt		;not a user-def FN, must be var declaration
+;DEF FN builds a symbol table entry for a user-defined function.  The entry
+;contains a length byte, type token, name bytes, and two address bytes.
+;The addr bytes contain the fn body addr if 0-ary, or bound var addr otherwise.
+;The type token is UFNST if 0-ary and (UFNST or 20H) otherwise.
+	call	idtst		;DEF FN illegal direct
+	call	gtnam		;get fn name
+	lxi	h,4
+	call	adahl		;name length + overhead = entry length to HL
+	push	h		;and saved
+	mvi	a,ufnst
+	call	stlk0		;look up the fn name 
+	jnc	dderr		;already defined -- fatal DD error
+	mvi	d,'('
+	call	gtd		;look for (
+	jc	def1		;0-ary fn
+	xthl			;save bound var addr, entry length to HL
+	mvi	a,ufnst
+	ori	20H		;set unary bit
+	call	stpsh		;build symbol table entry
+	push	h
+def0:	call	fdvar		;look for nonsubscripted variable
+	jc	snerr
+	call	gtcom		;look for comma
+	jnc	def0		;comma must be followed by another bound var
+	call	gtreq		;skip ) =
+	pop	h
+	jmp	def2
+def1:	call	gtequ		;skip = token
+	mvi	a,ufnst		;token to A
+	xthl			;save addr, get entry length
+	call	stpsh		;build symbol table entry
+def2:	pop	d		;body address to DE
+	mov	m,e
+	inx	h
+	mov	m,d		;body address to entry
+	jmp	gtdel		;scan function body and return
+
+	if	strng or float
+;DEFVT sets the default type for variables with given initial letter(s).
+;The 26 byte buffer TYBUF contains the default variable types.
+;DEFTY returns the type token in B corresponding to keyword token in A.
+defty:	mvi	b,intst
+	cpi	intt
+	rz			;integer type
+	if	float
+	mvi	b,sngst
+	cpi	sngt
+	rz			;floating type
+	endif
+	if	strng
+	mvi	b,strst
+	cpi	strgt
+	rz			;string type
+	endif
+	if	camac
+	mvi	b,camst
+	cpi	camt
+	rz
+	endif
+	call	bakup		;else back up TEXTP
+	jmp	snerr		;and issue SN error
+defvt:	call	defty		;desired type to B
+	call	gtalp		;first letter to A
+	jc	snerr		;SN error if none
+	mov	e,a		;and first saved in E
+	mvi	d,mint
+	call	gtd		;look for -
+	mov	a,e		;default last = same as first
+	jc	defv1		;no second letter specified
+	call	gtalp		;else get second
+	jc	snerr
+defv1:	sub	e		;second - first
+	jm	snerr		;second precedes first
+	inr	a		;# of entries to change
+	mov	c,a		;count to C
+	mvi	d,0		;DE now has first letter in ASCII
+	lxi	h,tybuf-'A'
+	dad	d		;address first entry to change
+	else
+defvt	equ	snerr		;issue SN error if integer version
+	endif
+	if	strng or float or rom
+;FILLM fills (C) bytes of memory starting at (HL) with (B).
+fillm:	mov	m,b		;change to desired value
+	inx	h
+	dcr	c
+	jnz	fillm		;and fill more
+	ret
+	endif
+
+;DELAY <expr> [ , <expr> [ , <expr> ]]
+	if	not camac	;CAMAC DELAY is in module CAMAC
+	if	realt		;hardware real time clock delay
+;DELAY waits for the real time clock to tick the specified number of times.
+;The arguments are assumed to be minutes, seconds and tenths of seconds.
+;Typing any character aborts the DELAY.
+;The implementation counts clock ticks rather than adding the arg to
+;the current time and waiting until the resulting time.  The
+;latter blows up if a user interrupt service routine renables
+;(so the clock ticks) but lasts until after the specified time.
+delay:	ora	a		;reset Carry for GTEXP
+	call	dela5		;minutes to BC
+	push	b		;and saved
+	call	dela4		;seconds to BC
+	push	b		;and saved
+	call	dela4		;tenths of seconds to BC
+	mov	h,b
+	mov	l,c		;tenths to HL
+	dad	h		;* 2 = 20ths to HL
+	pop	d		;seconds to DE
+;at DELA1 minutes count is PUSHed, seconds count in DE, 20ths count in HL.
+dela1:	lda	timex		;fetch low order clock count
+	mov	b,a		;low order clock to B
+dela2:	mov	a,h
+	ora	l
+	jnz	dela3		;20ths count is nonzero, enter delay loop
+	lxi	h,20		;reset 20ths count
+	mov	a,d
+	ora	e
+	dcx	d		;decrement seconds count
+	jnz	dela1		;seconds count was nonzero, enter loop
+	pop	b		;minutes count to BC
+	mov	a,b
+	ora	c
+	rz			;minutes also zero, finished
+	lxi	d,59		;reset seconds count
+	dcx	b
+	push	b		;save updated minutes count
+	jmp	dela1		;and reenter loop
+dela3:	call	redyc		;look for console char
+	jc	pop1		;char typed, pop minutes and abort delay
+	lda	timex		;fetch current low order clock
+	cmp	b		;check if clock has ticked
+	jz	dela3		;no, keep waiting
+	dcx	h		;yes, decrement tick count
+	jmp	dela1		;and check again
+;DELA4 gets [, <expr>] argument to BC, 0 if omitted, OR error if negative.
+dela4:	lxi	b,0
+	call	gtcnd		;look for comma
+dela5:	cnc	gtexp		;get arg
+	mov	a,b
+	ora	a
+	rp			;ok
+	jmp	fcer0		;negative arg, nonfatal FC error and return 0
+	else			;software real time clock delay
+delay:	lhld	timex
+	call	dela1		;delay minutes
+	lhld	timex+2
+	call	dela1		;delay seconds
+	call	gtexp		;get hundredths count
+	mov	a,b
+	ora	c
+	rz			;done if hundredths count is zero
+	mov	d,b
+	mov	e,c		;to DE
+delh1:	lxi	h,-100
+	dad	d		;carry reset iff hundredths count < 100
+	jnc	delh2		;delay hundredths
+	xchg			;hundredths=hundredths-100 to DE
+	lhld	timex+2		;seconds count to HL
+	call	timer		;delay one second
+	jmp	delh1		;and try again
+delh2:	lda	timex+4		;minutes / 256 to A
+	call	mult0		;* hundredths count
+	mov	b,h
+	mov	c,l
+	lxi	d,24
+	call	divd0		;divide by 24 to put hundredth count in HL
+	xchg
+	call	cpld1
+	xchg			;complement it and fall through to TIMER
+;TIMER is the basic timing loop shared by TIME and DELAY.  After a delay of
+;15*256 cycles it increments the count in HL, looks for a console char, and
+;continues.  Returns Carry set if char typed, reset if HL counts to 0.
+timer:	call	redyc		;look for char
+	rc			;return carry set if char typed
+	xra	a
+time1:	dcr	a
+	jnz	time1		;wait a while
+	inx	h		;increment the count
+	mov	a,h
+	ora	l
+	jnz	timer		;keep counting until count hits zero
+	ret			;return carry reset if counted out
+;DELA1 is called from DELAY to delay for <expr> minutes or seconds
+;by executing TIMER (BC)*(HL) times.
+dela1:	call	gtexp		;get the argument
+dela2:	mov	a,b
+	ora	c
+	jz	dela3		;count is zero -- done
+	push	h
+	call	timer
+	pop	h
+	dcx	b		;decrement the count
+	jmp	dela2		;and keep waiting
+dela3:	mvi	d,','
+	call	gtd		;look for comma
+	rnc			;comma -- continue with DELAY
+	pop	h		;else pop the DELA1 return
+	ret			;and return from DELAY
+	endif			;end of NOT REALT conditional
+	endif			;end of NOT CAMAC conditional
+
+;DELETE <line #> [, <line #>]
+	if	editc
+	if	compl
+delet	equ	uferr
+	else
+delet:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	call	gtlno		;look for <line #>
+	jc	snerr		;SN error if none
+	call	findl		;find the line
+	push	h
+	push	psw
+	call	gtcnd		;look for comma
+	jnc	dele1		;found comma
+	pop	psw
+	jc	userr		;US error if not found
+	pop	h		;location to HL
+	push	h
+	jmp	dele2
+dele1:	pop	psw
+	call	gtlno		;look for second <line #>
+	jc	snerr		;SN error if none
+	call	findl		;find it
+	jc	dele3		;not found, HL points to next
+dele2:	mov	e,m
+	mvi	d,0		;length to DE
+	dad	d		;HL points to next
+dele3:	pop	d		;first line location to DE
+	call	cmdhu		;compare
+	rnc			;first loc >= second loc, ignore
+	push	h		;save second loc
+	push	d		;save first loc
+	xchg			;second loc to DE
+	call	cplde		;complemented
+	call	iitst		;DELETE illegal indirect
+	lhld	eofad		;eof address to HL
+	dad	d
+	inx	h		;eof - second + 1 = byte count to HL
+	xthl			;destination = first loc to HL
+	pop	d		;count to DE
+	pop	b		;source = second loc to BC
+	call	moved		;block move remainder of program
+	dcx	h		;point to new last byte
+	jmp	new1		;reset stacks
+	endif
+	else
+delet	equ	exerr		;EX error in non-EDITC versions
+	endif
+
+;DIM <var name> (<expr>[,<expr>]*) [,<var name> (<expr> [,<expr>]*)]*
+dim:	call	gtnam		;look for name
+dim0:	jc	snerr		;SN error if none
+	push	psw		;save symbol length
+	lxi	h,bufad+maxnl	;saving address to HL
+	call	cpys0		;copy var name to save it
+	call	stlku		;look it up
+	jc	dims0
+dderr:	error	f, D, D		;fatal DD error if defined already
+dims0:	mvi	d,'('
+	call	gtdsn		;skip (
+	pop	psw
+	mov	l,a		;name length to L
+	lda	varty
+	mov	h,a		;type token to H
+	shld	savtp		;and HL saved
+	call	bytsd		;bytes per entry to E, # dims so far to D
+	push	d		;and saved
+	lxi	d,1		;find # elements in DE
+inone	equ	$-2		;address of integer 1 for FOR step default
+	push	d
+;DIMS1 is repeated for each dimension of an array.  Each dimension bound
+;is PUSHed, as well as bytes per entry/#dims and #elements thus far.
+dims1:	pop	d		;# elements to DE
+	pop	h		;#dims to H, bytes per entry to L
+	inr	h		;increment # dims count
+	call	gtexp		;get dim
+	mov	a,b
+	ora	a
+	jm	fcerf		;fatal FC error if negative
+	push	b		;and save it
+	push	h		;save count
+	inx	b		;dim + 1 (to allow subscript 0)
+	call	mulbd		;new # elements = BC * DE to HL
+	jc	omerr		;too many
+	push	h		;save # elements
+	mvi	d,','
+	call	gtd		;look for ,
+	jnc	dims1		;get more dimensions
+	mvi	d,')'
+	call	gtdsn		;skip )
+	lxi	d,bufad+maxnl
+	lxi	h,bufad
+	call	cpyst		;restore symbol name to BUFAD
+;Now the new symbol table entry for the array is built, containing length
+;byte, type byte, name, #dims, bounds (2 bytes * #dims) and elements.
+	pop	d		;restore # elements to DE
+	pop	b		;bytes per entry to C, # dims to B
+	if	camac
+	lhld	savtp
+	mov	a,h		;fetch type token in case camvar
+	cpi	camst
+	jnz	dim1a		;not a camvar
+	mov	a,b
+	cpi	1		;make sure camvar is 1-d
+	jnz	snerr		;SN error if not
+	endif
+dim1a:	mov	l,b
+	mvi	h,0		;now find entry length to build entry
+	dad	h		;# dims * 2 bytes per dim
+	inx	h		;+ length byte
+	inx	h		;+ type byte
+	inx	h		;+ #dims byte
+	mov	a,c		;bytes per entry to A
+dims2:	dad	d
+	jc	omerr		;too big
+	dcr	a
+	jnz	dims2		;# elements * bytes per entry
+	xchg			;length so far to DE
+	lhld	savtp	
+	mov	a,h		;symbol type token to A
+	mvi	h,0		;HL now has name length
+	dad	d		;entry length in HL
+	jc	omerr
+	call	stpsh		;build table entry
+	mov	m,b		;# dims to table
+	mov	c,b
+	mvi	b,0		;BC now has # dims
+	dad	b
+	dad	b
+	inx	h		;HL points past last dim
+	if	camac
+	cpi	camst		;check if camvar
+	jnz	dims3		;no
+	xthl			;component count to HL
+	inx	h		;actual count = dimension + 1
+	shld	cvcnt		;and saved, in case DECLARE with values
+	dcx	h
+	xthl			;restore count, recover location
+	shld	cvloc		;and save location
+	endif
+dims3:	pop	d		;dim to DE
+	call	mvmde		;and then to table
+	dcr	c		;count down dims
+	jnz	dims3
+	call	gtcnd		;look for comma
+	jnc	dim		;dimension another
+	ret
+
+;DISABLE [<line #>]
+	if	not wild
+dsabl:	call	gtlno		;line # to DE, carry set if none
+	lxi	h,intad
+	lda	inttc
+	jnc	dsab2		;line # present
+	sta	temp		;save old # entries
+	xra	a
+	sta	inttc		;set entry count to 0
+	mov	m,a		;store table eof
+dsab1:	lda	temp
+	ora	a		;check if any disabled
+	rnz
+enerr:	error	f, E, N		;fatal EN error
+dsab2:	xra	a
+	sta	temp		;set flag to tell if any disabled
+dsab3:	mov	a,m
+	ora	a		;check current entry type byte
+	jz	dsab1		;eof
+	push	h		;save current addr
+	lxi	b,8
+	dad	b
+	push	h		;save next addr
+	dcx	h
+	mov	b,m
+	dcx	h
+	mov	c,m		;ENABLE line # to BC
+	call	cmbdu		;compare to desire line #
+	jz	dsab4		;match -- purge it
+	pop	h
+	pop	b
+	jmp	dsab3		;no match -- try next
+dsab4:	pop	b		;next to BC -- source
+	pop	h		;current to HL -- destination
+	push	b		;save next
+	push	d		;save line #
+	mov	d,b
+	mov	e,c		;current to DE
+	push	h		;save destination
+	lxi	h,intad+inttl	;last location + 1 to HL
+	call	cplde		;- current to DE
+	dad	d		;count to HL
+	xchg			;then to DE
+	pop	h		;restore destination
+	call	moved		;move remainder of table
+	lxi	h,inttc		;address table count
+	mov	a,m		;fetch count
+	sta	temp		;set flag to true (nonzero)
+	dcr	m		;update count
+	pop	d		;restore line #
+	pop	h		;next to HL
+	jmp	dsab3		;keep trying
+	endif			;end of NOT WILD conditional
+
+;EDIT [<line #>]
+	if	editc
+	if	compl
+edit	equ	uferr
+	else
+edit:	if	romsq
+	call	issrc		;must be addressing working space
+	endif
+	call	gtlno		;look for <line #>
+	jnc	edit0
+	lhld	errln		;edit most recent error line if none
+	xchg			;to DE
+edit0:	call	iitst		;EDIT illegal indirect
+	call	fdlno		;find the line
+	inx	h
+	mov	c,m
+	inx	h
+	mov	b,m		;line number to BC
+	inx	h
+	inx	h
+	push	h		;save pointer to first byte of line
+	xra	a
+	call	cvtis		;convert line number to string
+	push	psw		;save length
+	call	bcde		;string loc to BC, length to E
+	lxi	h,nlnad		;destination to HL
+	call	movd0		;copy line number string to input buffer
+	xchg			;next input buffer location to DE
+	pop	psw
+	cma			;-length-1
+	adi	nlmax+4		;max # chars + 3 - length
+	mov	c,a		;to C to avoid line overflow
+	mvi	a,' '
+	pop	h		;first char address to HL
+	push	h
+	cmp	m		;check if first char of line is <space>
+	cnz	edit4		;add a space if not
+edit2:	pop	h		;line pointer to HL
+	mov	a,m		;fetch next char or token in line
+	inx	h
+	push	h		;and save pointer to next
+	call	fndtk		;check if char or token
+	jc	edit3		;token
+	call	edit4		;store the char
+	cpi	cr		;check if cr
+	jnz	edit2		;no, continue
+	lxi	sp,stack	;reset SP in case direct line results
+	call	ledit		;edit the line
+	call	tkize		;tokenize the line
+	jc	xsta1		;execute if no line number
+	cnz	addln		;add line to current source
+	jmp	dmod2		;and return to OK prompt
+edit3:	mov	a,m		;fetch char of token
+	ani	7FH		;mask off possible high bit
+	call	edit4		;store the char
+	mov	a,m		;refetch
+	inx	h
+	ora	a
+	jp	edit3		;not end of token, get next char
+	jmp	edit2		;end of token, get next char of line
+edit4:	stax	d		;store the char
+	inx	d		;point to next location
+	dcr	c		;decrement remaining char count
+	rnz			;return if enough room
+	mvi	a,cr		;too little room in buffer, EX error
+	sta	nlnad		;cr to input buffer
+	jmp	exerr		;and issue EX error
+	endif
+	else
+edit	equ	exerr		;EX error in non-EDITC versions
+	endif
+
+;ENABLE <line #> , <byte expr> , <byte expr> [, <byte expr>] [,$]
+	if	not wild
+enabl:	call	idtst		;ENABLE illegal direct
+	push	b		;save current line #
+	call	gtlno
+	push	d		;save subroutine line #
+	mvi	d,','
+	call	gtdsn		;skip comma
+	call	iinfo		;get interrupt info
+	push	d
+	push	b		;and save it
+	lxi	h,inttc
+	mov	a,m		;# entries to A
+	cpi	inttn		;compared to max
+	jnc	enerr		;too many -- EN error
+	inr	m		;store new # entries
+	ora	a
+	ral
+	ral
+	ral			;*8 bytes per entry
+	lxi	h,intad-1
+	call	adahl		;+ address - 1 = address of new entry - 1
+	mvi	a,4
+enab1:	pop	d
+	call	momde		;two bytes to entry
+	dcr	a		;four times
+	jnz	enab1
+	inx	h
+	mvi	m,0		;and new eof
+	ret
+	endif			;end of NOT WILD conditional
+
+;END
+endcm:	if	sdisk and (not rtpak)
+	call	closn		;close any OPEN files
+	endif
+	if	camac and false	;Northstar version
+	call	close		;close any OPEN files
+	endif
+endc1:	if	compl		;ERROR entry point
+	jmp	boot		;boot in COMPL version
+	else
+	mvi	a,csbrk		;break token to A
+	jmp	stop2		;save break info and return to dmode
+	endif
+
+;EXEC [<expr> [,G] ]
+	if	romsq
+	if	compl
+exec	equ	uferr
+	else
+exec:	call	ieval		;look for location
+	lxi	h,srcad
+	jc	exec1		;no loc, restore SOURC to SRCAD
+	endif			;end of NOT COMPL conditional
+	if	wild
+execw:	dcx	b		;arg-1 should be 0-8 -- initial entry point
+	lxi	d,9
+	call	cmbdu
+	jnc	roerr		;RO error if arg was not 1-9
+	lxi	h,wexec		;address base of EXEC buffer
+	dad	b
+	dad	b		;address selected EXEC buffer pointer
+	mov	a,m		;fetch low order address
+	inx	h
+	mov	h,m		;high order address to H
+	mov	l,a		;and low order to L
+	ora	h
+	jz	roerr		;RO error if buffer entry is 0
+	endif			;end of WILD conditional
+	if	wild or not compl
+	if	not wild
+	mov	h,b
+	mov	l,c		;location to HL
+	endif			;end of NOT WILD conditional
+exec0:	mov	a,m		;fetch first char of prog
+	cpi	cr
+	jnz	roerr		;not a program, fatal RO error
+	inx	h		;else point to first length byte
+exec1:	shld	sourc		;reset SOURC
+	if	not compl
+	call	gtcom		;look for comma
+	lhld	eofad		;EOF address to HL
+	jc	dmodx		;no comma, reset stacks and return to DMODE
+	call	new1		;reset control stack
+	mvi	d,'G'
+	call	gtdsn		;skip G after comma
+	lhld	sourc		;new program address to HL
+	endif
+	jmp	bakup		;reset TEXTP and continue execution at new prog
+	endif			;end of NOT COMPL conditional
+	else
+exec	equ	exerr		;EX error in non-ROMSQ versions
+	endif			;end of ROMSQ conditional
+
+
+;end of STATES1
+	page

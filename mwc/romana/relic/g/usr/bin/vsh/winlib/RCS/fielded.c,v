@@ -1,0 +1,219 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.06.18.09.27.32;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ *      Editor for input fields
+ *
+ *      Copyright (c) 1990-93 by Udo Munk
+ */
+
+#ifdef AIX
+#define NLS
+#endif
+
+#include <curses.h>
+#include <ctype.h>
+#include <string.h>
+#include "winfun.h"
+
+extern int tab_active;
+
+edit_field(w, y, x, s, l, e, fn)
+WINDOW *w;
+char *s;
+int x, y, l, e;
+int (*fn) ();
+{
+	register char *p;
+	register int c;
+	int cur_x;
+
+	cursoron();
+	redraw_field(w, y, x, s, l, e);
+	cur_x = x + strlen(s);
+	wmove(w, y, cur_x);
+	wrefresh(w);
+	while ((c = wgetch(w)) != '\r' && c != KEY_ENTER) {
+		switch (c) {
+		case KEY_LEFT:  /* one character left */
+			if (cur_x > x) {
+				cur_x--;
+				wmove(w, y, cur_x);
+			}
+			break;
+		case KEY_RIGHT: /* one character right */
+			if ((cur_x < x + l) && (*(s + cur_x - x) != '\0')) {
+				cur_x++;
+				wmove(w, y, cur_x);
+			}
+			break;
+		case KEY_UP:    /* get previous entry of a list */
+			if (fn != NULL) {
+				(*fn) (1, s);
+				redraw_field(w, y, x, s, l, e);
+				cur_x = x + strlen(s);
+				wmove(w, y, cur_x);
+			}
+			break;
+		case KEY_DOWN:  /* get next entry of a list */
+			if (fn != NULL) {
+				(*fn) (-1, s);
+				redraw_field(w, y, x, s, l, e);
+				cur_x = x + strlen(s);
+				wmove(w, y, cur_x);
+			}
+			break;
+		case KEY_DC:    /* remove character under cursor */
+		case W_KEY_DC:
+			if (cur_x < x + l) {
+				p = s + cur_x - x;
+				while (*p) {
+					*p = *(p + 1);
+					p++;
+				}
+				*p = '\0';
+				redraw_field(w, y, x, s, l, e);
+				wmove(w, y, cur_x);
+			}
+			break;
+		case 0177:      /* remove character left from cursor */
+		case 010:
+#ifdef KEY_BACKSPACE
+#if KEY_BACKSPACE != 010
+		case KEY_BACKSPACE:
+#endif
+#endif
+			if (cur_x == x)
+				break;
+			cur_x--;
+			p = s + cur_x - x;
+			while (*p) {
+				*p = *(p + 1);
+				p++;
+			}
+			*p = '\0';
+			redraw_field(w, y, x, s, l, e);
+			wmove(w, y, cur_x);
+			break;
+		case W_KEY_DL:  /* remove whole contents of field */
+		case KEY_DL:
+			cur_x = x;
+			p = s;
+			*p = '\0';
+			redraw_field(w, y, x, s, l, e);
+			wmove(w, y, cur_x);
+			break;
+		case KEY_PPAGE: /* move cursor to begin of field */
+		case W_KEY_PPAGE:
+		case KEY_HOME:
+		case W_KEY_HOME:
+			cur_x = x;
+			p = s;
+			wmove(w, y, cur_x);
+			break;
+		case KEY_NPAGE: /* move cursor to end of input */
+		case W_KEY_NPAGE:
+		case KEY_LL:
+		case W_KEY_LL:
+			cur_x = x + strlen(s);
+			p = s + strlen(s);
+			wmove(w, y, cur_x);
+			break;
+		case W_KEY_REFR:/* refresh screen */
+#ifdef KEY_REFR
+		case KEY_REFR:
+#endif
+			wrefresh(curscr);
+			break;
+		case 033:       /* ESC, abort input */
+			cursoroff();
+			return(WIN_ABORT);
+		case W_KEY_TAB:	/* go to next input field */
+			if (tab_active)
+				return(WIN_NEXTFIE);
+			break;
+		case W_KEY_BTAB:/* go to previous input field */
+			if (tab_active)
+				return(WIN_PREVFIE);
+			break;
+		default:	/* compute input */
+			if ((c < ' ') || (c > 0176))
+				break;
+			if (cur_x == x + l)
+				break;
+			if (strlen(s) == l)
+				break;
+			if (*(s + cur_x - x) == '\0') {
+				*(s + cur_x - x) = c;
+				cur_x++;
+				*(s + cur_x - x) = '\0';
+				if (e)
+					waddch(w, c);
+				else
+					waddch(w, '#');
+				break;
+			}
+			p = s + strlen(s);
+			while (p != s + cur_x - x - 1) {
+				*(p + 1) = *p;
+				p--;
+			}
+			*++p = c;
+			redraw_field(w, y, x, s, l, e);
+			cur_x++;
+			wmove(w, y, cur_x);
+			break;
+		}
+		wrefresh(w);
+	}
+	if (strlen(s) > 1) {
+		p = s + strlen(s) - 1;
+		while (isspace(*p))
+			*p-- = '\0';
+	}
+	cursoroff();
+	return(WIN_OK);
+}
+
+/*
+ *      redraw input
+ */
+static redraw_field(w, y, x, s, l, e)
+WINDOW *w;
+char *s;
+int x, y, l, e;
+{
+	wmove(w, y, x);
+	while (l--) {
+		if (*s) {
+			if (e)
+				waddch(w, *s);
+			else
+				waddch(w, '#');
+			s++;
+		} else
+			waddch(w, ' ');
+	}
+}
+@

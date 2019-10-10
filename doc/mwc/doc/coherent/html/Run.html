@@ -1,0 +1,47 @@
+#!/bin/sh
+# Generate HTML pages for COHERENT.
+# by fwb, 01/05/95
+#
+# copyright (c) 1991-1995 by Mark Williams Company, Northbrook Ill.
+#
+# must su to "bin" before running.
+
+if [ `whoami` != "bin" ] ; then
+	echo "Sorry, only user 'bin' can run this program"
+	exit
+fi
+
+INPUT=/v/doc/coherent
+OUTPUT=/usr/man/HTML
+TOC_RAW=/tmp/html/html.output
+TOC_COOKED=/usr/man/contents.html
+INDEX_COOKED=/usr/man/index.html
+
+> $TOC_RAW
+> $TOC_COOKED
+for i in _ a b c d e f g h i j k l m n o p q r s t u v w x y z
+do
+	rm $OUTPUT/$i*
+done
+
+cd $INPUT/lx
+for i in [_-z]*
+do
+	sed -f $INPUT/html/sed.html $i > $i.html
+	nroff -x -rX0 -mcohhtml $INPUT/manual/top.r $i.html \
+		> $OUTPUT/$i.html 2>> $TOC_RAW
+	rm $i.html
+done
+
+# This will be replaced with a program to cook up the TOC and index.
+# For now, just grep out the TOC entries and throw the rest away.
+echo '<pre>' > $TOC_COOKED
+grep '<' $TOC_RAW >> $TOC_COOKED
+echo '</pre>' >> $TOC_COOKED
+
+index_html < $TOC_RAW > $INDEX_COOKED
+
+cp $INPUT/html/images/* $OUTPUT
+
+# Want to look this over for errors.
+rm $TOC_RAW

@@ -1,0 +1,462 @@
+.\" Coherent 386 release 4.2
+.\" Copyright (c) 1982, 1993 by Mark Williams Company.
+.\" All rights reserved. May not be copied without permission.
+.\" For copying permission and licensing info, write licensing@mwc.com
+.\"
+.\" This macro package has been constructed to prepare tutorials for
+.\" Mark Williams COHERENT documentation.
+.\" It is adapted from the standard tmac.an by fwb.
+.\"
+.\" Upgraded to use PostScript, and considerably simplified - by fwb, 6/20/91
+.\"
+.\" environment usage:
+.\"	1	diversions
+.\"	2	special environment for headers and footers
+.\" define dimensions of page (usually set in "top.r"):
+.\"	FT	position of footer trap	
+.\"	IN	standard indentation
+.\"	PO	page offset
+.\"	pD	interparagraph distance
+.\"	PW	page width (i.e., width of the text on the page)
+.\" flags, etc.
+.\"	F	flag to trigger shifting of strings for building running head
+.\"	NS	No Shade:  If true, turn off shading.  For use with inferior
+.\"		printers that cannot handle shading.
+.\"	NI	No Image:  Don't print a pretty picture at the end of chapter
+.\"	RN	Repress New Page:  Do not always begin on an odd page
+.\"	SU	set up environment 0	
+.\"	Y	print/skip printing the header
+.\" control bulding of intented paragraphs:
+.\"	J	bin to hold total indentation for indented paragraphs
+.\"	N\\nS	hold S's amount of indentation
+.\"	S	hold current level of indentation, for use with indented PP's
+.\"
+.\" ... and away we go ... !
+.\"
+.\" GENERAL INITIALIZATION
+.\"
+.	\" Number registers
+.nr FT 9.0i
+.nr IN 0.5i
+.nr J  0.5i
+.nr Y  0
+.nr PD 6p
+.nr pD 6p
+.nr PO 1.0i
+.nr PW 6.1i
+.nr S  0  1
+.nr SU 1
+.ie p .vs 10p
+.el   .vs 11p
+.ds TI TUTORIALS
+.	\" Traps, etc.
+.wh 0 HD		\" Header trap
+.em Xe			\" executed after processing is finished
+.\"
+.\" USER-CALLABLE MACROS
+.\"
+.de NH			\" Numbered heading:  builds big ruled heading
+.nf
+.sp |1.5i
+.\" draw lines above and below the text
+.co \\n(.o/10 (\\n(.p-1.2i)/10
+moveto
+.co
+.co \\n(.l/10 0
+rlineto
+.co
+.\" if true, draw the lines in gray; otherwise, draw them in black
+.if !\\n(NS \\{\\
+.co
+.6 setgray
+.co
+\\}
+.co
+6 setlinewidth
+stroke
+.co
+.co \\n(.o/10 (\\n(.p-1.8i)/10
+moveto
+.co
+.co \\n(.l/10 0
+rlineto
+.co
+.co
+3 setlinewidth
+stroke
+1 setlinewidth
+.co
+.\" Write the shadow text, in gray
+.sp
+.\".if !\\n(NS \\{\\
+.\"\\v'0.02i'\\h'0.02i'\\f(HC\\$1\\fR\\v'-0.02i'
+.\".br
+.\".sp -1
+.\"\\}
+.\" Write the main text, in black
+.co
+0 setgray
+.co
+\\f(HC\\$1\\fR
+.sp |2.25i
+.fi
+.Rt
+.tm +0\\$1	\\n%
+..
+.\" Sub-heading
+.de SH
+.Rt
+.ne 0.8
+.sp \n(pDu
+.if \\n(.$>0 \\{\\
+.tm +1\\$1	\\n%
+.ce 1
+.if !\\n(NS .SX
+\\f(HL\\$1\\fR\\}
+.ft R
+..
+.\" 2nd-level sub-heading
+.de Sh
+.Rt
+.ne 0.8i
+.sp \\n(pDu
+.if \\n(.$ \\{\\
+.tm +2\\$1	\\n%
+.ft HB
+\\$1
+.\" code for drawing an underline - I decided I didn't like it after all
+.\".co \\n(.o/10 (\\n(.p-(\\n(.h+1p))/10
+.\"moveto
+.\".co
+.\".co \w'\\$1'/10 0
+.\"rlineto
+.\".2 setlinewidth
+.\"stroke
+.\"1 setlinewidth
+.\".co
+.ft R\\}
+..
+.de PP			\" Start new paragraph
+.Rt
+.sp \\n(PDu
+.ne 0.3i
+..
+.\" Start relative indent
+.de RS
+.nr S \\n+S
+.nr N\\nS \\n(INu
+.nr J +\\n(N\\nSu
+..
+.\" End relative indent
+.de RE
+.nr J -\\n(N\\nSu
+.nr S \\n-S
+..
+.\" Indented paragraph
+.de IP
+.sp \\n(pDu
+.if \\n(.$=0 .IT
+.if \\n(.$=1 .IT "\\$1"
+.if \\n(.$=2 .IT "\\$1" \\$2
+..
+.\" Indented Section.  Like .IP, except it is not preceded by a space
+.de IS
+.br
+.if \\n(.$=0 .IT
+.if \\n(.$=1 .IT "\\$1"
+.if \\n(.$=2 .IT "\\$1" \\$2
+..
+.\" Indented Thing.  Actually do the indenting, etc.
+.de IT
+.DT
+.ne 0.3i
+.ft R
+.fi
+.if \\nS=0 .RS
+.if \\n(.$=2 \\{\\
+.nr J -\\n(N\\nSu
+.nr N\\nS \\$2
+.nr J +\\n(N\\nSu\\}
+.in \\nJu
+.if \\n(.$ \\{\\
+.ti -\\n(N\\nSu
+\\$1
+.ie \\n(N\\nS-\\w'\\$1'>=\\w' ' \\h'|\\n(.iu'\\c
+.el .br\\}
+..
+.\" Simplified indented paragraph:  for use with stuff with apostrophes in it
+.de Ip
+.sp \\n(pDu
+.DT
+.ne 0.3i
+.ft R
+.fi
+.if \\nS=0 .RS
+.if \\n(.$>1 \\{\\
+.nr J -\\n(N\\nSu
+.nr N\\nS \\$2n
+.nr J +\\n(N\\nSu\\}
+.in \\nJu
+.ti -\\n(N\\nSu
+.if \\n(.$ \\$1
+.br
+..
+.\" Like .Ip, but without spacing.
+.de Is
+.\".sp \\n(pDu
+.DT
+.ne 0.3i
+.ft R
+.fi
+.if \\nS=0 .RS
+.if \\n(.$>1 \\{\\
+.nr J -\\n(N\\nSu
+.nr N\\nS \\$2n
+.nr J +\\n(N\\nSu\\}
+.in \\nJu
+.ti -\\n(N\\nSu
+.if \\n(.$ \\$1
+.br
+..
+.\" Print a display within an indented paragraph
+.de ID
+.nf
+.ft L
+.sp \\n(PDu
+..
+.\" End a display within an indented paragraph
+.de IE
+.fi
+.sp \\n(PDu
+.ft R
+.fi
+..
+.de DM			\" Display monospace
+.KS
+.DT
+.sp \\n(PDu
+.nf
+.ft L
+.if t \\{\\
+.ie p .vs 9p
+.el   .vs 10p\\}
+..
+.de DS			\" Display start
+.KS
+.DT
+.sp \\n(PDu
+.nf
+.ft R
+.if t \\{\\
+.ie p .vs 10p
+.el   .vs 11p\\}
+.vs 10p
+..
+.de DE			\" Display end
+.KE
+.ft R
+.sp \\n(PDu
+.fi
+..
+.\" Begin a two-column list
+.de LB
+.nf
+.sp \n(pDu
+.ta 1.5i
+.tc . 0.1i
+..
+.de II			\" Index entry
+.tm %\\$1=\\n%
+..
+.\" Begin an nroff example
+.de EX
+.br
+.sp \\n(pDu
+.ft L
+.nr J +0.5i
+.ll -0.5i
+.in \\nJu
+..
+.\" end nroff example
+.de EE
+.br
+.sp \\n(pDu
+.ft R
+.nr J -0.5i
+.ll +0.5i
+.in \\nJu
+..
+.\" Start quoted paragraph
+.de QS
+.sp \\n(pDu
+.in +0.5i
+.ll -0.5i
+..
+.\" End quoted paragraph
+.de QE
+.sp \\n(pDu
+.in -0.5i
+.ll +0.5i
+..
+.\" Keycaps entry
+.de K
+.if \\n(.$ \\{\\
+.ie \\n(.$=1 \\fK(\\$1)\\fP
+.el          \\fB<\\$1>\\fP\\$2
+\\}
+..
+.\" Keycaps entry
+.de Kr
+.if \\n(.$ \\{\\
+.ie \\n(.$=1 \\fK(\\$1)\\fP
+.el          \\fK(\\$1)\\fR\\$2
+\\}
+..
+.\"
+.\" Font-Handling Macros
+.\"
+.de B			\" Bold font
+.ie \\n(.$ \\fB\\$1\\fP
+.el          .ft B
+..
+.de I			\" Italic font
+.ie \\n(.$ \\fI\\$1\\fP
+.el          .ft I
+..
+.de R			\" Roman font
+.ie \\n(.$ \\fR\\$1\\fP
+.el          .ft R
+..
+.de BI			\" bold/italic fonts
+.Af B I \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.de BR			\" bold/roman fonts
+.Af B R \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.de IB			\" italic/bold fonts
+.Af I B \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.de IR			\" italic/roman fonts
+.Af I R \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.de RB			\" roman/bold fonts
+.Af R B \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.de RI			\" roman/italic fonts
+.Af R I \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\"
+.\" INTERNAL MACROS
+.\"
+.\" Reset everything to normal state
+.de Rt
+.fi
+.in 0
+.ft R
+.nr S 0 1
+.nr J 0
+.DT
+.tc
+..
+.\" the header
+.de HD
+.if \\n(SU \\{\\
+.		\" set up the environment when first called
+.ll \\n(PWu	\" these are here to let user reset dimensions dynamically
+.lt \\n(PWu
+.po \\n(POu
+.wh \\n(FTu FO
+.nr SU 0\\}
+.if \\nY \\{\\
+.ev 2
+.ll \\n(PWu	\" these are here to let user reset dimensions dynamically
+.lt \\n(PWu
+.sp |1.0i
+.ie e .tl '\\f(HL\\n%   \\*(TL\\fR'''
+.el   .tl '''\\f(HL\\*(TL   \\n%\\fR'
+.sp -0.05i
+\l'\\n(PWu'
+.br
+.ev\\}
+.sp |1.5i
+..
+.\" the footer
+.de FO
+.lt \\n(PWu
+.sp |\\n(FTu+0.5i
+.ie \\nY \\{\\
+.ie e .tl '\\f(HL\\*(TI\\fR'''
+.el   .tl '''\\f(HL\\*(TI\\fR'\\}
+.el \\{\\
+.ie e .tl '\\f(HL\\n%\\fR'''
+.el   .tl '''\\f(HL\\n%\\fR'
+.nr Y 1\\}
+.bp
+..
+.\" Start keep
+.de KS
+.br
+.ev 1
+.in \\nJu
+.fi
+.da Kd
+..
+.\" End keep
+.de KE
+.br
+.di
+.if \\n(dn>=\\n(.t .bp
+.nf
+.Kd
+.rm Kd
+.tc
+.ev
+..
+.\" Set default tab fields
+.de DT
+.ta 0.5i 1.0i 1.5i 2.0i 2.5i 3.0i 3.5i 4.0i 4.5i 5.0i 5.5i
+..
+.\" Set default tab fields (for compatibility with old text)
+.de TA
+.ta 0.5i 1.0i 1.5i 2.0i 2.5i 3.0i 3.5i 4.0i 4.5i 5.0i 5.5i
+..
+.\" Alternating fonts
+.de Af
+.if \\$3=1 \\f\\$1\\$4\\fP
+.if \\$3=2 \\f\\$1\\$4\\fP\\f\\$2\\$5\\fP
+.if \\$3=3 \\f\\$1\\$4\\fP\\f\\$2\\$5\\fP\\f\\$1\\$6\\fP
+.if \\$3=4 \\f\\$1\\$4\\fP\\f\\$2\\$5\\fP\\f\\$1\\$6\\fP\\f\\$2\\$7\\fP
+.if \\$3=5 \\f\\$1\\$4\\fP\\f\\$2\\$5\\fP\\f\\$1\\$6\\fP\\f\\$2\\$7\\fP\\f\\$1\\$8\\fP
+.if \\$3=6 \\f\\$1\\$4\\fP\\f\\$2\\$5\\fP\\f\\$1\\$6\\fP\\f\\$2\\$7\\fP\\f\\$1\\$8\\fP\\f\\$2\\$9\\fP
+.if \\$3>6 .tm .\\$1\\$2 has more than six arguments
+..
+.\" After last input, output page number and fill white space with stuff
+.de Xe
+.if o \\{\\
+.if !\\n(RN .bp\\}
+.\" output an image to fill remaining white space
+.if !\\n(NI \\{\\
+.if \\n%%19=18 .PF 1 1 \\*(XA/paris_hours/ph26.eps
+.if \\n%%19=17 .PF 1 1 \\*(XA/paris_hours/ph25.eps
+.if \\n%%19=16 .PF 1 1 \\*(XA/paris_hours/ph24.eps
+.if \\n%%19=15 .PF 1 1 \\*(XA/paris_hours/ph22.eps
+.if \\n%%19=14 .PF 1 1 \\*(XA/paris_hours/ph19.eps
+.if \\n%%19=13 .PF 1 1 \\*(XA/paris_hours/ph18.eps
+.if \\n%%19=12 .PF 1 1 \\*(XA/paris_hours/ph17.eps
+.if \\n%%19=11 .PF 1 1 \\*(XA/paris_hours/ph16.eps
+.if \\n%%19=10 .PF 1 1 \\*(XA/paris_hours/ph15.eps
+.if \\n%%19=9  .PF 1 1 \\*(XA/paris_hours/ph13.eps
+.if \\n%%19=8  .PF 1 1 \\*(XA/paris_hours/ph12.eps
+.if \\n%%19=7  .PF 1 1 \\*(XA/paris_hours/ph10.eps
+.if \\n%%19=6  .PF 1 1 \\*(XA/paris_hours/ph09.eps
+.if \\n%%19=5  .PF 1 1 \\*(XA/paris_hours/ph08.eps
+.if \\n%%19=4  .PF 1 1 \\*(XA/paris_hours/ph06.eps
+.if \\n%%19=3  .PF 1 1 \\*(XA/paris_hours/ph04.eps
+.if \\n%%19=2  .PF 1 1 \\*(XA/paris_hours/ph03.eps
+.if \\n%%19=1  .PF 1 1 \\*(XA/paris_hours/ph02.eps
+.if \\n%%19=0  .PF 1 1 \\*(XA/paris_hours/ph01.eps
+\\}
+.tm .pn \\n%+1
+..
+.so /usr/lib/tmac.box
+.so /usr/lib/tmac.eps

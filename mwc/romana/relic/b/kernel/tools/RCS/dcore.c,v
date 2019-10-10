@@ -1,0 +1,311 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.04.16.07.01.38;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * File:	dcore.c
+ *
+ * Purpose:	Display contents of core file intelligibly.
+ *
+ * $Log$
+ */
+
+/*
+ * ----------------------------------------------------------------------
+ * Includes.
+ */
+#include <stdio.h>
+#include <sys/core.h>
+#include <sys/reg.h>
+#include <sys/uproc.h>
+
+/*
+ * ----------------------------------------------------------------------
+ * Definitions.
+ *	Constants.
+ *	Macros with argument lists.
+ *	Typedefs.
+ *	Enums.
+ */
+#define DEFAULT_CORE_NAME	"core"
+#define DSIZE			16
+
+struct seg_info {
+	int si_base;
+	int si_size;
+	long si_offset;
+};
+
+/*
+ * ----------------------------------------------------------------------
+ * Functions.
+ *	Import Functions.
+ *	Export Functions.
+ *	Local Functions.
+ */
+
+/*
+ * ----------------------------------------------------------------------
+ * Global Data.
+ *	Import Variables.
+ *	Export Variables.
+ *	Local Variables.
+ */
+static char * cmd;
+static int tflag;	/* "-t" option says text segment was dumped */
+static char * coreName = DEFAULT_CORE_NAME;
+static FILE * fp;
+static struct ch_info chInfo;
+static char *segName[NUSEG] = {
+	"USER", "TEXT", "DATA", "STACK"
+};
+static struct seg_info segInfo[NUSEG];
+
+/*
+ * ----------------------------------------------------------------------
+ * Code.
+ */
+
+void
+usage()
+{
+	fprintf(stderr, "Usage: %s [-t] [corefile]\n", cmd);
+	exit(1);
+}
+
+/*
+ * Given text name and vital stats for a segment, do a hex dump.
+ */
+void
+dumpseg(name, infop)
+char *name;
+struct seg_info *infop;
+{
+	/* use the fact that segment size is a multiple of NBPC */
+	unsigned char coredata[DSIZE];
+	unsigned char savedata[DSIZE];
+	int segOffset;
+	int i;
+	/*
+	 * sameState:
+	 * -1	just starting; don't look for matching display lines
+	 *  0	current line does not match previous line
+	 *  1	current line matches previous line
+	 *  2	current line matches previous 2 or more lines
+	 */
+	int sameState = -1;
+	int doPrint, match;
+
+	/* make sure we can seek to start of segment */
+	if (fseek(fp, infop->si_offset, 0) < 0) {
+		fprintf(stderr, "Can't seek to %s segment!\n", name);
+		exit(1);
+	}
+
+	printf("\nContents of %s segment:\n", name);
+	for (segOffset = 0; segOffset < infop->si_size; segOffset += DSIZE) {
+		int readLen = DSIZE;
+		int remains = infop->si_size - segOffset;
+
+		if (readLen > remains)
+			readLen = remains;
+
+		if (fread(coredata, readLen, 1, fp) !=1) {
+			fprintf(stderr, "Can't read core data.\n");
+			exit(1);
+		}
+
+		/* always display last line of segment */
+		if (remains <= DSIZE)
+			match = 1;
+		else
+			match = memcmp(coredata, savedata, DSIZE);
+
+		switch(sameState) {
+		case -1:
+			sameState = 0;
+			doPrint = 1;
+			break;
+		case 0:
+			if (match) {
+				doPrint = 1;
+			} else {
+				sameState = 1;
+				doPrint = 0;
+			}
+			break;
+		case 1:
+			if (match) {
+				doPrint = 1;
+				sameState = 0;
+			} else {
+				sameState = 2;
+				doPrint = 0;
+				printf("   *\n");
+			}
+			break;
+		case 2:
+			if (match) {
+				doPrint = 1;
+				sameState = 0;
+			} else {
+				doPrint = 0;
+			}
+			break;
+		}
+		if (doPrint) {
+			printf("%06X", segOffset);
+			for (i = 0; i < readLen; i++)
+				printf(" %02X", coredata[i]);
+			printf("\n");
+		}
+		memcpy(savedata, coredata, DSIZE);
+	}
+}
+
+/*
+ * Once the file has been opened and magic number checked, this function
+ * does the work.
+ *
+ * Globals used: fp, chInfo.
+ */
+void
+dcore()
+{
+	long offset;
+	static struct uproc uProc;
+	static int regs[SS+1];
+	int i;
+	int base, size;
+
+	/* display uproc version number */
+	offset = chInfo.ch_info_len + chInfo.ch_uproc_offset;
+	if (fseek(fp, offset, 0) < 0) {
+		fprintf(stderr, "Can't seek to uproc.\n");
+		exit(1);
+	}
+	if (fread(&uProc, sizeof(uProc), 1, fp) !=1) {
+		fprintf(stderr, "Can't read uproc.\n");
+		exit(1);
+	}
+	printf("uproc version = 0x%04x\n", uProc.u_version);
+
+	/* display register set */
+	offset = chInfo.ch_info_len + ((int)(uProc.u_regl) & (NBPC-1));
+	if (fseek(fp, offset, 0) < 0) {
+		fprintf(stderr, "Can't seek to register set.\n");
+		exit(1);
+	}
+	if (fread(regs, sizeof(regs), 1, fp) !=1) {
+		fprintf(stderr, "Can't read register set.\n");
+		exit(1);
+	}
+
+	printf("\neax=%08X\tebx=%08X\tecx=%08X\tedx=%08X\n",
+	  regs[EAX], regs[EBX], regs[ECX], regs[EDX]);
+	printf("esi=%08X\tedi=%08X\tebp=%08X\tesp=%08X\n",
+	  regs[ESI], regs[EDI], regs[EBP], regs[ESP]);
+	printf("eip=%08X\tuesp=%08X\tefl=%08X\n",
+	  regs[EIP], regs[UESP], regs[EFL]);
+	printf("\ncs=%04X\tds=%04X\tes=%04X\tss=%04X\tfs=%04X\tgs=%04X\n",
+	  regs[CS]&0xffff, regs[DS]&0xffff, regs[ES]&0xffff,
+	  regs[SS]&0xffff, regs[FS]&0xffff, regs[GS]&0xffff);
+	printf("\nerr #%d \tcmd=%s\n", regs[ERR], uProc.u_comm);
+
+	/* display segment sizes */
+	printf("\nSegment\tBase\t\tSize\n");
+	offset = chInfo.ch_info_len;
+	for (i = 0; i < NUSEG; i++) {
+		base = (int)(uProc.u_segl[i].sr_base);
+		size = uProc.u_segl[i].sr_size;
+		if (i == SISTACK)
+			base -= size;
+		printf("%s\t%08x\t%08x\n", segName[i], base, size);
+		segInfo[i].si_offset = offset;
+		segInfo[i].si_base = base;
+		segInfo[i].si_size = size;
+
+		/* text is in core file only if "-t" specified */
+		if (tflag || i != SISTEXT)
+			offset += size;
+	}
+
+	/* dump segments */
+	for (i = 0; i < NUSEG; i++) {
+		if (!tflag && i == SISTEXT)
+			continue;
+		dumpseg(segName[i], segInfo + i);
+	}
+}
+
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	int argn;
+
+	/* command line housekeeping */
+	cmd = argv[0];
+	for (argn = 1; argn < argc; argn++) {
+		if (argv[argn][0] == '-') {
+			switch(argv[argn][1]) {
+			case 't':
+				tflag = 1;
+				break;
+			default:
+				usage();
+			}
+		} else {
+			coreName = argv[argn];
+			/* this should be the last argument */
+			if (argn < argc - 1)
+				usage();
+		}
+	}
+
+	/* try to open the core file for reading */
+	if ((fp = fopen(coreName, "r")) == NULL) {
+		fprintf(stderr, "Can't open %s for reading.\n", coreName);
+		exit(1);
+	}
+
+	/* simple test for core file format */
+	if (fread(&chInfo, sizeof(chInfo), 1, fp) !=1) {
+		fprintf(stderr, "Can't read core header.\n");
+		exit(1);
+	}
+
+	if (chInfo.ch_magic != CORE_MAGIC) {
+		fprintf(stderr, "Not a core file.\n");
+		exit(1);
+	}
+	printf("Core file: %s  ", coreName);
+
+	/* call a function to do the work */
+	dcore();
+
+	/* cleanup */
+	fclose(fp);
+	exit(0);
+}
+@

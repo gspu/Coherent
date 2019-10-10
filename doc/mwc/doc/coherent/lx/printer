@@ -1,0 +1,790 @@
+.TH printer "" "" "Technical Information"
+.PC "How to attach and run a printer"
+.PP
+.II "soft fonts"
+.II "font^soft"
+.II PCL
+.II PostScript
+.II "Epson MX-80"
+.II LaserJet
+.II "Hewlett-Packard LaserJet"
+.II "spooling"
+A
+.I printer
+is the device that transfers text to paper.
+The \*(CO system includes a system for
+spooling a file to one or more printers.
+.I Spooling
+means that the file is copied into a special area and printed by a daemon.
+With a spooler, more than one user can send files to the same printer at the
+same time, yet the files will not collide.
+.PP
+\*(CO also includes commands to prepare text for printing
+a variety of printers.
+These include line printers (that is, dot-matrix printers), Epson-compatible
+printers, laser printers that use the PCL page-description language,
+and printers that use PostScript.
+With \*(CO, you can run prepare text into a variety of formats, and print
+the output on any number of printers plugged into either parallel or serial
+ports.
+.PP
+\*(CO has implemented spooling in two ways.
+Versions of \*(CO prior to release 4.2 control printing through
+a version of the Berkeley command
+.BR lpr .
+.II "MLP spooler"
+\*(CO release 4.2 and subsequent releases also control printing through the
+MLP print spooler, which implements a version of the System-V command
+.B lp
+and related tools.
+These systems differ greatly; each set is discussed in its own section below.
+.PP
+Before we begin to describe printing, please note that
+one major source of confusion for users is the fact that the same names
+occur over and over again.
+For example, please do not confuse the parallel-port's device driver
+.B lp
+with the print-spooler command
+.B lp
+or with the device
+.BR /dev/lp .
+\*(CO inherits much of this confusion from the \*(UN operating system;
+but we will do our best to make these terms clear to you.
+.I "Caveat lector."
+.SH "Device Drivers"
+Both the
+.B lpr
+and
+.B lp
+spoolers work through \*(CO's device drivers for the
+serial and parallel ports.
+The following gives an overview of these drivers.
+.PP
+The driver
+.B lp
+manages parallel ports.
+The architecture of the PC
+permits your computer to have up to three parallel ports.
+Devices
+.BR /dev/lpt1 ,
+.BR /dev/lpt2 ,
+and
+.B /dev/lpt3
+control, respectively, parallel ports 1, 2, and 3 in cooked mode.
+For more information, see the Lexicon entry for the driver
+.BR lp .
+.PP
+\*(CO uses the driver
+.B asy
+to manage all serial ports, whether COM ports or multi-port cards.
+For details, see its entry in the Lexicon.
+.SH "Finding the Port"
+Both spooler systems require that you be able to identify a port when you
+plug a printer into it.
+This can be more difficult than it seems, largely because the labels on
+your system's port may not be reliable:
+those labels reflect what \*(MD thinks the ports are, and that may not
+be accurate.
+.PP
+The following describes how to identify the port into which you have just
+plugged a printer.
+Note that these directions assume that you are printing to a parallel port;
+however, you can adapt them to serial ports as well, depending on the
+configuration of serial devices on your system.
+.IP \fB1.\fR 0.3i
+Plug the printer into an unused port.
+Load paper into the printer and turn it on.
+.IP \fB2.\fR
+Log in as the superuser
+.BR root .
+.IP \fB3.\fR
+.B cd
+to directory
+.BR /dev .
+.IP \fB4.\fR
+Send some output to each parallel port.
+The output must be something that your printer can print.
+If your new printer is a line printer, type:
+.DM
+	cat /etc/uucpname | pr > lpt1
+.DE
+.IP
+If the printer is a laser printer that uses PCL, type:
+.DM
+	cat /etc/uucpname | hp > lpt1
+.DE
+.IP
+Or, if the printer is a PostScript printer, type:
+.DM
+	cat /etc/uucpname | prps > lpt1
+.DE
+.IP
+If text appears on your printer, then you have discovered the correct port.
+Jot down its name on a piece of paper, e.g., ``lpt1''.
+If nothing happens, try the command again for
+.B lpt2
+and
+.BR lpt3 ,
+until you have found the correct port and noted its name.
+.IP \fB5.\fR
+Exit from superuser status.
+.SH "The lpr Printing System"
+.II lpr
+.II printing^lpr
+Versions of \*(CO prior to release 4.2 use a version of the Berkeley
+command
+.B lpr
+to control printing.
+Although this command can print text onto printers plugged into either
+serial or parallel ports, they are almost always used through parallel
+ports; therefore, the descriptions in this section assume
+that all printers are plugged into parallel ports.
+.PP
+To begin,
+.B lpr
+is actually a family of commands, as follows:
+.DS
+.ta 0.85i
+\fBhpd\fR	Daemon that prints files on the laser printer
+\fBhpr\fR	Spool a file for printing on the laser printer
+\fBhpskip\fR	Abort/restart printing a file on the laser printer
+\fBlpd\fR	Daemon that prints files on the line printer
+\fBlpr\fR	Spool a file for printing on the line printer
+\fBlpskip\fR	Abort/restart printing a file on the line printer
+.DE
+.PP
+Each command has its own entry in the Lexicon, which describes it in detail.
+.PP
+.II lpr
+.II hpr
+The commands
+.B lpr
+and
+.B hpr
+dispatch text to printers:
+.B lpr
+to the printer plugged into device
+.BR /dev/lp ,
+and
+.B hpr
+to the printer plugged into device
+.BR /dev/hp .
+Each of these devices is actually a link to the correct parallel port \(em
+that is, to devices
+.BR /dev/lpt1 ,
+.BR /dev/lpt2 ,
+or
+.BR /dev/lpt3 ,
+as described above.
+.II ln
+(For information on what a
+.I link
+is, see the Lexicon entry for the command
+.BR ln ).
+The fact that each command uses a ``generic'' device for its output makes
+it easy for you to dispatch files to the right device;
+however, it also means that you can have only
+one line printer and one laser printer plugged into your computer.
+.PP
+When you installed \*(CO, the installation program tried to link
+.B /dev/lp
+and
+.B /dev/hp
+for you automatically; however, you may need to set them yourself
+(say, because you have purchased a new printer).
+.PP
+To set these links correctly, first follow the directions given above
+to identify the port into which you have plugged the printer.
+Then, link that port to the device by which you will access the printer.
+If you are installing a line printer that you will access via the command
+.BR lpr ,
+then you must use the command
+.B ln
+to link the port to device
+.BR /dev/lp ;
+if, however, the printer is a laser printer that you will access
+via the command
+.BR hpr ,
+then you must link the port to device
+.BR /dev/hp .
+For example, if you have plugged a line printer into port
+.BR lpt1 ,
+then use the following commands:
+.DM
+	ln -f lpt1 lp
+	ln -f rlpt1 rlp
+.DE
+.PP
+(Please note that the last character in ``lpt1'' and ``rlpt1'' is the
+numeral one \(em not a lower-case el.)
+If, however, you have plugged a laser printer into port
+.BR lpt3 ,
+then use the following commands:
+.DM
+	ln -f lpt3 hp
+	ln -f rlpt3 rhp
+.DE
+.PP
+After you have made the links, use the command
+.B lpr
+or
+.B hpr
+(whichever is applicable) to test whether you have set up the links correctly.
+If you have not, go through the above procedure again.
+.PP
+The following describes how to use the
+.B lpr
+family of commands to print to a variety of printers.
+.IP "\fBDumb Printers\fR" 0.3i
+To print on a line printer, simply use the command
+.BR lpr .
+This command performs some formatting on the file,
+and invokes the line-printer daemon
+.B lpd
+to spool the file for printing.
+For example, to print the name of your system, use the command:
+.DM
+.II pr
+	cat /etc/uucpname | pr | lpr -B
+.DE
+.IP
+The option \fB-B\fR suppresses the printing of a banner page.
+.IP
+.II nroff
+You can also print the output of the text-formatting command
+.B nroff
+on a line printer, assuming that your line printer understands how to backspace.
+For example, the manual pages included with \*(CO were formatted with
+.BR nroff .
+To print the text of this Lexicon entry on your line printer, type:
+.DM
+.II man
+	man printer | lpr -B
+.DE
+.IP "\fBEpson-Compatible Printers\fR"
+.II epson
+The command
+.B epson
+massages text into a form that uses some of the text-formatting features
+of the Epson MX-80 printer and clones thereof.
+It is especially to be used with text that has been formatted with
+.BR nroff :
+it turns
+.BR nroff 's
+character-backspace-character
+sequence into the Epson escape sequences for emphasized text and italics.
+.B epson
+writes its formatted output to the standard output, from which you can pipe
+it to a spooler or other program.
+.IP
+For example, to print this manual page on an Epson-compatible printer, type:
+.DM
+	man printer | epson | lpr -B
+.DE
+.IP "\fBLaser Printers with PCL\fR"
+.II PCL
+.II printing^PCL
+The Hewlett-Packard LaserJet, and its clones, use the Hewlett-Packard
+Control Language (HPCL) to control their behavior.
+Note that some laser printers, such as the Apple LaserWriter,
+use PostScript instead of HPCL; these printers are described below.
+.IP
+.II hp
+The command
+.B hp
+prepares files to be printed on a HPCL printer.
+(Please do not confuse this with the device
+.BR /dev/hp .)
+You should use it to prepare simple text, such as program listings,
+for printing on your laser printer.
+.IP
+Like the command
+.BR epson ,
+.B hp
+massages the output of
+.B nroff
+into escape sequences used by a printer \(em in this case, escape sequences
+used by a printer that's running the Hewlett-Packard Page Control Language
+(PCL).
+For example, to print this manual page on your PCL printer, type:
+.DM
+	man printer | hp | hpr -B
+.DE
+.IP
+The command
+.B hpr
+spools files to be printed on a laser printer.
+It works like the command
+.BR lpr ,
+except that it includes a number of special features; for example,
+you can use it to download LaserJet ``soft fonts'' into your printer.
+.\".IP
+.\"The text-formatting commands
+.\".II troff
+.\".B nroff
+.\"and
+.\".B troff
+.\"can format spaced text to be printed on either an HPCL or PostScript printer.
+.\".B troff
+.\"generates proportionally spaced output that
+.\"makes full use of all fonts on your printer, either ``soft fonts''
+.\"or fonts built into the printer or a cartridge.
+.\"See the Lexicon entries for
+.\".BR nroff ,
+.\".BR troff ,
+.\"and
+.\".B hpr
+.\"them with your HPCL printer.
+.IP "\fBPostScript Printers\fR"
+.II PostScript
+.II printing^PostScript
+Some laser printers use PostScript instead of HPCL to control their behavior.
+These printers expect their input to a program written in the PostScript
+language; if you send them ordinary text, they simply hang.
+.II prps
+To print ordinary text on a PostScript printer use the command
+.BR prps ,
+which is a PostScript version of the \*(CO command
+.BR pr .
+It paginates text, draws a box around the page, and
+prints a simple header at the top of each page.
+For example, to print this manual page on a PostScript printer, use the command:
+.DM
+	man printer | prps | hpr -B
+.DE
+.\".IP
+.\"The \*(CO formatters
+.\".B nroff
+.\"and
+.\".B troff
+.\"can also generate PostScript output.
+.\".B troff
+.\"generates proportionally spaced text that can use all
+.\"35 of the fonts available with most PostScript cartridges,
+.\"performs, font scaling, and supports such features as outlining and shadowing.
+.\".B troff
+.\"also permits you to embed ``raw'' PostScript within your file, to
+.\"create effects not already available with the
+.\".B troff
+.\"text-formatting language.
+.\"For details on using
+.\".B troff
+.\"with PostScript printers, see its entry in the Lexicon.
+.IP
+Note that to print on a PostScript printer,
+you must use the \fB\-B\fR option to the command
+.BR hpr .
+If you do not,
+.B hpr
+will attempt to print a banner page in
+ordinary text on your printer, and your printer will hang.
+.SH "The lp Printing System"
+.II lp
+.II printing^lp
+Versions of \*(CO beginnning with release 4.2 also include
+the MLP spooler, which is an implementation of the System-V
+.B lp
+family of printing commands (hereafter called \fBlp\fR).
+.PP
+.B lp
+is considerably more sophisticated than the
+.B lpr
+commands.
+It permits you to have multiple printers of the same type (instead of just
+one laser printer and one line printer, as under
+.BR lpr ),
+which can be plugged into serial or parallel ports.
+It supports prioritization of printing jobs (that is, you can give some users
+or some types of jobs higher priority than others), lets each user
+set a default printer for his jobs, allows users to reprint their jobs easily,
+and allows applications to customize their output to take advantage of
+special printer features.
+It even supports local printing \(em that is, it will format and print
+output onto a printer that is plugged into a terminal's auxiliary port.
+.PP
+.BR lp 's
+commands resemble those used by \*(UN System V to control printing,
+so this system can work more easily with third-party applications.
+Note, however, that the MLP implementation of
+.B lp
+does differ in some important respects from the System-V original;
+therefore, users who have used
+.B lp
+under \*(UN should pay close attention to the following descriptions.
+.PP
+.B lp
+consists of the following commands:
+.DS
+.ta 1.0i
+.II cancel
+.II chreq
+.II lp
+.II lpadmin
+.II lpsched
+.II lpshut
+.II lpstat
+.II reprint
+.II route
+\fBcancel\fR	Cancel the printing of a job
+\fBchreq\fR	Change priority, lifetime, or printer for a job
+\fBlp\fR	Spool one or more files for printing
+\fBlpadmin\fR	Administer the print-spooler system
+\fBlpsched\fR	Print jobs spooled with command lp; turn on printer daemon
+\fBlpshut\fR	Stop the printer daemon
+\fBlpstat\fR	Give the status of printer or print request
+\fBpclfont\fR	Prepare a PCL font for downloading via MLP
+\fBreprint\fR	Reprint a spooled print job
+\fBroute\fR	Let a user change his default printer
+.DE
+.PP
+Each of these commands is described in its own Lexicon entry.
+.PP
+.B lp
+uses the following directories:
+.IP \fB/usr/spool/mlp/backend\fR 2.0i
+This directory holds the programs and scripts used to manage printers.
+.IS \fB/usr/spool/mlp/queue\fR
+This directory holds all print requests.
+.IS \fB/usr/spool/mlp/route\fR
+This directory holds files that name each user's default printer.
+.PP
+.BR lp 's
+behavior is set by the contents of the following files:
+.IP \fB/usr/spool/mlp/controls\fR 2.0i
+This file holds
+.BR lp 's
+configuration data base.
+This data base links a printer by name to the device through which it
+is accessed, and to the configuration script (if any) with which its input
+is massaged.
+For information on how to modify it, see the Lexicon entry for
+.BR controls .
+.IS \fB/usr/spool/mlp/log\fR
+This file logs
+.BR lp 's
+activity.
+.IS \fB/usr/spool/mlp/status\fR
+This file gives the status of each defined printer.
+.PP
+To use
+.BR lp ,
+you must first use the command
+.B lpadmin
+to build a description file for each class of printer that you have
+plugged into your system.
+The description file names the class of printer (e.g., ``epson'' or
+``laserjet'')  and gives the information
+.B lp
+needs to manipulate input to the printer.
+For example, a script may include a \fBstty\fR command to set the port
+into a special mode, and one or more commands for filtering the input
+so it will print properly.
+A backend script can invoke commands like
+.B prps
+or
+.B epson
+to process text for printing.
+.B lp
+can perform sophisticated filtration; for example, it can correctly
+handle PostScript code that prints images or bar codes.
+See the Lexicon entry for
+.B lpadmin
+for more details on these scripts.
+.PP
+You must then use
+.B lpadmin
+to link a given printer, by name, to the device through which it is accessed.
+You must have first identified the port into which each printer is plugged,
+as described above.
+These links are stored in file
+.BR /usr/spool/mlp/controls .
+If you have prepared a configuration script for this printer's type,
+then you must link it to the given printer as well.
+For example, if you have prepared a configuration script for all
+PostScript printers and named it
+.BR postscript ,
+then you must link that script to every PostScript printer whose input you
+want to be massaged in this manner.
+Unlike the
+.B lpr
+printing system,
+.B lp
+lets you attach to your computer more than one printer of each type.
+.PP
+One last point:
+each ``printer'' should identify a given physical device plus a given means
+of accessing it.
+Thus, one physical printer can have more than one name if you plan to
+access it in more than one manner.
+See the Lexicon entry for
+.B lpadmin
+for more information on this topic.
+.PP
+Note that if a printer is a ``local printer'' \(em that is, a printer
+plugged into the auxiliary port of the terminal that the user is using, the
+.B termcap
+description for that terminal must define the variables
+.B PS
+(print start)
+and
+.B PN
+(print end).
+Each printer's description file is stored in directory
+.BR /usr/spool/mlp/backend .
+.PP
+You can use the command
+.B route
+to assign a default printer to each user.
+If the user has set a default printer for himself and if
+he does not name a printer on the
+.B lp
+command line, the output goes to that default printer.
+If the user has
+.I not
+set a default printer for himself and does not name a printer on his
+.B lp
+command line,
+the output goes to the system's default printer.
+This feature is an extension to the version of
+.B lp
+that is implemented by \*(UN System V.
+.PP
+To spool a job for printing, use the command
+.BR lp .
+A
+.I job
+consists either of one or more files, or of text read from the standard input.
+.B lp
+prefaces the job with a header that describes where and how the job
+is to be printed, then copies it into directory
+.BR /usr/spool/mlp/queue .
+The name that
+.B lp
+gives the spooled job reflects its status, that is, the order in which it
+should be printed relative to other jobs that user has spooled.
+This allows each user to give a priority to the jobs that he has spooled.
+.PP
+Each job resides in the spooling directory until the printer daemon
+.B lpsched
+reads it and prints it.
+.B lpsched
+selects jobs for printing based on their relative priority,
+as shown in their names.
+It finds where the job is to be printed by reading its header;
+then it opens the description file for that printer
+and follows its directions for printing the job.
+To turn on the daemon,
+use the command
+.B lpsched
+by itself; to turn it off, use the command
+.BR lpshut .
+If the spooler is shut down, jobs remain in
+.B /usr/spool/mlp/queue
+until you reawaken the daemon by issuing the command
+.BR lpsched .
+.PP
+To see what files are being printed where, use the command
+.BR lpstat .
+To cancel a printing request, use the command
+.BR cancel .
+.PP
+A job remains ``alive'' in
+.B /usr/spool/mlp/queue
+until its ``life'' has expired; the life is set in its header.
+There are three types of ``lifetime'':
+\fItemporary\fR, in which a job survives two hours from the time of spooling;
+\fIshort-term\fR, in which a job survives 48 hours; and
+\fIlong-term\fR, in which a job survives 72 hours.
+The default is short-term.
+When a job's life expires,
+.B lpsched
+removes it.
+A user can use the command
+.B chreq
+to change a job's lifetime or priority;
+or redirect it from one printer to another.
+While a job lives in the spool directory, a user can use the command
+.B reprint
+to reprint it.
+He can also use the command
+.B route
+to change his default printer.
+.PP
+Note that you should be
+.I very
+careful that jobs that include sensitive information \(em e.g., the payroll
+checks or your resume \(em do not linger in spool directory, where other
+users can reprint them.
+For information on resetting a job's lifetime, see the Lexicon entries for
+.B chreq
+and
+.BR MLP_LIFE .
+You can change the default definitions of temporary, short-term,
+and long-term by editing
+.BR controls .
+See its entry in the Lexicon for more information.
+.I "Caveat utilitor!"
+.PP
+The following environmental variables affect
+.BR lp 's
+default behavior:
+.II MLP_COPIES
+.IP \fBMLP_COPIES\fR 1.5i
+The number of copies to print.
+.II MLP_FORMLEN
+.IS \fBMLP_FORMLEN\fR
+The number of lines on the page to be printed.
+.II MLP_LIFE
+.IS \fBMLP_LIFE\fR
+The ``lifespan'' of a spooled file.
+.II MLP_PRIORITY
+.IS \fBMLP_PRIORITY\fR
+The default priority to give each spooled file.
+.II MLP_SPOOL
+.IS \fBMLP_SPOOL\fR
+Set a number of user-specific variable, such as title of document,
+type of document, and data base.
+.PP
+These variables can be set either by a user, or embedded in a script.
+Each is detailed in its own Lexicon entry.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "hpr," hpr
+.Xr "lp," lp
+.Xr "lp [device driver]," lp.d
+.Xr "lpr," lpr
+.Xr "lpsched" lpsched
+.SH Notes
+When you link
+.B /dev/lp
+or
+.B /dev/hp
+to a device, it normally is linked to a ``cooked'' device, e.g.,
+.BR /dev/hp .
+This works correctly for character-based output, such as text (or PostScript
+files); however, if you are downloading binary data to the printer,
+such as graphics or fonts, be sure to use the ``raw'' device, e.g.,
+.BR /dev/rhp .
+Passing binary information through a ``cooked'' device will garble
+the data and distort the resulting image.
+.PP
+Some \*(CO 4.2 customers have experienced printing problems, including
+no printing, slow printing, or printing stops after a line or two.
+To fix this, one needs to do the following steps in exact order;
+.IP \fB1.\fR 0.3i
+Edit file
+.BR /etc/conf/install_conf/keeplist .
+.IP \fB2.\fR
+Change the last line so that it reads as follows:
+.DM
+	echo '-I SHMMNI:SEMMNI:NMSQID:LPWAIT:LPTIME:LPTEST'
+.DE
+.IP \fB3.\fR
+Type the following command to build a new \*(CO kernel:
+.DM
+	/etc/conf/bin/idmkcoh -o /testcoh
+.DE
+.IP \fB4.\fR
+Shutdown and reboot with the new kernel.
+.IP \fB5.\fR
+Log in as the superuser
+.BR root .
+.IP \fB6.\fR
+Set the kernel variables that control discipline of the printer.
+The driver uses a hybrid busy-wait/timeout discipline, to efficiently support
+in a multi-tasking environment a variety of printers whose buffers come in a
+multiplicity of sizes.
+.IP
+The variable
+.B LPWAIT
+sets the time for which the processor waits for the
+printer to accept the next character.
+If the printer is not ready within the
+.B LPWAIT
+period, the processor then resumes normal processing for the number of
+ticks set by the kernel variable
+.BR LPTIME .
+Thus, setting
+.B LPWAIT
+to an extremely
+large number (e.g., 1,000) and
+.B LPTIME
+to a very small number (e.g., one) results in a fast printer,
+but leaves very few cpu cycles available for anything else.
+Conversely, setting
+.B LPWAIT
+to a small number (e.g., 50) and
+.B LPTIME
+to a large
+number (e.g., five)
+results in efficient multi-tasking but also results in a
+slow printer unless the printer itself contains a buffer (as is normal with all
+but the least expensive printers).
+By default,
+.B LPWAIT
+is set to 400 and
+.B LPTIME
+to four.
+We recommend that you set
+.B LPWAIT
+to no less than 50 and no more than 1,000 and
+.B LPTIME
+to no less than one.
+.IP
+The variable
+.B LPTEST
+determines wether the device driver checks to see if
+the printer is in an ``on-line'' condition before it uses the device.
+If your printer does not support this signal, you must set
+.B LPTEST
+to zero.
+.IP
+To reset the values of
+.BR LPWAIT ,
+.BR LPTIME ,
+and
+.BR LPTEST ,
+edit file
+.B /etc/conf/mtune
+and set the parameters
+.BR LPWAIT_SPEC ,
+.BR LPTIME_SPEC ,
+and
+.B LPTEST_SPEC
+to the values that you want.
+Then use the command
+.B /etc/conf/bin/idmkcoh
+to build a new kernel.
+For details on this command, see its entry in the Lexicon.
+One word of caution to the wary:
+be sure to name your new kernel something innocuous, such as
+.BR cohtest ,
+to ensure that you do not clobber your current working kernel.
+.IP \fB7.\fR
+Reboot the new kernel and try printing again.
+.IP \fB8.\fR
+If your printer still exhibits problems, try increasing or decreasing the
+values of
+.B LPTIME
+and
+.BR LPWAIT .
+Remember, each time you build a new kernel kernel,
+you must reboot in order for the new variables to take effect.
+.PP
+.II "Magnetic Data Operations"
+The MLP printer spooler is distributed under license from
+Magnetic Data Operations, 9400B Two Notch Road, Columbia, SC 29223.
+.PP
+The message
+.DM
+	cannot open device /dev/lp
+.DE
+.PP
+from
+.B lpr
+means either that the printer is not turned on, or that the device
+.B /dev/lp
+is not linked to the correct parallel-port device.
+Use the directions given above to find and link the correct device.
+The same applies when you receive this message from
+.BR hpr .

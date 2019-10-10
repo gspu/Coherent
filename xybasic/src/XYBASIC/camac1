@@ -1,0 +1,820 @@
+;CAMAC1 11/05/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1979, 1980 by Mark Williams Company, Chicago
+;statement and function routines for CAMAC version
+
+	if	camac
+
+	if	c3908
+rsprt	equ	14		;read status port #
+wsprt	equ	15		;write status port
+rsmsk	equ	20H		;read status mask
+	else
+rsprt	equ	10		;read status port #
+wsprt	equ	11		;write status port
+rsmsk	equ	0E4H		;read status mask
+	endif
+
+;The following EQUates are for the 3885 development version,
+;without disk commands.
+;Also changed for this version:  BOOT in VERSION and TYPFN below.
+	if	nonst and c3885
+uferr:	error	f, U, F		;fatal UF error
+close	equ	uferr
+eoffn	equ	uferr
+load	equ	uferr
+open	equ	uferr
+save	equ	uferr
+	endif
+
+;BKSET {<expr> [, <expr>]*}
+;BKSET sets the values in the data block at CMBLK according to the
+;specified values for NI, AI, NF, R, T, and CNT.
+	if	c3908
+bkset:	lxi	h,cmblk		;address of data block to HL
+	mvi	d,32
+	call	bkse2		;NI, 0 or 32
+	mvi	d,16
+	call	bkse1		;AI, 0 or 16
+	call	gtcex
+	dcx	b		;NF-1
+	lxi	d,31
+	call	cmbdu
+	jnc	crerr		;range error if NF not 1-31
+	inx	b
+	mov	m,c		;store NF
+	inx	h
+	mvi	d,1
+	call	bkse1		;R, 0 or 1
+	call	bkse4		;T, 8 or 16 or 24 give 128 or 160 or 192
+	jnz	crerr		;range error if T not 8 nor 16 nor 24
+	inx	h
+	call	gtcex		;CNT
+	mov	m,c
+	inx	h
+	mov	m,b
+	ret
+;BKSE1 is called from BKSET to set next data component to 0 or (D).
+bkse1:	call	gtcsn		;skip comma
+bkse2:	call	gtexp
+	mov	a,b
+	ora	c
+	jz	bkse3		;0
+	mov	a,d		;nonzero
+bkse3:	mov	m,a
+	inx	h
+	ret
+;BKSE4 sets next data component to 128, 160 or 192 depending on T.
+;Retn:	Zero	Set iff T = 8 or 16 or 24
+bkse4:	call	gtcex		;get T value
+	mov	a,b
+	ora	a
+	rnz			;too big
+	mov	a,c
+	mvi	m,128
+	cpi	8
+	rz			;T = 8, value is 128
+	mvi	m,160
+	cpi	16
+	rz			;T = 16, value is 160
+	mvi	m,192
+	cpi	24
+	ret			;T = 24, value is 192
+	else
+bkset	equ	snerr		;SN error in 3909 version
+	endif
+
+;BLOCK {<camvar> | <expr> [, <expr>]*}
+	if	c3908
+block:	mvi	a,4
+	call	cvals		;find CNAF values
+	jc	crerr		;range error if serial
+	call	camrg		;check NAF ranges
+	lxi	d,cmslo		;N address to DE
+	lxi	h,cmblk		;BKSET data block address to HL
+	mov	a,m
+	push	psw		;save NI
+	ldax	d
+	ora	m
+	stax	d		;N + NI replaces N
+	inx	d
+	inx	h
+	ldax	d
+	ora	m
+	stax	d		;A + AI replaces A
+	inx	d
+	inx	h
+	mov	c,m		;NF to C
+	inx	h
+	mov	b,m		;R to B
+	inx	h
+	ldax	d		;F
+	ora	m		;+ T value
+	stax	d		;F + T value replaces F
+	xchg			;DE points to T
+	lxi	h,wport+1	;HL addresses port to write
+	call	cratn
+	adi	22
+	mov	m,a		;set port # C*32 + 22
+	mov	a,b		;fetch R
+	ora	a
+	jz	bloc4		;R=0, write count of 0
+	inx	d
+	ldax	d		;fetch low order CNT
+	call	wport		;and write to port
+	inr	m		;reset port # to C*32 + 23
+	inx	d
+	ldax	d		;fetch high order CNT
+	call	wport		;and write
+	mov	a,m
+	sui	8
+	mov	m,a		;reset port # to C*32 + 15
+	mvi	b,14
+	call	rptcb		;read port C*32 + 14
+	ani	32
+	ori	64
+	call	wport		;write to C*32 + 15
+bloc1:	call	cratn
+	adi	11
+	mov	m,a		;set port # C*32 + 11
+	pop	psw		;recover NI
+	ora	a		;Zero reset iff NI <> 0
+	mov	a,c		;fetch NF
+	cnz	wport		;write NF to C*32 + 11 if NI <> 0
+	xchg			;save port loc in DE
+	lhld	cvcnt
+	mov	a,h
+	ora	l
+	jnz	bloc2		;components remain in camvar
+	call	gtcex		;else get integer SMA
+	jmp	bloc3
+bloc2:	dcx	h
+	shld	cvcnt		;update component count
+	lhld	cvloc
+	mov	c,m
+	inx	h
+	mov	b,m		;fetch D1 for SMA
+	inx	h
+	shld	cvloc		;update component location
+bloc3:	xchg			;restore port address to HL
+	inr	m		;bump to C*32 + 12
+	mov	a,c
+	call	wport		;write low SMA to port
+	inr	m		;bump to C*32 + 13
+	mov	a,b
+	call	wport		;write high SMA to port
+	lxi	h,camfn+2
+	call	cset3
+	lxi	h,cmslo
+	call	camfn		;do the function
+	mvi	b,20
+	call	rptcb		;read port C*32 + 20
+	mov	c,a
+	mvi	b,21
+	call	rptcb		;and port C*32 + 21
+	mov	b,a		;and result to BC
+	jmp	lamp1		;assign component as in LAMPAT
+bloc4:	xra	a
+	call	wport		;write low 0
+	inr	m
+	call	wport		;and high 0
+	jmp	bloc1		;and continue as above
+	else
+block	equ	snerr		;SN error in 3909 version
+	endif
+
+;BYPASS [<camvar> | <expr>, <expr>]
+bypas:	mvi	a,8
+bypa0:	push	psw		;save value
+	call	cvald		;get C and S values
+	jnc	crerr		;range error if local
+bypa1:	call	scwrc		;write appropriate data
+	lxi	h,cmdat+1
+	pop	psw
+	mov	m,a		;reset D2
+	xra	a
+	call	scda1		;reset D1 and write data
+	jmp	scwai		;and wait for completion
+
+;CAMAC [<camvar>] [<expr> [, <expr>]* ]
+camcd:	mvi	a,4		;need 4 component values
+	call	cvals		;find values for CNAF
+	push	psw		;save local/serial status
+	call	camrg		;check NAF ranges
+	pop	psw
+	jc	cserl		;perform a serial CAMAC command
+;output data for a CAMAC write command
+	mov	a,m
+	sui	16		;fetch F-16
+	cpi	8
+	cc	cwrit		;do the CAMAC write command
+;do a nonserial CAMAC function
+	lxi	h,camfn+2
+	call	cset3		;set OUTs for desired crate
+	lxi	h,cmslo
+	call	camfn		;do the CAMAC function
+;input data from CAMAC read command
+	lda	cmfnc
+	cpi	8
+	jnc	cqxch		;not a READ command, skip input
+cread:	lxi	h,camrd+1	;serial CAMAC read entry point
+	call	cset3		;set INs for desired crate
+	lxi	h,cmdat
+	call	camrd		;read the data
+	call	cadat		;assign data to destinations
+;finish command execution, checking Q and X responses
+cqxch:	mvi	b,rsprt
+	call	cqxrd		;read Q and X responses
+	rnz			;done if X response nonzero
+	lda	xnabl
+	ora	a
+	rz			;or if XENABLE specifies X errors ignored
+	dcr	a		;Zero set iff continue after error message
+	push	psw
+	call	prntm		;print NO X RESPONSE message
+	db	'NO X RESPONSE'
+	if	rtpak
+	db	' IN LINE', ' ' or 80H
+	else
+	db	':' or 80H
+	endif
+cqxc1:	if	rtpak
+	call	linbc		;line number to BC
+	call	wrtbu		;and printed
+	else
+	lhld	textp
+	xchg
+	lhld	lnnum
+	call	prtl0		;print the line number and line of error
+	endif
+	call	wcrlf
+	pop	psw
+	rz			;continue
+	jmp	dmod2		;else return to direct mode
+
+;serial CAMAC command
+cserl:	call	sccod		;replace CN with serial CN, D3 with C
+	ora	a		;clear Carry
+	rar
+	rar
+	rar
+	rar			;A2-A0 to A7-A5, A3 to Carry
+	push	psw		;save Carry
+	ora	c		;D1 is 32 * [A2-A0] + F
+	mov	e,a
+	pop	psw		;A3 to Carry
+	mov	a,b
+	ral			;D2 is 2 * N + A3
+	mov	m,a		;store D2
+	dcx	h
+	mov	m,e		;and store D1
+	mov	a,c
+	push	psw		;save F to determine if write or read
+	call	scwrt		;write lam register and data
+	pop	psw		;recover F
+	push	psw
+	sui	16
+	cpi	8
+	jnc	csrl1		;not a write command
+	call	cwrit		;write the desired D1-D3
+	lxi	d,(1 shl 8) or 16
+	call	cmsfn		;execute F(16) A(1)
+csrl1:	call	scwai		;wait for command completion
+	pop	psw		;recover F
+	cpi	8
+	jnc	csrl2		;not a READ function
+	lxi	d,0
+	call	cmsfn		;execute F(0) A(0)
+	jmp	cread		;and continue as in local CAMAC read
+csrl2:	lxi	d,(12 shl 8) or 1
+	call	cmsfn		;execute F(1) A(12)
+	mvi	b,6
+cqxrd:	call	rptcb		;read port C*32 + 6
+	cma			;Q and X values are complemented
+	mov	b,a		;save result
+	ani	1		;mask to bit 0
+	lxi	h,camqr
+	mov	m,a		;bit 0 gives Q response result
+	inx	h
+	mov	a,b
+	ani	2		;mask to bit 1
+	mov	m,a		;bit 1 gives X response result
+	ret
+
+;CAMCLR [<camvar> | <expr>]
+camcl:	if	c3908
+	lxi	b,(1 shl 8) or 2	;1 to B, 2 to C
+	else
+	lxi	b,(2 shl 8) or 2	;2 to B, 2 to C for 3909
+	endif
+camc0:	push	b		;INIT entry point
+	call	cvalc		;get C value
+	jc	camcs		;serial
+camc1:	mvi	b,rsprt		;PULSE entry point
+	call	rptcb		;read status port
+	ani	rsmsk
+camc4:	pop	b		;local INHIBIT entry point for 3909 version
+	ora	b		;or in desired bit
+	mov	b,a		;and save
+camc2:	call	cratn		;crate to A7-A5 -- local INHIBIT entry point
+	adi	wsprt		;add write status port offset
+	sta	wport+1		;store to write port
+	mov	a,b
+	jmp	wport		;write value to port
+camcs:	mvi	a,19
+camc3:	call	scwrc		;reset and write -- serial INHIBIT entry point
+	pop	b
+	mov	a,c
+	call	scdat		;write desired value
+	jmp	scwai		;and wait for completion
+
+;CLOSE and CREATE for Northstar DOS are in module STATES4.CAM.
+;CLOSE for 3885 version is in module SDISK.
+	if	cpm and not c3885
+close:	error	c, U, F		;Unimplemented Feature error and Continue
+creat	equ	close		;same for CREATE
+	endif
+
+;DECLARE <camvar> (<expr>) [= <expr> [, <expr>]* ]
+declr:	call	gtnam		;look for camac var name
+	push	psw
+	lda	varty
+	cpi	camst		;make sure variable is a camvar
+	jnz	snerr		;SN error if not
+	pop	psw
+	call	dim0		;dimension the variable
+	mvi	d,eqult
+	call	gtd		;look for trailing = token
+	rc			;done if none
+	jmp	letca		;else initialize the camvar as in LET
+
+;DELAY <expr> [, <expr>] [, <expr>]
+;DELAY waits for the real time clock to tick the specified number of times.
+;Typing any character aborts the DELAY.
+;The implementation counts clock ticks rather than adding the arg to
+;the current time and waiting until the resulting time.  The
+;latter blows up if a user interrupt service routine renables
+;(so the clock ticks) but lasts until after the specified time.
+delay:	lda	imode
+	ora	a
+	jnz	enerr		;fatal EN error if clock disabled
+	call	dela5		;minutes to BC
+	push	b		;and saved
+	call	dela4		;seconds to BC
+	push	b		;and saved
+	call	dela4		;half seconds to BC
+	pop	h		;seconds to HL
+	dad	h		;* 2 = half seconds
+	dad	b		;plus third arg
+	jc	crerr		;arg too big
+	xchg			;half second tick count to DE
+	pop	b		;minute count to BC
+dela1:	mov	a,d
+	ora	e
+	jnz	dela2		;tick count nonzero
+	mov	a,b
+	ora	c		;check minutes count
+	rz			;done
+	dcx	b		;decrement minutes count
+	lxi	d,120		;and set half second count
+dela2:	lda	timex		;fetch clock tick count
+	mov	h,a		;and save
+dela3:	call	redyc		;look for console char
+	rc			;abort if char typed
+	lda	timex		;refetch tick count
+	cmp	h
+	jz	dela3		;no tick yet
+	dcx	d		;decrement tick count
+	jmp	dela1		;and see if more to delay
+;DELA4 gets [, <expr>] argument to BC, 0 if omitted, OR error if negative.
+dela4:	lxi	b,0
+	call	gtcom		;look for comma
+dela5:	cnc	gtexp		;get arg
+	mov	a,b
+	ora	a
+	rp			;ok
+	jmp	crerr		;negative arg, fatal range error
+
+;DISAB
+cdsab:	di			;disable interrupts
+	mvi	a,255
+	sta	imode		;set IMODE
+	ret
+
+;DRIVER {<camvar> | <expr>, <expr>}
+drivr:	mvi	a,2
+	call	cvals		;get C, N values
+	jc	crerr		;range error if serial
+	mov	c,m		;C to C
+	inx	h
+	mov	a,m
+	dcr	a		;fetch N-1
+	cpi	31
+	jnc	crerr		;N range error unless 1-31
+	inr	a
+	lxi	h,sdrvr
+	mov	m,a		;store new driver slot N
+	dcx	h
+	mov	m,c		;and driver crate C
+	ret
+
+;ENAB
+cenab:	xra	a
+	sta	imode		;reset IMODE
+	ei			;enable interrupts
+	ret
+
+;INHIBIT [<camvar> | <expr>, <expr>]
+cinhi:	call	cvald		;get crate and data
+	if	c3908
+	jnc	camc2		;local, write 0 or 32
+	else
+	jc	cinh1		;serial INHIBIT
+	push	b
+	mvi	b,rsprt
+	call	rptcb		;read status port
+	ani	0E0H		;mask off INHIBIT bit as well as others
+	jmp	camc4
+	endif
+cinh1:	mvi	c,4
+	push	b
+	jmp	camc3		;serial, proceed as in CAMCLR
+
+;INIT [<camvar> | <expr>]
+cinit:	if	c3908
+	lxi	b,(2 shl 8) or 1
+	else
+	lxi	b,(1 shl 8) or 1
+	endif
+	jmp	camc0		;same as CAMCLR with different bits
+
+;LAMPAT {<camvar> | <expr> [, <expr>]*}
+lampa:	call	cvalc		;get C value
+	jc	lamps		;serial LAMPAT
+	if	c3908
+	lxi	b,(16 shl 8) or 4	;16 to B, 4 to C
+	else
+	lxi	b,(12 shl 8) or 4	;12 to B, 4 to C
+	endif
+	call	lamin		;read 4 values, starting at C*32 + 16
+	lda	cmdat+3		;NB crate C clobbered but unneeded
+	mov	c,a
+	mvi	b,0		;fourth value to BC
+lamp1:	lhld	cvcnt		;BLOCK entry point
+	mov	a,h
+	ora	l
+	jz	crdin		;no more components, take numeric destination
+	lhld	cvloc
+	mov	m,c
+	inx	h
+	mov	m,b		;assign to camvar
+	ret
+lamps:	call	sccod		;set C, N, D3
+	mvi	m,61		;and D2
+	dcx	h
+	mvi	m,129		;and D1
+	call	scwrt		;write the data
+	call	scwai		;wait for completion
+	lxi	d,0
+	call	cmsfn		;execute F(0) A(0)
+	lxi	b,(6 shl 8) or 3	;6 to B, 3 to C
+	call	lamin		;read 3 values starting at C*32 + 6
+	lxi	b,0
+	jmp	lamp1		;and assign 0 as last component
+
+;[LET] <camvar> = [<camvar>] [<expr> [, <expr>]*]
+letcv:	call	gtequ		;skip = token
+letca:	lhld	cvloc		;DECLARE entry point
+	push	h		;save camvar location
+	lhld	cvcnt
+	push	h		;and save component count
+	call	gtcam		;look for camvar on rhs
+	jc	letc0		;none, just take list of integer values
+	lhld	cvcnt
+	xchg			;rhs component count to DE
+	pop	h		;lhs component count to HL
+	push	d		;save rhs count for block move
+	call	cplde
+	dad	d		;lhs count - rhs count to HL
+	jnc	cverr		;lhs count < rhs count, CV error
+	shld	cvcnt		;store new count = components to move later
+	pop	h		;rhs component count to HL
+	dad	h		; * 2 = # bytes
+	xchg			;byte count for block move to DE
+	lhld	cvloc		;rhs location to HL
+	xthl			;lhs location to HL -- destination
+	pop	b		;rhs location to BC -- source
+	call	moved		;block move rhs values to lhs
+	jmp	letc2		;and continue if more components to specify
+letc0:	pop	h
+	shld	cvcnt		;recover clobbered CVCNT
+	pop	h
+letc1:	call	gtexp		;get integer value for next component
+	lhld	cvloc		;location to HL
+	mov	m,c
+	inx	h
+	mov	m,b		;value to component
+	inx	h		;point to next component
+letc2:	shld	cvloc		;and save location
+	lhld	cvcnt
+	mov	a,h
+	ora	l		;Zero set iff all components assigned values
+	dcx	h
+	shld	cvcnt		;save decremented count
+	jz	letc3		;done
+	call	gtcom		;look for comma before next value
+	jnc	letc1		;and assign the next component
+	ret			;leave additional components unchanged
+letc3:	call	dtst0		;check if delimiter follows
+	rnc			;yes, successfully done
+cverr:	error	f, C, V		;fatal CV error
+
+;LOOPCOL [<camvar> | <expr>, <expr>]
+loopc:	mvi	a,4
+	jmp	bypa0		;same as BYPASS
+
+;ONLINE [<camvar> | <expr>, <expr>]
+onlin:	mvi	a,16
+	push	psw
+	call	cvald		;get C and S values
+	jnc	crerr		;range error if local
+	xri	4		;reverse sense of ONLINE
+	jmp	bypa1		;then same as BYPASS
+
+;OPEN for Northstar DOS is in module STATES4.CAM.
+;OPEN for 3885 version is in module SDISK.
+	if	cpm and not c3885
+open	equ	close		;UF error in CP/M CAMAC version
+	endif
+
+;PRINT <camvar> as components with appropriate identifiers
+prcam:	lxi	b,-4		;DATA count to BC
+	lxi	h,camma		;component id address to HL
+prca1:	call	prtst		;print component id
+	mov	a,b
+	ora	a
+	inx	b		;increment DATA count
+	jm	prca2		;skip printing DATA # unless data
+	call	prinv		;print DATA #
+	lxi	h,camda		;next component id will be DATA again
+prca2:	push	b
+	push	h
+	mvi	a,'='
+	call	writc		;print = sign
+	lhld	cvloc		;component value loc to HL
+	mov	c,m
+	inx	h
+	mov	b,m		;value to BC
+	inx	h
+	shld	cvloc		;and save location of next component
+	call	prinv		;print integer value of component
+	call	wcrlf		;and print crlf
+	lhld	cvcnt
+	dcx	h		;decrement component count
+	shld	cvcnt		;and store updated count
+	mov	a,h
+	ora	l		;Zero set iff done
+	pop	h
+	pop	b
+	jnz	prca1		;print remaining components
+	ret
+;PRINT DRIVER
+prdri:	call	read1		;read the DRIVER token
+	lxi	h,scrte		;serial driver crate location to HL
+	mov	c,m
+	mvi	b,0		;crate number C to BC
+	inx	h
+	mov	a,m		;slot number N to A
+	ora	a		;clear Carry
+	lxi	h,camma		;CRATE message address to HL
+prdr1:	push	psw
+	call	prtst		;print component id
+	mvi	a,'='
+	call	writc		;and = sign
+	xchg
+	call	prinv		;and print value
+	xchg
+	call	wcrlf		;print crlf
+	pop	psw
+	rc			;done
+	mov	c,a		;else slot N to C
+	stc			;and set Carry so done next time
+	jmp	prdr1		;and print second component
+camma:	db	'CRATE ', ' ' or 80H
+	db	'SLOT  ', ' ' or 80H
+	db	'SUBADD', 'R' or 80H
+	db	'FN COD', 'E' or 80H
+camda:	db	'DAT', 'A' or 80H
+
+
+;PULSE{1 | 2} [<camvar> | <expr>]
+pulse:	call	gtcha		;get 1 or 2
+	sui	'1'
+	mvi	b,8
+	jz	puls1		;PULSE1
+	dcr	a
+	jnz	snerr		;neither 1 nor 2 follows
+	mvi	b,16
+puls1:	push	b
+	call	cvalc		;get crate C
+	jc	crerr		;range error if serial
+	jmp	camc1		;continue as in local CAMCLR
+
+;RSTATUS [<camvar> | <expr>]
+rstat:	call	cvalc		;get C value
+	jc	rstas		;serial RSTATUS
+	mvi	b,rsprt
+	call	rptcb		;read status port
+	cma
+	mov	b,a		;save complemented result
+	lxi	h,camqr		;Q response location to HL
+	ani	1
+	mov	m,a		;Q
+	inx	h
+	mov	a,b
+	ani	2
+	mov	m,a		;X
+	inx	h
+	mov	a,b
+	if	c3908
+	ani	4
+	mov	m,a		;O
+	inx	h
+	mov	a,b
+	cma			;uncomplement
+	ani	20H
+	else
+	cma			;uncomplement
+	inx	h		;skip O (not returned on 3909)
+	ani	4
+	endif
+	mov	m,a		;I
+	ret
+rstas:	call	sccod		;set B, C, D3
+	mvi	m,60		;and D2
+	dcx	h
+	mvi	m,1		;and D1
+	call	scwrt		;write data
+	call	scwai		;wait for response
+	lxi	d,0
+	call	cmsfn		;execute F(0) A(0)
+	mvi	b,6
+	call	rptcb		;read port C*32 + 6
+	mov	c,a		;and save in C
+	mvi	b,7
+	call	rptcb		;read port C*32 + 7
+	mov	b,a		;and save in B
+	lxi	h,camqr
+	mov	a,c
+	ani	20H
+	mov	m,a		;Q
+	inx	h
+	mov	a,c
+	ani	10H
+	mov	m,a		;X
+	inx	h
+	mov	a,b
+	cma			;complement
+	ani	10H
+	mov	m,a		;O
+	inx	h
+	mov	a,c
+	ani	40H
+	mov	m,a		;I
+	ret
+
+;SETTIME <expr> [, <expr>] [, <expr>]
+sttim:	lxi	h,timex+2	;HL addresses half second count
+	lxi	d,24		;max # hours
+	ora	a		;reset Carry
+	call	stti2		;get hours count and set clock
+	lxi	d,60		;max # minutes or seconds
+	call	stti1		;get minutes count and set clock
+	call	stti1		;get seconds count
+	ora	a
+	ral
+	mov	m,a		;seconds count is 2 * seconds
+	ret
+stti1:	dcx	h		;point to next time component
+	push	h
+	call	gtcom		;look for comma
+	pop	h
+	lxi	b,0		;default to 0 if unspecified
+stti2:	cnc	gtexp		;get desired count
+	call	cmbdu		;compare to max
+	jnc	crerr		;too big
+	mov	a,c		;fetch count
+	sub	e		;subtract bias
+	mov	m,a		;and store to set clock
+	ret
+
+;XENABLE <expr>
+xenab:	lxi	d,3		;bound to DE
+	lxi	h,xnabl		;destination to HL
+	call	gtexp		;get arg
+	call	cmbdu		;check for arg out of range
+	jnc	crerr		;fatal CR error
+	mov	m,c		;store new value in destination
+	ret
+
+
+;functions
+
+;CAM{Q | X | O | I}: --> <integer>
+camqf:	call	gtcha		;get character after CAM
+	call	camf1		;address desired byte
+	ldax	d		;fetch it
+	ora	a
+	lxi	b,0
+	rz			;return 0 if false
+	dcx	b
+	ret			;and -1 if true
+camf1:	lxi	d,camqr		;address CAMQ value
+	cpi	'Z'+1
+	jc	camf2
+	sui	20H		;convert lower case to UPPER
+camf2:	cpi	'Q'
+	rz
+	inx	d		;adddress CAMX value
+	cpi	'X'
+	rz
+	inx	d
+	cpi	'O'
+	rz
+	inx	d
+	cpi	'I'
+	rz
+	call	bakup		;unread the character
+	jmp	snerr		;else issue SN error
+
+;TIME$: --> <string>
+;TIME$ returns the current time as string "hh:mm:ss".
+;Issues nonfatal FC error and returns "DISABLED" if DI.
+timed:	lda	imode
+	ora	a
+	jnz	timea
+	lxi	d,timex+2	;DE addresses hours count
+	lxi	h,bufad		;HL addresses string being built
+	push	h		;save for later
+	di			;disable so clock does not tick during fetch
+	ldax	d		;fetch hours-24
+	adi	24		;hours
+	call	time1		;convert to string
+	adi	60		;minutes
+	call	time1		;convert
+	ei			;all fetched, renable
+	adi	120		;seconds * 2
+	ora	a		;clear Carry
+	rar			;divide by 2 to give seconds
+	call	time1		;convert
+	pop	d		;recover string address
+time0:	mvi	c,8		;length = 8 for hh:mm:ss
+	jmp	scopy		;copy to string space and return
+timea:	call	fcern		;issue nonfatal FC error
+	lxi	d,disma		;result is "DISABLED"
+	jmp	time0		;copy to string space and return
+disma:	db	'DISABLED'
+;TIME1 adds two ASCII decimal digits and a colon to result string.
+;Call:	A	desired value (hours, minutes or seconds)
+;	DE	count location
+;	HL	string destination
+;Retn:	A	next count (from (DE)-1)
+;	DE	decremented
+;	HL	next location = HL + 3
+time1:	mvi	m,'0'		;store tens digit
+time2:	cpi	10
+	jc	time3		;tens digit is now correct
+	inr	m		;else bump tens digit
+	sui	10		;and subtract from count
+	jmp	time2		;and try again
+time3:	adi	'0'		;make remainder ASCII
+	inx	h
+	mov	m,a		;and add to string
+	inx	h
+	mvi	m,':'		;and add colon
+	inx	h		;point to next available
+	dcx	d
+	ldax	d		;fetch next count
+	ret
+
+;TYP: --> <integer>
+
+	if	nonst and (not rtpak) and (not c3885)
+typfn:	lda	fmode		;fetch mode
+	cpi	'I'		;check if open for Input
+	jnz	dkerr		;DK error if not
+	lhld	nxtad
+	mvi	b,0
+	mov	c,m
+	ret
+	else
+	if	not c3885
+typfn	equ	close		;UF error in CP/M version
+	endif
+	endif
+
+
+	endif			;end of CAMAC conditional
+
+;end of CAMAC1
+	page

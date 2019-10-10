@@ -1,0 +1,227 @@
+ccoonnttrroollss -- System Administration
+
+Data base for the lp print spooler
+/uussrr/ssppooooll/mmllpp/ccoonnttrroollss
+
+The file /uussrr/ssppooooll/mmllpp/ccoonnttrroollss is the data base for the print spooler llpp.
+The superuser rroooott can modify this file, either with a text editor or (to a
+more limited extent) with the command llppaaddmmiinn.
+
+The format of  ccoonnttrroollss is simple.  Every blank line  is ignored.  All text
+after the pound sign `#' is also ignored; you can use this feature to embed
+comments in the  file.  The rest of the file  consists of commands, each of
+which has the format _c_o_m_m_a_n_d=_a_r_g_u_m_e_n_t_s.
+
+The following describes the commands that you can embed in ccoonnttrroollss:
+
+ddeeffaauulltt=_p_r_i_n_t_e_r
+     This command  sets the default printer, that is,  the printer on which
+     jobs are  printed when the user  does not specify a  printer on the llpp
+     command line.
+
+ddooccooppiieess=_s_t_a_t_u_s
+     This command controls how llpp prints  multiple copies.  If it is set to
+     oonn,  then multiple  copies  are generated  by  invoking the  printer's
+     control  script for  each time;  if it  is set  to ooffff,  then multiple
+     copies  are printed  by  telling the  control  script to  do it.   The
+     difference  in the  two  methods is  that  the former  gives you  more
+     accurate  information about  the status  of the job.   If you  wish to
+     print many copies and you want to monitor the job's progress, then set
+     ddooccooppiieess to oonn.
+
+ffeeeedd=_s_t_a_t_u_s
+     The command llooccaallffeeeedd tells  llpp whether to insert a formfeed character
+     between  printing jobs  sent to  printers  other than  local printers.
+     Setting it to  oonn tells llpp to output a  formfeed character; setting it
+     to ooffff (or deleting it) tells it not to do so.
+
+llooccaallffeeeedd=_s_t_a_t_u_s
+     The command llooccaallffeeeedd tells  llpp whether to insert a formfeed character
+     between printing  jobs sent to  a local printer.  (A  _l_o_c_a_l printer is
+     one plugged into  the auxiliary port of a terminal.)  Setting it to oonn
+     tells  llpp  to output  a  formfeed  character; setting  it  to ooffff  (or
+     deleting it) tells it not to do so.
+
+llooggrroollll=_h_o_u_r_s
+     This command  sets the time,  in hours, at  which the log  file lloogg is
+     renamed lloogg.oo and a fresh log  file is begun.  This is done so the log
+     file does  not grow  without bounds.  The  default value is  168 hours
+     (one week).
+
+lloonngglliiffee=_h_o_u_r_s
+     Set, in hours, the ``life-expectancy'' of a file with a lifetime of LL.
+     The default is three days (72 hours).
+
+pprriinntteerr=_n_a_m_e,_d_e_v_i_c_e,_s_c_r_i_p_t
+     This command defines a printer.  llpp accesses a printer by its name; it
+     cannot access a printer unless you name it in a pprriinntteerr command.  _n_a_m_e
+     names the printer.  You can name  a printer anything you like, so long
+     as it is one word.  _d_e_v_i_c_e  names the device into which it is plugged.
+     _s_c_r_i_p_t names  the file in directory  /uussrr/ssppooooll/mmllpp/bbaacckkeenndd that tells
+     how to massage the text being passed to the printer.  You can write or
+     modify each  script in that  directory, and name  each script whatever
+     you like.   Note that  one physical  printer can have  multiple names,
+     each  using  a different  script;  and  one script  can  be shared  by
+     multiple physical printers.
+
+     The command
+
+         printer = linenlq, /dev/lpt2, pannlq
+
+     names a printer lliinneellqq that  is plugged into port /ddeevv/llpptt22, and whose
+     input    is    filtered     through    the    contents    of    script
+     /uussrr/ssppooooll/mmllpp/bbaacckkeenndd/ppaannnnllqq.
+
+     The command
+
+         printer = linepr, /dev/lpt2, linepr
+
+     names a printer lliinneepprr that is plugged into /ddeevv/llpptt22, and whose input
+     is      filtered     through      the      contents     of      script
+     /uussrr/ssppooooll/mmllpp/bbaacckkeenndd/lliinneepprr.
+
+     Note that  these examples  both name  the same physical  device.  They
+     differ in  the scripts they use  to massage their input;  this will be
+     described in detail below.
+
+     Finally,  a pprriinntteerr  can direct  its output to  any device,  serial or
+     parallel, even /ddeevv/nnuullll. For example:
+
+         printer=disk,/dev/null,disk
+
+     As  will be  shown below,  the script  ddiisskk writes  its output  into a
+     temporary  file, so  you can  examine  it without  wasting a  piece of
+     paper.  The format of a printer-control script is described below.
+
+     You  do not  have to  include  a printer-control  script in  a pprriinntteerr
+     command; if  you do not  include one, the printer  daemon llppsscchheedd uses
+     the command ccaatt by default.
+
+sshhoorrttlliiffee=_h_o_u_r_s
+     Set, in days, the ``life-expectancy'' of  a file with a lifetime of SS.
+     The default is 48 hours (two days).
+
+tteemmpplliiffee=_h_o_u_r_s
+     Set, in minutes, the ``life-expectancy''  of a file with a lifetime of
+     TT. The default is two hours.
+
+_P_r_i_n_t_e_r _C_o_n_t_r_o_l _S_c_r_i_p_t_s
+A printer-control script massages the text being handed to a given printer.
+The  printer  daemon  llppsscchheedd  redirects  the  output of  the  script  (and
+therefore, of every  command within the script) to the  device named on the
+appropriate pprriinntteerr command named in the file /uussrr/ssppooooll/mmllpp/ccoonnttrroollss.
+
+For example, consider the command
+
+    printer = linenlq, /dev/lpt2, pannlq
+
+This command names a printer lliinneennllqq, declares that it is plugged into port
+/ddeevv/llppqq22, and  requests that llppsscchheedd massage input  to the printer through
+script /uussrr/ssppooooll/mmllpp/bbaacckkeenndd/ppaannnnllqq. When llppsscchheedd processes a request that
+is directed  to printer lliinneellqq,  it pipes the  text of the  job into script
+ppaannnnllqq, and redirects the output of ppaannnnllqq to device /ddeevv/llpptt22.
+
+It is important to remember that a printer-control script is not restricted
+to  a few  commands that  the spooler  understands.  Each  is a  true shell
+script that  can use  any or  all COHERENT commands  to process  text.  The
+limits of what a script can do are set only by your imagination.
+
+Consider the following examples.   In the discussion, above, of the command
+pprriinntteerr, two  scripts were  mentioned: ppaannnnllqq  and lliinneepprr. Both  send their
+output to  the same physical  printer, but they  process the input  text in
+different ways.  The following gives the contents of lliinneepprr:
+
+    # filter the input through pr
+    pr
+
+    # throw a page at the end
+    echo "\f\c"
+
+This  script  filters its  input  through the  COHERENT  command pprr,  which
+paginates the  text and  puts a  header on it.   It then echoes  a formfeed
+character, to  force the printer  to throw a  blank page at the  end of the
+job.  As in other shell scripts,  a pound sign `#' introduces a comment and
+blank lines are ignored.
+
+The following gives the contents of script ppaannnnllqq:
+
+    # turn on near-letter-quality printing
+    echo "\021\033n"
+
+    pr
+
+    # turn off near-letter-quality printing
+    echo "\021\033P"
+
+This script  resembles the first, except that it  includes commands to echo
+the magic strings that turn on and turn off near-letter-quality printing on
+this printer.  This is one small  example of the flexibility you can employ
+in devising a script
+
+As with  other shell  scripts, you  can modify the  behavior of  a printer-
+control script  by setting environmental variables.   For example, consider
+the following variation on the script lliinneepprr:
+
+    if [ $HEADER ]; then
+        pr -h "$HEADER"
+    else
+        pr
+    fi
+
+    # throw a page at the end
+    echo "\f\c"
+
+If you  have exported the  environmental variable HHEEAADDEERR,  then this script
+prints it at the top of each page; otherwise, it prints the default header.
+You can use the same technique to do other work, such as force the printing
+of a banner page.
+
+The  llpp  spooler  reserves for  its  own  use  the environmental  variables
+MMLLPP_CCOOPPIIEESS,  MMLLPP_FFOORRMMLLEENN, MMLLPP_LLIIFFEE,  MMLLPP_PPRRIIOORRIITTYY, MMLLPP_SSPPOOOOLL.  Your scripts
+can also use these variables.  For  more information on what each does, see
+its entry in the Lexicon.
+
+When llppsscchheedd  uses a printer-control script, it  passes it three arguments:
+respectively, the  sequence number of  the print job  (which identifies the
+job  uniquely); the  name  of the  user;  and the  number  of copies  being
+printed.  You  can use this information to control  the printing of output;
+for example, consider the following:
+
+    for i in `from 1 to $3`
+    do
+        pr -h "User $2 - Copy $i of $3"
+    done
+    echo "\f\c"
+
+Note, too, that just as each  physical printer can be accessed in different
+ways via different scripts, so too  the same script can be used by multiple
+physical  printers.  If  you had multiple  Panasonic printers  plugged into
+your system,  you could use the  above script with each  of them to massage
+their input appropriately.
+
+One last  example.  As noted above, the output  of a printer-control script
+can be directed to any device, not just a port.  (It can also be redirected
+to non-existent  ports, so be careful when you  enter your pprriinntt commands.)
+You can  use this feature  to redirect formatted  text into files  or other
+interesting places.  Consider the following pprriinntteerr command:
+
+    printer=disk,/dev/null,disk
+
+This creates a ``printer'' named  ddiisskk. The text filtered through file ddiisskk
+is  redirected to  /ddeevv/nnuullll. The  contents of script  ddiisskk show  what this
+device is up to:
+
+    tee /tmp/D$$
+
+This script uses the COHERENT command tteeee to redirect its input both to the
+standard output (which in the case of printer ddiisskk is thrown away) and into
+a file in directory ttmmpp. You can use this command to save input for further
+examination later.
+
+This discussion just  scratches the surface of what you  can do with the llpp
+print  spooler and  its  control scripts.   For more  information, see  the
+Lexicon entries for pprriinntteerr and llpp.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg  CCOOHHEERREENNTT, llpp,  llppaaddmmiinn,  MMLLPP_CCOOPPIIEESS, MMLLPP_FFOORRMMLLEENN,  MMLLPP_LLIIFFEE,
+MMLLPP_PPRRIIOORRIITTYY, MMLLPP_SSPPOOOOLL, pprriinntteerr

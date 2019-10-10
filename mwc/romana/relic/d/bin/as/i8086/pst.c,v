@@ -1,0 +1,430 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     91.02.06.20.45.06;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.06.20.44.53;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@steve 2/6/91
+Initial MWC RCS revision.
+@
+
+
+1.2
+log
+@steve 2/6/91
+Floating point and 80286 instructions.
+@
+text
+@/*
+ * Basic symbol table.
+ * Intel iAPX-86.
+ * Small model of addressing.
+ */
+#include "asm.h"
+
+struct	sym	sym[] = {
+
+	{ 0,	".",		S_USER,		0,	E_DIR,	0 },
+
+	{ 0,	"ax",		S_USER,		0,	E_AREG, AX },
+	{ 0,	"bx",		S_USER,		0,	E_AREG, BX },
+	{ 0,	"cx",		S_USER,		0,	E_AREG, CX },
+	{ 0,	"dx",		S_USER,		0,	E_AREG, DX },
+	{ 0,	"sp",		S_USER,		0,	E_AREG, SP },
+	{ 0,	"bp",		S_USER,		0,	E_AREG, BP },
+	{ 0,	"si",		S_USER,		0,	E_AREG, SI },
+	{ 0,	"di",		S_USER,		0,	E_AREG, DI },
+
+	{ 0,	"al",		S_USER,		0,	E_AREG, AL },
+	{ 0,	"ah",		S_USER,		0,	E_AREG, AH },
+	{ 0,	"bl",		S_USER,		0,	E_AREG, BL },
+	{ 0,	"bh",		S_USER,		0,	E_AREG, BH },
+	{ 0,	"cl",		S_USER,		0,	E_AREG, CL },
+	{ 0,	"ch",		S_USER,		0,	E_AREG, CH },
+	{ 0,	"dl",		S_USER,		0,	E_AREG, DL },
+	{ 0,	"dh",		S_USER,		0,	E_AREG, DH },
+
+	{ 0,	"cs",		S_USER,		0,	E_AREG, CS },
+	{ 0,	"ds",		S_USER,		0,	E_AREG, DS },
+	{ 0,	"ss",		S_USER,		0,	E_AREG, SS },
+	{ 0,	"es",		S_USER,		0,	E_AREG, ES },
+
+	{ 0,	".byte",	S_BYTE,		0,	E_ACON, 0 },
+	{ 0,	".word",	S_WORD,		0,	E_ACON, 0 },
+	{ 0,	".even",	S_EVEN,		0,	E_ACON, 0 },
+	{ 0,	".odd",		S_ODD,		0,	E_ACON, 0 },
+	{ 0,	".ascii",	S_ASCII,	0,	E_ACON, 0 },
+	{ 0,	".blkb",	S_BLK,		0,	E_ACON, 1 },
+	{ 0,	".blkw",	S_BLK,		0,	E_ACON, 2 },
+	{ 0,	".page",	S_PAGE,		0,	E_ACON, 0 },
+	{ 0,	".title",	S_TITLE,	0,	E_ACON, 0 },
+	{ 0,	".globl",	S_GLOBL,	0,	E_ACON, 0 },
+	{ 0,	".comm",	S_COMM,		0,	E_ACON, 0 },
+
+	{ 0,	"xlat",		S_INH,		0,	E_ACON, 0327 },
+	{ 0,	"popf",		S_INH,		0,	E_ACON, 0235 },
+	{ 0,	"pushf",	S_INH,		0,	E_ACON, 0234 },
+	{ 0,	"nop",		S_INH,		0,	E_ACON, 0220 },
+	{ 0,	"lahf",		S_INH,		0,	E_ACON, 0237 },
+	{ 0,	"sahf",		S_INH,		0,	E_ACON, 0236 },
+	{ 0,	"aaa",		S_INH,		0,	E_ACON, 0067 },
+	{ 0,	"daa",		S_INH,		0,	E_ACON, 0047 },
+	{ 0,	"aas",		S_INH,		0,	E_ACON, 0077 },
+	{ 0,	"das",		S_INH,		0,	E_ACON, 0057 },
+	{ 0,	"aam",		S_INH,		0,	E_ACON, 0324 },
+	{ 0,	"aad",		S_INH,		0,	E_ACON, 0325 },
+	{ 0,	"cbw",		S_INH,		0,	E_ACON, 0230 },
+	{ 0,	"cwd",		S_INH,		0,	E_ACON, 0231 },
+	{ 0,	"rep",		S_INH,		0,	E_ACON, 0363 },
+	{ 0,	"repz",		S_INH,		0,	E_ACON, 0363 },
+	{ 0,	"repe",		S_INH,		0,	E_ACON, 0363 },
+	{ 0,	"repnz",	S_INH,		0,	E_ACON, 0362 },
+	{ 0,	"repne",	S_INH,		0,	E_ACON, 0362 },
+	{ 0,	"scasb",	S_INH,		0,	E_ACON, 0256 },
+	{ 0,	"scas",		S_INH,		0,	E_ACON, 0257 },
+	{ 0,	"lodsb",	S_INH,		0,	E_ACON, 0254 },
+	{ 0,	"lodsw",	S_INH,		0,	E_ACON,	0255 },
+	{ 0,	"lods",		S_INH,		0,	E_ACON, 0255 },
+	{ 0,	"stosb",	S_INH,		0,	E_ACON, 0252 },
+	{ 0,	"stosw",	S_INH,		0,	E_ACON,	0253 },
+	{ 0,	"stos",		S_INH,		0,	E_ACON, 0253 },
+	{ 0,	"into",		S_INH,		0,	E_ACON, 0316 },
+	{ 0,	"iret",		S_INH,		0,	E_ACON, 0317 },
+	{ 0,	"clc",		S_INH,		0,	E_ACON, 0370 },
+	{ 0,	"cmc",		S_INH,		0,	E_ACON, 0365 },
+	{ 0,	"stc",		S_INH,		0,	E_ACON, 0371 },
+	{ 0,	"cld",		S_INH,		0,	E_ACON, 0374 },
+	{ 0,	"std",		S_INH,		0,	E_ACON, 0375 },
+	{ 0,	"cli",		S_INH,		0,	E_ACON, 0372 },
+	{ 0,	"sti",		S_INH,		0,	E_ACON, 0373 },
+	{ 0,	"hlt",		S_INH,		0,	E_ACON, 0364 },
+	{ 0,	"wait",		S_INH,		0,	E_ACON, 0233 },
+	{ 0,	"lock",		S_INH,		0,	E_ACON, 0360 },
+	{ 0,	"cmpsb",	S_INH,		0,	E_ACON, 0246 },
+	{ 0,	"cmpsw",	S_INH,		0,	E_ACON, 0247 },
+	{ 0,	"cmps",		S_INH,		0,	E_ACON, 0247 },
+	{ 0,	"movsb",	S_INH,		0,	E_ACON, 0244 },
+	{ 0,	"movsw",	S_INH,		0,	E_ACON,	0245 },
+	{ 0,	"movs",		S_INH,		0,	E_ACON, 0245 },
+
+	{ 0,	"pusha",	S_INH,		0,	E_ACON, 0x60 },
+	{ 0,	"popa",		S_INH,		0,	E_ACON, 0x61 },
+	{ 0,	"insb",		S_INH,		0,	E_ACON, 0x6C },
+	{ 0,	"ins",		S_INH,		0,	E_ACON, 0x6D },
+	{ 0,	"outsb",	S_INH,		0,	E_ACON, 0x6E },
+	{ 0,	"outs",		S_INH,		0,	E_ACON, 0x6F },
+	{ 0,	"leave",	S_INH,		0,	E_ACON, 0311 },
+
+	{ 0,	"int",		S_INT,		0,	E_ACON, 0 },
+
+	{ 0,	"sys",		S_SYS,		0,	E_ACON, 0 },
+
+	{ 0,	"seg",		S_OVER,		0,	E_ACON, 0 },
+
+	{ 0,	"esc",		S_ESC,		0,	E_ACON, 0330 },
+
+	{ 0,	"ret",		S_RET,		0,	E_ACON, 0303 },
+	{ 0,	"xret",		S_RET,		0,	E_ACON, 0313 },
+
+	{ 0,	"push",		S_PUSH,		0,	E_ACON, 0377 },
+	{ 0,	"pop",		S_PUSH,		0,	E_ACON, 0217 },
+
+	{ 0,	"in",		S_IN,		0,	E_ACON, 0345 },
+	{ 0,	"inb",		S_IN,		0,	E_ACON, 0344 },
+
+	{ 0,	"out",		S_OUT,		0,	E_ACON, 0347 },
+	{ 0,	"outb",		S_OUT,		0,	E_ACON, 0346 },
+
+	{ 0,	"lea",		S_LEA,		0,	E_ACON, 0215 },
+	{ 0,	"lds",		S_LEA,		0,	E_ACON, 0305 },
+	{ 0,	"les",		S_LEA,		0,	E_ACON, 0304 },
+
+	{ 0,	"bound",	S_LEA,		0,	E_ACON, 0x62 },
+
+	{ 0,	"shl",		S_SHL,		0,	E_ACON, 04 },
+	{ 0,	"sal",		S_SHL,		0,	E_ACON, 04 },
+	{ 0,	"shr",		S_SHL,		0,	E_ACON, 05 },
+	{ 0,	"sar",		S_SHL,		0,	E_ACON, 07 },
+	{ 0,	"rol",		S_SHL,		0,	E_ACON, 00 },
+	{ 0,	"ror",		S_SHL,		0,	E_ACON, 01 },
+	{ 0,	"rcl",		S_SHL,		0,	E_ACON, 02 },
+	{ 0,	"rcr",		S_SHL,		0,	E_ACON, 03 },
+
+	{ 0,	"shlb",		S_SHLB,		0,	E_ACON, 04 },
+	{ 0,	"salb",		S_SHLB,		0,	E_ACON, 04 },
+	{ 0,	"shrb",		S_SHLB,		0,	E_ACON, 05 },
+	{ 0,	"sarb",		S_SHLB,		0,	E_ACON, 07 },
+	{ 0,	"rolb",		S_SHLB,		0,	E_ACON, 00 },
+	{ 0,	"rorb",		S_SHLB,		0,	E_ACON, 01 },
+	{ 0,	"rclb",		S_SHLB,		0,	E_ACON, 02 },
+	{ 0,	"rcrb",		S_SHLB,		0,	E_ACON, 03 },
+
+	{ 0,	"jmp",		S_JMP,		0,	E_ACON, 0353 },
+	{ 0,	"je",		S_JMP,		0,	E_ACON, 0164 },
+	{ 0,	"jz",		S_JMP,		0,	E_ACON, 0164 },
+	{ 0,	"jl",		S_JMP,		0,	E_ACON, 0174 },
+	{ 0,	"jnge",		S_JMP,		0,	E_ACON, 0174 },
+	{ 0,	"jle",		S_JMP,		0,	E_ACON, 0176 },
+	{ 0,	"jng",		S_JMP,		0,	E_ACON, 0176 },
+	{ 0,	"jb",		S_JMP,		0,	E_ACON, 0162 },
+	{ 0,	"jnae",		S_JMP,		0,	E_ACON, 0162 },
+	{ 0,	"jc",		S_JMP,		0,	E_ACON, 0162 },
+	{ 0,	"jbe",		S_JMP,		0,	E_ACON, 0166 },
+	{ 0,	"jna",		S_JMP,		0,	E_ACON, 0166 },
+	{ 0,	"jp",		S_JMP,		0,	E_ACON, 0172 },
+	{ 0,	"jpe",		S_JMP,		0,	E_ACON, 0172 },
+	{ 0,	"jo",		S_JMP,		0,	E_ACON, 0160 },
+	{ 0,	"js",		S_JMP,		0,	E_ACON, 0170 },
+	{ 0,	"jne",		S_JMP,		0,	E_ACON, 0165 },
+	{ 0,	"jnz",		S_JMP,		0,	E_ACON, 0165 },
+	{ 0,	"jnl",		S_JMP,		0,	E_ACON, 0175 },
+	{ 0,	"jge",		S_JMP,		0,	E_ACON, 0175 },
+	{ 0,	"jnle",		S_JMP,		0,	E_ACON, 0177 },
+	{ 0,	"jg",		S_JMP,		0,	E_ACON, 0177 },
+	{ 0,	"jnb",		S_JMP,		0,	E_ACON, 0163 },
+	{ 0,	"jae",		S_JMP,		0,	E_ACON, 0163 },
+	{ 0,	"jnc",		S_JMP,		0,	E_ACON, 0163 },
+	{ 0,	"jnbe",		S_JMP,		0,	E_ACON, 0167 },
+	{ 0,	"ja",		S_JMP,		0,	E_ACON, 0167 },
+	{ 0,	"jnp",		S_JMP,		0,	E_ACON, 0173 },
+	{ 0,	"jpo",		S_JMP,		0,	E_ACON, 0173 },
+	{ 0,	"jno",		S_JMP,		0,	E_ACON, 0161 },
+	{ 0,	"jns",		S_JMP,		0,	E_ACON, 0171 },
+
+	{ 0,	"loop",		S_REL,		0,	E_ACON, 0342 },
+	{ 0,	"loopz",	S_REL,		0,	E_ACON, 0341 },
+	{ 0,	"loope",	S_REL,		0,	E_ACON, 0341 },
+	{ 0,	"loopnz",	S_REL,		0,	E_ACON, 0340 },
+	{ 0,	"loopne",	S_REL,		0,	E_ACON, 0340 },
+	{ 0,	"jcxz",		S_REL,		0,	E_ACON, 0343 },
+
+	{ 0,	"ijmp",		S_IJMP,		0,	E_ACON, 04 },
+	{ 0,	"icall",	S_IJMP,		0,	E_ACON, 02 },
+
+	{ 0,	"call",		S_CALL,		0,	E_ACON, 0350 },
+
+	{ 0,	"xcall",	S_IJMP,		0,	E_ACON, 03 },
+	{ 0,	"xjmp",		S_IJMP,		0,	E_ACON, 05 },
+
+	{ 0,	"add",		S_DOP,		S_OBL,	E_ACON, 0001 },
+	{ 0,	"adc",		S_DOP,		S_OBL,	E_ACON, 0021 },
+	{ 0,	"sub",		S_DOP,		S_OBL,	E_ACON, 0051 },
+	{ 0,	"sbb",		S_DOP,		S_OBL,	E_ACON, 0031 },
+	{ 0,	"cmp",		S_DOP,		S_OBL,	E_ACON, 0071 },
+	{ 0,	"and",		S_DOP,		0,	E_ACON, 0041 },
+	{ 0,	"or",		S_DOP,		0,	E_ACON, 0011 },
+	{ 0,	"test",		S_DOP,		0,	E_ACON, 0205 },
+	{ 0,	"xor",		S_DOP,		0,	E_ACON, 0061 },
+	{ 0,	"addb",		S_DOP,		0,	E_ACON, 0000 },
+	{ 0,	"adcb",		S_DOP,		0,	E_ACON, 0020 },
+	{ 0,	"subb",		S_DOP,		0,	E_ACON, 0050 },
+	{ 0,	"sbbb",		S_DOP,		0,	E_ACON, 0030 },
+	{ 0,	"cmpb",		S_DOP,		0,	E_ACON, 0070 },
+	{ 0,	"andb",		S_DOP,		0,	E_ACON, 0040 },
+	{ 0,	"orb",		S_DOP,		0,	E_ACON, 0010 },
+	{ 0,	"testb",	S_DOP,		0,	E_ACON, 0204 },
+	{ 0,	"xorb",		S_DOP,		0,	E_ACON, 0060 },
+
+	{ 0,	"enter",	S_ENTER,	0,	E_ACON, 0310 },
+
+	{ 0,	"mov",		S_MOV,		0,	E_ACON, 0211 },
+	{ 0,	"movb",		S_MOV,		0,	E_ACON, 0210 },
+
+	{ 0,	"mul",		S_MUL,		0,	E_ACON, 04 },
+	{ 0,	"imul",		S_MUL,		0,	E_ACON, 05 },
+	{ 0,	"div",		S_MUL,		0,	E_ACON, 06 },
+	{ 0,	"idiv",		S_MUL,		0,	E_ACON, 07 },
+
+	{ 0,	"mulb",		S_MULB,		0,	E_ACON, 04 },
+	{ 0,	"imulb",	S_MULB,		0,	E_ACON, 05 },
+	{ 0,	"divb",		S_MULB,		0,	E_ACON, 06 },
+	{ 0,	"idivb",	S_MULB,		0,	E_ACON, 07 },
+
+	{ 0,	"sldt",		S_PROT0,	0,	E_ACON, 00 },
+	{ 0,	"str",		S_PROT0,	0,	E_ACON, 01 },
+	{ 0,	"lldt",		S_PROT0,	0,	E_ACON, 02 },
+	{ 0,	"ltr",		S_PROT0,	0,	E_ACON, 03 },
+	{ 0,	"verr",		S_PROT0,	0,	E_ACON, 04 },
+	{ 0,	"verw",		S_PROT0,	0,	E_ACON, 05 },
+
+	{ 0,	"sgdt",		S_PROT1,	0,	E_ACON, 00 },
+	{ 0,	"sidt",		S_PROT1,	0,	E_ACON, 01 },
+	{ 0,	"lgdt",		S_PROT1,	0,	E_ACON, 02 },
+	{ 0,	"lidt",		S_PROT1,	0,	E_ACON, 03 },
+	{ 0,	"smsw",		S_PROT1,	0,	E_ACON, 04 },
+	{ 0,	"lmsw",		S_PROT1,	0,	E_ACON, 06 },
+
+	{ 0,	"lar",		S_PROTR,	0,	E_ACON, 02 },
+	{ 0,	"lsl",		S_PROTR,	0,	E_ACON, 03 },
+	{ 0,	"clts",		S_PROTR,	0,	E_ACON, 06 },
+	{ 0,	"arpl",		S_PROTR,	0,	E_ACON, 0143 },
+
+	{ 0,	"inc",		S_SOP,		0,	E_ACON, 00 },
+	{ 0,	"dec",		S_SOP,		0,	E_ACON, 01 },
+	{ 0,	"not",		S_SOP,		0,	E_ACON, 02 },
+	{ 0,	"neg",		S_SOP,		0,	E_ACON, 03 },
+
+	{ 0,	"incb",		S_SOPB,		0,	E_ACON, 00 },
+	{ 0,	"decb",		S_SOPB,		0,	E_ACON, 01 },
+	{ 0,	"notb",		S_SOPB,		0,	E_ACON, 02 },
+	{ 0,	"negb",		S_SOPB,		0,	E_ACON, 03 },
+
+	{ 0,	"xchg",		S_XCHG,		0,	E_ACON, 0207 },
+	{ 0,	"xchgb",	S_XCHG,		0,	E_ACON, 0206 },
+
+	/* 8087 floating point registers. */
+	{ 0,	"st",		S_USER,		0,	E_AREG, ST  },
+	{ 0,	"st0",		S_USER,		0,	E_AREG, ST  },
+	{ 0,	"st1",		S_USER,		0,	E_AREG, ST1 },
+	{ 0,	"st2",		S_USER,		0,	E_AREG, ST2 },
+	{ 0,	"st3",		S_USER,		0,	E_AREG, ST3 },
+	{ 0,	"st4",		S_USER,		0,	E_AREG, ST4 },
+	{ 0,	"st5",		S_USER,		0,	E_AREG, ST5 },
+	{ 0,	"st6",		S_USER,		0,	E_AREG, ST6 },
+	{ 0,	"st7",		S_USER,		0,	E_AREG, ST7 },
+
+	/* 8087 opcodes. */
+	{ 0,	"f2xm1",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF0) },
+	{ 0,	"fabs",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xE1) },
+	{ 0,	"fadd",		S_FP_S,		0,	E_ACON,	FOP(0xDC,0xC0) },
+	{ 0,	"faddp",	S_FP_SP,	0,	E_ACON,	FOP(0xDE,0xC0) },
+	{ 0,	"fbld",		S_FP_M,		0,	E_ACON,	FOP(0xDF,4) },
+	{ 0,	"fbstp",	S_FP_M,		0,	E_ACON,	FOP(0xDF,6) },
+	{ 0,	"fchs",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xE0) },
+	{ 0,	"fclex",	S_FP_F,		0,	E_ACON,	FOP(0xDB,0xE2) },
+	{ 0,	"fcom",		S_FP_SP,	0,	E_ACON,	FOP(0xD8,0xD0) },
+	{ 0,	"fcomp",	S_FP_SP,	0,	E_ACON,	FOP(0xD8,0xD8) },
+	{ 0,	"fcompp",	S_FP_F,		0,	E_ACON,	FOP(0xDE,0xD9) },
+	{ 0,	"fdadd",	S_FP_M,		0,	E_ACON,	FOP(0xDC,0) },
+	{ 0,	"fdcom",	S_FP_M,		0,	E_ACON,	FOP(0xDC,2) },
+	{ 0,	"fdcomp",	S_FP_M,		0,	E_ACON,	FOP(0xDC,3) },
+	{ 0,	"fddiv",	S_FP_M,		0,	E_ACON,	FOP(0xDC,6) },
+	{ 0,	"fddivr",	S_FP_M,		0,	E_ACON,	FOP(0xDC,7) },
+	{ 0,	"fdecstp",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF6) },
+	{ 0,	"fdisi",	S_FP_F,		0,	E_ACON,	FOP(0xDB,0xE1) },
+	{ 0,	"fdiv",		S_FP_S,		S_FIX,	E_ACON,	FOP(0xDC,0xF8) },
+	{ 0,	"fdivp",	S_FP_SP,	0,	E_ACON,	FOP(0xDE,0xF8) },
+	{ 0,	"fdivr",	S_FP_S,		S_FIX,	E_ACON,	FOP(0xDC,0xF0) },
+	{ 0,	"fdivrp",	S_FP_SP,	0,	E_ACON,	FOP(0xDE,0xF0) },
+	{ 0,	"fdld",		S_FP_M,		0,	E_ACON,	FOP(0xDD,0) },
+	{ 0,	"fdmul",	S_FP_M,		0,	E_ACON,	FOP(0xDC,1) },
+	{ 0,	"fdst",		S_FP_M,		0,	E_ACON,	FOP(0xDD,2) },
+	{ 0,	"fdstp",	S_FP_M,		0,	E_ACON,	FOP(0xDD,3) },
+	{ 0,	"fdsub",	S_FP_M,		0,	E_ACON,	FOP(0xDC,4) },
+	{ 0,	"fdsubr",	S_FP_M,		0,	E_ACON,	FOP(0xDC,5) },
+	{ 0,	"feni",		S_FP_F,		0,	E_ACON,	FOP(0xDB,0xE0) },
+	{ 0,	"ffadd",	S_FP_M,		0,	E_ACON,	FOP(0xD8,0) },
+	{ 0,	"ffcom",	S_FP_M,		0,	E_ACON,	FOP(0xD8,2) },
+	{ 0,	"ffcomp",	S_FP_M,		0,	E_ACON,	FOP(0xD8,3) },
+	{ 0,	"ffdiv",	S_FP_M,		0,	E_ACON,	FOP(0xD8,6) },
+	{ 0,	"ffdivr",	S_FP_M,		0,	E_ACON,	FOP(0xD8,7) },
+	{ 0,	"ffld",		S_FP_M,		0,	E_ACON,	FOP(0xD9,0) },
+	{ 0,	"ffmul",	S_FP_M,		0,	E_ACON,	FOP(0xD8,1) },
+	{ 0,	"ffree",	S_FP_S1,	0,	E_ACON,	FOP(0xDD,0xC0) },
+	{ 0,	"ffst",		S_FP_M,		0,	E_ACON,	FOP(0xD9,2) },
+	{ 0,	"ffstp",	S_FP_M,		0,	E_ACON,	FOP(0xD9,3) },
+	{ 0,	"ffsub",	S_FP_M,		0,	E_ACON,	FOP(0xD8,4) },
+	{ 0,	"ffsubr",	S_FP_M,		0,	E_ACON,	FOP(0xD8,5) },
+	{ 0,	"fiadd",	S_FP_M,		0,	E_ACON,	FOP(0xDE,0) },
+	{ 0,	"ficom",	S_FP_M,		0,	E_ACON,	FOP(0xDE,2) },
+	{ 0,	"ficomp",	S_FP_M,		0,	E_ACON,	FOP(0xDE,3) },
+	{ 0,	"fidiv",	S_FP_M,		0,	E_ACON,	FOP(0xDE,6) },
+	{ 0,	"fidivr",	S_FP_M,		0,	E_ACON,	FOP(0xDE,7) },
+	{ 0,	"fild",		S_FP_M,		0,	E_ACON,	FOP(0xDF,0) },
+	{ 0,	"fimul",	S_FP_M,		0,	E_ACON,	FOP(0xDE,1) },
+	{ 0,	"fincstp",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF7) },
+	{ 0,	"finit",	S_FP_F,		0,	E_ACON,	FOP(0xDB,0xE3) },
+	{ 0,	"fist",		S_FP_M,		0,	E_ACON,	FOP(0xDF,2) },
+	{ 0,	"fistp",	S_FP_M,		0,	E_ACON,	FOP(0xDF,3) },
+	{ 0,	"fisub",	S_FP_M,		0,	E_ACON,	FOP(0xDE,4) },
+	{ 0,	"fisubr",	S_FP_M,		0,	E_ACON,	FOP(0xDE,5) },
+	{ 0,	"fladd",	S_FP_M,		0,	E_ACON,	FOP(0xDA,0) },
+	{ 0,	"flcom",	S_FP_M,		0,	E_ACON,	FOP(0xDA,2) },
+	{ 0,	"flcomp",	S_FP_M,		0,	E_ACON,	FOP(0xDA,3) },
+	{ 0,	"fld",		S_FP_S1,	0,	E_ACON,	FOP(0xD9,0xC0) },
+	{ 0,	"fld1",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xE8) },
+	{ 0,	"fldcw",	S_FP_M,		0,	E_ACON,	FOP(0xD9,5) },
+	{ 0,	"fldenv",	S_FP_M,		0,	E_ACON,	FOP(0xD9,4) },
+	{ 0,	"fldiv",	S_FP_M,		0,	E_ACON,	FOP(0xDA,6) },
+	{ 0,	"fldivr",	S_FP_M,		0,	E_ACON,	FOP(0xDA,7) },
+	{ 0,	"fldl2e",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xEA) },
+	{ 0,	"fldl2t",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xE9) },
+	{ 0,	"fldlg2",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xEC) },
+	{ 0,	"fldln2",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xED) },
+	{ 0,	"fldpi",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xEB) },
+	{ 0,	"fldz",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xEE) },
+	{ 0,	"flld",		S_FP_M,		0,	E_ACON,	FOP(0xDB,0) },
+	{ 0,	"flmul",	S_FP_M,		0,	E_ACON,	FOP(0xDA,1) },
+	{ 0,	"flst",		S_FP_M,		0,	E_ACON,	FOP(0xDB,2) },
+	{ 0,	"flstp",	S_FP_M,		0,	E_ACON,	FOP(0xDB,3) },
+	{ 0,	"flsub",	S_FP_M,		0,	E_ACON,	FOP(0xDA,4) },
+	{ 0,	"flsubr",	S_FP_M,		0,	E_ACON,	FOP(0xDA,5) },
+	{ 0,	"fmul",		S_FP_S,		0,	E_ACON,	FOP(0xDC,0xC8) },
+	{ 0,	"fmulp",	S_FP_SP,	0,	E_ACON,	FOP(0xDE,0xC8) },
+	{ 0,	"fnclex",	S_FP_F,		S_NW,	E_ACON,	FOP(0xDB,0xE2) },
+	{ 0,	"fndisi",	S_FP_F,		S_NW,	E_ACON,	FOP(0xDB,0xE1) },
+	{ 0,	"fneni",	S_FP_F,		S_NW,	E_ACON,	FOP(0xDB,0xE0) },
+	{ 0,	"fninit",	S_FP_F,		S_NW,	E_ACON,	FOP(0xDB,0xE3) },
+	{ 0,	"fnop",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xD0) },
+	{ 0,	"fnsave",	S_FP_M,		S_NW,	E_ACON,	FOP(0xDD,6) },
+	{ 0,	"fnstcw",	S_FP_M,		S_NW,	E_ACON,	FOP(0xD9,7) },
+	{ 0,	"fnstenv",	S_FP_M,		S_NW,	E_ACON,	FOP(0xD9,6) },
+	{ 0,	"fnstsw",	S_FP_M,		S_NW,	E_ACON,	FOP(0xDD,7) },
+	{ 0,	"fpatan",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF3) },
+	{ 0,	"fprem",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF8) },
+	{ 0,	"fptan",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF2) },
+	{ 0,	"fqld",		S_FP_M,		0,	E_ACON,	FOP(0xDF,5) },
+	{ 0,	"fqstp",	S_FP_M,		0,	E_ACON,	FOP(0xDF,7) },
+	{ 0,	"frndint",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xFC) },
+	{ 0,	"frstor",	S_FP_M,		0,	E_ACON,	FOP(0xDD,4) },
+	{ 0,	"fsave",	S_FP_M,		0,	E_ACON,	FOP(0xDD,6) },
+	{ 0,	"fscale",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xFD) },
+	{ 0,	"fsqrt",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xFA) },
+	{ 0,	"fst",		S_FP_S1,	0,	E_ACON,	FOP(0xDD,0xD0) },
+	{ 0,	"fstcw",	S_FP_M,		0,	E_ACON,	FOP(0xD9,7) },
+	{ 0,	"fstenv",	S_FP_M,		0,	E_ACON,	FOP(0xD9,6) },
+	{ 0,	"fstp",		S_FP_S1,	0,	E_ACON,	FOP(0xDD,0xD8) },
+	{ 0,	"fstsw",	S_FP_M,		0,	E_ACON,	FOP(0xDD,7) },
+	{ 0,	"fsub",		S_FP_S,		S_FIX,	E_ACON,	FOP(0xDC,0xE8) },
+	{ 0,	"fsubp",	S_FP_SP,	0,	E_ACON,	FOP(0xDE,0xE8) },
+	{ 0,	"fsubr",	S_FP_S,		S_FIX,	E_ACON,	FOP(0xDC,0xE0) },
+	{ 0,	"fsubrp",	S_FP_SP,	0,	E_ACON,	FOP(0xDE,0xE0) },
+	{ 0,	"ftld",		S_FP_M,		0,	E_ACON,	FOP(0xDB,5) },
+	{ 0,	"ftst",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xE4) },
+	{ 0,	"ftstp",	S_FP_M,		0,	E_ACON,	FOP(0xDB,7) },
+	{ 0,	"fwait",	S_INH,		0,	E_ACON,	FWAIT },
+	{ 0,	"fxam",		S_FP_F,		0,	E_ACON,	FOP(0xD9,0xE5) },
+	{ 0,	"fxch",		S_FP_SP,	0,	E_ACON,	FOP(0xD9,0xC8) },
+	{ 0,	"fxtract",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF4) },
+	{ 0,	"fyl2x",	S_FP_F,		0,	E_ACON,	FOP(0xD9,0xF1) },
+	{ 0,	"fyl2xp1",	S_FP_F,		S_END,	E_ACON,	FOP(0xD9,0xF9) }
+};
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d93 8
+d125 2
+d211 2
+d226 19
+d256 128
+a383 1
+	{ 0,	"xchgb",	S_XCHG,		S_END,	E_ACON, 0206 }
+@

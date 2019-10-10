@@ -1,0 +1,200 @@
+.TH ioctl "" "" "Entry-Point Routine"
+.PC "Control a character device"
+.sp \n(pDu
+Internal-Kernel Interface:
+.B "#include <sys/types.h>"
+.B "#include <sys/cred.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/errno.h>"
+\fBvoid \fIprefix\fBioctl(\fIdevice\^\fB, \fIcommand\^\fB, \fIarg\^\fB, \fImode\^\fB, \fIcredptr\^\fB, \fIretptr\^\fB, \fIprivate\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; int \fIcommand\^\fB, \fImode\^\fB, *\fIretptr\^\fB; _VOID *\fIarg\^\fB; cred_t *\fIcredptr\^\fB, void *\fIprivate\^\fB;\fR
+.sp \n(pDu
+DDI/DKI or STREAMS:
+.B "#include <sys/types.h>"
+.B "#include <sys/cred.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/errno.h>"
+\fBint \fIprefix\fBioctl(\fIdevice\^\fB, \fIcommand\^\fB, \fIarg\^\fB, \fImode\^\fB, \fIcredptr\^\fB, \fIretptr\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; int \fIcommand\^\fB, \fImode\^\fB, *\fIretptr\^\fB; _VOID *\fIarg\^\fB; cred_t *\fIcredptr\^\fB;\fR
+.PP
+The
+.B ioctl
+(i.e., ``I/O control'')
+routine gives a non\-\*(ST character driver an alternate entry point
+that it can use for almost any operation other than a transfer of data,
+e.g., to implement terminal setting, format disk
+devices, implement a trace driver for debugging, and flush queues.
+An application can invoke the
+.B ioctl
+routine through the \*(CO system call
+.BR ioctl() .
+.SH "Internal-Kernel Interface"
+Under the internal-kernel inteface to a driver, the address of the
+.B ioctl
+routine is kept in field
+.B c_ioctl
+of the driver's
+.B CON
+structure.
+It is customary to name the
+.B ioctl
+routine with the word
+.B ioctl
+prefixed by a unique identifier for your driver; but this is not required.
+.PP
+An
+.B ioctl
+routine takes the following arguments:
+.IP \fIdevice\fR
+This is a
+.B dev_t
+that identifies the device to be manipulated.
+.IP \fIcommand\fR
+This gives the number of the operation to perform.
+These numbers are specific to the driver.
+.IP \fIarg\fR
+This points to the parameters passed between the user and the driver.
+The nature of the arguments depends upon the driver and on the
+.I command
+being executed.
+.IP \fImode\fR
+This gives the modes to set when the device was opened.
+See the description of the entry point
+.B open
+for a description of the legal values for this argument.
+.IP \fIcredptr\fR
+This points to the user's credential structure.
+.IP \fIretptr\fR
+This gives the address at which the
+.B ioctl
+routine must write its return value.
+.IP \fIprivate\fR
+This points to a data item that is unique to your driver.
+Note that most drivers do not use this argument.
+.PP
+The
+.B ioctl
+returns nothing.
+The kernel determines what the system call
+.B ioctl()
+(which invokes this entry-point routine)
+returns to the user application:
+the kernel returns \-1 (and sets
+.B errno
+to an appropriate value) if the
+.B ioctl
+entry-point routine called
+.B set_user_error()
+to return an error.
+If the
+.B ioctl
+routine exits normally,
+.B ioctl()
+returns the value that the
+.B ioctl
+routine writes at address
+.IR retptr ;
+if this is not set,
+.B ioctl()
+returns zero.
+.SH "DDI/DKI or STREAMS"
+The rest of this article describes how to invoke this function under
+the DDI/DKI interface, using the calling conventions given at the beginning
+of this article.
+The kernel invokes it by calling function \fIprefix\fBioctl()\fR, where
+.I prefix
+is the unique prefix for this driver.
+The function takes the following arguments:
+.IP \fIdevice\fR 1.0i
+The number of the device to manipulate.
+.IP \fIcommand\fR
+The number of the operation to perform.
+These numbers are specific to the driver.
+.IP \fIarg\fR
+A pointer to the parameters passed between the user and the driver.
+The nature of the arguments depends upon the driver and on the
+.I command
+being executed.
+If
+.I arg
+points to the user space, the driver can use functions
+.B copyin()
+and
+.B copyout()
+to transfer data between kernel and user space.
+.IP \fImode\fR
+The modes set when the device was opened.
+See the description of the entry point
+.B open
+for a description of the legal values for this argument.
+.IP \fIcredptr\fR
+A pointer to the user's credential structure.
+.IP \fIretptr\fR
+The address at which the
+.B ioctl
+routine must write its return value.
+.PP
+The
+.B ioctl
+routine returns an
+.B int
+to the kernel.
+The value that the kernel's system call
+.B ioctl()
+returns user-level program is determined by how the
+.B ioctl
+routine exits.
+If the
+.B ioctl
+routine called
+.B set_user_error()
+to report an error,
+.B ioctl()
+returns \-1.
+.PP
+However, if the
+.B ioctl
+routine exits normally, it should return zero to the kernel;
+the system call
+.BR ioctl() ,
+will return to the user-level program the value that the
+.B ioctl
+routine wrote at the address
+.IR retptr .
+If the
+.B ioctl
+routine fails, it should return \-1 to the kernel;
+.B ioctl()
+will return that value to the user-level program.
+.SH "See Also"
+.B
+CON,
+copyin(),
+copyout(),
+drv_priv(),
+entry-point routines,
+errno,
+open
+.R
+.br
+COHERENT Lexicon:
+.B
+ioctl()
+.R
+.SH Notes
+This entry point is optional.
+.PP
+The
+.B ioctl
+routine has user context and can sleep.
+.PP
+\*(ST drivers do not have
+.B ioctl
+routines.
+The stream head converts I/O control commands to
+.B M_IOCTL
+messages, which are handled by the driver's
+.B put
+or
+.B srv
+routines.

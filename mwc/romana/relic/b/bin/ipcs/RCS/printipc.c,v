@@ -1,0 +1,889 @@
+head     1.7;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.7; strict;
+comment  @ * @;
+
+
+1.7
+date     93.05.14.10.51.20;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     93.04.20.12.12.03;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     93.04.09.09.11.57;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.27.11.42.58;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     93.01.06.09.01.30;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.10.13.11.15.46;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.10.05.13.11.00;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.7
+log
+@vlad: minor format bug for shm
+@
+text
+@/*
+ * Print out received ipc data corresponding to print optoins.
+ */
+#include <stdio.h>
+#include <pwd.h>
+#include <grp.h>
+#include <time.h>
+#include "ipcs.h"
+
+struct group *grp;
+struct passwd *pstp;
+
+struct msqid_ds	*msqbuf;	/* message queue data */
+/* 
+ * Print information about active message queues
+ */
+print_q() 
+{
+	int 	x;		/* counter */
+	char 	date[30];	/* date string */
+
+	printf("MESSAGE QUEUES:\n");
+
+	/* Check if msq is in use */
+	for (x = 0 ; x < NMSQID; x++)
+		if (msqbuf[x].msg_perm.mode & IPC_ALLOC)
+			break;
+	if (x >= NMSQID)
+		return; 
+
+	printf("T  ID         KEY  MODE  OWNER  GROUP");
+
+	if (cflag) 
+		printf(" CREATOR CGROUP");
+
+	if (oflag) 
+		printf(" CBYTES QNUM");
+
+	if (bflag)
+		fputs(" QBYTES", stdout);
+
+	if (pflag)
+		fputs(" LSPID LRPID", stdout);
+
+	if (tflag)
+		fputs("   STIME    RTIME    CTIME ", stdout);
+
+	puts("");
+
+	for (x = 0 ; x < NMSQID; x++) {
+		if (!(msqbuf[x].msg_perm.mode & IPC_ALLOC))
+			continue;
+		/* id, mode & key */
+		printf("q%4d%12d", msqbuf[x].msg_perm.seq,
+			msqbuf[x].msg_perm.key);
+	
+		if (msqbuf[x].msg_perm.mode & MSG_RWAIT) {
+			printf(" R"); /* pid waiting for msgrcv() */
+		} else {
+			if (msqbuf[x].msg_perm.mode & MSG_WWAIT) {
+				printf(" S"); /* waiting for msgsnd() */
+			} else {
+				printf(" -"); /* no flag set */
+			}	
+		}
+		printf("0%o", msqbuf[x].msg_perm.mode&0777);			
+		/* get owner's name from /etc/passwd */
+		if ((pstp = getpwuid(msqbuf[x].msg_perm.uid)) == NULL) {
+			perror("ipcs: cannot get owner name:");
+			exit(1);
+		}
+		printf("%7s", pstp->pw_name);
+	
+		/* get group name of owner */
+		if ((grp = getgrgid(msqbuf[x].msg_perm.gid)) == NULL) {
+			perror("ipcs: cannot get group name");
+			exit(1);
+		}
+		printf("%7s", grp->gr_name);
+
+		if (cflag) {
+		/* get creator's name from /etc/passwd */
+			if ((pstp = getpwuid(msqbuf[x].msg_perm.cuid)) == NULL){
+				perror("ipcs: cannot get creator name");
+				exit(1);
+			}
+			printf("%8s", pstp->pw_name);
+
+			/* get group name of creator */
+			if ((grp = getgrgid(msqbuf[x].msg_perm.cgid)) == NULL){
+				perror("ipcs: cannot get creator group");
+			exit(1);
+			}
+			printf("%7s",grp->gr_name);
+		}
+
+		/* current bytes & # of messages */
+		if (oflag) 
+			printf("%7d%5d", msqbuf[x].msg_cbytes,
+						msqbuf[x].msg_qnum);
+
+		/* max # bytes on queue */
+		if (bflag)
+			printf("%7d",msqbuf[x].msg_qbytes);
+
+		/* last send & receive processes */
+		if (pflag) 
+			printf("%6d%6d", msqbuf[x].msg_lspid,
+							msqbuf[x].msg_lrpid);
+
+		/* times of last send and receive and modification*/
+		if (tflag) {
+			sprintf(date,"%s", ctime(&msqbuf[x].msg_stime));
+			printf(" %.8s",date + 11);
+			sprintf(date,"%8s", ctime(&msqbuf[x].msg_rtime));
+			printf(" %.8s",date + 11);
+			sprintf(date,"%s", ctime(&msqbuf[x].msg_ctime));
+			printf(" %.8s",date + 11);
+		}
+		printf("\n");
+	}
+	printf("\n");
+}
+
+/* 
+ * Print information about active shared memory segments
+ */
+print_m()
+{
+	int x;		/* counter for print loop */
+	char date[30];	/* used to hold the date string */
+
+	printf("SHARED MEMORY:\n");
+
+	if (!total_shmids) 
+		return;
+	printf("T  ID         KEY  MODE  OWNER  GROUP");
+	if (cflag) 
+		printf(" CREATOR CGROUP");
+	
+	if (oflag) 
+		printf(" NATTCH");
+
+	if (bflag) 
+		printf(" SEGSZ");
+	if (pflag) 
+		printf("  CPID LPID");
+
+	if (tflag)
+		printf("    ATIME    DTIME    CTIME");
+
+	printf("\n");
+
+
+	for (x = SHMMNI - 1; x >= 0 ; x--) {
+		if (!valid_shmid[x])
+			continue;
+		/* id, mode & key */
+		printf("m%4d%12d  0%o", x, shmid[x].shm_perm.key,
+					shmid[x].shm_perm.mode & 0777);
+		/* get owner's name from /etc/passwd */
+		if ((pstp = getpwuid(shmid[x].shm_perm.uid)) == NULL) {
+			perror("ipcs: cannot get owner name");
+			exit(1);
+		}
+		printf("%7s",pstp->pw_name);
+	
+		/* get group name of owner */
+
+		if ((grp = getgrgid(shmid[x].shm_perm.gid)) == NULL) {
+			perror("ipcs: cannot get owner group");
+			exit(1);
+		}
+		printf("%7s",grp->gr_name);
+
+		if (cflag) {
+			/* get creator's name from /etc/passwd */
+			if ((pstp = getpwuid(shmid[x].shm_perm.cuid)) == NULL) {
+				perror("ipcs: cannot get creator name");
+				exit(1);
+			}
+			printf("%8s",pstp->pw_name);
+	
+			/* get group name of creator */
+			if ((grp = getgrgid(shmid[x].shm_perm.cgid)) == NULL) {
+				perror("ipcs: cannot get creator group");
+				exit(1);
+			}
+			printf("%7s",grp->gr_name);
+		}
+
+		if (oflag) {	/* attached segments */
+			printf("%7d", shmid[x].shm_nattch);
+		}
+		
+		if (bflag) {	/* segment size */
+			printf("%6d",shmid[x].shm_segsz);
+		}
+
+		if (pflag)	/* processs id of last op */
+			printf("%6d%5d", shmid[x].shm_cpid, 
+					shmid[x].shm_lpid);
+		/* Time */	
+		if (tflag) {  	
+			/* attach time */
+			if (!shmid[x].shm_atime)
+				printf(" no-entry ");
+			else {
+				sprintf(date,"%s", ctime(&shmid[x].shm_atime));
+				printf(" %.8s", date + 11);
+			}
+			/* detach time */
+			if (!shmid[x].shm_dtime)
+				printf(" no-entry");
+			else {
+				sprintf(date,"%s", ctime(&shmid[x].shm_dtime));
+				printf(" %.8s", date + 11);
+			}
+			/* creat time */
+			sprintf(date,"%s", ctime(&shmid[x].shm_ctime));
+			printf(" %.8s", date + 11);
+		}
+		printf("\n");
+	}	
+	printf("\n");
+}
+
+/* 
+ * Print information about active semaphores
+ */
+print_s()
+{
+	int x;		/* loop counter */
+	char date[30];	/* holds our date string */
+
+	printf("SEMAPHORES:\n");
+
+	if (!total_sems)
+		return;
+
+	printf("T  ID         KEY MODE  OWNER  GROUP");
+	if (cflag) {
+		printf(" CREATOR CGROUP");
+	}
+
+	if (bflag) {
+		printf(" NSEMS");
+	}
+
+	if (tflag) {
+		printf("    OTIME    CTIME");
+	}
+	printf("\n");
+
+	for (x = 0; x < SEMMNI; x++) {
+		if (!valid_semid[x])
+			continue;
+
+		printf("s%4d%12d 0%o",x,  /* mode and key */
+			semid[x].sem_perm.key,
+			semid[x].sem_perm.mode & 0777);
+
+		/* get owner's name from /etc/passwd */
+		if((pstp = getpwuid(semid[x].sem_perm.uid)) == NULL){
+			printf("Error reading password file!\n");
+			exit(1);
+		}
+		printf("%7s",pstp->pw_name);
+	
+		/* get group name of owner */
+	
+		if((grp = getgrgid(semid[x].sem_perm.gid)) == NULL){
+			printf("Error reading group file!\n");
+			exit(1);
+		}
+		printf("%7s",grp->gr_name);
+
+		if (cflag) {
+		/* get creator's name from /etc/passwd */
+			if((pstp = getpwuid(semid[x].sem_perm.cuid)) == NULL){
+				printf("Error reading password file!\n");
+				exit(1);
+			}
+			printf("%8s",pstp->pw_name);
+
+			/* get group name of creator */
+			if((grp = getgrgid(semid[x].sem_perm.cgid)) == NULL){
+				printf("Error reading group file!\n");
+				exit(1);
+			}
+			printf("%7s",grp->gr_name);
+		}
+
+		if (bflag) {	/* number of semaphore elements */	
+				printf("%6d",semid[x].sem_nsems);
+		}
+
+		if (tflag) {	/* time */
+			if (semid[x].sem_otime) {/* semop time */
+				sprintf(date,"%s", ctime(&semid[x].sem_otime));
+				printf(" %.8s",date + 11);
+			} else
+				printf(" no-entry");
+			if (semid[x].sem_ctime) { /* Change time */
+				sprintf(date,"%s", ctime(&semid[x].sem_ctime));
+				printf(" %.8s",date + 11);
+			} else
+				printf(" no-entry");
+		}
+		printf("\n");
+	}
+}
+@
+
+
+1.6
+log
+@vlad: mods for kernel 77 semaphores.
+@
+text
+@d150 1
+a150 1
+		printf("   ATIME    DTIME    CTIME");
+d217 1
+a217 1
+				printf("%.8s", date + 11);
+@
+
+
+1.5
+log
+@Vlad: mods for 386 semaphore implementation (kernel 75)
+@
+text
+@d251 1
+a251 1
+		printf("    OTIME");
+d298 11
+a308 3
+		if(tflag) {	/* time of last semop */
+			sprintf(date,"%s", ctime(&semid[x].sem_ctime));
+			printf(" %.8s",date + 11);
+@
+
+
+1.4
+log
+@vlad: Makefile for kernel 72 ipcs
+@
+text
+@a137 1
+
+a145 1
+
+d159 1
+a159 1
+		printf("m%4d%12d 0%o", x, shmid[x].shm_perm.key,
+a225 1
+			
+d238 2
+a239 2
+	if (total_sems)	{
+		printf("T  ID\tKEY\tMODE\tOWNER\tGROUP\t");
+d241 4
+a244 3
+		if(cflag){
+			printf("CREATOR\tCGROUP\t");
+		}
+d246 3
+a248 3
+		if(bflag){
+			printf("NSEMS\t");
+		}
+d250 4
+a253 4
+		if(tflag){
+			printf("OTIME");
+		}
+		printf("\n");
+d255 3
+a257 5
+		for(x = NSEMID -1; x >= 0 ; x-- ){
+			if(valid_semid[x]){
+ 				printf("s\t%d\t%d\t0%o\t",x,  /* mode and key */
+					semid[x].sem_perm.key,
+					semid[x].sem_perm.mode & 0777);
+d259 10
+a268 6
+			/* get owner's name from /etc/passwd */
+				if((pstp = getpwuid(semid[x].sem_perm.uid)) == NULL){
+					printf("Error reading password file!\n");
+					exit(1);
+				}
+				printf("%s\t",pstp->pw_name);
+d270 1
+a270 1
+			/* get group name of owner */
+d272 5
+a276 5
+				if((grp = getgrgid(semid[x].sem_perm.gid)) == NULL){
+					printf("Error reading group file!\n");
+					exit(1);
+				}
+				printf("%s\t",grp->gr_name);
+d278 7
+a284 15
+				if(cflag){
+				/* get creator's name from /etc/passwd */
+					if((pstp = getpwuid(semid[x].sem_perm.cuid)) == NULL){
+						printf("Error reading password file!\n");
+						exit(1);
+					}
+					printf("%s\t",pstp->pw_name);
+	
+				/* get group name of creator */
+					if((grp = getgrgid(semid[x].sem_perm.cgid)) == NULL){
+						printf("Error reading group file!\n");
+						exit(1);
+					}
+					printf("%s\t",grp->gr_name);
+				}
+d286 4
+a289 8
+				if(bflag){	/* number of semaphore elements */	
+					printf("%d\t",semid[x].sem_nsems);
+				}
+
+				if(tflag){	/* time of last semop */
+					sprintf(date,"%s", ctime(&semid[x].sem_ctime));
+					printf("%.5s",date + 11);
+				}
+d291 1
+d293 10
+a302 1
+		printf("\n");	
+@
+
+
+1.3
+log
+@vlad: added code for new shared memory driver
+@
+text
+@d69 1
+a69 1
+			perror("ipcs");
+d76 1
+a76 1
+			perror("ipcs");
+d84 1
+a84 1
+				perror("ipcs");
+d91 1
+a91 1
+				perror("ipcs");
+d165 1
+a165 1
+			perror("ipcs");
+d173 1
+a173 1
+			perror("ipcs");
+d181 1
+a181 1
+				perror("ipcs");
+d188 1
+a188 1
+				perror("ipcs");
+@
+
+
+1.2
+log
+@vlad: changes for new message system call
+@
+text
+@d24 5
+a28 2
+	/* Check if msq were in use */
+	if (!usemsqs)
+d31 1
+a31 1
+	fputs("T\tID\tKEY\tMODE\tOWNER\tGROUP\t", stdout);
+d34 1
+a34 1
+		fputs("CREATOR\tCGROUP\t", stdout);
+d37 1
+a37 1
+		fputs("CBYTES\tQNUM\t", stdout);
+d40 1
+a40 1
+		fputs("QBYTES\t", stdout);
+d43 1
+a43 1
+		fputs("LSPID\tLRPID\t", stdout);
+d46 1
+a46 1
+		fputs("STIME\tRTIME\tCTIME\t", stdout);
+d51 5
+a55 3
+		if (msqbuf[x].msg_perm.mode & IPC_ALLOC) {
+			printf("q\t%d\t%d\t", msqbuf[x].msg_perm.seq,
+					msqbuf[x].msg_perm.key);	
+d57 5
+a61 6
+			/* print message queue mode, and any flag indicating
+			 * that a process is waiting on a msgrcv() or
+			 * msgsnd().
+			 */	
+			if (msqbuf[x].msg_perm.mode & MSG_RWAIT) {
+				printf("R "); /* pid waiting for msgrcv() */
+d63 17
+a79 5
+				if (msqbuf[x].msg_perm.mode & MSG_WWAIT) {
+					printf("S "); /* waiting for msgsnd() */
+				} else {
+					printf("- "); /* no flag set */
+				}	
+d81 5
+d87 1
+a87 2
+			
+			printf("0%o\t",	msqbuf[x].msg_perm.mode & 0777);
+d89 4
+a92 4
+			/* get owner's name from /etc/passwd */
+			if ((pstp = getpwuid(msqbuf[x].msg_perm.uid)) == NULL) {
+				fprintf(stderr,"Error reading password file!\n");
+				exit(1);
+d94 2
+a95 8
+			printf("%s\t",pstp->pw_name);
+	
+			/* get group name of owner */
+			if ((grp = getgrgid(msqbuf[x].msg_perm.gid)) == NULL) {
+				fprintf(stderr, "Error reading group file!\n");
+				exit(1);
+			}
+			printf("%s\t",grp->gr_name);
+d97 4
+a100 7
+			if (cflag) {
+			/* get creator's name from /etc/passwd */
+				if ((pstp = getpwuid(msqbuf[x].msg_perm.cuid)) == NULL){
+					printf("Error reading password file!\n");
+					exit(1);
+				}
+				printf("%s\t",pstp->pw_name);
+d102 3
+a104 7
+				/* get group name of creator */
+				if ((grp = getgrgid(msqbuf[x].msg_perm.cgid)) == NULL){
+					printf("Error reading group file!\n");
+					exit(1);
+				}
+				printf("%s\t",grp->gr_name);
+			}
+d106 3
+a108 12
+			/* current bytes & # of messages */
+			if (oflag) 
+				printf("%d\t%d\t", msqbuf[x].msg_cbytes,
+					msqbuf[x].msg_qnum);
+
+			/* max # bytes on queue */
+			if (bflag)
+				printf("%d\t",msqbuf[x].msg_qbytes);
+
+			/* last send & receive processes */
+			if (pflag) 
+				printf("%d\t%d\t", msqbuf[x].msg_lspid,
+d111 8
+a118 10
+			/* times of last send and receive and modification*/
+			if (tflag) {
+				sprintf(date,"%s", ctime(&msqbuf[x].msg_stime));
+				printf("%.5s\t",date + 11);
+				sprintf(date,"%s", ctime(&msqbuf[x].msg_rtime));
+				printf("%.5s\t",date + 11);
+				sprintf(date,"%s", ctime(&msqbuf[x].msg_ctime));
+				printf("%.5s",date + 11);
+			}
+			printf("\n");
+d120 1
+d124 1
+d130 2
+a131 2
+int x;		/* counter for print loop */
+char date[30];	/* used to hold the date string */
+d135 3
+a137 2
+	if(total_shmids){
+		printf("T\tID\tKEY\tMODE\tOWNER\tGROUP\t");
+d139 28
+a166 2
+		if(cflag){
+			printf("CREATOR\tCGROUP\t");
+d168 1
+d170 1
+a170 3
+		if(tflag){
+			printf("CTIME\t");
+		}
+d172 13
+a184 31
+		if(oflag){
+			printf("NATTCH\t");
+		}
+
+		if(bflag){
+			printf("SEGSZ\t");
+		}
+
+		if(pflag){
+			printf("CPID\tLPID\t");
+		}
+
+		if(tflag){
+			printf("ATIME\tDTIME");
+		}
+
+		printf("\n");
+
+
+		for(x = NSHMID -1; x >= 0 ; x--){
+			if(valid_shmid[x]){
+				printf("m\t%d\t%d\t0%o\t", /* id, mode & key */
+					x, shmid[x].shm_perm.key,
+					shmid[x].shm_perm.mode & 0777);
+
+			/* get owner's name from /etc/passwd */
+				if((pstp = getpwuid(shmid[x].shm_perm.uid)) == NULL){
+					printf("Error reading password file!\n");
+					exit(1);
+				}
+				printf("%s\t",pstp->pw_name);
+d186 7
+a192 7
+			/* get group name of owner */
+	
+				if((grp = getgrgid(shmid[x].shm_perm.gid)) == NULL){
+					printf("Error reading group file!\n");
+					exit(1);
+				}
+				printf("%s\t",grp->gr_name);
+d194 7
+a200 20
+				if(cflag){
+				/* get creator's name from /etc/passwd */
+					if((pstp = getpwuid(shmid[x].shm_perm.cuid)) == NULL){
+						printf("Error reading password file!\n");
+						exit(1);
+					}
+					printf("%s\t",pstp->pw_name);
+	
+				/* get group name of creator */
+					if((grp = getgrgid(shmid[x].shm_perm.cgid)) == NULL){
+						printf("Error reading group file!\n");
+						exit(1);
+					}
+					printf("%s\t",grp->gr_name);
+				}
+
+				if(tflag){	/* time */
+					sprintf(date,"%s", ctime(&shmid[x].shm_ctime));
+					printf("%.5s\t",date + 11);
+				}
+d202 11
+a212 18
+				if(oflag){	/* attached segments */
+					printf("N/A\t");
+				}
+		
+				if(bflag){	/* segment size */
+					printf("%d\t",shmid[x].shm_segsz);
+				}
+
+				if(pflag){	/* processs id of last op */
+					printf("%d\t%d\t",
+						shmid[x].shm_cpid,
+						shmid[x].shm_lpid);
+				}
+
+				if(tflag){ 	/* attatch/detach times */
+					printf("N/A\tN/A");
+				}
+				printf("\n");
+d214 10
+d225 1
+d236 2
+a237 2
+int x;		/* loop counter */
+char date[30];	/* holds our date string */
+d241 2
+a242 2
+	if(total_sems){
+	printf("T\tID\tKEY\tMODE\tOWNER\tGROUP\t");
+d304 1
+a305 1
+	printf("\n");	
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d13 1
+d19 2
+a20 2
+int x;				/* counter */
+char date[30];			/* date string */
+d24 3
+a26 2
+	if(total_msgs){
+		printf("T\tID\tKEY\tMODE\tOWNER\tGROUP\t");
+d28 1
+a28 3
+		if(cflag){
+			printf("CREATOR\tCGROUP\t");
+		}
+d30 2
+a31 3
+		if(oflag){
+			printf("CBYTES\tQNUM\t");
+		}
+d33 2
+a34 3
+		if(bflag){
+			printf("QBYTES\t");
+		}
+d36 2
+a37 3
+		if(pflag){
+			printf("LSPID\tLRPID\t");
+		}
+d39 2
+a40 3
+		if(tflag){
+			printf("STIME\tRTIME\tCTIME\t");
+		}
+d42 2
+a43 1
+		printf("\n");
+d45 6
+a50 5
+		for(x = 0 ; x < NMSQID; x++){
+			if(valid_msqid[x]){
+				printf("q\t%d\t%d\t", /* sequence & key */
+					msqbuf[x]->msg_perm.seq,
+					msqbuf[x]->msg_perm.key);	
+d52 12
+a63 4
+				/* print message queue mode, and any flag indicating
+				 * that a process is waiting on a msgrcv() or
+				 * msgsnd().
+				 */	
+d65 3
+a67 8
+				if(msqbuf[x]->msg_perm.mode & MSG_RWAIT){
+					printf("R"); /* pid waiting for msgrcv() */
+				}else{
+					if(msqbuf[x]->msg_perm.mode & MSG_WWAIT){
+						printf("S"); /* pid waiting for msgsnd() */
+					}else{
+						printf("-"); /* no flag set */
+					}	
+d69 17
+a85 6
+				}
+			
+				printf("0%o\t",	msqbuf[x]->msg_perm.mode & 0777);
+
+				/* get owner's name from /etc/passwd */
+				if((pstp = getpwuid(msqbuf[x]->msg_perm.uid)) == NULL){
+d90 3
+a92 4
+	
+				/* get group name of owner */
+	
+				if((grp = getgrgid(msqbuf[x]->msg_perm.gid)) == NULL){
+d97 1
+d99 4
+a102 7
+				if(cflag){
+				/* get creator's name from /etc/passwd */
+					if((pstp = getpwuid(msqbuf[x]->msg_perm.cuid)) == NULL){
+						printf("Error reading password file!\n");
+						exit(1);
+					}
+					printf("%s\t",pstp->pw_name);
+d104 3
+a106 7
+					/* get group name of creator */
+					if((grp = getgrgid(msqbuf[x]->msg_perm.cgid)) == NULL){
+						printf("Error reading group file!\n");
+						exit(1);
+					}
+					printf("%s\t",grp->gr_name);
+				}
+d108 4
+a111 6
+				/* current bytes & # of messages */
+				if(oflag){
+					printf("%d\t%d\t",
+						msqbuf[x]->msg_cbytes,
+						msqbuf[x]->msg_qnum);
+				}
+d113 8
+a120 22
+				/* max # bytes on queue */
+				if(bflag){
+					printf("%d\t",msqbuf[x]->msg_qbytes);
+				}
+
+				/* last send & receive processes */
+				if(pflag){ 
+					printf("%d\t%d\t",
+					msqbuf[x]->msg_lspid,
+					msqbuf[x]->msg_lrpid);
+				}
+
+				/* times of last send and receive and modification*/
+				if(tflag){
+					sprintf(date,"%s", ctime(&msqbuf[x]->msg_stime));
+					printf("%.5s\t",date + 11);
+					sprintf(date,"%s", ctime(&msqbuf[x]->msg_rtime));
+					printf("%.5s\t",date + 11);
+					sprintf(date,"%s", ctime(&msqbuf[x]->msg_ctime));
+					printf("%.5s",date + 11);
+				}
+				printf("\n");
+d122 1
+a123 1
+/*		printf("\n"); */
+@

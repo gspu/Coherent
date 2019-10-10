@@ -1,0 +1,116 @@
+# kgen version 1.0.1
+#
+# Copyright 1992, Mark Williams Company
+#
+# Link and patch a kernel with configuration used when COHERENT was installed.
+#
+# Usage:  kgen [new-kernel-name [lib-directory]]
+#
+#   new-kernel-name defaults to "/testcoh"
+#   lib-directory defaults to "/conf"
+
+#-------------------------------------
+#
+# Initialization.
+#
+TARGET=${1-/testcoh}
+KDIR=${2-/conf}
+
+#
+# The following files describe the installed configuration.
+#
+PATCHFILE=/conf/gen/patches
+LDKERFILE=/conf/gen/ldker
+KBDFILE=/conf/gen/kbd
+
+#
+# If no slash in TARGET, prepend one
+#
+if echo $TARGET | grep -v "/" > /dev/null
+then
+	TARGET="/"$TARGET
+fi
+
+#
+# If TARGET not at root level, abort.
+#
+if echo $TARGET | grep -v "^/.*" > /dev/null
+then
+	echo "New kernel must be in root directory in order to boot."
+	echo "$0 aborted."
+	exit 1
+fi
+
+#
+# Ask before overwiting a kernel file.
+#
+if [ -f $TARGET ]
+then
+	echo -n "File $TARGET already exists.  Overwrite? "
+	read ANS
+	if [ x${ANS} != xy ]
+	then
+		echo "$0 aborted."
+		exit 1
+	fi
+fi
+
+set -e
+
+#-------------------------------------
+echo "Fetching configuration files..."
+
+# Fetch patch file created during installation.
+sed -e 's/\/mnt\/coherent/$TARGET/' < $PATCHFILE > /tmp/patches
+chmog 555 bin bin /tmp/patches
+
+PATCH=
+PATCH="${PATCH} drvl+60=lpcon"
+PATCH="${PATCH} drvl+100=asycon"
+PATCH="${PATCH} drvl+180=ptycon"
+PATCH="${PATCH} drvl+460=semcon"
+PATCH="${PATCH} drvl+480=shmcon"
+#PATCH="${PATCH} drvl+500=msgcon"
+
+UNDEF=
+UNDEF="$UNDEF -u lpcon"
+UNDEF="$UNDEF -u flcon"
+UNDEF="$UNDEF -u asycon"
+UNDEF="$UNDEF -u ptycon"
+UNDEF="$UNDEF -u semcon"
+UNDEF="$UNDEF -u shmcon"
+#UNDEF="$UNDEF -u msgcon"
+
+. $LDKERFILE
+
+KB=`cat $KBDFILE`
+
+#-------------------------------------
+echo "Linking Target File..."
+
+cd $KDIR
+/bin/ld $UNDEF $HDUNDEF -K -o $TARGET -e stext ker386.o $KB kl386.a
+
+#-------------------------------------
+echo "Patching Target File..."
+
+/conf/patch $TARGET $PATCH $HDPATCH				   
+/conf/asypatch -v $TARGET < /etc/default/async
+
+export TARGET
+/tmp/patches
+rm /tmp/patches
+
+/bin/chmog 400 sys sys $TARGET
+
+echo "\nNew kernel is $TARGET.\n"
+echo "To test this kernel:"
+echo "  /etc/shutdown to single-user mode"
+echo "  sync"
+echo "  Press reset."
+echo "  During reboot, press SPACE at the prompt to abort default boot."
+echo "  Type `basename $TARGET` at the question mark and press ENTER.\n"
+echo "To make the new kernel the default start-up kernel:"
+echo "  ln -f $TARGET /autoboot\n"
+echo -n "Press ENTER to continue."
+read JUNK

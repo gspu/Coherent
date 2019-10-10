@@ -1,0 +1,137 @@
+.TH ft "" "" "Device Driver"
+.PC "Floppy-tape driver"
+.B /dev/ft
+.PP
+.II /dev/ft
+.II "floppy tape^driver"
+.II "tape, floppy^driver"
+.II "driver^floppy tape"
+.II "device driver^floppy tape"
+The device driver
+.B ft
+supports floppy-tape drives.
+It has major number 4.
+Minor-number assignments are documented in the header file
+.BR /usr/include/sys/ft.h .
+.PP
+.B ft
+works with QIC-40 and QIC-80 drives from Colorado, Archive, Mountain,
+and Summit.
+It offers the following features:
+.IP \(bu 0.3i
+It uses the bad-block bitmap that is written into the first two 32-kilobyte
+segments of tape at format time.
+.IP \(bu
+.II "Reed-Solomon error correction"
+.II "error-correction code^Reed-Solomon"
+It uses standard QIC-40/QIC-80 Reed-Solomon error-correcting code (ECC).
+This technique uses three of every 32 blocks for error checking.
+A tape block is one kilobyte long.
+.IP \(bu
+It supports no-rewind-on-close.
+This feature permits you to concatenate several archives onto a single
+tape cartridge.
+.IP \(bu
+It performs auto-configuration for users who do not know if their drives use
+soft select A or soft select B, or hard select on unit 0, 1, 2, or 3,
+with manual override.
+.IP \(bu
+It lets you configure the size of the tape buffer,
+from 64 through 4,064 kilobytes.
+.IP \(bu
+It reads from and writes to buffer space rather than going to tape
+whenever possible.
+.IP \(bu
+It works with partially formatted tapes.
+Some formatting utilities let you select
+the number of tape tracks to format, in case you do not want to take
+the time to format an entire cartridge.
+.IP \(bu
+It recognizes both 205-foot and 307.5-foot tapes.
+.IP \(bu
+It works with the \*(CO command
+.B tape
+with the following arguments:
+.BR rewind ,
+.BR retension ,
+.BR seek ,
+.BR status ,
+and
+.BR tell .
+.PP
+Please note that release 1.0 of
+.B ft
+has the following limitations:
+.IP \(bu 0.3i
+It does not format tapes.
+For now, we suggest that you buy pre-formatted tapes,
+or use formatting utilities available under other operating systems.
+.IP \(bu
+It does not support the QIC-80 formats for \*(MD or \*(UU file systems
+on tape.
+These features do not need to be part of the device
+driver, and can be implemented by user-level applications.
+.IP \(bu
+It does not perform data compression, as documented in QIC-122.
+Other forms of data compression are presently available under \*(CO,
+such as the
+.B \-z
+option supported by the tape-archive command
+.BR gtar .
+.IP \(bu
+The device driver is character-only:
+there is no corresponding block device for floppy tape.
+.IP \(bu
+It does not support 1,100-foot tapes.
+Although the QIC-80 standard mentions this length, it is not in common use.
+.IP \(bu
+You cannot access a floppy-disk drive from \*(CO while a floppy-tape
+drive is in use.
+Likewise, if a floppy disk is in use \(em for
+example, if it is mounted \(em you cannot access the floppy-tape drive.
+.IP \(bu
+Although a QIC-80 drive can read a tape that was formatted for QIC-40,
+it cannot write to such a tape.
+The cartridge must be reformatted for QIC-80
+before a QIC-80 drive can write to it.
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr "fd," fd
+.Xr "ftbad," ftbad
+.Xr "gnucpio," gnucpio
+.Xr "gtar," gtar
+.Xr "tape" tape
+.SH Notes
+.B ft
+reports any error that may affect integrity of the data.
+If the same block number appears repeatedly in
+.BR ft 's
+warning messages,
+it is a problem on the tape and the block should be in the bad block list.
+Because the Reed-Solomon ECC used in
+.B ft
+allows the physical medium to spoil up to three of every 32
+one-kilobyte blocks yet recover all data, your data set may still be
+recoverable despite these errors;
+but you should consider using the command
+.B ftbad
+to add such blocks to your cartridge's list of bad blocks
+before you again write data onto that cartridge.
+.PP
+The message:
+.DM
+	Get Reference Burst Failed
+.DE
+.PP
+can occur if you attempt to back up to an unformatted tape, or one who's
+format is unrecognizable.
+If a backup fails with this message, try using another, formatted cartridge.
+.PP
+Systems with a very slow CPU (e.g., a 16-megahertz 80386SX) may have
+trouble running
+.B ft
+in multi-user mode.
+The reason is that floppy-tape hardware does not have much intelligence
+built into it, so the driver must consume many CPU cycles.
+In such instances, we suggest that you back up your system while in
+single-user mode (which is a good idea in any case).

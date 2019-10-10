@@ -1,0 +1,488 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4;
+comment  @ * @;
+
+
+1.4
+date     93.06.18.10.09.30;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.07.13.07.12.12;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.05.26.08.47.01;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.16.32.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.4
+log
+@nigel: fixes for 402
+@
+text
+@/*
+ * Grep - search a file for a pattern
+ * This code uses the regexp.c code which is
+ * also used by AWK.
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+#include "grep.h"
+
+#define	MAXLINE	400		/* Maximum input line length */
+#define	NEXP	50		/* Maximum number of regular expressions */
+#define	BSIZE	BUFSIZ		/* Assume block size if buffer size */
+
+char	line[MAXLINE];
+struct	exps {
+	union {
+		char	*u_cp;
+		RE	*u_re;
+	}	e_un;
+	int	(*e_mfun)();
+}	exps[NEXP+1];
+char	usage[] =
+	"Usage: grep [-abchlnsvxy] [-e exp] [-f efile] [expression] [file ...]";
+char	mre[] = "Missing regular expression";
+char	nospace[] = "Out of space for regular expressions";
+char	*fname;		/* Current filename */
+
+int	vflag;		/* Reverse sense of match */
+int	cflag;		/* Print only count of lines */
+int	lflag;		/* Only filenames with matching lines */
+int	nflag;		/* precede lines by line number in file */
+int	bflag;		/* print block number of match */
+int	sflag;		/* No output, only status */
+int	hflag;		/* Never print filenames */
+int	xflag;		/* Exact match only */
+int	some;		/* non-zero if some matches */
+int	outfile;	/* Output filename if match flag */
+int	lineno;		/* Input line # */
+unsigned blkno;		/* Block number for `-b' */
+long	lmatch;		/* Lines matching */
+int	yflag;		/* Dual case comparisons */
+
+int	(*mfun)();	/* Match function */
+int	rematch();
+int	dirmatch();
+int	reinterp();
+int	ematch();
+int	yematch();
+
+main(argc, argv)
+char *argv[];
+{
+	register RE *rp;
+	register char *cp;
+	register i;
+	struct exps *epp;
+	FILE *fp;
+
+	mfun = rematch;
+	while (argc>1 && *argv[1]=='-') {
+		for (cp = &argv[1][1]; *cp; cp++)
+			switch (*cp) {
+			case 'a':
+				refull = 1;
+				break;
+
+			case 'b':
+				bflag = 1;
+				break;
+
+			case 'c':
+				cflag = 1;
+				break;
+
+			case 'e':
+				if (argc < 3)
+					err(mre);
+				expsave(argv[2]);
+				argc--;
+				argv++;
+				break;
+
+			case 'f':
+				if (argc < 3)
+					err("Missing expression filename");
+				if ((fp = fopen(argv[2], "r")) == NULL)
+					err("Cannot open %s", argv[2]);
+				argv++;
+				argc--;
+				while (fgets(line, MAXLINE, fp) != NULL) {
+					i = strlen(line);
+					line[i-1] = '\0';
+					expsave(line);
+				}
+				fclose(fp);
+				break;
+
+			case 'h':
+				hflag = 1;
+				break;
+
+			case 'l':
+				lflag = 1;
+				break;
+
+			case 'n':
+				nflag = 1;
+				break;
+
+			case 's':
+				sflag = 1;
+				break;
+
+			case 'v':
+				vflag = 1;
+				break;
+
+			case 'x':
+				xflag = 1;
+				mfun = dirmatch;
+				break;
+
+			case 'i':
+			case 'y':
+				redual = 1;
+				yflag = 1;
+				break;
+
+			default:
+				err(usage);
+			}
+		argv++;
+		argc--;
+	}
+	if (exps[0].e_un.u_cp == NULL) {
+		if (argc-- < 2)
+			err(usage);
+		expsave(argv[1]);
+		argv++;
+	}
+	expsave(NULL);
+	if (!xflag)
+		for (epp = &exps[0]; (cp = epp->e_un.u_cp) != NULL; epp++) {
+			rp = epp->e_un.u_re = reparse(cp, '\0');
+			if (reerror != NULL)
+				err(reerror);
+			for (; rp != NULL; rp = rp->r_next)
+				if (rp->r_op != CONC)
+					break;
+			if (rp != NULL) {	/* hard RE */
+				free(cp);
+				epp->e_mfun = reinterp;
+			} else {
+				rp = epp->e_un.u_re;
+				epp->e_un.u_cp = cp;
+				epp->e_mfun = yflag ? yematch : ematch;
+				for ( ; rp!=NULL; rp = rp->r_next) {
+					*cp = rp->r_left.u_ival;
+					cp++;
+				}
+				*cp = '\0';
+			}
+		}
+	if (argc < 3)			/* Fewer than 2 files? */
+		hflag = 1;
+	if (argc == 1) {
+		fname = "(stdin)";
+		grep(stdin);
+	} else
+		for (i=1; i<argc; i++) {
+			if ((fp = fopen(argv[i], "r")) == NULL)
+				err("Cannot open %s", argv[i]);
+			fname = argv[i];
+			grep(fp);
+			fclose(fp);
+		}
+	if (cflag)
+		printf("%ld\n", lmatch);
+	exit(!some);
+}
+
+/*
+ * Save regular expression.
+ */
+expsave(s)
+register char *s;
+{
+	static struct exps *epp;
+
+	if (epp == NULL)
+		epp = &exps[0];
+	if (epp >= &exps[NEXP-1])
+		err("Too many regular expressions");
+	if (s == NULL)
+		epp->e_un.u_cp = NULL;
+	else {
+		if ((epp->e_un.u_cp = malloc(strlen(s)+1)) == NULL)
+			err(nospace);
+		strcpy(epp->e_un.u_cp, s);
+	}
+	epp++;
+}
+
+/*
+ * Called for each input file
+ * to drive the pattern matches.
+ */
+grep(ifp)
+FILE *ifp;
+{
+	register unsigned n;
+	register c;
+	register char *cp;
+
+	outfile = 0;
+	blkno = 0;
+	n = BSIZE;
+	lineno = 0;
+	for (cp = line; (c = getc(ifp)) != EOF; ) {
+		if (n-- == 0) {
+			n = BSIZE;
+			blkno++;
+		}
+		if (c=='\n' || cp>=&line[MAXLINE-1]) {
+			*cp = '\0';
+			lineno++;
+			(*mfun)(cp = line);
+		} else
+			*cp++ = c;
+	}
+	if (outfile)
+		printf("%s\n", fname);
+}
+
+/*
+ * Called when a match occurred in input
+ */
+amatch(s)
+char *s;
+{
+	some = 1;
+	if (sflag)
+		return;
+	if (!lflag && !cflag) {
+		if (!hflag)
+			printf("%s:", fname);
+		if (bflag)
+			printf("%d:", blkno);
+		else if (nflag)
+			printf("%d:", lineno);
+		printf("%s\n", s);
+	} else if (lflag)
+		outfile = 1;
+	else if (cflag)
+		lmatch++;
+}
+
+/*
+ * try to match each line with all the
+ * regular expressions.
+ * An attempt is made to make expressions
+ * with no metacharacters run faster.
+ */
+rematch(s)
+char *s;
+{
+	register struct exps *epp;
+	register int m;
+
+	m = 0;
+	for (epp = &exps[0]; epp->e_un.u_re!=NULL && m==0; epp++)
+		if ((*epp->e_mfun)(epp->e_un.u_re, s) != 0)
+			m = 1;
+	if (vflag)
+		m = !m;
+	if (m)
+		amatch(s);
+	return (m);
+}
+
+/*
+ * Direct match function (for `-x' option)
+ */
+dirmatch(s)
+char *s;
+{
+	register struct exps *epp;
+	register m;
+
+	m = 0;
+	for (epp = &exps[0]; epp->e_un.u_cp!=NULL && !m; epp++)
+		m = yflag ? yseq(epp->e_un.u_cp, s) : seq(epp->e_un.u_cp, s);
+	if (vflag)
+		m = !m;
+	if (m)
+		amatch(s);
+	return (m);
+}
+
+/*
+ * Easy match
+ * For non -y grep.
+ */
+ematch(p, s)
+char *p;
+register char *s;
+{
+	register char *xp, *xs;
+
+	do {
+		xp = p;
+		xs = s;
+		while (*xp != '\0') {
+			if (*xs == '\0')
+				return (0);
+			if (*xp != *xs++)
+				break;
+			xp++;
+		}
+		if (*xp == '\0')
+			return (1);
+	} while (*s++ != '\0');
+	return (0);
+}
+
+/*
+ * Version of `ematch' for `-y' option
+ * of grep.
+ */
+yematch(p, s)
+char *p;
+register char *s;
+{
+	register char *xp, *xs;
+	register int c;
+
+	do {
+		xp = p;
+		xs = s;
+		while (*xp != '\0') {
+			if (*xs == '\0')
+				return (0);
+			if (islower(*xp) && isupper(*xs))
+				c = tolower(*xs++); else
+				c = *xs++;
+			if (*xp != c)
+				break;
+			xp++;
+		}
+		if (*xp == '\0')
+			return (1);
+	} while (*s++ != '\0');
+	return (0);
+}
+
+/*
+ * String comparison for `-x' option
+ * without `-y' (dual) flag.
+ */
+seq(p, s)
+register char *p;
+register char *s;
+{
+	while (*s == *p++)
+		if (*s++ == '\0')
+			return (1);
+	return (0);
+}
+
+/*
+ * Version of `seq' for the `-y' option.
+ * First argument is the pattern, the second
+ * is the input string.
+ */
+yseq(p, s)
+register char *p;
+register char *s;
+{
+	register int c;
+
+	while ((c = *s++) != '\0') {
+		if (islower(*p) && isupper(c))
+			c = tolower(c);
+		if (c != *p++)
+			return (0);
+	}
+	if (*p != '\0')
+		return (0);
+	return (1);
+}
+
+err(s)
+{
+	if (!sflag)
+		fprintf(stderr, "grep: %r\n", &s);
+	exit(2);
+}
+@
+
+
+1.3
+log
+@stevesf: changes per Lamonte
+@
+text
+@d124 1
+d247 1
+a247 1
+			printf("%s: ", fname);
+d249 1
+a249 1
+			printf("%d:\t", blkno);
+d251 1
+a251 1
+			printf("%d:\t", lineno);
+@
+
+
+1.2
+log
+@bob h added -i with -y option per norm
+@
+text
+@a124 1
+			case 'i':
+d272 1
+a272 1
+		if ((*epp->e_mfun)(epp->e_un.u_re, s) != NULL)
+d291 2
+a292 2
+	for (epp = &exps[0]; epp->u_cp!=NULL && !m; epp++)
+		m = yflag ? yseq(epp->u_cp, s) : seq(epp->u_cp, s);
+d394 2
+a395 4
+	if (!sflag) {
+		fprintf(stderr, "%r", &s);
+		fprintf(stderr, "\n");
+	}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d125 1
+@

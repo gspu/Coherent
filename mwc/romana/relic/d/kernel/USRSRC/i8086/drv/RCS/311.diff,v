@@ -1,0 +1,173 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.06.10.14.42.15;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version prov by hal
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@*** alx311.c	Sat Feb  2 16:45:12 1991
+--- alx.c	Sat Feb 16 01:27:53 1991
+***************
+*** 27,32 ****
+--- 27,35 ----
+  #define	IENABLE	(IE_RxI+IE_TxI+IE_LSI)
+  #define IE_ALL	(IE_RxI|IE_TxI|IE_LSI|IE_MSI)
+  
++ #define RTS_ON()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) | MC_RTS); }
++ #define RTS_OFF()	{ outb(ALPORT+MCR, inb(ALPORT+MCR) & ~MC_RTS); }
++ 
+  int	al_sg_set = 0;
+  int	al_sg_clr = 0;
+  static int poll_divisor;  /* set by set_poll_rate(), read by alxclk() */
+***************
+*** 195,201 ****
+  			*irqtty = tp_table[AL_NUM];
+  			outb(b+MCR, MC_RTS|MC_DTR|MC_OUT2);
+  		}
+! 		want_rts = 1;
+  	
+  		outb(b+IER, IENABLE);        /* enable interrupts */
+  	
+--- 198,205 ----
+  			*irqtty = tp_table[AL_NUM];
+  			outb(b+MCR, MC_RTS|MC_DTR|MC_OUT2);
+  		}
+! 		RTS_ON();
+! 		want_rts = 0;
+  	
+  		outb(b+IER, IENABLE);        /* enable interrupts */
+  	
+***************
+*** 206,212 ****
+  					SVTTOUT);	/* wait for carrier */
+  		 		if (SELF->p_ssig && nondsig()) {  /* signal? */
+  					outb(b+MCR, inb(b+MCR)&MC_OUT2);
+- 					want_rts = 0;
+  	                    		/*
+  					 * make sure port is hungup
+  					 * disable all ints except for TxI
+--- 210,215 ----
+***************
+*** 300,306 ****
+  		 * Hangup port
+  		 */
+  		outb(b+MCR, inb(b+MCR)&MC_OUT2);
+- 		want_rts = 0;
+  		/*
+  		 * Hold dtr low for timeout
+  		 */
+--- 303,308 ----
+***************
+*** 422,428 ****
+  		if (tp->t_flags & T_MODC) {  /* modem control? */
+  			tp->t_flags &= ~T_CARR;  /* indicate no carrier */
+  			outb(b+MCR, inb(b+MCR) & MC_OUT2); /* hangup */
+- 			want_rts = 0;
+  		}
+  	}
+  
+--- 424,429 ----
+***************
+*** 515,522 ****
+  			tp->t_rawin.si_ox++;
+  	}
+  	rawin_ct = 0;
+- 	if (want_rts)
+- 		outb(b+MCR, inb(b+MCR) | MC_RTS);
+  
+  	/*
+  	 * Calculate free output slot count.
+--- 516,521 ----
+***************
+*** 540,550 ****
+  	 * (Re)start output, wake sleeping processes, etc.
+  	 */
+  	ttstart( tp );
+  
+  	/*
+  	 * Schedule next cycle.
+  	 */
+! 	timeout( &tp->t_rawtim, HZ/10, alxcycle, tp );
+  }
+  
+  /*
+--- 539,554 ----
+  	 * (Re)start output, wake sleeping processes, etc.
+  	 */
+  	ttstart( tp );
++ 	
++ 	if (want_rts) {
++ 		RTS_ON();
++ 		want_rts = 0;
++ 	}
+  
+  	/*
+  	 * Schedule next cycle.
+  	 */
+! 	timeout( &tp->t_rawtim, HZ/20, alxcycle, tp );
+  }
+  
+  /*
+***************
+*** 639,652 ****
+  		tp->t_rawin.si_buf[ tp->t_rawin.si_ix ] = b;
+  		if ( ++tp->t_rawin.si_ix >= sizeof(tp->t_rawin.si_buf) )
+  			tp->t_rawin.si_ix = 0;
+! 			rawin_ct++;
+  		/*
+  		 * Preliminary code!
+  		 * De-assert RTS if we are close to filling the input silo.
+  		 */	
+! 		if (want_rts && (sizeof(tp->t_rawin.si_buf) - rawin_ct < 4))
+! 			outb(b+MCR, inb(b+MCR) & ~MC_RTS);
+! 			goto rescan;
+  
+  	case Tx_INTR:
+  		/*
+--- 643,660 ----
+  		tp->t_rawin.si_buf[ tp->t_rawin.si_ix ] = b;
+  		if ( ++tp->t_rawin.si_ix >= sizeof(tp->t_rawin.si_buf) )
+  			tp->t_rawin.si_ix = 0;
+! 			
+  		/*
+  		 * Preliminary code!
+  		 * De-assert RTS if we are close to filling the input silo.
+  		 */	
+! 		rawin_ct++;
+! 		if (!want_rts && rawin_ct > SI_BUFSIZ / 4) {
+! 			RTS_OFF();
+! 			want_rts = 1;
+! 		}
+! 		
+! 		goto rescan;
+  
+  	case Tx_INTR:
+  		/*
+***************
+*** 693,698 ****
+--- 701,707 ----
+  				tp->t_flags |= T_STOP;
+  		if (b & MS_DRLSD)
+  			drlsd = 1;		
++ 		goto rescan;
+  	}
+  }
+  
+@

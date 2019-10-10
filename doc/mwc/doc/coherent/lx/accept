@@ -1,0 +1,127 @@
+.TH accept() "" "" "Sockets Function (libsocket)"
+.PC "Accept a connection on a socket"
+.B "#include <sys/types.h>"
+.B "#include <sys/socket.h>"
+\fBint accept(\fIsocket\^\fB, \fIaddress\^\fB, \fIaddrlen\^\fB)\fR
+\fBint \fIsocket\^\fB, *\fIaddrlen\^\fB; struct sockaddr *\fIaddress\^\fB;\fR
+.PP
+.B accept()
+accepts a connection on a socket.
+It extracts the first connection request
+on the queue of pending connections,
+creates a new socket with the same properties as
+.IR socket ,
+and allocates a file descriptor for the newly created socket.
+It is used with connection-based types of sockets, currently with
+.BR SOCK_STREAM .
+.PP
+.I socket
+gives a file descriptor that identifies a socket.
+It must have been returned by a call to
+.BR socket() ,
+have been bound to an address by a call to
+.BR bind() ,
+and be listening for connections after a call to
+.BR listen() .
+.PP
+If no connections are pending on the queue and
+.I socket
+is not marked as non-blocking,
+.B accept()
+blocks the calling process until it can establish a connection.
+If
+.I socket
+is marked non-blocking and no connections are pending on the queue,
+.B accept()
+returns an error, as described below.
+The accepted socket may not be used
+to accept more connections; however,
+the original
+.I socket
+remains open.
+.PP
+.I address
+gives the address of the connecting entity,
+as known to the ``communications layer''.
+Its exact format
+is dictated by the domain in which communication occurs.
+.PP
+.I addrlen
+points to an integer that gives the number of bytes available at
+.IR address .
+Upon return, that integer contains the number of bytes to which
+.I address
+actually points.
+.PP
+The function
+.B select()
+can perform the same action as
+.BR accept() :
+simply select the socket for reading.
+.\".PP
+.\"For protocols that require explicit confirmation, such as
+.\".B ISO
+.\"or
+.\".BR DATAKIT ,
+.\".B accept()
+.\"can be thought of as simply dequeueing the next connection
+.\"request and not implying confirmation.
+.\"Confirmation can be implied by a normal read or write on the new
+.\"file desciptor, and rejection can be implied by closing the new socket.
+.\".PP
+.\"One can obtain data requested by a user's connection without confirming
+.\"the connection; simply call
+.\".B recvmsg()
+.\"call, with
+.\".B msg_iovlen
+.\"set to zero and
+.\".B msg_controllen
+.\"set to non-zero;
+.\"or call
+.\".BR getsockopt() .
+.\"Likewise, you can provide a user connection with information about
+.\"rejection:
+.\"call
+.\".B sendmsg()
+.\"and provide only the control information,
+.\"or call
+.\".BR setsockopt() .
+.PP
+If all goes well,
+.B accept()
+returns the file descriptor for the accepted socket,
+which is a non-negative integer.
+If something goes wrong,
+.B accept()
+returns \-1 and set
+.B errno
+to an appropriate value.
+The following lists the errors that can occur, by the value to which
+.B accept()
+sets
+.BR errno :
+.IP \fBEBADF\fR
+.I socket
+is somehow invalid.
+.IP \fBENOTSOCK\fR
+.I socket
+references a file, not a socket.
+.IP \fBEOPNOTSUPP\fR
+.I socket
+references a socket that is not of type
+.BR SOCK_STREAM .
+.IP \fBEFAULT\fR
+.B addr
+contains an illegal address.
+.IP \fBEWOULDBLOCK\fR
+The socket is marked non-blocking, and no connections
+are present to be accepted.
+.SH Example
+For an example of this function, see the Lexicon entry for
+.BR libsocket .
+.SH "See Also"
+.Xr bind(), bind
+.Xr connect(), connect
+.Xr libsocket, libsocket
+.Xr listen(), listen
+.Xr select() select

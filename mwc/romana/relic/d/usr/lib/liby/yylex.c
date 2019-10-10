@@ -1,0 +1,7 @@
+
+
+yylex( )
+{
+
+	return (getchar( ));
+}

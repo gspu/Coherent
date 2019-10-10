@@ -1,0 +1,116 @@
+iinniitt -- System Administration
+
+System initialization
+/eettcc/iinniitt
+
+COHERENT  invokes  processes  in special  order.   The  kernel invokes  the
+command iinniitt  as the initial process  in the system.  iinniitt  runs as long as
+the system remains  up.  iinniitt is the first process  that the kernel starts.
+The kernel always gives this process identifier 1.
+
+iinniitt has two primary tasks: First,  it guides the system through the latter
+stages of  booting and entering  multi-user mode.  Second,  it launches the
+appropriate processes  so that  users can  log in and  log out  of COHERENT
+correctly.   The rest  of this  article describes  how iinniitt  performs these
+tasks.
+
+_B_o_o_t_i_n_g _a_n_d _E_n_t_e_r_i_n_g _M_u_l_t_i-_u_s_e_r _M_o_d_e
+The following  that iinniitt performs as it guides  the system through entering
+multi-user mode.
+
+First, if  file /uussrr/aaddmm/wwttmmpp exists, iinniitt records there  the date and time
+at which the system is being booted.
+
+iinniitt then executes the shell script /eettcc/bbrrcc. This script usually loads the
+keyboard table and  invokes the command ffsscckk to check  the file systems for
+errors If  this script returns  zero, then iinniitt enters  multi-user mode; if
+not, it spawns the single-user shell.
+
+When the  user at the console terminates the  single-user shell (usually by
+typing <ccttrrll-DD>), iinniitt executes script  /eettcc/rrcc and brings the system up to
+the  multiuser state.   /eettcc/rrcc performs  such chores  as setting  the time
+zone, removing  stale temporary files and lock  files, and initializing the
+modem.  If  you wish, it  can invoke the  command aaccccttoonn to  enable process
+accounting.
+
+iinniitt then reads file /eettcc/ttttyyss.  For every local, enabled line, iinniitt spawns
+the command ggeettttyy  with two arguments: the name of  the port, and its speed
+(as given  in /eettcc/ttttyyss).  Before it  spawns a ggeettttyy,  iinniitt sets  the group
+number for a new process group.
+
+For a  remote line,  iinniitt spawns  another copy of  itself, which  waits for
+carrier detect.   Each iinniitt process  spawned for a remote  line also spawns
+ggeettttyy when it detects a carrier signal on its port.  (Note that this use of
+a second iinniitt process is unique to COHERENT.)
+
+iinniitt then waits for the termination  of its child processes.  If one of the
+ggeettttyy  processes   terminates,  iinniitt  respawns  it.    If  another  process
+terminates, iinniitt waits to receive its return value, so the process does not
+become a ``zombie''.
+
+_L_o_g_g_i_n_g _I_n _U_s_e_r_s
+The following describes how iinniitt logs users in.
+
+As mentioned  in the previous section, iinniitt invokes  process ggeettttyy for each
+enabled device on  the system.  ggeettttyy and passes it  as arguments the speed
+and the device  upon which it should run.  ggeettttyy  waits until someone tries
+to log in.  Under COHERENT, ggeettttyy  sets the tty's line speed and local-edit
+characters and  prompts the user  to log in.   It then locks  the port, and
+invokes llooggiinn with what the user has typed.
+
+At this  point, the  command llooggiinn  takes over the  task of logging  in the
+user.   llooggiinn first  asks the  user for  his password.   It then  reads the
+encrypted password  from file /eettcc/ppaasssswwdd. If the  password consists of one
+asterisk  `*',   llooggiinn  then  reads   the  encrypted  password   from  file
+/eettcc/sshhaaddooww. It then compares the retrieved password with what the user has
+typed.
+
+If  the user  has entered  his password  correctly, llooggiinn  executes various
+``housekeeping''  tasks  needed  to  get  the  user up  and  running  under
+COHERENT.  These include  It records  in file /uussrr/aaddmm/uuttmmpp the fact of the
+user's logging  in, which lets the  system keep a running  talley of who is
+logged  into the  system.  For  details on  how llooggiinn  manages the  task of
+logging in, see its entry in the Lexicon.
+
+As its  last action, llooggiinn  invokes the program named  in /eettcc/ppaasssswwdd. This
+usually is an interactive shell (i.e.,  sshh or kksshh), but can also be another
+program (e.g.,  uuuucciiccoo). If llooggiinn invokes an interactive  shell, it does so
+with the first character of its aarrggvv[00] set to `-', so that the shell knows
+that it is a login shell.   (For example, if llooggiinn invokes kksshh, its aarrggvv[00]
+is -kksshh.)
+
+The shell first executes file /eettcc/pprrooffiillee, then $HHOOMMEE/.pprrooffiillee. Once these
+are executed,  the shell displays its command-line prompt,  and the user is
+ready to begin issuing commands to COHERENT
+
+When  the  login  shell  terminates,  iinniitt  removes its  record  from  file
+/uussrr/aaddmm/uuttmmpp. Then it  reopens the appropriate terminal and invokes ggeettttyy,
+as described above.  The device is now ready to receive another login.
+
+_S_i_g_n_a_l_s
+iinniitt accepts two signals.  When it receives SSIIGGQQUUIITT, it re-reads /eettcc/ttttyyss,
+spawns  ggeettttyys  on newly  enabled  devices, and  stops  ggeettttyys on  disabled
+devices.  The command
+
+    kill quit 1
+
+sends SSIIGGQQUUIITT  to the  iinniitt process.  When  iinniitt receives SSIIGGHHUUPP,  it sends
+SSIIGGKKIILLLL to  every process and  brings the system down  to single-user mode.
+The command
+
+    kill -1 1
+
+sends SSIIGGHHUUPP to the iinniitt process.
+
+_F_i_l_e_s
+/ddeevv/ccoonnssoollee -- Console terminal
+/ddeevv/ttttyy?? -- Terminal devices
+/eettcc/rrcc -- initialization command file
+/eettcc/bbrrcc -- Boot command file
+/eettcc/ttttyyss -- Active terminals
+/eettcc/uuttmmpp -- Logged in users
+/uussrr/aaddmm/wwttmmpp -- Login accounting data
+/uussrr/ssppooooll/uuuuccpp/LLCCKK..* -- Terminal locks
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, ggeettttyy, kkiillll, kksshh, llooggiinn, sshh, ttttyyss

@@ -1,0 +1,509 @@
+;INOUT 12/05/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;input / output & error routines
+
+;WRITC writes a character from A.
+;Call:	A	char to be written
+;Retn:	A,BC,DE,HL	preserved
+;The character is sent to the CON device if (OMODE) = 0.
+;The char is also sent to the LST device if (LMODE) <> 0.
+;The char is sent to the disk (in CP/M nonCOMPL version) if (AMODE) <> 0.
+;COLUM gives the print column of the last char written (line of width WIDTH).
+;A crlf is written if the current char causes COLUM > WIDTH.
+;A linefeed is preceeded by (NULLS) nulls.
+	if	not wild
+;WRTS0 is called by print routines to print trailing space after numbers.
+wrts0:	lhld	colum		;column to L, width to H
+	mov	a,l
+	cmp	h
+	rz			;suppress trailing space if in last column
+	endif
+wrtsp:	mvi	a,' '
+writc:	push4			;save registers
+	mov	c,a		;char passed in C
+	lhld	colum		;width to H, column to L
+	cpi	cr
+	jnz	wrtc1
+	mvi	l,0		;cr resets column count
+wrtc1:	if	not wild
+	cpi	lf
+	cz	wnuls		;write nulls if linefeed
+	endif
+	if	not epstn
+	cpi	cntlh
+	cz	decrc		;decrement column if <control-h>
+	endif
+	cpi	20H
+	cnc	bumpc		;bump column if printable
+	shld	colum
+	if	cpm and sdisk and (not rtpak)
+	lhld	filep
+	mov	a,h
+	ora	l
+	jnz	dwrit		;write char to disk file
+	endif
+	if	bendx and sdisk
+	lda	bfilp
+	ora	a
+	jnz	dwrit		;write char to disk file
+	endif
+	lda	omode
+	if	(cpm or isis2 or genmc or (bendx and sdisk)) and not compl
+	cpi	80H		;check if doing ASCII save
+	jz	dsave
+	endif
+	if	wild
+	cpi	6
+	jnc	wrtc2		;>= 6, not PRINT @
+	ora	a
+	jnz	wwrit		;1 <= OMODE <= 5, PRINT @ to monitor
+	endif
+wrtc2:	ora	a		;check if output to be suppressed
+	if	(not wild) or (not rtpak)	;no CNOUT in WILD RTPAK
+	push	b
+	cz	cnout
+	pop	b
+	endif
+	if	(cpm or isis2 or genmc) and not compl
+	cpi	7FH		;check if doing ASCII LOAD
+	jz	pop4		;ignore remaining checks if so
+	endif
+	if	cpm and debug and not compl
+	lda	amode
+	ora	a
+	push	b
+	cnz	dkout		;write to disk if saving
+	pop	b
+	endif
+	if	not wild
+	lda	lmode
+	ora	a		;check LST write mode
+	cnz	lout
+	endif
+pop4:	pop	psw		;common restore and returns
+	jmp	pop3
+decrc:	dcr	l		;decrement column count for backspace
+	rp			;done unless was column 0
+	inr	l		;undecrement
+	jmp	wlf		;write linefeed and return
+bumpc:	mov	a,l
+	inr	l		;increment column
+	cmp	h
+	rc			;column < width -- ok
+	mov	a,h		;fetch width
+	ora	a
+	rz			;suppress automatic crlfs if width is 0
+	mvi	l,1		;column >= width -- write crlf and return
+	if	epstn
+	mov	a,h
+	cpi	80
+	rz			;Epstein hardware does crlf at column 80
+	endif
+wcrlf:	mvi	a,cr
+	call	writc
+wlf:	mvi	a,lf
+	jmp	writc
+	if	not wild
+wnuls:	lda	nulls		;fetch null count
+	mov	b,a		;save in B
+	inr	b
+	xra	a		;null char to A
+wnul1:	dcr	b
+	rz			;done
+	call	writc		;write a null
+	jmp	wnul1		;and test for more
+	endif
+
+;READC reads one char from the console.
+;The parity bit (i.e. bit 7) is reset.
+;The user is returned to direct mode if the char is <cntl-c>.
+;The system is booted if the char is <cntl-b>.
+;The LST mode is toggled if  the char is <cntl-p>.
+;Retn:	A	char read, masked by 7FH
+;	BC,DE,HL	preserved
+readc:	push3			;save registers
+	if	(cpm or isis2 or genmc or (bendx and sdisk)) and not compl
+	lda	omode
+	cpi	7FH		;check if ASCII load
+	jz	dload		;yes
+	endif
+	call	conin		;read the console
+	ani	7FH		;mask off parity
+	if	(not wild) or (not rtpak)	;no ^B, ^C in Wild RTPAK
+	cpi	cntlb
+	cz	echoc
+	if	debug
+	cz	boot		;call monitor if debug and control-B
+	else
+	if	camac and cpm
+	cz	cdsab		;disable interrupt before booting if CP/M CAMAC
+	endif
+	jz	boot		;jmp monitor if not debug and control-B
+	endif
+	cpi	cntlc
+	cz	echoc
+	jz	dmodc		;break to direct mode if control-c
+	endif
+	if	cpm and debug and not compl
+	cpi	cntlx
+	jz	dsav0
+	endif
+	if	not wild 	;no LST device
+	cpi	cntlp
+	jnz	pop3
+	call	echoc
+	lda	lmode		;toggle LST mode if control-p
+	cma
+	sta	lmode
+	mvi	a,cntlp		;restore char to A
+	endif
+	jmp	pop3
+
+	if	(cpm or isis2 or genmc) and not compl
+dsave:	call	dkout		;write char to disk file
+	jmp	pop4		;restore and return
+	endif
+
+;REDYC determines whether char is ready at console.
+;Retn:	Carry	set iff char ready
+redyc:	push3			;save registers
+	call	cstat
+	rrc
+	jmp	pop3		;restore and return
+
+;CTEST looks for character at console, and READCs it if present.
+;All chars are ignored except the following:
+;	<cntl-b>	reboots (from READC)
+;	<cntl-c>	breaks (branch to dmode, with message)
+;	<cntl-o>	toggles CONsole output mode
+;	<cntl-p>	toggles LST mode (from READC)
+;	<cntl-s>	suspends interpreter execution until either
+;				<cntl-x> (reboot) or <cntl-q> (resume)
+;Retn:	A	clobbered
+;	BC,DE,HL	preserved
+ctest:	call	redyc		;check if char ready
+	rnc			;no char ready
+ctst0:	call	readc		;ready, so read the char -- driver entry point
+	if	(not wild) or (not rtpak)
+	cpi	cntlo
+	cz	echoc
+	jz	ctst1		;toggle output mode if cntl-o and return
+	endif
+	if	not wild
+	cpi	cntls
+	jz	ctst2		;wait for cntl-q if cntl-s
+	endif
+	sta	gchar		;else save it for GET
+	ret
+	if	not wild
+ctst2:	call	readc
+	cpi	cntlq		;check if cntl-q
+	rz			;return if so
+	cpi	cntls
+	rz			;return if cntl-s toggled also
+	jmp	ctst2		;else wait
+	endif
+	if	(not wild) or (not rtpak)
+ctst1:	lda	omode
+	cma			;toggle omode
+	sta	omode
+	jmp	wcrlf		;echo crlf and return
+	endif
+
+;WRTBS prints (BC) as a signed decimal number, with leading '-' if negative.
+;WRTBU prints (BC) as an unsigned decimal number.
+;The current column & width are checked to avoid breaking the number with crlf.
+;WRTB1 is an entry point from PRINT, to print nonnegatives with leading space.
+;Call:	BC	integer
+;Retn:	A	clobbered
+;	BC,DE,HL	preserved
+wrtbs:	mov	a,b
+	ora	a
+	jp	wrtbu		;write unsigned if positive
+	push	b		;else save BC
+	call	iumin		;negate BC (NB -32768 is OK)
+	mvi	a,'-'		;leading minus sign
+	jmp	wrtb2		;and write
+wrtbu:	xra	a		;no leading char
+wrtb1:	push	b		;save BC
+wrtb2:	push	d
+	push	h		;and DE, HL
+	call	cvtis		;convert integer to string
+	call	prstl		;print string on one line
+	jmp	pop3
+
+;PRSTR prints the string addressed by C,DE.
+;PRSTL tries to print the string addressed by C,DE without crlf.
+prstl:	lhld	colum		;width to H, column to L
+	mov	a,h		;fetch width
+	ora	a
+	jz	prstr		;just print the string if width is 0
+	mov	a,c		;length to A
+	add	l		;column + length = last column needed
+	cmc			;carry reset iff > 255
+	jnc	prsl1		;much too long, write crlf first
+	cmp	h		;carry reset iff last needed >= width
+	jz	prstr		;just fits
+prsl1:	cnc	wcrlf		;write crlf if too long for current printline
+prstr:	inr	c		;length+1
+prst1:	dcr	c		;decrement length
+	rz			;done
+	ldax	d		;fetch next string char
+	call	writc		;print it
+	inx	d
+	jmp	prst1		;and write more
+
+;CVTIS converts the integer in BC to a string of ASCII decimal digits.
+;The result is loaded into the buffer at BUFAD.
+;Call:	A	leading char (ASCII space or minus sign, 0 for none)
+;	BC	unsigned integer value
+;Retn:	A,C	length of string result
+;	DE	location of string result, i.e. BUFAD
+;	B,HL	clobbered
+cvtis:	mov	h,b
+	mov	l,c		;value to HL
+	lxi	b,bufad		;destination to BC
+	push	b		;and saved
+	ora	a
+	jz	cvis1		;no leading char desired
+	stax	b		;store leading char
+	inx	b		;and point to next available location
+	xra	a		;clear A for mod10
+cvis1:	lxi	d,-10000
+	call	mod10
+	lxi	d,-1000
+	call	mod10
+	lxi	d,-100
+	call	mod10
+	lxi	d,-10
+	call	mod10
+	mov	a,l		;units digit to A
+	call	mod1b		;and to string
+	pop	d		;location to DE
+	mov	a,c		;last+1 to A
+	sub	e		;last+1 - first = length
+	mov	c,a		;and length to C
+	ret
+
+;MOD10 adds the decimal digit n = (HL) div -(DE) to the string at (BC)
+;and leaves HL with (HL) + n * (DE).  Zeros suppressed if (A) = 0 when called.
+mod10:	push	b
+	mvi	b,255
+mod1a:	shld	temp
+	inr	b
+	dad	d
+	jc	mod1a
+	lhld	temp		;remainder to HL
+	mov	d,b		;result to D, temporarily
+	pop	b		;restore BC
+	ora	d		;zero set iff (A) > 0 or (D) > 0
+	rz
+	mov	a,d		;result to A
+mod1b:	adi	'0'		;entry point for final digit
+	stax	b		;add ASCII digit to string
+	inx	b
+	ret
+
+	if	not compl
+;PRNTL prints line # (as unsigned decimal, suppressed if zero) and space
+;and a line of user source text, expanding tokens as necessary.
+;Call:	HL	address of line #
+;Retn:	A,DE	clobbered
+;	BC	preserved
+;	HL	address following last text byte, i.e. after <cr>
+;PRTL0 prints line with <linefeed> if (DE) matches location.
+;PRTLC prints line with <linefeed> at TEXTP.
+prtlc:	lhld	textp
+	xchg			;current TEXTP to DE
+	lhld	lnnum		;current LNNUM to HL
+	call	prtl0		;print the line
+	jmp	wcrlf		;and crlf
+prntl:	lxi	d,0		;print without linefeed
+prtl0:	push	b
+	call	linb1		;line # to BC
+	jz	prtl3		;zero, i.e. direct mode
+	call	wrtbu		;write the line #
+	inx	h		;past break byte
+	inx	h		;to first text byte
+	mvi	a,' '
+	cmp	m		;check if first char is space
+	cnz	wrtsp		;write a space if not
+prtl1:	pop	b		;restore BC
+prtl2:	call	cmdhu		;compare to text pointer
+	cz	wlf		;write linefeed if equal
+	mov	a,m		;fetch next byte from text
+	inx	h
+	cpi	cr
+	rz			;cr, done
+	push	h
+	call	prtch		;print char or token
+	pop	h
+	jmp	prtl2
+prtl3:	lxi	h,tlnad
+	jmp	prtl1
+
+;PRTCH prints a char or token.
+;Call:	A	char or token
+prtch:	call	fndtk		;look up the token
+	jnc	writc		;char, just print it
+	endif			;else fall through to PRTST to print token
+
+;PRTST prints a string with successive calls to WRITC.
+;Call:	HL	address of string's first text char
+;Retn:	A	clobbered
+;	BC,DE	preserved
+;	HL	address following string's last text char
+prtst:	mov	a,m		;fetch a byte to print
+	ani	7FH		;mask off end of entry bit
+	call	writc		;print it
+	mov	a,m		;check end of entry byte again
+	ora	a
+	inx	h		;move up pointer
+	jp	prtst		;keep printing
+	ret			;end of entry, done
+
+;PRNTM prints the message which directly follows the CALL PRNTM.
+;PRTM0 turns on OMODE and then prints message with PRNTM.
+prtm0:	xra	a
+	sta	omode		;turn on output mode
+	if	cpm and sdisk	;reset file pointer
+	lxi	h,0
+	shld	filep
+	endif
+	if	bendx and sdisk
+	sta	bfilp
+	endif
+prntm:	pop	h		;address following CALL to HL
+	call	prtst		;print the message
+	pchl			;and return to the next address
+
+	if	wild		;error handling
+errof:
+erron:
+erroc:	xra	a
+	sta	omode		;reset OMODE in case within PRINT @
+	pop	h		;recover address of caller
+	mov	d,m		;first message char to D
+	inx	h
+	mov	a,m
+	ani	7FH
+	mov	e,a		;second message char to E
+	call	linbc		;line number to BC
+	mov	h,b
+	mov	l,c		;then to HL
+	mvi	a,9		;error code = 9 to A
+	jmp	wmon		;and pass to monitor
+	else			;NOT WILD
+;ERROF, ERRON and ERROC are error routine entry points for Fatal,
+;Nonfatal and Continue errors.  In each case the
+;error routine is invoked with the ERROR macro, e.g. with
+;	ERROR	F, X, Y
+;issuing a fatal XY error with the code
+;	call	errof
+;	db	'X', 'Y' or 80H
+;The error message following the call is printed, followed by the
+;user source line # (if any) and user source line.
+;If TRAP, any error terminates execution and returns the user to DMODE, with
+;a CONTinue entry on the CSTACK to allow continuation at the next command.
+;If UNTRAP:
+;Fatal errors return to DMODE, as if TRAP.
+;Nonfatal errors continue execution with all registers preserved.
+;Continue errors continue execution with the next source text command.
+errof:	xthl			;message address to HL, HL to stack
+	push	psw		;PSW to stack
+	stc			;Carry set for fatal
+	jmp	erro0
+erroc:	xthl
+	push	psw
+	xra	a		;Carry reset, Zero set for Continue
+	jmp	erro0
+erron:	xthl
+	push	psw
+	ori	1		;Carry reset, Zero reset for nonfatal
+erro0:	push	d		;save DE
+	xchg			;message address to DE
+	if	cpm and sdisk and (not rtpak)
+	lhld	filep
+	endif
+	if	bendx and sdisk
+	lxi	h,bfilp
+	mov	h,m
+	endif
+	push	h		;save current BFILP
+	push	psw		;save error type
+	call	prtm0		;turn on OMODE, print CRLF
+	db	cr, lf or 80H
+	xchg			;message address to HL
+	call	prtst		;print message
+	pop	psw
+	push	h		;save return address in case nonfatal
+	push	psw		;and save error type again
+	call	prntm		;print ERROR message
+	if	compl
+	db	' ERROR IN LINE', ' ' or 80H
+	push	b
+	call	linbc		;line # to BC
+	call	wrtbu		;write it
+	call	wcrlf		;and crlf
+	pop	b
+	else
+	db	' ERROR:', ' ' or 80H
+	call	prtlc		;print the line
+	if	editc
+	push	b
+	call	linbc		;line number to BC
+	jz	erro1		;skip resetting ERRLN if 0
+	mov	h,b
+	mov	l,c		;then to HL
+	shld	errln		;and save for EDIT
+erro1:	pop	b		;restore BC
+	endif
+	lda	trap		;0 trap, 255 untrap
+	ora	a
+	jz	erro2		;TRAP, so scan to next and go to DMODE
+	endif
+	pop	psw		;recover error type
+	jc	erro2		;fatal, to DMODE as if TRAP
+	jz	nextc		;continue with next command
+	pop	d		;return address to DE
+	if	cpm and sdisk and (not rtpak)
+	pop	h
+	shld	filep		;restore FILEP
+	endif
+	if	bendx and sdisk
+	pop	psw
+	sta	bfilp
+	endif
+	call	ctest		;test for console break char
+	xchg			;return address to HL
+	pop	d		;restore DE
+	pop	psw		;restore psw
+	xthl			;restore HL, return address to stack
+	ret
+	if	camac
+erro2	equ	dmod2		;no continuation after errors in CAMAC versions
+	else
+;Fatal errors:  build control stack entry, scan to delimiter, and goto DMODE.
+erro2:	call	linbc		;LNNUM to HL, Zero set iff direct
+	jz	dmod2		;error from DMODE, skip entry building
+	dcx	h		;address length byte of current line
+	push	h		;and save
+	mov	e,m
+	mvi	d,0		;length of current line to DE
+	dad	d		;address of following line
+	xchg			;to DE
+	lhld	textp
+	call	cmdhu		;check if within current text line
+	jc	dmod2		;after current line, skip entry building
+	pop	d
+	call	cmdhu
+	jnc	dmod2		;before current line, skip entry building
+	call	gtdel		;else scan to delimiter
+	jmp	endc1		;build break entry and go to DMODE
+	endif			;end of NOT CAMAC conditional
+	endif			;end of NOT WILD condtional
+
+
+;end of INOUT
+	page

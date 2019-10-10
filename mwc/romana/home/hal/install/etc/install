@@ -1,0 +1,348 @@
+# /etc/install
+#
+# Revised Wed Jul 20 17:03:38 1994 CDT
+
+# Special handling for COHERENT operating system installation (-b or -u):
+#	/etc/mount.all before install, /etc/umount.all after.
+#	Diskettes go from 2 to ndisks, not 1 to ndisks (#1 was boot disk).
+#	Reboot system after installation complete.
+
+
+. /usr/lib/shell_lib.sh
+
+# Set TESTMODE nonempty to do testing of this script.
+
+TESTMODE=
+
+if is_empty $TESTMODE; then
+	LOGFILE=/etc/install.log
+	DO_COMMAND=
+else
+	LOGFILE=/tmp/log
+	DO_COMMAND=/bin/echo
+fi
+
+PARAMS=$*
+COMMAND_NAME=$0
+
+# Validation function for read_input, want [rRsSaA].
+
+require_rsa () {
+	case $1 in
+	[rRsSaA])
+		return 0
+		;;
+	*)
+		echo "You must enter a letter:  r, s, or a."
+		return 1
+		;;
+	esac
+}
+
+###############
+# report_error
+#
+# Output an error message to standard error, prefixed by the command name.
+###############
+
+report_error () {
+	basename $COMMAND_NAME "" "echo " ": $*" 1>&2
+}
+
+###############
+# usage
+#
+# Report a usage message to standard error.
+###############
+
+usage () {
+	cat << \END 1>&2
+usage:	/etc/install [-b] [-u] [-c] id device ndisks
+	-b	Initial installation of COHERENT operating system.
+	-u	Update of COHERENT operating system.
+	-c	Uncompress, rather than copy, contents of /compressed directory
+		on diskette (uses /etc/install.u)
+	id	Package identification, e.g. "Drv_420"
+	device	Device name for diskette drive, e.g. "/dev/fva0".
+	ndisks	Number of diskettes in the package.
+END
+	exit 1
+}
+
+###############
+# mount_disk
+###############
+
+mount_disk () {
+
+	# Skip this diskette if it's already installed.
+
+	if [ -f /$ID.$1 ]; then
+		read_input "Disk $1 of $ID appears already installed - skip it" \
+		yesno "y" require_yes_or_no
+		if is_yes $yesno; then
+			return 0
+		fi
+	fi
+
+	# Main loop for the current diskette of the installation set.
+
+	COPIED=
+	RETRY=
+	while is_empty $COPIED; do
+		is_empty $RETRY || {
+			read_input \
+"(r)etry disk $1 / (s)kip disk $1 / (a)bort installation" \
+			  option "r" require_rsa
+			case $option in
+			[rR])
+				;;
+			[sS])
+				return 0
+				;;
+			[aA])
+				exit 1
+				;;
+			esac
+		}
+		RETRY=y
+
+		# Ask for a diskette.
+		read_input "\nInsert disk $1 into the drive and hit <Enter>." \
+		  junk
+
+		# Try to mount the diskette.
+		if /etc/mount $DEVICE /mnt -r; then
+			:
+		else
+			report_error "Could not access file system on diskette."
+			continue
+		fi
+
+		# Make sure diskette has the right ID.
+		if [ ! -f /mnt/$ID.$1 ];then
+			report_error "That is not disk $1 of set $ID."
+			/etc/umount $DEVICE
+			continue
+		fi
+
+		echo "Reading disk $1..."
+
+# See if a "pre-file" exists, and if so, run it first.
+
+# Copy the pre-file to /conf, and run it with the argument of
+# $PRE_ARCH_LIST which may be a file containing a list of files to archive
+# before the install takes place.  It is up to the pre-file to choose
+# how to create and where to place the archive.  Here, we merely
+# supply a filename as an argument.  In fact, the pre-file can do
+# whatever it wants with the info in .arch; it could be another shell
+# script, a list of files to delete, etc.  It is merely a per-disk
+# optional support file the original intent of which was archiving
+# before installations.
+
+		PRE_FILE=/mnt/$ID.$1.pre
+		EX_PRE_FILE=/conf/$ID.$1.pre
+		PRE_ARCH_LIST=/mnt/$ID.$1.arch
+
+		if [ -f $PRE_FILE ]
+		then
+			mv $PRE_FILE /conf || \
+			  report_error "Could not move $PRE_FILE to /conf"
+
+			if [ -f $EX_PRE_FILE ]
+			then if [ "$UPDATE" ]
+			     then
+				$EX_PRE_FILE -u $PRE_ARCH_LIST || \
+				   report_error "$EX_PRE_FILE failed!"
+			     else
+				echo $EX_PRE_FILE $PRE_ARCH_LIST
+				$EX_PRE_FILE $PRE_ARCH_LIST || \
+				   report_error "$EX_PRE_FILE failed!"
+			     fi
+			fi
+
+		fi
+
+
+		# About to copy data from install diskette using /bin/cpdir.
+		# The cpdir step copies the diskette id to the root directory.
+
+		CPDIR_PARMS="-ad -smnt "
+
+		# If files are compressed on disk, don't copy compressed data.
+		if [ "$COMPRESSED" ]; then
+			CPDIR_PARMS="${CPDIR_PARMS} -scompressed"
+		fi
+
+		# If updating COHERENT operating system, don't overwrite files
+		# named in /conf/upd_suppress.
+		if [ "$UPDATE" ]; then
+			SUPPRESSED=$(/bin/sed -e "s/^/-s/" < /conf/upd_suppress)
+			CPDIR_PARMS="${CPDIR_PARMS} $SUPPRESSED"
+		fi
+
+
+		# Also suppress any files specified on the dist. disk
+		# NOTE: $ID.supp *MUST* be on disk #1!!
+		SUP_FILE=/mnt/$ID.supp
+		SUPPRESSED=
+
+		if [ -f $SUP_FILE ]
+		then
+			SUP_LIST=$(/bin/sed -e "s/^//" < ${SUP_FILE})
+			for each in $SUP_LIST
+			do
+				SUP_EL=`ls /mnt/$each | /bin/sed -e "s/^\/mnt\//-s/"`
+				SUPPRESSED="${SUPPRESSED} $SUP_EL"
+				echo $SUP_EL
+			done
+			CPDIR_PARMS="${CPDIR_PARMS} $SUPPRESSED"
+			echo $CPDIR_PARMS
+		fi
+
+		$DO_COMMAND /bin/cpdir $CPDIR_PARMS /mnt / || {
+			report_error "Copy of disk $1 failed"
+		}
+
+		# Uncompress files that are compressed on source diskette.
+		if [ "$COMPRESSED" ]; then
+
+			# If updating COHERENT operating system,
+			# pass this info to uncompressing script.
+			# This is again so as not to step on files
+			# named in /conf/upd_suppress.
+			if [ "$UPDATE" ]; then
+				UFLAG="-u"
+			else
+				UFLAG=
+			fi
+			$DO_COMMAND /etc/install.u $UFLAG || {
+				report_error "Uncompress of disk $1 failed"
+			}
+		fi
+
+		COPIED=Y
+	done
+
+	/etc/umount $DEVICE
+
+	/bin/echo "/etc/install: disk $1 installed" >>$LOGFILE
+	/bin/sync
+}
+
+###############
+# Main.
+###############
+
+# Parse command line.
+
+COMPRESSED=
+BUILD=
+UPDATE=
+COH=
+while [ $# -gt 3 ]; do
+	ARG=$1
+	case $ARG in
+	-c)
+		COMPRESSED=y
+		;;
+	-b)
+		BUILD=y
+		COMPRESSED=y
+		COH=y
+		;;
+	-u)
+		UPDATE=y
+		COMPRESSED=y
+		COH=y
+		;;
+
+	-*)
+		report_error "bad argument: $ARG"
+		usage
+		;;
+	esac
+	shift
+done
+
+if [ $# -ne 3 ]; then
+	usage
+fi
+
+ID=$1
+DEVICE=$2
+NDISKS=$3
+
+if [ "$TESTMODE" ];then
+	echo ID=$ID DEVICE=$DEVICE NDISKS=$NDISKS
+	echo COMPRESSED=$COMPRESSED BUILD=$BUILD UPDATE=$UPDATE
+fi
+
+# Echo command line, followed by date, to $LOGFILE.
+
+echo $0 $* >> $LOGFILE
+/bin/date >> $LOGFILE
+
+# If installing COHERENT (initial or update), mount everything.
+# Install disks.
+# Disk numbers are 2 to ndisks for build, 1 to ndisks otherwise.
+
+if [ "$COH" ]; then
+	$DO_COMMAND /etc/mount.all
+	for DISK_NUM in $(from 2 to $NDISKS);do
+		mount_disk $DISK_NUM
+	done
+else
+	for DISK_NUM in $(from 1 to $NDISKS);do
+		mount_disk $DISK_NUM
+	done
+fi
+
+# Delete diskette ids.
+
+$DO_COMMAND /bin/rm -f /$ID.*
+
+# Execute postfile if present.
+# Append "-u" for COHERENT update.
+
+POSTFILE=/conf/$ID.post
+
+if [ -f $POSTFILE ];then
+	if [ "$UPDATE" ];then
+		$POSTFILE -u
+	else
+		$POSTFILE
+	fi
+fi
+
+# Echo success message with date to log file.
+
+/bin/echo "/etc/install: success" >>$LOGFILE
+/bin/date >>$LOGFILE
+/bin/echo >>$LOGFILE
+
+# If installing COHERENT (initial or update), unmount everything.
+
+if [ "$COH" ]; then
+	$DO_COMMAND /etc/umount.all
+fi
+
+# Completion message to operator.
+
+echo "
+Installation complete.
+Don't forget to remove the last diskette from the disk drive.
+"
+/bin/sync
+
+# Need to reboot if installing COHERENT, to get tertiary kernel.
+
+if [ "$COH" ]; then
+	echo "
+You must reboot your system in order to allow the preceding
+configuration steps to take effect.
+"
+	/etc/reboot -p
+fi
+
+exit 0

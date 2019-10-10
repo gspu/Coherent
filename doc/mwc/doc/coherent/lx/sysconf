@@ -1,0 +1,154 @@
+.TH sysconf() "" "" "System Call (libc)"
+.PC "Get configurable system variables"
+.B "#include <unistd.h>"
+\fBlong sysconf(\fIname\^\fB)\fR
+\fBint \fIname\^\fB;\fR
+.PP
+.B sysconf()
+returns the value of the system limit or option identified by
+.IR name .
+.PP
+In the following table, the left column gives a symbolic constant to which
+.I name
+can be set, and the right column gives the corresponding system variable
+(as defined in
+.B <limits.h>
+and
+.BR <unistd.h> )
+that
+.B sysconf()
+reads and returns:
+.DS
+.ie t .ta 0.5i 2.0i
+.el   .ta 0.5i 3.0i
+	\fIName	Variable\fR
+	\fB_SC_ARG_MAX	ARG_MAX\fR
+	\fB_SC_CHILD_MAX	CHILD_MAX\fR
+	\fB_SC_CLK_TCK	CLK_TCK\fR
+	\fB_SC_NGROUPS_MAX	NGROUPS_MAX\fR
+	\fB_SC_OPEN_MAX	OPEN_MAX\fR
+	\fB_SC_PASS_MAX	PASS_MAX\fR	
+	\fB_SC_JOB_CONTROL	_POSIX_JOB_CONTROL\fR
+	\fB_SC_SAVED_IDS	_POSIX_SAVED_IDS\fR
+	\fB_SC_VERSION	_POSIX_VERSION\fR
+.DE
+.PP
+The following describes the values returned in more detail:
+.IP \fBARG_MAX\fR
+.II ARG_MAX
+Maximum number of bytes that can be occupied by a process's argument list
+and environment.
+.\" ???
+.IP \fBCHILD_MAX\fR
+.II CHILD_MAX
+Number of processes a user can run simultaneously.
+.IP \fBCLK_TCK\fR
+.II CLK_TCK
+Length of a clock tick, in microseconds.
+.IP \fBNGROUPS_MAX\fR
+.II NGROUPS_MAX
+The maximum number of groups to which a user can belong, in addition to
+her primary group.
+.IP \fBOPEN_MAX\fR
+.II OPEN_MAX
+The number of files a process can have open simultaneously.
+.IP \fBPASS_MAX\fR
+.II PASS_MAX
+The maximum length of a password.
+Please note that the constant
+.B _SC_PASS_MAX
+is defined only for programs compiled for \*(UN System V release 4.
+.IP \fB_POSIX_JOB_CONTROL\fR
+.II _POSIX_JOB_CONTROL
+This is a Boolean flag that indicates whether the operating system
+supports the POSIX job-control functions.
+.IP \fB_POSIX_SAVED_IDS\fR
+.II _POSIX_SAVED_IDS
+This is a Boolean flag that indicates whether the operating system
+permits each process to have a saved set-user ID and a saved set-group ID.
+.IP \fB_POSIX_VERSION\fR
+.II _POSIX_VERSION
+This is a long integer that encodes the four-digit year and two-digit
+month of approval for the version of the POSIX standard supported by the
+operating system.
+For example, 199009L indicates the version approved in September of 1990.
+.PP
+The value of variable
+.B CLK_TCK
+can vary; you should not assume that it is a compile-time constant.
+.PP
+If
+.I name
+is an invalid value,
+.B sysconf()
+returns \-1 and set
+.B errno
+to an appropriate value.
+If
+.B sysconf()
+fails due to a value of
+.I name
+that is not defined on the system, it returns \-1 without setting
+.BR errno .
+.SH Example
+At the time of this writing (August 1994), the program
+.DM
+#include <unistd.h>
+main()
+{
+	printf("_SC_ARG_MAX: %d\en", sysconf(_SC_ARG_MAX));
+	printf("_SC_CHILD_MAX: %d\en", sysconf(_SC_CHILD_MAX));
+	printf("_SC_CLK_TCK: %d\en", sysconf(_SC_CLK_TCK));
+	printf("_SC_NGROUPS_MAX: %d\en", sysconf(_SC_NGROUPS_MAX));
+	printf("_SC_OPEN_MAX: %d\en", sysconf(_SC_OPEN_MAX));
+	printf("_SC_JOB_CONTROL: %d\en", sysconf(_SC_JOB_CONTROL));
+	printf("_SC_SAVED_IDS: %d\en", sysconf(_SC_SAVED_IDS));
+	printf("_SC_VERSION: %d\en", sysconf(_SC_VERSION));
+}
+.DE
+.PP
+returns the following values:
+.DM
+	_SC_ARG_MAX: 5120
+	_SC_CHILD_MAX: 25
+	_SC_CLK_TCK: 100
+	_SC_NGROUPS_MAX: 32
+	_SC_OPEN_MAX: 60
+	_SC_JOB_CONTROL: 0
+	_SC_SAVED_IDS: 1
+	_SC_VERSION: 199009
+.DE
+.SH "See Also"
+.Xr "libc," libc
+.Xr "unistd.h" unistd.h
+.R
+.br
+\*(PX Standard, \(sc4.8.1
+.SH Notes
+Programs can use the appropriate
+.B #ifndef
+guards to control whether they use
+.B sysconf()
+or a symbol from
+.B <limits.h>
+for each kind of limit.
+For example:
+.DM
+	#include <unistd.h>
+	#include <limits.h>
+.DE
+.DM
+	#ifdef	_SC_OPEN_MAX
+		max = sysconf (_SC_OPEN_MAX);
+	#elif	defined (OPEN_MAX)
+		max = OPEN_MAX;
+	#else
+	/* either complain, or make some rational assumption, e.g. */
+	#error	Open file descriptor limits cannot be determined
+	#endif
+.DE
+.\"A call to
+.\".B setrlimit()
+.\"may cause the value of
+.\".B OPEN_MAX
+.\"to change on System V, Release 4-compatible systems.

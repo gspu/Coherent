@@ -1,0 +1,143 @@
+rreessttoorr -- Command
+
+Restore file system
+rreessttoorr _c_o_m_m_a_n_d [_d_u_m_p__d_e_v_i_c_e] [_f_i_l_e_s_y_s_t_e_m] [_f_i_l_e ...]
+
+rreessttoorr copies to the hard disk one or more files from floppy disks or tapes
+written by the command dduummpp.
+
+rreessttoorr recognizes the following _c_o_m_m_a_n_d_s:
+
+rr  Mass  restore  both  full  and  incremental  dump disks/tapes  into  the
+   _f_i_l_e_s_y_s_t_e_m. The  target file system must have enough  data blocks and i-
+   nodes to hold the dump.
+
+   The mass  restoration is performed in three phases.   In phase 1, rreessttoorr
+   clears all i-nodes  that were either clear at dump  time or are going to
+   be restored.   Any allocated blocks  are released.  Second,  it restores
+   all  files on  the disk.   The i-numbering  is preserved;  however, data
+   blocks are  allocated in  the standard fashion.   Third, a pass  is made
+   over  the i-nodes  and the  list of  free i-nodes  in the  superblock is
+   updated.
+
+   Restoration  begins immediately,  using  the currently  mounted disk  or
+   tape.
+
+RR  Like the rr command, except that it pauses to ask for numbers of disks or
+   reels.
+
+tt  Read the  header from the dump.   Display the date the  dump was written
+   and the ``dump since'' date that produced the dump.
+
+xx  Extract each  _f_i_l_e from the dump  and restore it to  the hard disk.  All
+   file names are absolute path names starting at the root of the dump (the
+   first directory  dumped, which is always the root  directory of the file
+   system).  A numeric  file name is taken to be  an i-number on the dumped
+   file system, permitting restore by i-number.
+
+   rreessttoorr looks up each _a_r_g_u_m_e_n_t file in the directories of the dumped file
+   system  and  prints  out  each  name  and associated  i-number.   rreessttoorr
+   extracts the  files from  the currently mounted  dump disk or  tape, and
+   writes the extracted  files into the current directory.  Extracted files
+   are named after their i-numbers.
+
+XX  Like command x, except that before it begins, it asks you for the number
+   of the disk (or the reel  number of the dump tape).  It continues asking
+   for dump disks  until all files have been extracted  or you types <ccttrrll-
+   DD>.
+
+Each of the above commands can  be modified either or both of the following
+modifiers:
+
+ff  Tell  rreessttoorr to  take the  next _a_r_g_u_m_e_n_t  as the path  name of  the dump
+   device  (floppy-disk drive  or tape  drive).  If the  ff modifier  is not
+   specified, rreessttoorr uses the device /ddeevv/dduummpp.
+
+vv  Verbose  output.   Tell rreessttoorr  to  print a  step-by-step  trace of  its
+   actions when  restoring an entire file system.   This is for discovering
+   what went wrong when a mass restore runs into trouble.
+
+_R_e_s_t_o_r_i_n_g _f_r_o_m _a _D_a_m_a_g_e_d _M_e_d_i_u_m
+As noted below, dduummpp requires that  its output be written to disks or tapes
+that are free of defects.  Restoring a file system from a damaged medium is
+difficult and  is not  associated with a  high probability of  success; if,
+however, you  must try to do  so, the following directions  will give you a
+fighting chance of restoring your data.
+
+1. Use  the command  ffddffoorrmmaatt  to format  a  blank disk.   Use the  command
+   bbaaddssccaann to examine it for bad  sectors; if it does have bad sectors, put
+   it aside and try another.
+
+2. Use the command dddd to copy  the bad disk to directory /ttmmpp_f_o_o_1 dddd should
+   die at the bad sector in the disk.
+
+3. dddd again to directory /ttmmpp/_f_o_o_2 using that command's sskkiipp=_n to skip past
+   the bad sector (or sectors).
+
+4. Repeat step  3 (if it  died too) until  the end of the  disk is reached.
+   Now you  have a  set of  directories named /ttmmpp/_f_o_o[_1..._n]  that contain
+   parts of the bad disk.
+
+5. Use the command
+
+       dd if=/tmp/_f_o_o_1 of=/dev/fha0
+
+   with the new, defect-free disk.
+
+6. Now, use the command
+
+       dd if=/tmp/_f_o_o_2 of=/dev/fha0 seek=_w_h_a_t_e_v_e_r
+
+   to place _f_o_o_2 into the right place on the new disk.
+
+7. Repeat 6 for each directory _f_o_o_3 through _f_o_o_N.
+
+8. Create a 512-byte file that contain the string
+
+       GARBAGE\n
+
+   repeated  64 times.   Use dddd  to  copy it  into new  disk where  the bad
+   sectors were.
+
+Now, you _s_h_o_u_l_d have a disk that is a mirror image of the old, damaged dump
+disk.  Each  bad sectors will  have been replaced  by 64 iterations  of the
+string GGAARRBBAAGGEE\nn.   As noted, there  is no guarantee that  this scheme will
+work in every  instance (the chances of error are  quite high), but it will
+give you a fighting chance to save your data.
+
+_F_i_l_e_s
+/ddeevv/dduummpp -- Dump device
+/eettcc/ddddaattee -- Dump date file
+
+_S_e_e _A_l_s_o
+ccoommmmaannddss, dduummpp, dduummppddiirr
+
+_D_i_a_g_n_o_s_t_i_c_s
+Most of  the diagnostics produced  by rreessttoorr are  self-explanatory, and are
+caused by internal table overflows or I/O errors on the dump medium or file
+system.
+
+If the  dump spans multiple  disks or reels,  rreessttoorr asks you  to mount the
+next disk at  the appropriate time.  Type a newline  when the disk has been
+mounted.   rreessttoorr verifies  that this  is the correct  disk, and  gives you
+another chance if the disk number in the dump header is incorrect.
+
+_N_o_t_e_s
+You cannot  perform a  mass restore onto  a live root  partition.  Instead,
+boot a stand-alone version of COHERENT on a floppy-disk drive, or boot from
+an alternative  COHERENT file system on  another hard-disk partition before
+you attempt to do a mass restoration.
+
+The handling  of tapes with multiple  dumps on them (created  by dumping to
+the  no  rewind special  files)  is not  very  general.  Basically,  rreessttoorr
+assumes that tapes holding multiple dumps and tapes holding dumps that span
+multiple reels are mutually exclusive.  You  can restore from any file on a
+reel by positioning  the tape and then restoring with  the xx or rr commands,
+which do not  reposition the tape.  It is (almost)  impossible to use the XX
+or RR  commands, as the position  of the dump tape will  be lost when rreessttoorr
+closes it.
+
+dduummpp requires  that its  output be  written to disks  that are free  of bad
+sectors.  If you  write a dump to a disk  with bad sectors, you will not be
+able  to  restore  files  from  that  disk.  See  dduummpp  for  directions  on
+processing disks to ensure that they are free of bad sectors.

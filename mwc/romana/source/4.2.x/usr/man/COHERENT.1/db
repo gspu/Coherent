@@ -1,0 +1,458 @@
+ddbb -- Command
+
+Assembler-level symbolic debugger
+ddbb [-aa _s_y_m_f_i_l_e] [-ccddeeffoorrtt] [[_m_a_p_f_i_l_e] _p_r_o_g_r_a_m]
+
+ddbb is an interactive, symbolic debugger.  It allows you to run object files
+and  executable programs  under trace  control (see  the Lexicon  entry for
+ppttrraaccee), run  programs with embedded breakpoints, and  dump and patch files
+in a variety of forms.  You  can use it to debug assembly-language programs
+that have  been assembled by aass, the Mark  Williams assembler, and programs
+that have been compiled with the Mark Williams C compiler cccc.
+
+_W_h_a_t _i_s _d_b?
+ddbb is a symbolic debugger, which means that it works with the symbol tables
+that the  compiler builds into  the object files it  generates.  Because ddbb
+works on  the level of assembly  language, you need a  working knowledge of
+i80386 assembly language and microprocessor architecture.
+
+_I_n_v_o_k_i_n_g _d_b
+To invoke  ddbb, type its  name, plus the  options you want (if  any) and the
+name of  the files with  which you will  be working.  _m_a_p_f_i_l_e  is an object
+file that supplies a symbol table.  _p_r_o_g_r_a_m is the executable program to be
+debugged.  If both names are given,  the options default to -cc. If only one
+name is given,  it is the _p_r_o_g_r_a_m; in this  case the options default to -oo.
+If both names are omitted, _m_a_p_f_i_l_e  defaults to ll.oouutt or aa.oouutt, and _p_r_o_g_r_a_m
+defaults to ccoorree. If possible, ddbb accesses _p_r_o_g_r_a_m with write permission.
+
+ddbb recognizes the following command-line options:
+
+-aa _s_y_m_f_i_l_e
+   Read _s_y_m_f_i_l_e  for the list of symbols within  the executable, instead of
+   the  executable's symbol  table.   This lets  you  copy an  executable's
+   symbol table in _s_y_m_f_i_l_e, then strip that executable.
+
+-cc _p_r_o_g_r_a_m is a core file produced by a user core dump.  ddbb checks the name
+   of the command that invoked  the process that produced the core, against
+   the name  of the  _m_a_p_f_i_l_e, if  given.  Pure segments  are read  from the
+   _m_a_p_f_i_l_e.
+
+-dd _p_r_o_g_r_a_m is a  system dump.  If the command line  names no files, _m_a_p_f_i_l_e
+   defaults to /CCOOHHEERREENNTT and _p_r_o_g_r_a_m defaults to /ddeevv/dduummpp.
+
+-ee The next argument  is an object file; ddbb executes  it as a child process
+   and passes it  the rest of the command line.   This permits the shell to
+   expand  wildcard  characters that  you  place in  the  ddbb command  line,
+   without spoiling the syntax of the ddbb command.
+
+-ff Map _p_r_o_g_r_a_m as a straight array of bytes (file).
+
+-kk Map  program as  a kernel  process; _m_a_p_f_i_l_e  defaults to  /ccoohheerreenntt, and
+   _p_r_o_g_r_a_m defaults to /ddeevv/kkmmeemm.
+
+-oo _p_r_o_g_r_a_m is  an object file.  If  _m_a_p_f_i_l_e is given, it  is another object
+   file that provides the symbol table.
+
+-pp _p_r_o_m_p_t
+   Change the command prompt from ddbb: to _p_r_o_m_p_t.
+
+-rr Only read the file, even if  you have write permission for it.  Use this
+   to give a file additional protection.
+
+-ss Do not load symbol table.
+
+-tt Perform input and output for ddbb  via /ddeevv/ttttyy. This permits you to debug
+   a process whose standard input or output has been redirected.
+
+_C_o_m_m_a_n_d_s _a_n_d _A_d_d_r_e_s_s_e_s
+ddbb executes commands that you give it from the standard input.  ddbb displays
+the prompt
+
+    db:
+
+when it  is ready to receive  a command.  To change its  prompt, use the -pp
+option, described  above.  A command usually consists  of an _a_d_d_r_e_s_s, which
+tells ddbb where in the program  to execute the command; and then the command
+name and its options, if any.
+
+An address is  represented by an _e_x_p_r_e_s_s_i_o_n, which can  be built out of one
+or more of the following elements:
+
+-> The  `.',  which represents  the  current address.   When  you enter  an
+   address, ddbb  sets the current address to that  location.  To advance the
+   current address, type the <EEnntteerr> key.
+
+-> The name of a register.  ddbb recognizes the names of all registers on the
+   80386  microprocessor  and  the  80387  numeric co-processor.   You  can
+   preceed a register  name with a `%', but this  is not required.  If your
+   program  contains  function eeaaxx(),  the  identifier  eeaaxx identifies  the
+   function and  %eeaaxx the register.   If your program does  not define eeaaxx,
+   then either eeaaxx or %eeaaxx means the register.  For example, the commands
+
+       sin:b
+       :e
+       :s
+       %st0?N
+
+   sets a  breakpoint at routine  ssiinn(), executes to it,  single steps into
+   it, and  then prints the  contents of the  NDP stacktop %sstt00,  which one
+   step into ssiinn() contains the argument.
+
+   Typing  the  name of  a  register displays  its  contents.  ddbb  displays
+   register contents and  stack traceback in hexadecimal values, regardless
+   of the current default radix.
+
+-> The symbols  dd, ii, and  uu, which represent location  0 in, respectively,
+   the data space, the instruction space, and the u-area.
+
+-> The names of global symbols and  symbolic addresses can be used in place
+   of  the addresses  where  they occur.   This  is useful  when setting  a
+   breakpoint at the beginning of a subroutine.
+
+-> An integer  constant, which can be  used in the same  manner as a global
+   symbol.  The default is hexadecimal;  a leading 00 indicates octal and 00xx
+   indicates hexadecimal.
+
+-> You can use the following binary operators:
+
+       +   Addition
+       -   Subtraction
+       *   Multiplication
+       /   Integer division
+
+   All arithmetic is done in lloonnggs.
+
+-> You can use the following unary operators:
+
+       ~   Complementation
+       -   Negation
+       *   Indirection
+
+   All operators are supported  with their normal level of precedence.  You
+   can use parentheses `()' for binding.
+
+Every  symbol  refers  to a  segment:  the  data  segment, the  instruction
+segment,  or the  u-area.  This  segment, in turn,  dictates the  format in
+which ddbb  displays by default  what it finds  at that address.   The format
+used by an  expression is that of its leftmost  operand.  The symbols dd, ii,
+and uu name specific segments in the absence of other symbols.
+
+_D_i_s_p_l_a_y_i_n_g _I_n_f_o_r_m_a_t_i_o_n
+To display information about _p_r_o_g_r_a_m, use an expression of the form
+
+    [_a_d_d_r_e_s_s][,_c_o_u_n_t]?[_f_o_r_m_a_t]
+
+This displays _f_o_r_m_a_t for  _c_o_u_n_t iterations, starting at _a_d_d_r_e_s_s. The symbol
+`.' represents  the _a_d_d_r_e_s_s, which defaults to  the current display address
+if omitted.  _c_o_u_n_t  defaults to one.  The _f_o_r_m_a_t string  consists of one or
+more of the following characters:
+
+    ^   Reset display address to `.'
+    +   Increment display address
+    -   Decrement display address
+    bb   Byte
+    cc   cchhaarr; control and non-cchhaarrs escaped
+    CC   Like `c' except `\0' not displayed
+    dd   Decimal
+    ff   ffllooaatt
+    FF   ddoouubbllee
+    ii   Machine instruction, disassembled
+    ll   lloonngg
+    nn   Output `\n'
+    NN   NDP (80387) register
+    OO   octal
+    pp   Symbolic address
+    ss   String terminated by `\0', with escapes
+    SS   String terminated by `\0', no escapes
+    uu   uunnssiiggnneedd
+    ww   word
+    xx   Hexadecimal
+    YY   time (as in i-node, etc.)
+
+The format  characters dd,  oo, uu,  and xx, specify  a numeric base.   Each of
+these  can be  followed by  bb,  ll, or  ww, which  specify a  datum  size, to
+describe a single datum for display.  A format item may also be preceded by
+a count  that specifies how many  times the item is  to be applied.  _f_o_r_m_a_t
+defaults to the previously set format for the segment (initially oo for data
+and  u-area, and  ii for  instructions).  Except  where otherwise  noted, ddbb
+increments the  display address  by the size  of the datum  displayed after
+each format item.
+
+_E_x_e_c_u_t_i_o_n _C_o_m_m_a_n_d_s
+In the following commands,  _a_d_d_r_e_s_s defaults to the address where execution
+stopped,  unless  otherwise  specified;  _c_o_u_n_t  and  _e_x_p_r default  to  one.
+_c_o_m_m_a_n_d_s is an arbitrary string of ddbb commands, terminated by a newline.  A
+newline may be included by preceding it with a backslash `\'.
+
+[_a_d_d_r_e_s_s]=
+     Print _a_d_d_r_e_s_s (offset) in hexadecimal.  _a_d_d_r_e_s_s defaults to `.'.
+
+[_a_d_d_r_e_s_s]=_v_a_l_u_e[,_v_a_l_u_e[,_v_a_l_u_e]...]
+     Patch _v_a_l_u_e into the  program, beginning at point _a_d_d_r_e_s_s. The address
+     defaults to `.'.  You can list up to ten _v_a_l_u_es. The command = assigns
+     values to  sequential locations in the  traced process.  ddbb determines
+     the size of the assigned value from the last display format used.  You
+     can set and display the registers of the traced process, just like any
+     other address in the traced process.
+
+?    Print the last error message.
+
+[_a_d_d_r_e_s_s][,_n]?[_f_t]
+     Display formatted information.  _f_t indicates the format, which must be
+     one of bbccCCddffFFiillnnNNooppssSSuuvvwwxxYY. For details, see the command :hhff, below
+
+_a_d_d_r_e_s_s?
+     Print _a_d_d_r_e_s_s.
+
+!_c_o_m_m_a_n_d
+     Pass _c_o_m_m_a_n_d to a shell for execution.
+
+[_a_d_d_r_e_s_s] :aa
+     Print _a_d_d_r_e_s_s symbolically.  _a_d_d_r_e_s_s defaults to `.'.
+
+[_a_d_d_r_e_s_s]:bb[_c_o_m_m_a_n_d_s]
+     Set a  breakpoint at _a_d_d_r_e_s_s. Execute _c_o_m_m_a_n_d_s  when the breakpoint is
+     encountered.   _c_o_m_m_a_n_d_s  defaults to  ii+.:aa\nnii+.?ii\nn:xx\nn  -- that  is,
+     print  the  breakpoint address,  disassemble  the  instruction at  the
+     breakpoint address, and read more commands from the console.
+
+:bbrr [_c_o_m_m_a_n_d_s]
+     Set breakpoint  at return from current  routine, and execute _c_o_m_m_a_n_d_s.
+     The default _c_o_m_m_a_n_d_s are the same as for :bb, above.
+
+[_a_d_d_r_e_s_s] :cc
+     Continue execution from _a_d_d_r_e_s_s.
+
+[_a_d_d_r_e_s_s] :dd[rr][ss]
+     Delete the breakpoint previously set  at _a_d_d_r_e_s_s. If the optional rr or
+     ss  is specified,  delete  return or  single-step breakpoint.   _a_d_d_r_e_s_s
+     defaults to `.'.
+
+[_a_d_d_r_e_s_s]:ee[_c_o_m_m_a_n_d_l_i_n_e]
+     Begin traced  execution of the object file  at _a_d_d_r_e_s_s (default, entry
+     point).  ddbb  parses _c_o_m_m_a_n_d_l_i_n_e and  passes it to  the traced process.
+     aarrggvv[00] must be typed directly after :ee if supplied.  For example,
+
+         :eprogname foo bar baz
+
+     sets aarrggvv[00] to pprrooggnnaammee, aarrggvv[11]  to ffoooo, aarrggvv[22] to bbaarr, and aarrggvv[33]
+     to bbaazz. Quotation marks, apostrophes, and redirection are parsed as by
+     the  shell,  but  special  characters  `?*[]'  and  shell  punctuation
+     `(){}|;' are not.  For complete  shell command line parsing use the -ee
+     option, above.
+
+     Note that you  must use the :ee command to  start the program execution
+     prior  to  using  the  single-step,  trace-back,  or  display-register
+     commands.  For example, the following COHERENT command sequence sets a
+     breakpoint  at mmaaiinn(),  begins execution,  and single-steps  ten times
+     through the program after having reached the breakpoint:
+
+         main:b
+         :e
+         ,10:s
+
+:ff   Print type  of fault  that caused  a core dump  or stopped  the traced
+     process.
+
+:hh   Print help information.
+
+:hhff  Print  help  information about  display  formats.   ddbb recognizes  the
+     following display formats:
+
+     bb    Byte.
+     cc    cchhaarr; control, and non-cchhaarrs printed as escape sequences.
+     CC    cchhaarr; control and non-cchhaarrs print as `.'.
+     dd    Decimal.
+     ff    ffllooaatt.
+     FF    ddoouubbllee.
+     ii    Disassembled machine instruction.
+     ll    lloonngg.
+     nn    Output `\n'.
+     NN    NDP (80387) floating-point register (ten bytes).
+     oo    Octal.
+     pp    Symbolic address.
+     ss    String (NUL-terminated) with escape sequences.
+     SS    String (NUL-terminated).
+     uu    uunnssiiggnneedd.
+     vv    File system l3-block address (three bytes).
+     ww    Word.
+     xx    Hexadecimal.
+     YY    Time.
+
+     Options dd, oo, uu, and xx specify numeric bases (decimal, octal, unsigned
+     decimal, hexadecimal).  Each may be followed by bb, ww, or ll to indicate
+     a datum size (respectively, byte, word, or long).
+
+:mm   Display segmentation map.
+
+:pp   Display all breakpoints.
+
+[_e_x_p_r] :qq
+     If _e_x_p_r is nonzero, quit the  current level of command input (see :xx).
+     _e_x_p_r defaults to one.  End-of-file is equivalent to :qq.
+
+:rr   Display the contents of all registers on the microprocessor.
+
+:rrNN  Display the contents of all registers on the microprocessor and on the
+     numeric co-processor.   If your system does not  possess a numeric co-
+     processor, it  displays the contents  of the pseudo-registers  used by
+     COHERENT's emulator.
+
+[_a_d_d_r_e_s_s][,_c_o_u_n_t]:ss[cc][_c_o_m_m_a_n_d_s]
+     Single-step execution starting  at _a_d_d_r_e_s_s, for _c_o_u_n_t steps, executing
+     _c_o_m_m_a_n_d_s at each step.  _c_o_m_m_a_n_d_s defaults to ii+.?ii.
+
+     After a  single-step command, <EEnntteerr> is  equivalent to .,11:ss[cc].  The
+     option cc tells ddbb to turn off single-stepping at a subroutine call and
+     turn it on again upon return.
+
+[_d_e_p_t_h] :tt
+     Print a  call traceback to _d_e_p_t_h levels.  If  _d_e_p_t_h is zero (default),
+     unwind the whole stack.
+
+[_e_x_p_r] :xx
+     If _e_x_p_r is nonzero, read  and execute commands from the standard input
+     up to  end of file  or to receiving  the command :qq.  _e_x_p_r defaults to
+     one.
+
+Note  that the  :cc, :ss,  :tt, and  :rr commands cannot  be executed  before a
+program  is  started.  If  you  are  debugging the  program  hheelllloo, do  the
+following first:
+
+    db hello
+    main:b
+    :e
+
+This invokes  the debugger for hheelllloo  and advances it to  mmaaiinn. Now you can
+use the full set of commands.
+
+_E_x_a_m_p_l_e_s
+The first  example uses  ddbb to  examine a program  named mmyypprroogg,  which has
+core-dumped.  To debug it, use the command
+
+    db myprog core
+
+You could then issue the following commands to see where the problem lay:
+
+:ff This command displays the fault that caused the core dump.
+
+:rr This displays  the contents of registers at the  point where the program
+   core dumped.
+
+:tt This command traces back the stack.   With this command, you can see how
+   your program  arrived at the  point where it  core dumped.  You  can use
+   this  to find  the point  in  your code  where the  program ``jumps  the
+   rails''; often, this is all the information you need to fix the fault.
+
+ii11?
+   This prints the value of global  variable ii11 in your program at the time
+   of the core dump.
+
+:qq Quit ddbb. At  this point, you should have a  good idea of what went wrong
+   with your program.
+
+For another example, consider the following program, named sseeggvv.cc:
+
+    main()
+    {
+        register char *cp;
+
+        cp = &main;
+        *cp = 1000;
+    }
+
+Compile this program  with the command cccc sseeggvv.cc. To  run it, type sseeggvv; as
+you can  see, it crashes  with a segmentation violation,  producing a core-
+dump file named ccoorree. Now, you  can use ddbb to find out why the program core
+dumped.
+
+To invoke the debugger, type:
+
+    db segv core
+
+Now, type the ddbb command:
+
+    :f
+
+This tells  ddbb to print the  type of fault that caused  the program to dump
+core.  ddbb replies:
+
+    segmentation violation
+
+Now, type:
+
+    *%eip?
+
+ddbb replies:
+
+    000000E9     movb   (%ebx), $0xE8
+
+Here, ddbb gives you the value  of the instruction pointer register %eeiipp when
+the  segmentation violation  occurred and  disassembles the  instruction at
+that  location.  The  offending instruction is  trying to  store indirectly
+through register %eebbxx. Type:
+
+    :t
+
+ddbb prints a traceback of the call stack:
+
+    7FFFFD24  000000E9  main(1, 0x7FFFFD38, 0x7FFFFD40)
+
+This shows the program was in mmaaiinn() and not in any other function.  Type:
+
+    :r
+
+ddbb prints contents of the machine registers:
+
+    %cs =000B       %eip=000000E9   %ss =0013       %fw =00011246
+    %ds =0013       %es =0013       %fs =0000       %gs =0000
+    %eax=00000001   %ebx=000000D4   %ecx=00000013   %edx=7FFFFD40
+    %esp=7FFFFD1C   %ebp=7FFFFD24   %edi=004090F4   %esi=00400D24
+
+This shows  that register %eebbxx has  the value 0xD4 at the  time of the core
+dump.  Print the contents of %eebbxx symbolically:
+
+    %ebx?p
+
+ddbb replies:
+
+    00000020     main
+
+The program  is trying  to store  into the address  of mmaaiinn. This  causes a
+segmentation violation because COHERENT does not allow programs to write on
+code.  Finally, type
+
+    :q
+
+to exit from ddbb.
+
+In the  last example, suppose  you want to  print the current  address, the
+instruction at  the current address, and the contents  of global variable jj
+when you hit function ffnn while running ddbb. Type:
+
+    db cmd
+    main:b
+    :e
+    fn:b.:a\
+    .?i\
+    j?\
+    :x
+
+The backslash `\' at the end of a line ``escapes'' a newline -- that is, it
+tells ddbb  to ignore the newline,  and concatenate the contents  of the next
+line  onto those  of the  present line.   Thus, the  ffnn command  line (four
+physical lines  with escaped newlines) forms a single  ddbb command that says
+the following:
+
+.:aa
+   Print the current position as an address.
+.?ii
+   Print the contents of the current position as an instruction.
+jj? print the contents of jj.
+:xx Read more ddbb input from the console.
+
+The :xx  is necessary if you  want to keep debugging  interactively after ddbb
+executes the breakpoint command list!
+
+_S_e_e _A_l_s_o
+ccoommmmaannddss, ccooffff.hh, ccoorree, ll.oouutt.hh, oodd, ppttrraaccee()

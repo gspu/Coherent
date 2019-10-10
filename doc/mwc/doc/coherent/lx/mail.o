@@ -1,0 +1,575 @@
+.TH mail "" "" Overview
+.PC "Electronic mail system"
+.PP
+The \*(CO system includes a full-featured, \*(UN-style mail system.
+This system consists of commands with which your system can send, receive,
+and forward mail; and configuration files, with which you
+can describe potential recipients of mail, either on your system
+or other systems.
+This article describes the design of the \*(CO mail system,
+and introduces the commands and files that compose it.
+.PP
+The \*(CO mail system has three major components:
+the \fIuser agent\fR (also called the \fImailer\^\fR);
+the \fIrouting agents\fR (the commands \fBsmail\fR and \fBrmail\fR);
+and the \fIdelivery agents\fR (the commands \fBlmail\fR and \fBuux\fR).
+.PP
+This structure may seem overly complex (you may ask why all of this
+functionality could not be bundled into one program); however, experience
+has shown that it is best to organize each set of functions within its own
+program.
+One advantage this gives you is that you can replace one part of the mail
+system with another, superior program, without disturbing the operation
+of the system as a whole.
+For example, you may wish to replace the mailer
+.B mail
+with another mailer, such as
+.BR elm .
+Because the mailer is its program, you can replace
+.B mail
+with
+.B elm
+without affecting the delivery or routing agents at all.
+You may never need to modify how the routing or delivery agents work,
+but studying the overall structure of the mail system will help you to
+decide intelligently on whether to replace a part of the mail system,
+and will also help you diagnose any problems that may crop up.
+.PP
+The following describes each set of agents in turn.
+.SH "The User Agent"
+.II mailer
+The user agent (also called the
+.IR mailer )
+presents to you the messages that have been delivered into your mailbox.
+It also collects messages from you and hands them
+to the routing agent for delivery.
+This is the program you invoke when you wish to read mail or send a mail
+message.
+.PP
+\*(CO comes with one mailer, called
+.BR mail .
+When you invoke it without any arguments, it reads the contents of file
+\fB/usr/spool/mail/\fIuser\fR (where
+.I user
+is your login identifier), breaks its contents into individual messages,
+and presents the messages to you one by one.
+.II mailbox
+(File \fB/usr/spool/mail/\fIuser\fR
+is also called your ``mailbox'', because that is where the mail
+system deposits your messages.)
+You can read a mail message; then, by giving commands to
+.BR mail ,
+you can reply to the message if you wish, then copy it into a file for archiving
+or throw it away.
+.PP
+If you wish to send mail, type the command
+.DM
+	mail \fIuser\fP
+.DE
+.PP
+where
+.I user
+identifies the user to whom you wish to send the message.
+.I user
+can either be a user on your system, or on a remote system; if the
+latter, you must also name the site on which
+.I user
+resides.
+The syntax for naming a remote sites is described in further detail below.
+When you invoke
+.B mail
+to send a mail message,
+.B mail
+presents the prompt
+.BR Subject: ,
+upon which you should type the subject of the message.
+When you have typed the subject, press \*(RT; you can then type the body
+of the message.
+Press \*(RT when you come to the end of a line; the cursor jumps to the
+beginning of the next line on your screen, and you can continue typing.
+When you have finished typing, type
+.B <ctrl-D>
+or a `.' at the beginning of a line; this signals
+.B mail
+that you have finished entering the message.
+.B mail
+then passes the message to the routing agents for delivery, as described
+in the next section.
+.PP
+If, while you are typing the body of your message,
+you type the letter `?' at the beginning of a line,
+.B mail
+invokes an editor and copies your message into it.
+The editor it invokes is the set named by the environmental variable
+.BR EDITOR .
+You can then use the editor to finish typing your message.
+When you have finished typing your message, exit from the editor;
+the message will then dispatched.
+.PP
+.II .signature
+When the mail dispatches your message, it checks your home directory
+for a file named
+.BR .signature .
+This is your
+.I signature
+file:
+the mailer appends the contents of this file onto the end of your message,
+as your signature.
+A signature can be any mass of text that you wish; usually, it gives a
+user's name and e-mail address, and sometimes includes a joke, motto,
+or slogan as a form of self-expression.
+It's generally considered bad form to have a signature that exceeds five
+lines of text, or that uses vulgar, obscene, or abusive language.
+.PP
+.II file^mailing
+To mail a file to another user, use the shell's redirection operator `<'.
+For example, the command
+.DM
+	mail stephen < bug.report
+.DE
+.PP
+mails file
+.B bug.report
+to user
+.BR stephen .
+The file will be prefixed with your address, and suffixed with your
+mail ``signature'', should you have one.
+.PP
+For details on how to use the mailer and its commands,
+see the Lexicon entry for the command
+.BR mail .
+.PP
+Other mailers are also available for \*(CO;
+the most popular one is named
+.BR elm .
+This mailer uses a visual interface to display the messages that are
+in your mailbox; you can use the arrow keys on your keyboard to move a
+cursor and select the message you want.
+Sources and binaries for
+.B elm
+are available on the MWC BBS and on other sites on the Internet.
+.SH "Routing Agents"
+The routing agent, as term implies, figures out how to deliver a message
+to its destination, and dispatches it appropriately.
+.PP
+.II rmail
+The routing agent
+.BR rmail
+(``route mail'') receives mail from another system.
+If the mail is intended for your local system,
+.B rmail
+passes the mail to the delivery agent
+.B lmail
+(described below) for delivery on your system.
+If, however, the mail is intended for forwarding to another system,
+.B rmail
+forwards it appropriately.
+.B rmail
+does most of its work in the background; you will seldom if ever will
+need to work with it directly.
+.PP
+.II smail
+The routing agent
+.B smail
+(``send mail'')
+receives mail from you and dispatches to its target user, either on your
+system or on another system.
+.B smail
+actually is a large, complex program that handles mail correctly under a
+great variety of conditions.
+Under \*(CO,
+.B rmail
+actually is a link to
+.BR smail .
+.PP
+When you mail a message to
+.IR user ,
+.B smail
+performs the following steps to route the message:
+.IP \(bu 0.3i
+.B smail
+first looks up
+.I user
+in the file
+.BR /usr/lib/mail/aliases .
+For details on aliases, see the Lexicon entry
+.BR aliases .
+.IP \(bu
+If
+.B smail
+finds
+.I user
+in one of these files, it substitutes the alias for
+.IR user .
+If the alias is of the form
+.DM
+	\fIsys\fP!\fIuser\fP
+.DE
+.PP
+or
+.DM
+	\fIsys\fP! ... !\fIuser\fP
+.DE
+.PP
+or
+.DM
+	\fIuser\fP@\fIsys\[.domain\]\fP
+.DE
+.IP
+.B smail
+treats it as a remote destination, and invokes command
+.B uux
+to spool the message to
+.IR sys .
+When
+.B uux
+has delivered the message, it becomes the responsibility of command
+.B uuxqt
+on
+.I sys
+to pass the message to
+.IR user .
+.IP \(bu
+.II passwd
+If
+.B smail
+finds no match in
+.BR /usr/lib/mail/aliases ,
+it looks up
+.I user
+in the file
+.BR /etc/passwd ,
+to see if she is a user on your local system.
+If
+.B smail
+does not find
+.I user
+in
+.BR /etc/passwd ,
+it throws away the message and mails an error message to the sender.
+.IP \(bu
+.II .forward
+If
+.B smail
+does find
+.I user
+in
+.BR /etc/passwd ,
+it then looks for file
+.B .forward
+in
+.IR user 's
+home directory.
+This file normally contains a list of addresses to which mail is to be
+forwarded.
+.IP \(bu
+If
+.IR user 's
+home directory does not contain a file named
+.BR .forward ,
+.B smail
+passes the message to
+.B lmail ,
+which writes the message into the file \fB/usr/spool/mail/\fIuser\fR
+(the user's ``mailbox'').
+.IP \(bu
+If, however,
+.I user
+does have file
+.B .forward
+in her home directory,
+.B smail
+reads it, and forwards the message to the address or addresses that that
+file contains.
+.PP
+For further information on
+.BR smail ,
+and on its suite of configuration files, see the Lexicon entry for
+.BR smail .
+.PP
+Before you can send mail to a remote site, you must have set up a
+\*(UU connect to that site, either directly or indirectly.
+That is, you must have set up \*(UU to send mail to that site,
+or to a system that can forward the mail to some other that may
+have permission to access the site in question.
+See the tutorial and Lexicon articles on \*(UU for details
+on using \*(UU to exchange mail and files with remote sites.
+.PP
+.II setuid
+Please note that the routing agents
+are the only components of the mail system that must run
+.B setuid
+to assume the privilege of the superuser
+.BR root .
+.SH "Delivery Agents"
+The delivery agents actually move messages to their destination.
+.PP
+.II lmail
+The delivery agent
+.B lmail
+(``local mail'') places messages into users' mailboxes.
+To discourage the forging of mail,
+.B lmail
+does not use
+.BR setuid .
+It must be run by a privileged user (generally
+.BR root )
+so that it will have permission to write mail into every user's mailbox.
+As a rule,
+.B lmail
+is invoked only by the routing agent; you seldom, if ever, will
+work directly with
+.BR lmail .
+.PP
+.II uux
+The \*(UU
+.B uux
+queues commands for execution on a remote system.
+The mail system uses
+.B uux
+as a delivery agent; in fact, on most systems, the delivery of mail is
+.BR uux 's
+principal task.
+When a message is to be forwarded to a remote site,
+.B smail
+invokes
+.B uux
+to create two files in directory
+\fB/usr/spool/uucp/\fIsite\fR
+(where
+.I site
+names the site to which mail is being sent).
+One file, which has the prefix `C', contains the
+.B rmail
+command to be executed on the remote site;
+the other file, which has the prefix `D', contains the body of the message that
+.B rmail
+is to route.
+The next time your system polls
+.I site
+(or is polled by
+.IR site ),
+those files are copied to
+.IR site ,
+where they are executed by
+.IR site 's
+copy of the command
+.BR uuxqt .
+.PP
+You can use
+.B uux
+directly to spool commands for execution.
+For details, see the Lexicon entries for
+.B uux
+and
+.BR uuxqt .
+.PP
+.B uux
+uses
+.B setuid
+to assume the identity of user
+.B uucp
+in order to write into the necessary spool directories.
+Please note that it is very easy to use
+.B uux
+to forge messages to remote systems.
+Keep this in mind if you plan to use electronic
+mail for any kind of authorization system.
+.SH "Setting Up a Mail Feed"
+One of the most useful tasks a personal computer can perform for you is
+let you exchange electronic mail with users on remote systems.
+.II Internet
+The following describes how you can set up your mail system so you can
+plug into the Internet and begin to exchange mail with the outside world.
+.PP
+To begin, the \*(CO system at present can exchange mail with remote
+systems only via \*(UU.
+To receive mail, you must find a site that has a connection to the
+Internet \(em either direct or indirect \(em and is willing to act as
+a \*(UU feeder for you.
+Such a site may be a local college or university, or a commercial ``Internet
+provider.''
+.PP
+Once you have located such a site, set up a \*(UU connection with that site,
+as described in this manual's tutorial on \*(UU.
+If you do not have experience in setting up a \*(UU site, read this
+tutorial carefully, as this can be rather tricky.
+.PP
+Next, edit file
+.BR /etc/domain ,
+and set your system's domain to the name of the system from which you will
+be receiving your feed.
+For example, if you have purchased Internet service from site
+.BR acme.com ,
+then
+.B /etc/domain
+should read:
+.DM
+	acme.com
+.DE
+.PP
+Finally, you must edit file
+.B /usr/lib/mail/config
+to tell
+.B smail
+to forward to the feeder system all messages that are bound for the
+outside world.
+You must change two attributes within this file:
+.IP \fBdomains\fR
+This attribute sets the domain name that
+.B smail
+writes into each mail message's header.
+This is required so that other users can reply to your messages.
+Set it to the name of your feeder system;
+it should be identical to the name you wrote into
+.BR /etc/domain .
+For example, if you are purchasing your Internet service from system
+.BR acme.com ,
+then set the attribute
+.B domains
+to:
+.DM
+	domains=acme.com
+.DE
+.IP \fBsmart_path\fR
+Set this to the name of the remote site as you have set it in file
+.BR /usr/lib/uucp/sys .
+For example, if you are purchasing Internet service from site
+.BR acme.com ,
+you may have used the name
+.B acme
+to name the site within file
+.BR /usr/lib/uucp/sys .
+In this instance, you set the
+.B smail
+attribute
+.B smart_path
+as follows:
+.DM
+	smart_path=acme
+.DE
+.PP
+That's all there is to it.
+.BR smail 's
+default configurations will handle the rest.
+Once you have the \*(UU connection working properly, then any mail to
+a user who is not on your local system will be forwarded to the system
+that is providing your mail feed, and from there forwarded to the remote
+site to which you addressed it.
+.PP
+For details on setting up a \*(UU feed, see the \*(UU tutorial that appears
+earlier in this manual; also see the Lexicon entries for
+.BR UUCP ,
+.BR sys ,
+.BR dial ,
+and
+.BR port .
+For more information on modifying
+.BR smail 's
+configuration file, see the Lexicon entry for
+.BR config .
+.SH "Mailing to Networks"
+The following gives directions on how to send mail to users on popular
+networks:
+.II "America Online"
+.II Applink
+.II ATTMail
+.II BITNET
+.II CompuServe
+.II MCIMail
+.II UUNet
+.II FidoNet
+.IP "\fBAmerica Online\fR" 0.4i
+Send mail to \fIuser\^\fB@aol.com\fR.
+.IS \fBApplelink\fR
+Send mail to \fIuser\^\fB@applelink.apple.com\fR.
+.IS \fBATTMail\fR
+Send mail to \fIuser\^\fB@attmail.com\fR.
+.IS \fBBITNET\fR
+Send mail to \fIuser\^\fB@\fIhost\fB.bitnet\fR or to
+\fIuser\^\fB%\fIhost\^\fB.bitnet@\fIgateway\fR.
+.IS \fBCompuserve\fR
+Send mail to
+\fInumber\^\fB.\fInumber\^\fB@compuserve.com\fR.
+Note that Compuserve addresses are usually given as
+\fInumber\fB,\fInumber\fR; you must convert the comma to a period.
+.IP \fBFidoNet\fR
+This network uses an unusual addressing scheme.
+To send mail to John Doe at 1:123/456.0, use the following domain address:
+.DM
+	f456.n123.z1.fidonet.org.
+.DE
+.IP
+The
+.B z1
+comes from the
+.B 1:
+at the front of the FidoNode address.
+Then, put the person's name in front of this, with the at-sign between them:
+.DM
+	john.doe@f456.n123.z1.fidonet.org
+.DE
+.IP
+If the host label does not end in
+.BR .0 ,
+as in 1:123/456.4, use that digit with
+.B p
+prefixed to it, as follows:
+.DM
+	john.doe@p4.f456.n123.z1.fidonet.org
+.DE
+.IP \fBMCIMail\fR
+Send mail to \fIuser\^\fB@mcimail.com\fR.
+.B MCIMail
+usually includes a hyphen in
+.IR user 's
+name; be sure to remove it.
+.IS \fBUUnet\fR
+Send mail to
+\fIuser\^\fB@\fBhost\^\fB.uucp\fR, or to
+\fIuser\^\fB%\fIhost\^\fB.uucp@\fIgateway\fR, or to
+\fIuser\^\fB@\fIdomain\fR.
+.PP
+.II Internet
+These directions assume that you have a \*(UU link to another system that
+gives you access to the Internet or other intelligent network.
+For more information on sending mail to remote systems via \*(UU,
+see the Lexicon entry for
+.BR UUCP .
+.SH Files
+.nf
+\fB$HOME/.forward\fR \(em Forwarding instructions for inbound mail
+\fB$HOME/.signature\fR \(em Personal signature
+\fB$HOME/dead.letter\fR \(em Message that \fBmail\fR could not send
+\fB/etc/domain\fR \(em Name of your system's domain
+\fB/etc/passwd\fR \(em User identities
+\fB/etc/uucpname\fR \(em Name of your system
+\fB/tmp/mail*\fR \(em Temporary and lock files
+\fB/usr/lib/mail/aliases\fR \(em Aliases of users
+\fB/usr/lib/mail/config\fR \(em \fBsmail\fR configuration file
+\fB/usr/lib/mail/fullnames\fR \(em Short full name aliases of users
+\fB/usr/lib/mail/paths\fR \(em Mail routing control file
+\fB/usr/lib/mail/routers\fR \(em Information on routing mail to remote sites
+\fB/usr/lib/mail/transports\fR \(em Information on mail-transportation programs
+\fB/usr/spool/mail\fR \(em Mailbox directory, filed by user name
+.fi
+.SH "See Also"
+.Xr "aliases," aliases
+.Xr "commands," commands
+.Xr "config," config.s
+.Xr "cvmail," cvmail
+.Xr ".forward," forward
+.Xr "mail," mail.c
+.Xr "mkfnames," mkfnames
+.Xr "msg," msg
+.Xr "nptx," nptx
+.Xr "paths," paths
+.Xr "rmail," rmail
+.Xr "smail," smail
+.Xr "UUCP" uucp
+.br
+Krol, E.:
+\fIThe Whole Internet: User's Guide & Catalog.\fR
+Sebastopol, Ca.:
+O'Reilly & Associates, Inc., 1992.
+\fIHighly recommended.\fR

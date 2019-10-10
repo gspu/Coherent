@@ -1,0 +1,47 @@
+/*
+ * This header file contains some host-dependent defines and inclusions.
+ * This version covers UDI, COHERENT, GEMDOS, MSDOS, and VAX/VMS.
+ */
+#ifdef	UDI
+#define	OVERLAID	1
+#define	MONOLITHIC	0
+#define	OK		0
+#define	BAD		1
+#define	ABORT		2	
+#endif
+
+#ifdef	COHERENT
+#define	OVERLAID	0
+#define	MONOLITHIC	0
+#define	OK		0
+#define	BAD		1
+#define	ABORT		2
+#endif
+
+#ifdef	GEMDOS
+#define	OVERLAID	0
+#define	MONOLITHIC	0
+#define	OK		0
+#define	BAD		1
+#define	ABORT		2
+#endif
+
+#ifdef	MSDOS
+#define	OVERLAID	0
+#define	MONOLITHIC	0
+#define	OK		0
+#define	BAD		1
+#define	ABORT		1
+#endif
+
+#ifdef	vax
+#include		<stsdef.h>
+#include		<ssdef.h>
+#define	OVERLAID	1
+#define	MONOLITHIC	1
+#define	VAXFMT		1
+#define	OK		(STS$M_INHIB_MSG|SS$_NORMAL)
+#define	BAD		(STS$M_INHIB_MSG|SS$_ABORT)
+#define	ABORT		(STS$M_INHIB_MSG|SS$_ABORT)
+#endif
+#define	NFNAME		64		/* Longest file name */

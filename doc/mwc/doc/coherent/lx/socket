@@ -1,0 +1,185 @@
+.TH socket() "" "" "Sockets Function (libsocket)"
+.PC "Create a socket"
+.B "#include <sys/types.h>"
+.B "#include <sys/socket.h>"
+\fBint socket(\fIdomain\^\fB, \fItype\^\fB, \fIprotocol\^\fB)\fR
+\fBint \fIdomain\^\fB, \fItype\^\fB, \fIprotocol\^\fB;\fR
+.PP
+.B socket()
+creates a ``socket'' \(em that is,
+an endpoint for communication.
+It returns a descriptor that uniquely identifies the socket.
+.PP
+.I domain
+specifies the domain within which communication will take place.
+This selects the protocol family to be used.
+These families are defined in
+.B <sys/socket.h> .
+Currently,
+.B socket()
+recognizes the following domains:
+.IP \fBAF_UNIX\fR 1.0i
+UNIX internal protocols.
+.IS \fBAF_INET\fR
+ARPA Internet protocols.
+.\"AF_ISO		(ISO protocols),
+.\"AF_NS		(Xerox Network Systems protocols), and
+.\"AF_IMPLINK	(IMP \*(lqhost at IMP\*(rq link layer).
+.PP
+The socket has the indicated
+.IR type ,
+which specifies the semantics of communication.
+.B socket()
+recogizes the following types:
+.IP \fBSOCK_STREAM\fR 1.0i
+This type provides a byte stream that is sequenced, reliable,
+two-way, and connection-based.
+.\"An out-of-band data transmission mechanism may be supported.
+.IP \fBSOCK_DGRAM\fR
+This type supports ``datagrams'' \(em that is,
+connectionless, unreliable messages of a fixed maximum length.
+.\".IP \fBSOCK_SEQPACKET\fR
+.\"This type provides a sequenced, reliable,
+.\"two-way, connection-based data-transmission path for datagrams
+.\"of fixed maximum length.
+.\"A consumer may be required to read an entire packet with each call to
+.\"the system call
+.\".BR read() .
+.\"This facility is protocol specific, and presently implemented only for
+.\".BR PF_NS .
+.\"It gives access to internal network protocols and interfaces.
+.\".PP
+.\"The types
+.\".I SOCK_RAW ,
+.\"which is available only to the super-user, and
+.\".I SOCK_RDM ,
+.\"which is planned, but not yet implemented, are not described here.
+.PP
+.I protocol
+identifies the protocol to be used with the newly created socket.
+In most instances, a given type of socket supports only one protocol.
+However, a socket type may support many different protocols,
+in which case you must specify the one to use.
+The protocol number to use is particular to the ``communication domain''
+in which communication is to take place.
+.PP
+Sockets of type
+.B SOCK_STREAM
+are full-duplex byte streams, similar to pipes.
+A stream socket must be in a connected to another socket
+(through a call to function
+.BR connect() )
+before any data can be sent to it or received on it.
+Once connected, data can be transferred using the system calls
+.B read()
+and
+.BR write() .
+When a session has been completed, invoke the system call
+.B close()
+to close the socket.
+.\"Out-of-band data may also be transmitted as described in
+.\".I "send 2"
+.\"and received as described in
+.\".I "recv 2" .
+.\".PP
+.\"The communications protocols used to implement a
+.\".I SOCK_STREAM
+.\"insure that data
+.\"is not lost or duplicated.  If a piece of data for which the
+.\"peer protocol has buffer space cannot be successfully transmitted
+.\"within a reasonable length of time, then
+.\"the connection is considered broken and calls
+.\"will indicate an error with
+.\"-1 returns and with
+.\".I ETIMEDOUT
+.\"as the specific code
+.\"in the global variable
+.\".B errno .
+.\"The protocols optionally keep sockets
+.\".B warm
+.\"by forcing transmissions
+.\"roughly every minute in the absence of other activity.
+.\"An error is then indicated if no response can be
+.\"elicited on an otherwise
+.\"idle connection for a extended period (e.g. 5 minutes).
+.\"A
+.\".I SIGPIPE
+.\"signal is raised if a process sends
+.\"on a broken stream; this causes naive processes,
+.\"which do not handle the signal, to exit.
+.\".PP
+.\".I SOCK_SEQPACKET
+.\"sockets employ the same system calls
+.\"as
+.\".I SOCK_STREAM
+.\"sockets.  The only difference
+.\"is that 
+.\".I "read 2"
+.\"calls will return only the amount of data requested,
+.\"and any remaining in the arriving packet will be discarded.
+.\".PP
+.\".I SOCK_DGRAM
+.\"and
+.\".I SOCK_RAW
+.\"sockets allow sending of datagrams to correspondents
+.\"named in
+.\".I "send 2"
+.\"calls.  Datagrams are generally received with
+.\".I "recvfrom 2" ,
+.\"which returns the next datagram with its return address.
+.\".PP
+.\"An 
+.\".I "fcntl 2"
+.\"call can be used to specify a process group to receive
+.\"a
+.\".I SIGURG
+.\"signal when the out-of-band data arrives.
+.\"It may also enable non-blocking I/O
+.\"and asynchronous notification of I/O events
+.\"via
+.\".I SIGIO .
+.\".PP
+.\"The operation of sockets is controlled by socket level
+.\".B options .
+.\"These options are defined in the file
+.\".I sys/socket.h .
+.\".I "Setsockopt 2",
+.\"and
+.\".I "getsockopt 2"
+.\"are used to set and get options, respectively.
+.PP
+If all goes well,
+.B socket()
+returns the descriptor of the newly created socket; this is always a
+positive integer.
+If something goes wrong, it returns \-1 and sets
+.B errno
+to an appropriate value.
+The following lists the possible errors, by the value to which
+.B socket()
+sets
+.BR errno :
+.IP \fBEPROTONOSUPPORT\fR
+.I type
+or
+.I protocol
+is not supported within this domain.
+.IP \fBEMFILE\fR
+The per-process descriptor table is full.
+.IP \fBENFILE\fR
+The system file table is full.
+.IP \fBEACCESS\fR
+You do not have permission to create a socket of a given
+.I type
+or
+.IR protocol .
+.IP \fBENOBUFS\fR
+Not enough buffer space is available.
+The socket cannot be created until sufficient resources are freed.
+.SH "See Also"
+.Xr "accept()," accept
+.Xr "connect()," connect
+.Xr "libsocket," libsocket
+.Xr "listen()," listen
+.Xr "read()," read.s
+.Xr "write()" write.s

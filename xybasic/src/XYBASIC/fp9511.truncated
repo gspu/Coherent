@@ -1,0 +1,746 @@
+;FP9511 12/21/79
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1979 by Mark Williams Company, Chicago
+;floating point package for 9511 chip
+
+	if	float and f9511
+
+;EQUates
+
+;port numbers
+	if	c3885 and not debug
+d9511	equ	6		;9511 data port number for 3885
+	else
+d9511	equ	0		;9511 data port number
+	endif
+c9511	equ	d9511+1		;9511 control port number
+
+;status bits
+err95	equ	1EH		;error status bits
+car95	equ	01H		;carry status bit
+ovf95	equ	02H		;overflow status bit
+und95	equ	04H		;underflow status bit
+zer95	equ	20H		;zero status bit
+sgn95	equ	40H		;sign status bit
+bsy95	equ	80H		;busy status bit
+
+;function numbers
+sqr95	equ	01H		;SQR: <floating> --> <floating>
+sin95	equ	02H		;SIN: <floating> --> <floating>
+cos95	equ	03H		;COS: <floating> --> <floating>
+tan95	equ	04H		;TAN: <floating> --> <floating>
+atn95	equ	07H		;ATN: <floating> --> <floating>
+log95	equ	09H		;LN: <floating> --> <floating>
+exp95	equ	0AH		;EXP: <floating> --> <floating>
+pwr95	equ	0BH		;^: <floating> x <floating> --> <floating>
+add95	equ	10H		;+: <floating> x <floating> --> <floating>
+sub95	equ	11H		;-: <floating> x <floating> --> <floating>
+mul95	equ	12H		;*: <floating> x <floating> --> <floating>
+div95	equ	13H		;/: <floating> x <floating> --> <floating>
+chs95	equ	15H		;unary -: <floating> --> <floating>
+pto95	equ	17H		;push <floating> TOS to NOS
+pop95	equ	18H		;pop <floating> NOS to TOS
+xch95	equ	19H		;exchange <floating> TOS and NOS
+fld95	equ	1CH		;convert <32-bit integer> --> <floating>
+flt95	equ	1DH		;convert <16-bit integer> --> <floating>
+fxd95	equ	1EH		;convert <floating> --> <32-bit integer>
+fix95	equ	1FH		;convert <floating> --> <16-bit integer>
+p1695	equ	77H		;push <16-bit integer> TOS to NOS
+
+;constants
+fpone	db	001H, 080H, 000H, 000H	;floating point 1.
+fpten	db	004H, 0A0H, 000H, 000H	;floating point 10.
+fpmax	db	03FH, 0FFH, 0FFH, 0FFH	;floating point max positive value
+fprnd	db	06CH, 086H, 037H, 0BCH	;floating point rounder .000 000 5
+fpp01	db	07AH, 0A3H, 0D7H, 00AH	;floating point .01
+
+;floating point function routines
+;addition
+fadd:	mvi	a,add95
+	call	fadd1		;perform the addition
+	rnc			;no error
+	jmp	fover		;overflow
+
+;FADD1 adds floating TOS to NOS, returns Carry on overflow.
+;When adding (subtracting) floating values, the result
+;may be insignificant if the args arg of almost equal magnitude and
+;the opposite (same) sign.  If the arg exponents differ by more than 1,
+;this cannot occur.  But if the arg exponents differ by at most 1
+;(i.e. -1, 0, 1) and the result exponent is at least SINDX less than
+;the arg exponent, the result is insignificant and is replaced by 0.
+fadd1:	mov	c,a		;save desired op in C
+	call	exnos		;get NOS exponent
+	mov	d,a		;save NOS exponent in D
+	call	exnos		;get TOS exponent
+	sub	d		;TOS exponent - NOS exponent
+	inr	a		;+1 so -1 0 1 become 0 1 2
+	mov	e,a		;save arg exponent difference + 1 in E
+	mov	a,c		;fetch desired op
+	call	o9511		;perform the operation
+	ani	err95		;check error status
+	jnz	fadd3		;overflow or underflow
+	mov	a,e
+	cpi	3		;Carry reset unless arg diff was -1 0 1
+	rnc			;arg diff too big, result must be ok
+	call	extos		;get result exponent
+	sub	d		;result exponent minus arg exponent
+	ora	a		;reset Carry
+	rp			;more significant result, ok
+	cpi	-sindx
+	rnc			;fewer than SINDX binary places lost
+	jmp	fzero		;else result insignificant, take 0 instead
+fadd3:	ani	und95		;check for underflow
+	stc
+	rz			;overflow, return Carry
+;FZERO replaces 9511 stacktop with floating point 0,
+;setting status bits accordingly.
+fzero:	mvi	a,pto95
+	call	o9511		;copy 9511 stacktop
+	mvi	a,sub95
+	jmp	o9511		;subtract to give 0 and set flags
+
+;FADD0 performs addition without significance testing.
+fadd0:	mvi	a,add95
+;O9511 performs a 9511 operation and waits for its completion.
+;Call:	A	desired 9511 function code
+;Retn:	A, B	9511 status register after completion
+;	CDEHL	Preserved
+o9511:	out	c9511		;issue 9511 command
+op95a:	in	c9511		;read control port for 9511 status
+	mov	b,a		;save control status in B
+	ani	bsy95		;check if busy
+	mov	a,b		;restore status value for error checking
+	rz			;done if not busy
+	jmp	op95a		;wait if busy
+
+;subtraction
+fsub:	mvi	a,xch95
+	call	o9511		;exchange order of operands
+fsub0:	mvi	a,sub95
+	call	fadd1		;perform the subtraction
+	rnc			;no error
+	jmp	fover		;overflow
+
+;multiplication
+fmul:	call	fmul1		;perform multiplication
+	rnc			;no overflow
+	jmp	fover		;else nonfatal OV error and return max
+;FMUL1 does the work of floating multiplication.
+;Retn:	Carry	Set iff overflow
+fmul1:	mvi	a,mul95
+	call	o9511		;do the multiplication
+	ani	err95		;check error status
+	rz			;no error
+	ani	und95		;mask to underflow bit
+	jnz	fzero		;underflow, return 0
+	stc			;else return Carry set
+	ret
+
+;ABS
+fabs:	in	d9511		;read sign/exponent byte
+	out	d9511		;and restore
+	ani	80H		;mask to sign
+	rz			;positive, just ignore the ABS
+				;else fall through to change sign
+;unary minus
+fchs:	mvi	a,chs95
+	jmp	o9511
+
+;division
+fdivd:	xchg			;arg2 pointer to HL
+	inx	h		;point to first value byte
+	call	lod95		;arg2 to 9511 stack
+fdiv1:	mvi	a,div95
+	call	o9511		;perform division
+	ani	err95		;check error status
+	rz			;no error
+	ani	und95		;mask to underflow
+	jz	fover		;overflow or division by 0, FC error
+	jmp	fzero		;else underflow, return 0
+
+;exponentiation
+;If X is a positive integer between 0 and 255, A ^ X is computed by
+;iterated multiplication.  Otherwise the 9511 routine for A ^ X is used.
+fatox:	inx	b
+	xchg
+	inx	h
+	push	h		;save X pointer
+	push	b		;save A pointer
+	call	lod95		;fetch X to 9511 stack
+	mvi	a,pto95
+	call	o9511		;stack:  X, X
+	mvi	a,fix95
+	call	o9511		;stack:  int(X), X
+	ani	ovf95
+	jnz	fatx2		;X much too big, use 9511
+	in	d9511		;read msbyte(int(X))
+	ora	a
+	in	d9511		;read lsbyte(int(X))
+	jnz	fatx2		;int(X) > 255 or < 0, use 9511
+	mov	e,a		;save int(X) in E
+	out	d9511
+	xra	a
+	out	d9511		;restore int(X) to stack
+	mvi	a,flt95
+	call	o9511		;stack:  flt(int(X)), X
+	mvi	a,sub95
+	call	o9511		;flt(int(X)) - X
+	ani	zer95
+	jz	fatx2		;flt(int(X)) <> X, use 9511
+	lxi	h,fpone
+	call	lod95		;floating point 1 to stack for protoresult
+	inr	e		;X + 1
+	pop	h		;A pointer to HL
+	pop	b		;discard X pointer
+fatx1:	dcr	e		;decrement power count
+	rz			;done
+	push	h		;else save A pointer
+	call	lod95		;A to stack
+	pop	h		;restore A pointer
+	call	fmul1		;multiply A * result
+	jnc	fatx1		;continue multiplying
+	jmp	fover		;else issue OV error and return
+fatx2:	pop	h		;recover A pointer
+	call	lod95		;fetch A to 9511 stack
+	call	fargp		;assure A > 0
+	pop	h		;recover X pointer
+	call	lod95		;X to 9511 stack
+	mov	c,a		;save X sign/exp byte in C
+	mvi	a,pwr95
+	jmp	fexp1		;continue as for EXP
+
+;SQR
+fsqr:	call	fargp		;assure arg is positive
+	mvi	a,sqr95
+	jmp	o9511
+
+;EXP
+fexp:	in	d9511		;read sign/exp byte
+	out	d9511		;and restore
+	mov	c,a		;save sign/exp in C
+	mvi	a,exp95
+fexp1:	call	o9511		;perform the EXP
+	ani	err95		;check error status
+	rz			;ok
+	mov	a,c		;recover arg sign/exp byte
+	ani	80H		;and mask to sign
+	jnz	fzero		;small exponent, result is 0
+fover:	error	n, o, v		;issue nonfatal OV error
+	in	c9511		;read stacktop status
+	ani	sgn95		;mask to sign
+	push	psw		;save sign -- Zero iff positive
+	lxi	h,fpmax
+	call	lod95		;load max floating value for result
+	pop	psw		;recover desired result sign
+	rz			;positive, done
+	jmp	fchs		;else change sign to minus
+
+;LOG
+fln:	call	fargp		;assure arg is positive
+	mvi	a,log95
+	jmp	o9511
+
+;SIN
+fsin:	mvi	a,sin95
+	jmp	o9511
+
+;COS
+fcos:	mvi	a,cos95
+	jmp	o9511
+
+;TAN
+ftan:	mvi	a,tan95
+	call	o9511
+	ani	err95		;check error status
+	rz			;no error
+	jmp	fover		;nonfatal OV error and return max value
+
+;ATN
+fatan:	mvi	a,atn95
+	jmp	o9511
+
+;UNS
+unsfn:	mov	a,c
+	out	d9511		;low order to 9511 stack
+	mov	a,b
+	out	d9511		;high order to 9511 stack
+	xra	a
+	out	d9511
+	out	d9511		;two high order 0s to 9511 stack
+	mvi	a,fld95
+	jmp	o9511		;float 32 bit integer value
+
+;SGN
+fsgn:	call	fet95		;fetch arg to ABCD
+	mov	h,a		;save sign/exponent byte in H
+	ora	b
+	ora	c
+	ora	d		;Zero set iff arg is 0
+	rz			;arg is 0, return 0 in BC
+	lxi	b,1
+	mov	a,h		;restore sign/exp byte
+	ani	80H		;mask to sign
+	rz			;positive, return 1
+	dcx	b
+	dcx	b		;negative, return -1
+	ret
+
+;INT
+;The result from the 9511 conversion function must be fudged for
+;noninteger negative arguments.
+int:	mov	d,b
+	mov	e,c		;save arg location in DE
+	in	d9511		;read arg sign/exp byte
+	out	d9511		;and restore
+	mov	c,a		;save in C
+	mvi	a,fxd95
+	call	o9511		;stack:  fix(arg)
+	ani	ovf95
+	rnz			;arg very large, just return it
+	mvi	a,fld95
+	call	o9511		;stack:  float(fix(arg))
+	mov	a,c		;recover arg sign/exp
+	ani	80H		;mask to sign
+	rz			;arg positive, return float(fix(arg))
+	mvi	a,pto95
+	call	o9511		;stack:  float(fix(arg)), float(fix(arg))
+	xchg			;arg location to HL
+	inx	h		;point to arg
+	call	lod95		;stack:  arg, float(fix(arg)), float(fix(arg))
+	call	fsub0		;stack:	 float(fix(arg))-arg, float(fix(arg))
+	in	c9511		;read result status
+	mov	c,a		;and save in C
+	mvi	a,pop95
+	call	o9511		;stack:  float(fix(arg))
+	mov	a,c
+	ani	zer95
+	rnz			;arg was negative integer, done
+	lxi	h,fpone
+	call	lod95		;else stack a 1
+	jmp	fsub0		;and return float(fix(arg)) - 1
+
+
+;routines
+
+;FINP is called from GTLIT to perform floating point input.
+;Call:	HL	TEXTP
+;	TEMP	value sign (0 positive, 255 negative)
+;Retn:	ABCD	floating point value
+;Uses:	FPTMP	decimal point flag (0 or '.')
+;	FPTMP+1	input exponent
+finp:	call	inp0		;value to 9511 stack
+	jmp	fet95		;fetch value to registers and return
+inp0:	xra	a
+	out	d9511
+	out	d9511
+	out	d9511
+	out	d9511		;0 to 9511 stack
+	sta	fptmp		;decimal point flag initially 0
+	sta	fptmp+1		;input exponent initially 0
+inp2:	push	h		;save TEXTP
+	mov	a,m		;fetch next char
+	mvi	b,0		;decimal exponent 0 to B in case exit
+	cpi	'.'
+	jz	inp3		;decimal point
+	cpi	'E'
+	jz	inp4		;exponent
+	cpi	'E'+20H
+	jz	inp4		;allow lower case E for exponent also
+	sui	'0'		;subtract ASCII bias
+	cpi	10
+	jnc	inp8		;nondigit, done
+;digit scanned, add it to 10 * current value
+	push	psw		;save digit value
+	call	lod10		;floating 10 to 9511 stack
+	call	fmul1		;old value * 10
+	jc	inpov		;overflow
+	pop	psw		;recover digit value
+	out	d9511		;to 9511 stack
+	xra	a
+	out	d9511		;high order 0 to 9511 stack
+	mvi	a,flt95
+	call	o9511		;float 16-bit integer value
+	call	fadd0		;add to old value * 10
+	lxi	h,fptmp
+	mov	a,m		;fetch decimal point flag
+	ora	a
+	jz	inp1		;no decimal point yet, continue scanning
+	inx	h
+	dcr	m		;else decrement input exponent
+inp1:	pop	h		;restore current TEXTP
+	inx	h		;address next char
+	jmp	inp2
+;decimal point found, set decimal point flag
+inp3:	lxi	h,fptmp
+	xra	m		;'.' if first decimal point, 0 if second
+	mov	m,a		;set flag
+	jnz	inp1		;first
+	jmp	inp8		;second, exit
+;process exponent
+inp4:	pop	h
+	inx	h		;address next char
+	mov	a,m		;and fetch
+	mvi	e,0		;exponent sign to E (0 minus, nonzero plus)
+	cpi	mint
+	jz	inp5		;exponent sign -
+	cpi	'-'
+	jz	inp5		;exponent sign -
+	mov	e,a		;set exponent sign +
+	cpi	plust
+	jz	inp5		;exponent sign +
+	cpi	'+'
+	jnz	inp6		;no sign, assume +
+inp5:	inx	h		;address next char
+	mov	a,m		;and fetch
+inp6:	sui	'0'		;subtract ASCII bias
+	jz	inp5		;ignore leading 0s
+	mvi	b,0		;possible exponent to B
+	cpi	10
+	jnc	inp7		;not a decimal digit
+	mov	b,a		;decimal exponent equals digit
+	inx	h		;address next char
+	mov	a,m		;fetch next
+	sui	'0'		;subtract ASCII bias
+	cpi	10
+	jnc	inp7		;no more digits
+	mov	c,a		;second decimal digit to C
+	inx	h
+	mov	a,m		;fetch next
+	sui	'0'
+	cpi	10
+	jc	inpo1		;three significant digits, overflow
+	mov	a,b		;msd of decimal exponent
+	add	a		;2*msd
+	add	a		;4*msd
+	add	b		;5*msd
+	add	a		;10*msd
+	add	c		;10*msd+lsd
+	mov	b,a		;to B
+inp7:	push	h		;save next char address
+	mov	a,e		;sign of decimal exponent
+	ora	a
+	jnz	inp8		;positive
+	sub	b		;complement negative decimal exponent
+	mov	b,a		;and restore to B
+;finished
+inp8:	pop	h		;pop text pointer
+	shld	textp		;and reset TEXTP
+	lxi	h,fptmp+1	;address input exponent
+	mov	a,m		;and fetch
+	add	b		;add decimal exponent
+	mov	m,a		;and store adjusted exponent
+	lda	temp		;fetch value flag
+	ora	a
+	cnz	fchs		;complement value if negative
+inp9:	lxi	h,fptmp+1
+	mov	a,m		;fetch decimal exponent
+	ora	a
+	rz			;zero, done
+	jp	inp10		;positive, multiply value accordingly
+	inr	m		;negative, so increment
+	call	lod10		;load 10 to stack
+	call	fdiv1		;and divide by 10
+	jmp	inp9		;and repeat
+inp10:	dcr	m		;decrement exponent
+	call	lod10		;load 10 to stack
+	call	fmul1		;multiply by 10
+	jnc	inp9		;and repeat
+	jmp	fover		;overflow
+inpov:	pop	psw
+	pop	h		;recover TEXTP
+	mvi	e,1		;to indicate overflow, not underflow
+inpo1:	inx	h		;address next char
+	mov	a,m		;fetch next
+	sui	'0'
+	cpi	10
+	jc	inpo1		;skip remaining digits
+	shld	textp		;reset TEXTP
+	mov	a,e		;fetch exponent sign
+	ora	a
+	jz	fzero		;large neg exponent, return 0
+	call	lod10
+	lda	temp
+	ora	a
+	cnz	fchs		;make stacktop sign as desired
+	jmp	fover		;and issue nonfatal OV error
+
+;FOUT converts the floating value on the 9511 stack to an ASCII string
+;starting at BUFAD giving its decimal representation.
+;The position of the last string char is on the stack within this routine.
+;FPTMP contains the decimal exponent.
+;The stacktop is preserved.
+fout:	lxi	h,bufad		;destination to HL
+	push	h		;save destination
+	mvi	m,' '		;store leading space
+	mvi	a,pto95
+	call	o9511		;copy arg to set Sign and Zero status flags
+	ani	zer95		;check if zero
+	sta	fptmp		;0 to decimal exponent if nonzero
+	mvi	a,'0'		;ASCII 0 to A in case 0
+	jnz	out13		;arg is 0
+	push	h		;save current address
+	mov	a,b
+	ani	sgn95		;check sign
+	jz	out1		;positive
+	mvi	m,'-'		;change leading char to minus sign
+	call	fchs		;change stacktop sign to positive
+;To allow dollar and cent amounts, arg is unscaled if .01 <= arg < 1.
+out1:	in	d9511		;read stacktop exponent byte
+	out	d9511		;and restore it
+	dcr	a		;so exp 0 becomes 255
+	cpi	79H
+	jc	out2		;arg < .0078125 or >= 1, scale it
+	jnz	out4		;.015625 <= arg < 1, skip scaling
+;Now .0078125 <= arg < .015625, so scale iff < .01
+	mvi	a,pto95
+	call	o9511		;copy arg
+	lxi	h,fpp01
+	call	lod95		;stack:  .01, arg, arg
+	call	fsub0		;stack:  arg - .01, arg
+	in	c9511		;read result status
+	ani	sgn95		;Zero set iff arg >= .01
+	push	psw
+	mvi	a,pop95
+	call	o9511		;restore arg to TOS
+	pop	psw
+	jz	out4		;arg >= .01, skip scaling
+;TOS is scaled to [.1,1.) by multiplication or division by 10.
+out2:	ora	a		;reset Carry
+out2a:	in	d9511		;read exponent
+	out	d9511		;and restore
+	dcr	a		;decrement so 0 becomes 255
+	lxi	h,fptmp		;HL addresses decimal exponent
+	jc	out2b		;skip multiply test after dividing in case .1
+	cpi	7DH
+	jnc	out4		;value in range, done
+	cpi	3FH
+	jc	out3		;value is > 1, divide it by 10
+	dcr	m		;decrement decimal exponent
+	call	lod10		;10 to 9511 stack
+	call	fmul1		;multiply value by 10
+	jmp	out2		;and repeat
+out2b:	cpi	3FH
+	jnc	out4		;value is in range, scaling complete
+out3:	inr	m		;increment decimal exponent
+	call	lod10		;10 to 9511 stack
+	call	fdiv1		;divide value by 10
+	stc
+	jmp	out2a		;and repeat, skipping multiply check
+;scaling completed, add rounder
+out4:	lxi	h,fprnd		;address the rounder
+	call	lod95		;rounder to stack
+	call	fadd0		;add the rounder
+	in	d9511		;read the exponent
+	out	d9511		;and restore
+	dcr	a
+	cpi	3FH
+	jc	out2		;too big after rounding, refudge
+;set digit counts
+	lxi	h,fptmp
+	mov	a,m		;fetch decimal exponent
+	mov	e,a		;digits before decimal point to E
+	cpi	7		;compare to max
+	jc	out5		;not too big
+	mvi	e,1		;else digits before decimal point is 1
+out5:	sub	e		;adjust decimal exponent
+	mov	m,a		;and store
+	mvi	a,6		;total digit count
+	sub	e		;digits after decimal point
+	inx	h
+	mov	m,a		;and store digits after decimal point
+	dcr	e		;decrement digit count
+	mov	a,e		;fetch digits before decimal point
+	inx	h
+	mvi	m,0		;initialize digit count
+;add next digit to output string
+out6:	lxi	h,fptmp+2	;address digit count
+	add	m
+	mov	m,a		;store new count
+	jm	out7		;counted out
+	call	lod10		;10 to 9511 stack
+	call	fmul1		;10 * value
+	mvi	a,pto95
+	call	o9511		;copy 10 * value
+	mvi	a,fix95
+	call	o9511		;fix 10 * value
+	mvi	a,p1695
+	call	o9511		;copy 16-bit fixed value
+	in	d9511		;read high result and ignore
+	in	d9511		;read low result
+	adi	'0'		;add ASCII bias
+	pop	h		;last char address to HL
+	inx	h		;address next char
+	push	h		;and save
+	mov	m,a		;store new char
+	mvi	a,flt95
+	call	o9511		;float 16-bit value
+	call	fsub0		;subtract from 10 * value
+	mvi	a,255
+	jmp	out6		;decrement count and continue
+out7:	lxi	h,fptmp+1	;address digits after decimal point count
+	mov	a,m		;and fetch
+	mvi	m,255		;and reset to -1
+	ora	a
+	jm	out8		;count ran out, done
+	pop	h		;get last char address
+	inx	h		;point to next
+	push	h
+	mvi	m,'.'		;store decimal point
+	jmp	out6		;repeat for digits after decimal point
+;suppress trailing zeroes or trailing decimal point 
+out8:	pop	h		;last char address to HL
+out9:	mov	a,m		;fetch last char
+	dcx	h
+	cpi	'0'
+	jz	out9		;suppress a trailing zero
+	cpi	'.'
+	jz	out10		;suppress trailing decimal point
+	inx	h		;restore last char address
+;output decimal exponent
+out10:	lda	fptmp		;fetch decimal exponent
+	ora	a
+	jz	out14		;zero, finished
+	inx	h
+	mvi	m,'E'		;exponent E to result string
+	inx	h
+	mvi	m,'+'		;possible exponent sign to result string
+	jp	out11		;positive exponent
+	mvi	m,'-'		;sign to result
+	cma
+	inr	a		;complement exponent to make positive
+out11:	inx	h
+	mvi	m,'0'-1		;embryo ASCII tens digit
+out12:	inr	m		;increment tens digit
+	sui	10		;reduce remainder
+	jnc	out12		;repeat if more tens in exponent
+	adi	'0'+10		;restore units digit and add ASCII bias
+out13:	inx	h
+	mov	m,a		;store units digit
+;done, return length of result string in C and location in DE
+out14:	mvi	a,pop95
+	call	o9511		;restore saved value
+	inx	h		;last+1
+	mov	a,l		;to A
+	pop	d		;first to DE
+	sub	e		;length to A
+	mov	c,a		;and to C
+	ret
+
+;INT95 converts floating value on 9511 stack to 16 bit integer value in BC.
+;The result is the largest integer less than or equal to the arg.
+;The value returned by the FIX95 function must be corrected for
+;noninteger negative args and for -32768.
+;Call:	TOS	floating value
+;Retn:	Carry	Set iff overflow
+;	BC	Converted value
+;	TOS	floating value preserved
+int95:	mvi	a,pto95
+	call	o9511		;copy arg
+	mov	e,a		;save arg sign status in E
+	mvi	a,fix95
+	call	o9511		;fix arg
+	ani	ovf95
+	jnz	intov		;overflow
+	in	d9511
+	mov	b,a
+	in	d9511
+	mov	c,a		;integer result to BC
+	mov	a,e
+	ani	sgn95		;recover arg sign
+	rz			;arg was positive, done
+	mov	d,b
+	mov	e,c		;save int(arg) in DE
+	mvi	a,pto95
+	call	o9511		;copy arg
+	mov	a,e
+	out	d9511
+	mov	a,d
+	out	d9511		;fix(arg)  returned to stack
+	mvi	a,flt95
+	call	o9511		;stack: float(fix(arg)), arg, arg
+	mvi	a,sub95
+	call	o9511		;stack: float(fix(arg))-arg, arg
+	push	psw		;save status
+	mvi	a,pop95
+	call	o9511		;restore arg to TOS
+	mov	b,d
+	mov	c,e		;restore fix(arg) to BC
+	pop	psw
+	ani	zer95
+	rnz			;float(fix(arg)) = arg, return fix(arg)
+	dcx	b		;otherwise decrement result
+	ret			;and return
+intov:	lxi	b,7FFFH
+	mov	a,e		;fetch arg sign
+	ani	sgn95
+	stc			;set Carry to indicate overflow
+	rz			;arg was > 0, return 32767
+	call	fet95		;arg was <0, must check if -32768
+	cpi	90H		;-32768 is 90H, 80H, 00H, 00H
+	jnz	into1
+	mov	a,b
+	sui	80H
+	jnz	into1
+	ora	c
+	ora	d
+into1:	lxi	b,8000H		;-32768 to BC as result
+	rz			;return Carry reset if arg was -32768
+	stc			;else overflow, return Carry
+	ret
+
+;EXTOS returns the exponent of TOS, with the exponent sign
+;extended to replace the mantissa sign in bit 7.
+;EXNOS returns the exponent of NOS, leaving TOS and NOS exchanged.
+exnos:	mvi	a,xch95
+	call	o9511		;exchange TOS and NOS
+extos:	in	d9511		;read sign/exp byte
+	out	d9511		;and restore
+	ral			;A7 in Carry, A6 A5 A4 A3 A2 A1 A0 C in A
+	rlc			;A6 in Carry, A5 A4 A3 A2 A1 A0 C A6 in A
+	rar			;A6 in Carry, A6 A5 A4 A3 A2 A1 A0 C in A
+	rar			;C  in Carry, A6 A6 A5 A4 A3 A2 A1 A0 in A
+	ret
+
+;LOD95 loads four bytes from M to the 9511 stack.
+;LOD10 loads a floating point 10.
+lod10:	lxi	h,fpten
+lod95:	lxi	b,4		;byte count to BC
+	dad	b		;point past last byte
+lod9b:	dcx	h		;address next byte to stack
+	mov	a,m		;fetch a byte
+	out	d9511		;write byte to 9511 stack
+	dcr	c
+	jnz	lod9b		;and stack more bytes
+	ret
+
+;FET95 fetches four bytes from the 9511 stack to ABCD.
+fet95:	in	d9511		;read data byte
+	push	psw		;and save
+	in	d9511
+	mov	b,a		;second byte to B
+	in	d9511
+	mov	c,a		;third byte to C
+	in	d9511
+	mov	d,a		;fourth byte to D
+	pop	psw		;restore first byte
+	ret			;and return
+
+;STO95 stores a floating value from ABCD to M.
+sto95:	mov	m,a
+	inx	h
+	mov	m,b
+	inx	h
+	mov	m,c
+	inx	h
+	mov	m,d
+	ret
+
+;FARGP assures that floating point value on 9511 stack is positive for SQR and LOG.
+;Returns if positive, issues nonfatal FC error and complements before
+;returning if negative.
+fargp:	in	d9511		;read sign/exponent byte
+	out	d9511		;and replace
+	ani	80H		;mask to sign
+	rz			;positive, just return
+	call	fcern		;else issue nonfatal FC error
+	jmp	fchs		;change

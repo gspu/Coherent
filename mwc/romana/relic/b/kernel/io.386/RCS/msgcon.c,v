@@ -1,0 +1,149 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.07.17.15.26.43;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * System V Compatible Message Device Driver
+ *
+ *	This device driver provides System V compatible messaging operations.
+ *	Operations are performed through the message device (/dev/msg).
+ *	and are implemented as ioctl calls from msgctl, msgget, msgsnd, msgrcv
+ *	utilities.
+ *
+ *	Author: Allan Cornish.
+ *
+ */
+
+#include <sys/coherent.h>
+#include <sys/types.h>
+#include <sys/uproc.h>
+#include <errno.h>
+#include <sys/con.h>
+#include <sys/msg.h>
+#ifndef _I386
+#define getusd(arg)		getuwd(arg)
+#define putusd(arg1, arg2)	putuwd(arg1, arg2)
+#endif
+
+/*
+ * Functions.
+ */
+
+int msgopen();
+int msgioctl();
+int nulldev();
+int nonedev();
+
+/*
+ * Device Configuration.
+ */
+
+CON msgcon = {
+	DFCHR,			/* Flags			*/
+	25,			/* Major Index			*/
+	msgopen,		/* Open				*/
+	nulldev,		/* Close			*/
+	nonedev,		/* Block			*/
+	nonedev,		/* Read				*/
+	nonedev,		/* Write			*/
+	msgioctl,		/* Ioctl			*/
+	nulldev,		/* Power fail			*/
+	nulldev,		/* Timeout			*/
+	nulldev,		/* Load				*/
+	nulldev			/* Unload			*/
+};
+
+/*
+ * Message Device Open.
+ */
+
+static
+msgopen( dev, mode )
+
+dev_t dev;
+int mode;
+
+{
+	extern struct msqid_ds * msqs; /* Pointer to array of message queues */
+
+
+	if ( ! msqs ){			/* message queues not initialized */
+		msginit();
+	}
+
+	if ( ! msqs )			/* no message queues */
+		u.u_error = ENODEV;
+}
+
+/*
+ * Message Device Ioctl.
+ */
+
+static
+msgioctl( dev, com, vec )
+
+dev_t dev;
+short com;
+register short *vec;
+
+{
+	switch ( com ) {
+
+	case MSGCTL:
+		putusd( vec+0,				/* -1 */
+			umsgctl(getusd( vec+1 ),	/* msqid */
+				getusd( vec+2 ), 	/* command */
+				getusd( vec+3 ) ));	/* msqid_ds address */
+		return;
+
+	case MSGGET:
+		putusd( vec+0,				/* -1 */
+			umsgget(getusd( vec+1 ),	/* key 0 -15 */
+/*				getusd( vec+2 ), 	   key 15 - 31 */
+				getusd( vec+3 ) ));	/* msgflag */
+		return;
+
+	case MSGSND:
+		putusd( vec+0,				/* -1 */
+			umsgsnd(getusd( vec+1 ),	/* msqid */
+				getusd( vec+2 ),	/* -> message text */
+				getusd( vec+3 ),	/* size of text */
+				getusd( vec+4 ) ));	/* flag */
+		return;
+
+	case MSGRCV:
+		putusd( vec+0,				/* -1 */
+			umsgrcv(getusd( vec+1 ),	/* msqid */
+				getusd( vec+2 ),	/* -> message text */
+				getusd( vec+3 ),	/* size of text */
+				getusd( vec+4 ),	/* msgtype 0 - 15 */
+/*				getusd( vec+5 ), 	   msgtype 16 - 31 */
+				getusd( vec+6 ) ));	/* flag */
+		return;
+
+	default:
+		u.u_error = EINVAL;
+		return;
+	}
+}
+@

@@ -1,0 +1,125 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     93.06.09.11.38.33;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@
+From lepanto!fred  Tue Jun  8 18:17:42 1993 remote from mwc
+Received: by dalek.mwc.com (smail2.5.3-coh) id AA06356; 8 Jun 93 18:17:42 GMT (Tue)
+Received: by mwc.com (smail2.5.3-coh) id AA11845; 8 Jun 93 13:13:34 
+Received: by lepanto.mwc.com (smail2.5.3-coh) id AA02070; 8 Jun 93 12:26:41 CDT (Tue)
+Message-Id: <9306081226.AA2067.V1.4@@lepanto.mwc.com>
+Date: 8 Jun 93 12:26:40
+From: fred@@lepanto.mwc.com (Fred Butzen)
+To: bob
+Status: RO
+
+/*
+ * apropos.c
+ *
+ * implement a simple version of the Berkeley command "apropos".  This
+ * command searches the file /usr/man/man.index for a word that the
+ * user enters on the command line, and prints every index entry in which
+ * that token appears.
+ *
+ * Usage:  apropos token
+ *
+ * first draft, fwb, 3/17/1993 (aye and begorah!)
+ */
+#ifdef TEST
+#	define INDEXFILE "/v/fwb/doc/coherent/man.index"
+#else
+#	define INDEXFILE "/usr/man/man.index"
+#endif
+
+#define BUFFERSIZE 200
+
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+main(argc, argv)
+int argc; char **argv;
+{
+	char inb[BUFFERSIZE], testb[BUFFERSIZE], *inbp;
+	int i, j, lowerflag;
+	FILE *fp;
+
+	if (argc < 2) {
+		fprintf(stderr, "Usage: apropos word\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if ((fp = fopen(INDEXFILE, "r")) == NULL) {
+		fprintf(stderr, "apropos: Cannot open index file %s\n",
+			INDEXFILE);
+		exit(EXIT_FAILURE);
+	}
+
+	/* if first character of user's word is upper-cased, then assume
+	 * the user wants an exact match, and therefore do not
+	 * shift the description into lower case.
+	 */
+
+	if (isupper(argv[1][0]))
+		lowerflag = 0;
+	else
+		lowerflag = 1;
+
+	for (i = 1; fgets(inb, BUFFERSIZE-1, fp) != NULL; i++) {
+		if ((inbp = strchr(inb, '\t')) == NULL) {
+			/* blank lines are OK */
+			if (*inb != '\n' && *inb != '\0') {
+				fprintf(stderr,
+					"apropos: badly formed line %d in %s\n",
+					i, INDEXFILE);
+				exit(EXIT_FAILURE);
+			} else
+				continue;
+		}
+		inbp++;
+
+		strcpy (testb, inbp);
+
+		if (lowerflag)
+			for (j = 0; j < strlen (testb); j++)
+				if (isupper(testb[j]))
+					testb[j] = tolower(testb[j]);
+
+		if (strstr(testb, argv[1]) != NULL)
+			printf("%s", inbp);
+	}
+	fclose(fp);
+	exit(EXIT_SUCCESS);
+}
+
+
+fred@@lepanto.mwc.com                  --   Fred Butzen   --
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+Conloqui et conridere et vicissim benevole obsequi, simul legel libros
+dulciloquos, simul nugari et simul honestari. - St. Augustine
+Chatting and laughing and taking kindly turns; reading sweet-worded books
+together, sharing both foolishness and dignity.
+
+
+@

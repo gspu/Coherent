@@ -1,0 +1,561 @@
+head     1.12;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.12
+date     93.08.10.13.30.29;  author bin;  state Exp;
+branches ;
+next     1.11;
+
+1.11
+date     93.07.20.11.43.36;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     93.07.16.19.24.00;  author root;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     93.06.14.13.26.19;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.03.02.07.51.08;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.01.18.16.15.14;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.12.18.14.05.26;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.10.22.14.23.22;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.09.29.09.08.27;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.09.09.12.21.56;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.09.09.09.23.11;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.07.12.25.45;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.12
+log
+@Kernel 82 header update
+@
+text
+@/* (-lgl
+ * 	COHERENT Version 4.0
+ * 	Copyright (c) 1982, 1992 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * /usr/include/sys/uproc.h
+ *
+ * The user process area.
+ *
+ * Revised: Wed May 26 16:45:05 1993 CDT
+ */
+
+#ifndef	 __SYS_UPROC_H__
+#define	 __SYS_UPROC_H__
+
+#include <common/feature.h>
+#include <common/_time.h>
+#include <kernel/sigproc.h>
+#if	_I386
+#include <kernel/reg.h>
+#include <kernel/param.h>
+#include <ieeefp.h>
+#else
+#include <kernel/machine.h>
+#include <kernel/const.h>
+#endif
+#include <sys/types.h>
+#include <dirent.h>
+#include <sys/io.h>
+#include <sys/proc.h>
+
+/*
+ * NIGEL: This is a quick hack; we have removed the definition of the old
+ * "struct direct" from anywhere that user code can see. We are still using
+ * this for the kernel pending development of proper layering in the file-
+ * system interface.
+ */
+
+#if	! DIRSIZ
+# define	DIRSIZ		14
+#endif
+
+struct direct {
+	ino_t		d_ino;
+	char		d_name [DIRSIZ];
+};
+
+
+/*
+ * User process structure.
+ *
+ * Remember to update UPROC_VERSION whenever you change this struct.
+ *
+ * U_OFFSET is the byte offset of uproc within segment SIUSERP.
+ * See also the definition of "u" at start of as.s.
+ */
+#define U_OFFSET	0xB00
+#define U_COMM_LEN	10
+#define U_SLEEP_LEN	10
+
+typedef struct uproc {
+#if	_I386
+	/* Magic number UPROC_VERSION identifies this uproc struct.  */
+#define UPROC_VERSION 0x0107
+	unsigned short u_version;	/* Version number for uproc struct */
+#endif /* _I386 */
+	int	 u_error;		/* Error number (must be first) */
+	char	 u_flag;		/* Flags (for accounting) */
+	int	 u_uid;			/* User id */
+	int	 u_gid;			/* Group id */
+	int	 u_ruid;		/* Real user id */
+	int	 u_rgid;		/* Real group id */
+	int	 u_euid;		/* Effective user id */
+	int	 u_egid;		/* Effective group id */
+	unsigned u_umask;		/* Mask for file creation */
+	struct	 inode *u_cdir;		/* Current working directory */
+	struct	 inode *u_rdir;		/* Current root directory */
+	struct __tagged_fd
+	       * u_filep[NOFILE];	/* Open files */
+	struct	 sr u_segl[NUSEG];	/* User segment descriptions */
+
+	__sigaction_t	u_sigact [NSIG];/* Signal action information */
+
+	/*
+	 * System working area.
+	 */
+	struct	 seg *u_sege[NUSEG];	/* Exec segment descriptors */
+	MPROTO	 u_sproto;		/* User prototype */
+	MCON	 u_syscon;		/* System context save */
+	MENV	 u_sigenv;		/* Signal return */
+	MGEN	 u_sysgen;		/* General purpose area */
+#if	0
+	int	u_args [MSACOUNT];
+	struct	 io u_io;		/* User area I/O template */
+	struct	 direct u_direct;	/* Directory name */
+#endif
+#if	! _I386
+	int	 u_args [__DIVIDE_ROUNDUP_CONST (MSASIZE, sizeof (int)];
+#endif
+
+	/*
+	 * Set by ftoi.
+	 */
+
+	ino_t	 u_cdirn;		/* Child inode number */
+	struct	 inode *u_cdiri;	/* Child inode pointer */
+	struct	 inode *u_pdiri;	/* Parent inode pointer */
+
+	/*
+	 * Accounting fields.
+	 */
+	char	 u_comm[U_COMM_LEN];	/* Command name */
+#if	_I386
+	char	 u_sleep[U_SLEEP_LEN];	/* Reason for sleeping */
+#endif
+	time_t	 u_btime;		/* Beginning time of process */
+	int	 u_memuse;		/* Average memory usage */
+	long	 u_block;		/* Count of disk blocks */
+
+	/*
+	 * Profiler fields.
+	 */
+	caddr_t  u_ppc;			/* Profile pc from clock */
+	caddr_t	 u_pbase;		/* Profiler base */
+	caddr_t	 u_pbend;		/* Profiler base end */
+#if	_I386
+	off_t	 u_pofft;		/* Offset from base */
+	off_t	 u_pscale;		/* Scaling factor */
+#else
+	vaddr_t	 u_pofft;		/* Offset from base */
+	vaddr_t	 u_pscale;		/* Scaling factor */
+#endif
+
+	/*
+	 * Miscellaneous things.
+	 */
+	int	u_argc;			/* Argument count (for ps) */
+	unsigned u_argp;		/* Offset of argv[0] (for ps) */
+	int	u_signo;		/* Signal number (for debugger) */
+#if	_I386
+#if	0
+	int	*u_regl;
+#endif
+	int	u_rval2;
+	__sigfunc_t	u_sigreturn;
+	union _fpcontext	u_ndpCon;	/* ndp state */
+	int	u_ndpFlags;
+	int	u_bpfmax;		/* max blocks per file */
+
+	char	u_nigel [32];		/* for STREAMS */
+#endif
+} UPROC;
+
+#endif	/* ! defined (__SYS_UPROC_H__) */
+@
+
+
+1.11
+log
+@*** empty log message ***
+@
+text
+@d20 8
+a27 1
+#include <sys/param.h>
+a32 7
+#if	_I386
+#include <sys/reg.h>
+#include <ieeefp.h>
+#else
+#include <sys/machine.h>
+#endif
+
+d93 4
+a96 4
+#if	_I386
+	int	 u_args[MSACOUNT];
+#else
+	int	 u_args[(MSASIZE+sizeof(int)-1)/sizeof(int)];
+d98 3
+a100 1
+	struct	 io u_io;		/* User area I/O template */
+d105 1
+a108 1
+	struct	 direct u_direct;	/* Directory name */
+d142 1
+d144 1
+@
+
+
+1.10
+log
+@Hal: 2nd try at r79
+@
+text
+@d1 151
+@
+
+
+1.9
+log
+@hal : revised for ker 78
+@
+text
+@a0 133
+/* (-lgl
+ * 	COHERENT Version 4.0
+ * 	Copyright (c) 1982, 1992 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * /usr/include/sys/uproc.h
+ *
+ * The user process area.
+ *
+ * Revised: Wed May 26 16:45:05 1993 CDT
+ */
+
+#ifndef	 __SYS_UPROC_H__
+#define	 __SYS_UPROC_H__
+
+#include <sys/param.h>
+#include <sys/types.h>
+#include <sys/_time.h>
+#include <dirent.h>
+#include <sys/io.h>
+#include <sys/proc.h>
+#include <signal.h>
+
+#ifdef _I386
+#include <sys/reg.h>
+#include <ieeefp.h>
+#else
+#include <sys/machine.h>
+#endif
+
+/*
+ * User process structure.
+ *
+ * Remember to update UPROC_VERSION whenever you change this struct.
+ *
+ * U_OFFSET is the byte offset of uproc within segment SIUSERP.
+ * See also the definition of "u" at start of as.s.
+ */
+#define U_OFFSET	0xC00
+#define U_COMM_LEN	10
+#define U_SLEEP_LEN	10
+
+typedef struct uproc {
+#ifdef _I386
+	/* Magic number UPROC_VERSION identifies this uproc struct.  */
+#define UPROC_VERSION 0x0105
+	unsigned short u_version;	/* Version number for uproc struct */
+#endif /* _I386 */
+	int	 u_error;		/* Error number (must be first) */
+	char	 u_flag;		/* Flags (for accounting) */
+	int	 u_uid;			/* User id */
+	int	 u_gid;			/* Group id */
+	int	 u_ruid;		/* Real user id */
+	int	 u_rgid;		/* Real group id */
+	int	 u_euid;		/* Effective user id */
+	int	 u_egid;		/* Effective group id */
+	unsigned u_umask;		/* Mask for file creation */
+	struct	 inode *u_cdir;		/* Current working directory */
+	struct	 inode *u_rdir;		/* Current root directory */
+	struct	 fd *u_filep[NOFILE];	/* Open files */
+	struct	 sr u_segl[NUSEG];	/* User segment descriptions */
+#ifdef _I386
+	int	 (*u_sfunc[MAXSIG])();	/* Signal functions */
+#else
+	int	 (*u_sfunc[NSIG])();	/* Signal functions */
+#endif
+
+	/*
+	 * System working area.
+	 */
+	struct	 seg *u_sege[NUSEG];	/* Exec segment descriptors */
+	MPROTO	 u_sproto;		/* User prototype */
+	MCON	 u_syscon;		/* System context save */
+	MENV	 u_sigenv;		/* Signal return */
+	MGEN	 u_sysgen;		/* General purpose area */
+#ifdef _I386
+	int	 u_args[MSACOUNT];
+#else
+	int	 u_args[(MSASIZE*sizeof(char)+sizeof(int)-1)/sizeof(int)];
+#endif
+	struct	 io u_io;		/* User area I/O template */
+
+	/*
+	 * Set by ftoi.
+	 */
+	ino_t	 u_cdirn;		/* Child inode number */
+	struct	 inode *u_cdiri;	/* Child inode pointer */
+	struct	 inode *u_pdiri;	/* Parent inode pointer */
+	struct	 direct u_direct;	/* Directory name */
+
+	/*
+	 * Accounting fields.
+	 */
+	char	 u_comm[U_COMM_LEN];	/* Command name */
+#ifdef _I386
+	char	 u_sleep[U_SLEEP_LEN];	/* Reason for sleeping */
+#endif
+	time_t	 u_btime;		/* Beginning time of process */
+	int	 u_memuse;		/* Average memory usage */
+	long	 u_block;		/* Count of disk blocks */
+
+	/*
+	 * Profiler fields.
+	 */
+	caddr_t  u_ppc;			/* Profile pc from clock */
+	caddr_t	 u_pbase;		/* Profiler base */
+	caddr_t	 u_pbend;		/* Profiler base end */
+#ifdef _I386
+	off_t	 u_pofft;		/* Offset from base */
+	off_t	 u_pscale;		/* Scaling factor */
+#else
+	vaddr_t	 u_pofft;		/* Offset from base */
+	vaddr_t	 u_pscale;		/* Scaling factor */
+#endif
+
+	/*
+	 * Miscellaneous things.
+	 */
+	int	u_argc;			/* Argument count (for ps) */
+	unsigned u_argp;		/* Offset of argv[0] (for ps) */
+	int	u_signo;		/* Signal number (for debugger) */
+#ifdef _I386
+	int	*u_regl;
+	int	u_rval2;
+	void	(*u_sigreturn)();
+	union _fpcontext	u_ndpCon;	/* ndp state */
+	int	u_ndpFlags;
+	int	u_bpfmax;		/* max blocks per file */
+#endif
+} UPROC;
+
+#endif
+@
+
+
+1.8
+log
+@hal: newupdates for kernel 73, several
+changes by Nigel for __COHERENT__
+@
+text
+@d7 2
+d10 2
+d47 1
+a47 1
+#define UPROC_VERSION 0x0104
+d50 1
+a50 1
+	char	 u_error;		/* Error number (must be first) */
+@
+
+
+1.7
+log
+@hal: kernel 72 update
+@
+text
+@d10 2
+a11 2
+#ifndef	 UPROC_H
+#define	 UPROC_H	UPROC_H
+d15 1
+d38 1
+d93 1
+a93 1
+	char	 u_sleep[10];		/* Reason for sleeping */
+d102 3
+a104 3
+	vaddr_t  u_ppc;			/* Profile pc from clock */
+	vaddr_t	 u_pbase;		/* Profiler base */
+	vaddr_t	 u_pbend;		/* Profiler base end */
+@
+
+
+1.6
+log
+@hal: update w/kernel 71
+@
+text
+@d121 1
+a121 1
+	struct _fpstate	u_ndpCon;	/* ndp state */
+@
+
+
+1.5
+log
+@hal: kernel 66: reserve space just below u area for NDP
+@
+text
+@d26 1
+a27 21
+ * Open segment structure.
+ */
+typedef struct sr {
+	int	 sr_flag;		/* Flags for this reference */
+	vaddr_t	 sr_base;		/* Virtual address base */
+#ifdef _I386
+	off_t	 sr_size;		/* Mapped in window size */
+#else
+	vaddr_t	 sr_size;		/* Mapped in window size */
+#endif
+	struct	 seg *sr_segp;		/* Segment pointer */
+} SR;
+
+/*
+ * Flags (sr_flag).
+ */
+#define SRFPMAP	01			/* Segment is mapped in process */
+#define SRFDUMP	02			/* Dump segment */
+#define	SRFDATA	04			/* Data segment */
+
+/*
+d123 1
+@
+
+
+1.4
+log
+@*** empty log message ***
+@
+text
+@d15 1
+a15 1
+#include <sys/dir.h>
+d22 1
+d52 1
+a52 1
+ * UPROC_OFFSET is the byte offset of uproc within segment SIUSERP.
+d55 1
+a55 1
+#define UPROC_OFFSET	0xD00
+d61 1
+a61 1
+#define UPROC_VERSION 0x0103
+d141 2
+@
+
+
+1.3
+log
+@kernel 62/3 source
+@
+text
+@d50 3
+d54 3
+d108 1
+a108 1
+	char	 u_comm[10];		/* Command name */
+@
+
+
+1.2
+log
+@update for kernel 62
+@
+text
+@d54 1
+a54 1
+#define UPROC_VERSION 0x0102
+d63 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d54 1
+a54 1
+#define UPROC_VERSION 0x0101
+d66 1
+a66 1
+	struct	 fd *u_filep[NUFILE];	/* Open files */
+@

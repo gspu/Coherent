@@ -1,0 +1,68 @@
+/*
+ * Coherent I/O Library.
+ * getpass -- get a password from the controlling
+ * terminal with echo suppressed.
+ */
+
+#include <stdio.h>
+#include <sgtty.h>
+#include <signal.h>
+
+#define	NPASS	50		/* Characters in a password */
+
+static	char	tty[] = "/dev/tty";
+static	struct	sgttyb sg;
+static	int	omode;
+static	FILE	*ifp;
+static	FILE	*ofp;
+static	int	(*ofunc)();
+
+char *
+getpass(pp)
+char *pp;
+{
+	static char passwd[NPASS+1];
+	char *p;
+	int   c;
+	int reset();
+
+	if ((ofp = fopen(tty, "r+w")) != NULL)
+		ifp = ofp;
+	else {
+		ifp = stdin;
+		ofp = stderr;
+	}
+	if ((ofunc = signal(SIGINT, reset)) != SIG_IGN)
+		signal(SIGINT, reset);
+	ioctl(fileno(ofp), TIOCGETP, &sg);
+	omode = sg.sg_flags;
+	sg.sg_flags &= ~ECHO;
+	ioctl(fileno(ofp), TIOCSETP, &sg);
+	while (*pp)
+		putc(*pp++, ofp);
+	p = passwd;
+	while ((c=getc(ifp))!=EOF && c!='\n') {
+		if (p < &passwd[NPASS])
+			*p++ = c;
+	}
+	while (p < &passwd[NPASS])
+		*p++ = '\0';
+	reset();
+	if (ifp != stdin)
+		fclose(ifp);
+	signal(SIGINT, ofunc);
+	return (c==EOF ? NULL : passwd);
+}
+
+/*
+ * Reset echo on and signal catching.
+ */
+static
+reset()
+{
+	signal(SIGINT, ofunc);
+	sg.sg_flags = omode;
+	ioctl(fileno(ofp), TIOCSETP, &sg);
+	if (omode & ECHO)
+		putc('\n', ofp);
+}

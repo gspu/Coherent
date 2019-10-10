@@ -1,0 +1,179 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.46.23;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+/*
+ * A programme to make the tables needed for hyphenation.
+ */
+#include <stdio.h>
+#include <ctype.h>
+#include "hyphen.h"
+#include "char.h"
+
+FILE	*fbp;
+FILE	*fmp;
+FILE	*flp;
+int	tot;
+int	mod;
+int	lin;
+int	lno;
+
+main()
+{
+	register FILE *ffp;
+
+	fbp = openf("wordtab.c", "w");
+	flp = openf("wordlab.c", "w");
+	fmp = openf("wordtab.h", "w");
+	ffp = openf("except", "r");
+	intb();
+	except(ffp);
+	endb();
+}
+
+except(fp)
+register FILE *fp;
+{
+	register int ncc, eok, c;
+
+	intl("exctab");
+	c = '\0';
+	while (c != EOF) {
+		putl();
+		ncc = 0;
+		eok = 0;
+		lno++;
+		while ((c=getc(fp))!='\n' && c!=EOF) {
+			switch (c) {
+			case EOF:
+				exit(0);
+			case '-':
+				putb(LHYP);
+				continue;
+			case '*':
+				if (!isascii(c=getc(fp)) || !islower(c))
+					printe("Bad character");
+				ncc++;
+				putb(CLA+c-'a');
+				continue;
+			default:
+				if (!isascii(c) || !islower(c))
+					printe("Bad character");
+				if (ncc++>=7 && eok++==0)
+					putb(LEOK);
+				putb(CLA+c-'a');
+				continue;
+			}
+			break;
+		}
+		if (eok == 0)
+			putb(LEOK);
+		putb(LNUL);
+	}
+	endl("EXCSIZE");
+}
+
+/*
+ * Open a file.  If an error is encounted, print out an
+ * error message and exit.
+ */
+openf(np, pp)
+{
+	register FILE *fp;
+
+	if ((fp=fopen(np, pp)) == NULL)
+		printe("Cannot open %s", np);
+	return (fp);
+}
+
+/*
+ * Print out an error message and exit.
+ */
+printe(a1)
+{
+	fprintf(stderr, "%d: %r", lno, &a1);
+	putc('\n', stderr);
+	exit(1);
+}
+
+intb()
+{
+	mod = 0;
+	tot = 0;
+	fprintf(fbp, "\n");
+	fprintf(fbp, "char *hyptab[] ={\n");
+	fprintf(fbp, "\t");
+}
+
+endb()
+{
+	fprintf(fbp, "\n};\n");
+}
+
+putb(c)
+{
+	if (mod == 12) {
+		fprintf(fbp, "\n\t");
+		mod = 0;
+	}
+	mod++;
+	tot++;
+	fprintf(fbp, " %03o,", c);
+}
+
+intl(name)
+char *name;
+{
+	fprintf(flp, "\n");
+	fprintf(flp, "char %s[] ={\n", name);
+}
+
+endl(name)
+char *name;
+{
+	fprintf(flp, "};\n");
+	fprintf(fmp, "#define %s\t%d\n", name, lin);
+}
+
+putl()
+{
+	lin++;
+	fprintf(flp, "\thyptab");
+	if (tot)
+		fprintf(flp, "+0%o", tot);
+	fprintf(flp, ",\n");
+}
+@

@@ -1,0 +1,427 @@
+;ROM 12/12/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;RAM EQUates for ROM version
+
+	if	rom
+
+	if	compl and not rtpak
+patch:	dz	30		;compiler patch area
+	endif
+
+;values  for block move into nonzero RAM locations
+nzram:	if	camac		;impure routines for CAMAC command execution
+	mov	a,m		;CAMWR, write data
+	out	0
+	inx	h
+	mov	a,m
+	out	1
+	inx	h
+	mov	a,m
+	out	2
+	ret
+	mov	a,m		;CAMFN, perform function
+	out	3
+	inx	h
+	mov	a,m
+	out	4
+	inx	h
+	mov	a,m
+	out	5
+	ret
+	in	6		;CAMRD, read data
+	mov	m,a
+	inx	h
+	in	7
+	mov	m,a
+	inx	h
+	in	8
+	mov	m,a
+	ret
+	db	255 and -120, 255 and -60, 255 and -24	;TIMEX
+	else
+	if	not wild
+	db	0		;IOBYT in first RAM location
+	jmp	jmpta+60	;CSTAT, console status
+	endif
+	if	realt		;TIMEX, time counts
+	db	255 and -20, 255 and -60, 255 and -60, 255 and -24
+	else
+	dw	timem
+	dw	timen
+	db	timeh
+	endif
+	endif
+	in	0		;RPORT
+	ret
+	out	0		;WPORT
+	ret
+	if	bendx and sdisk
+	jmp	0		;BRCHA
+	endif
+	if	romsq
+	dw	srcad		;SOURC
+	endif
+	if	float and (not f9511) and (not fpbcd)
+;impure code for FMULT and FDIV routines
+;MULX4, RAM MULTIPLY SUBROUTINE
+	ADI	0		;ADD OPERAND 3RD FRACTION
+	MOV	E,A		;4TH PARTIAL PRODUCT
+	MOV	A,D		;3RD PARTIAL PRODUCT
+	ACI	0		;ADD OPERAND 2ND FRACTION
+	MOV	D,A		;3RD PARTIAL PRODUCT
+	MOV	A,C		;2ND PARTIAL PRODUCT
+	ACI	0		;ADD OPERAND 1ST FRACTION
+	RET			;TO ROM CODE
+;DIVX5, RAM DIVIDE SUBROUTINE
+	SUI	0		;SUBTRACT DIVISOR 4TH FRACTION
+	MOV	A,L		;REMAINDER 3RD FRACTION
+	SBI	0		;SUBTRACT DIVISOR 3RD FRACTION
+	MOV	L,A		;REMAINDER 3RD FRACTION
+	MOV	A,H		;REMAINDER 2ND FRACTION
+	SBI	0		;SUBTRACT DIVISOR 2ND FRACTION
+	MOV	H,A		;REMAINDER 2ND FRACTION
+	MOV	A,E		;REMAINDER 1ST FRACTION
+	SBI	0		;SUBTRACT DIVISOR 1ST FRACTION
+	MOV	E,A		;REMAINDER 1ST FRACTION
+	MVI	A,0		;REMAINDER 4TH FRACTION
+	RET 			;TO ROM CODE
+;DIVX6, RAM DIVIDE SUBROUTINE
+	ADI	0		;ADD DIVISOR 3RD FRACTION
+	MOV	L,A		;REMAINDER 3RD FRACTION
+	MOV	A,H		;REMAINDER 2ND FRACTION
+	ACI	0		;ADD DIVISOR 2ND FRACTION
+	MOV	H,A		;REMAINDER 2ND FRACTION
+	MOV	A,E		;REMAINDER 1ST FRACTION
+	ACI	0		;ADD DIVISOR 1ST FRACTION
+	MOV	E,A		;REMAINDER 1ST FRACTION
+	MVI	A,0		;REMAINDER 4TH FRACTION
+	RET			;TO ROM CODE
+	endif
+	if	compl and not rtpak	;compiler values
+	dw	romend		;TEXTP
+	dw	romend		;RDPTR
+	dw	ramend+1	;EOFAD
+	db	0		;COLUM
+	db	0		;WIDTH
+	dw	0		;MEMT
+romend:	db	cr		;cr precedes source text
+srcad	equ	romend+1	;source text location
+	else			;RTPAK OR NOT COMPL
+	if	not rtpak
+	jmp	init		;DMODC
+	if	(not epstn) and (not camac) and (not bendx)	;HEADR
+	if	not genmc
+	db	stbyt,tybyt,'        XYB'
+	else
+	db	cr, lf, '''', '        .BAS', cr, lf or 80H
+	endif
+	endif
+	endif			;end of NOT RTPAK conditional
+	db	0		;COLUM
+	db	255		;WIDTH
+	endif
+nzlen	equ	$-nzram		;number of nonzero bytes to block move
+
+
+;ram location EQUates
+	if	asm80
+	dseg			;start of relocatable data segment
+	else
+savpc	equ	$		;save ROM PC location
+	org	ramorg		;and reset PC to start of RAM
+	endif
+
+;first locations which must get nonzero values by block move
+	if	camac
+camwr	ds	12
+camfn	ds	12
+camrd	ds	12
+timex	ds	3
+	else			;not CAMAC
+	if	not wild
+iobyt	ds	1
+cstat	ds	3
+	endif
+	if	realt
+timex	ds	4
+	else
+timex	ds	5
+	endif
+	endif			;end of NOT CAMAC conditional
+rport	ds	3
+wport	ds	3
+	if	bendx and sdisk
+brcha	ds	3
+	endif
+	if	romsq
+sourc	ds	2
+	endif
+	if	float and (not f9511) and (not fpbcd)
+mulx4	ds	11
+divx5	ds	17
+divx6	ds	14
+	endif
+	if	compl and not rtpak
+textp	ds	2
+rdptr	ds	2
+eofad	ds	2
+colum	ds	1
+width	ds	1
+memt	ds	2
+	else
+	if	not rtpak
+dmodc	ds	3
+	if	not (epstn or camac or bendx)
+headr	ds	headl
+	endif
+	endif
+colum	ds	1
+width	ds	1
+	endif
+
+;next the locations which must be zeroed
+lnnum	ds	2
+	if	not compl
+	if	editc
+errln	ds	2
+	endif
+trap	ds	1
+trace	ds	1
+inlhs	ds	1
+vtrac	ds	1
+	endif
+	if	camac
+cmdat	ds	3
+cmcra	ds	1
+cmslo	ds	2
+cmfnc	ds	1
+scrte	ds	1
+sdrvr	ds	1
+camqr	ds	1
+camxr	ds	3
+	if	c3908
+cmblk	ds	7
+	endif
+cvcnt	ds	2
+cvloc	ds	2
+xnabl	ds	1
+imode	ds	1
+fmode	ds	1
+	endif
+	if	bendx and sdisk
+bwtct	ds	3
+breof	ds	2
+bfilp	ds	1
+bfblk	ds	9
+	endif
+	if	not wild
+lmode	ds	1
+	endif
+	if	packi
+paonl	ds	1
+	endif
+omode	ds	1
+	if	not wild
+inttc	ds	1
+intad	ds	inttl
+randx	ds	2
+nulls	ds	1
+	endif
+gchar	ds	1
+	if	strng
+stemp	ds	1
+	endif
+zlen	equ	$-lnnum		;number of bytes to zero
+
+;followed by locations which may come up randomly
+	if	strng
+	ds	stmax+stmax
+strt	ds	2
+strpt	ds	2
+strp2	ds	2
+gcmin	ds	2
+gclst	ds	2
+gcloc	ds	2
+	endif
+	if	editc and (not compl)
+	if	strng
+rnnew	equ	gcmin
+rninc	equ	gclst
+rnold	equ	gcloc
+	else
+rnnew	ds	2
+rninc	ds	2
+rnold	ds	2
+	endif
+	endif
+	if	bendx
+	if	sdisk
+bfnam	ds	15
+bfna2	ds	15
+	else
+bfnam	ds	11
+	endif
+bmeps	ds	3
+	endif
+	if	wild and rtpak	;WTOKE temp storage
+wmemt	ds	2
+weof	ds	2
+wlast	ds	2
+wnext	ds	2
+	endif
+	if	camac and nonst and (not rtpak)	;Northstar DOS
+dunit	ds	1
+fname	ds	9
+drbuf	ds	256
+nxtad	ds	2
+nxtbl	ds	2
+lstbl	ds	2
+lstfl	ds	1
+	endif
+	if	packi
+paign	ds	1
+pacnt	ds	1
+pamod	ds	1
+pafno	ds	1
+pafbp	ds	2
+pafld	ds	pafct
+padat	ds	padct
+padp0	ds	2
+padp1	ds	2
+padp2	ds	2
+padp3	ds	2
+	endif
+	if	float		;floating point system RAM
+ARGAD	ds	2
+	if	f9511
+fptmp	ds	3
+	else
+	if	fpbcd
+FACC 	DS 	6  		;FLOATING POINT ACCUMULATOR
+ACALT 	DS 	6  		;ALTERNATE ACCUMULATOR
+HOLD1 	DS 	6  		;FLOATING POINT MULTIPLY BUFFERS
+HOLD2 	DS 	6
+HOLD3 	DS 	6
+HOLD4 	DS 	6
+FTEMP	DS 	6  		;FLOATING POINT WORK AREAS
+FTMP1 	DS 	6
+FTMP2 	DS 	6
+FTMP3 	DS 	6
+FTMP4 	DS 	6
+EXP1 	DS 	1 		;EXPONENT WORK AREAS
+EXP2 	DS 	1  
+EXP3 	DS 	1
+EXP4 	DS 	1
+SIGN 	DS 	1 		;SIGN WORK AREAS
+SIGN1 	DS 	1
+FLEN 	DS 	1 		;LENGTH OF SUBTRACT FIELD
+RSLT 	DS 	2 		;ADDRESS STORAGE
+	else
+;first the FMATH RAM
+PREX	ds	1
+ACCE	ds	1
+ACCS	ds	1
+ACC1	ds	1
+ACC2	ds	1
+ACC3	ds	1
+SFLAG	ds	1
+ADRL	ds	2
+TMP1	ds	1
+TMP2	ds	1
+TMP3	ds	1
+VALE	ds	4
+TMP4	ds	1
+;and then the XMATH RAM
+SIG	ds	1
+FPTXN	ds	8
+FPSUM	ds	4
+VECT	ds	2
+FINSN	ds	1
+FINFP	ds	4
+FPTXX	ds	4
+FPTF	ds	4
+FPTP	ds	4
+FPTX	ds	4
+FPTN	ds	1
+FPSGN	ds	1
+FPTZ0	ds	4
+FPTZ1	ds	4
+FLNZI	ds	4
+FLNZ2	ds	4
+FLNK	ds	1
+FLNF	ds	4
+FSCFX	ds	1
+FSCSG	ds	1
+FSCZ	ds	4
+FSCZ2	ds	4
+FTMPA	ds	4
+FTMPB	ds	4
+	if	not camac
+FATZX	ds	4
+FATXM	ds	4
+FATX2	ds	4
+FATSG	ds	1
+FATK	ds	1
+	endif
+	endif
+	endif
+	endif
+
+	if	asm80
+	stkln	stakl
+	else
+	ds	stakl
+stack	ds	0
+	endif
+
+varty	ds	1
+	if	strng or float
+tybuf	ds	26
+	endif
+temp	ds	2
+txtp2	ds	2
+savtp	ds	2
+lhsty	ds	1
+lhsad	ds	2
+cstkp	ds	2
+estkp	ds	2
+symta	ds	2
+bufad	ds	maxnl+maxnl
+	ds	1
+	if	editc
+tlnad	ds	nlmax+3
+	else
+tlnad	ds	0
+	endif
+	if	(sdisk or (camac and nonst)) and (not rtpak)
+nlnad	ds	256
+	else
+nlnad	ds	nlmax+3
+	endif
+	if	compl and not rtpak
+ramend	equ	$
+	else
+	if	wild or not rtpak
+lnlen	ds	1
+	endif
+	if	not rtpak
+cstkd	ds	1
+tracl	ds	1
+	endif
+textp	ds	2
+rdptr	ds	2
+eofad	ds	2
+memt	ds	2
+	ds	1
+srcad	equ	$
+	endif
+
+	if	not asm80
+	org	savpc		;restore previous ROM PC
+	endif
+
+	endif			;end of ROM conditional
+
+;end of ROM
+	page

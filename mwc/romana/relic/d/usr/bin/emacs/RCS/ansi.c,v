@@ -1,0 +1,174 @@
+head     1.3;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     91.03.28.15.13.06;  author bin;  state Exp;
+branches ;
+next	1.2;
+
+1.2
+date     91.02.07.15.40.39;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.02.06.20.13.30;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@src pulled from 310 ship disk
+@
+
+
+1.3
+log
+@cef modified for 8 bit character support
+@
+text
+@/*
+ * The routines in this file
+ * provide support for ANSI style terminals
+ * over a serial line. The serial I/O services are
+ * provided by routines in "termio.c". It compiles
+ * into nothing if not an ANSI device.
+ */
+#include	<stdio.h>
+#include	"ed.h"
+
+#if	ANSI
+
+#define	NROW	24			/* Screen size.			*/
+#define	NCOL	80			/* Edit if you want to.		*/
+#define	BEL	0x07			/* BEL character.		*/
+#define	ESC	0x1B			/* ESC character.		*/
+
+extern	int	ttopen();		/* Forward references.		*/
+extern	int	ttgetc();
+extern	int	ttputc();
+extern	int	ttflush();
+extern	int	ttclose();
+extern	int	ansimove();
+extern	int	ansieeol();
+extern	int	ansieeop();
+extern	int	ansibeep();
+extern	int	ansiopen();
+extern	int	ansistand();
+
+/*
+ * Standard terminal interface
+ * dispatch table. Most of the fields
+ * point into "termio" code.
+ */
+TERM	term	= {
+	NROW-1,
+	NCOL,
+	ansiopen,
+	ttclose,
+	ttgetc,
+	ttputc,
+	ttflush,
+	ansimove,
+	ansieeol,
+	ansieeop,
+	ansibeep,
+	ansistand
+};
+
+ansimove(row, col)
+{
+	ttputc(ESC);
+	ttputc('[');
+	ansiparm(row+1);
+	ttputc(';');
+	ansiparm(col+1);
+	ttputc('H');
+}
+
+ansieeol()
+{
+	ttputc(ESC);
+	ttputc('[');
+	ttputc('K');
+}
+
+ansieeop()
+{
+	ttputc(ESC);
+	ttputc('[');
+	ttputc('J');
+}
+
+ansibeep()
+{
+	ttputc(BEL);
+	ttflush();
+}
+
+ansiparm(n)
+register int	n;
+{
+	register int	q;
+
+	q = n/10;
+	if (q != 0)
+		ansiparm(q);
+	ttputc((n%10) + '0');
+}
+
+ansistand(f)
+{
+	ttputc(ESC);		/* <ESC> [ Ps m	-- Select graphics rendition */
+	ttputc('[');		/* (SGR)				*/
+	ttputc((f == 0) ? '0' : '7');	/* 7 = Reverse video */
+	ttputc('m');
+}
+
+#endif
+
+ansiopen()
+{
+#if	V7
+	register uchar *cp;
+	char *getenv();
+
+	if ((cp = getenv("TERM")) == NULL) {
+		puts("Shell variable TERM not defined!");
+		exit(1);
+	}
+	if (strcmp(cp, "vt100") != 0) {
+		puts("Terminal type not 'vt100'!");
+		exit(1);
+	}
+#endif
+	ttopen();
+}
+@
+
+
+1.2
+log
+@emacs updated by cef for 8 bit character support
+@
+text
+@d105 1
+a105 1
+	uchar *getenv();
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d104 2
+a105 2
+	register char *cp;
+	char *getenv();
+@

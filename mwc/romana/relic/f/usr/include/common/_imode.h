@@ -1,0 +1,57 @@
+#ifndef	__COMMON__IMODE_H__
+#define	__COMMON__IMODE_H__
+
+/*
+ * This header defines constants used within Coherent as the basis for
+ * determining file modes. Mode information is used within the filesystem
+ * and at user level; this set of internal definitions is used as the
+ * basis for both.
+ */
+
+enum {
+	__IFPIP =	0x1000,
+	__IFFIFO =	__IFPIP,
+	__IFCHR =	0x2000,
+	__IFDIR =	0x4000,
+	__IFBLK =	0x6000,
+
+#if	-1U < 0x10000UL
+/*
+ * Integers are only 16 bits, so these cannot be enumeration constants.
+ */
+#define	__IFREG		0x8000
+#define	__IFMT		0xF000
+#else
+	__IFREG =	0x8000,
+	__IFMT =	0xF000,
+#endif
+	__ISUID	=	0x0800,
+	__ISGID =	0x0400,
+	__ISVTX =	0x0200,
+
+	__IRUSR =	0x0100,
+	__IWUSR =	0x0080,
+	__IXUSR =	0x0040,
+	__IRGRP =	0x0020,
+	__IWGRP =	0x0010,
+	__IXGRP =	0x0008,
+	__IROTH =	0x0004,
+	__IWOTH =	0x0002,
+	__IXOTH =	0x0001,
+
+	__IRWXU =	(__IRUSR | __IWUSR | __IXUSR),
+	__IRWXG =	(__IRGRP | __IWGRP | __IXGRP),
+	__IRWXO =	(__IROTH | __IWOTH | __IXOTH),
+
+	/*
+	 * Common synonyms.
+	 */
+
+	__IREAD =	__IRUSR,
+	__IWRITE =	__IWUSR,
+	__IEXEC =	__IXUSR
+};
+
+#endif	/* ! defined (__COMMON__IMODE_H__) */
+
+	

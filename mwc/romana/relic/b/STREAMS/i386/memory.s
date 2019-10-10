@@ -1,0 +1,120 @@
+/ memory-move operations for the Coherent kernel. The functions called here
+/ do exactly the same thing as the regular C library version.
+
+		.unixorder
+
+		.globl	memset
+
+dest		=	4
+ch		=	8
+len		=	12
+
+memset:
+		movzxb	ch(%esp), %eax		/ Fill pattern to %eax
+		movl	$0x01010101, %ecx	/ Replicate fill byte into
+		mull	%ecx, %eax		/ all of %eax (4 copies)
+						/ (overwrites %edx too)
+
+		movl	%edi, %edx		/ Save %edi
+		movl	dest(%esp), %edi	/ Get dest to %edi
+
+		movl	len(%esp), %ecx		/ Get length
+		shrl	$2, %ecx		/ in longwords
+
+		cld				/ Fill upwards
+		rep stosl			/ Perform the fill
+
+		jnc	?noword			/ Skip over residual word copy
+
+		stosw
+?noword:
+		testb	$1, len(%esp)		/ Check low part of count
+		je	?nobyte			/ Skip over residual byte copy
+
+		stosb
+?nobyte:
+		movl	%edx, %edi		/ Restore %edi
+		movl	dest(%esp), %eax	/ Return destination
+		ret
+
+
+		.globl	memcpy
+
+dest		=	4
+src		=	8
+len		=	12
+
+memcpy:
+		movl	%esi, %eax		/ Save %esi
+		movl	src(%esp), %esi		/ Get src
+
+		movl	%edi, %edx		/ Save %edi
+		movl	dest(%esp), %edi	/ Get dest
+
+		movl	len(%esp), %ecx		/ Get length
+		shrl	$2, %ecx		/ in longwords
+
+		cld				/ Copy upwards
+		rep movsl			/ in longwords
+
+		jnc	?noword			/ Skip residual word copy
+
+		movsw
+?noword:
+		testb	$1, len(%esp)		/ Check low byte of length
+		je	?nobyte			/ Skip residual byte copy
+
+		movsb
+?nobyte:
+		movl	%edx, %edi		/ Restore %edi
+		movl	%eax, %esi		/ Restore %esi
+		movl	dest(%esp), %eax	/ Return destination
+		ret
+
+/ String comparison with length limit.
+
+		.globl	strncmp
+
+left		=	4
+right		=	8
+len		=	12
+
+strncmp:
+		movl	len(%esp), %ecx		/ Maximum length
+		jecxz	?strncmp_empty
+
+		movl	%esi, %edx		/ Preserve %esi
+		movl	left(%esp), %esi	/ Get left
+
+		pushl	%edi			/ Preserve %edi
+		movl	right+4(%esp), %edi	/ Get right, adjusting the
+						/ stack offset for push
+
+		cld				/ Scan upwards
+		xorl	%eax, %eax		/ Zero top bytes in %eax
+
+?strncmp_loop:	lodsb				/ %al = * %ds:%esi ++
+		scasb				/ * %es:%edi ++ - %al ?
+		jne	?strncmp_noteq
+		orb	%al, %al		/ %al == 0 ?
+		loopne	?strncmp_loop
+
+/ Either %al == 0 or %ecx == 0, and we have a match. Zero %eax
+		xorl	%eax, %eax
+		popl	%edi			/ Restore %edi
+		movl	%edx, %esi		/ Restore %esi
+		ret
+
+?strncmp_noteq:
+		movb	$1, %al
+		ja	?strncmp_less		/ Branch if %al was > * right
+						/ hence return %eax == 1
+		negl	%eax			/ Here if %al < * right,
+						/ hence return %eax == -1
+?strncmp_less:
+		popl	%edi			/ Restore %edi
+		movl	%edx, %esi		/ Restore %esi
+		ret
+
+?strncmp_empty:	xorl	%eax, %eax		/ Count == 0 => left == right
+		ret

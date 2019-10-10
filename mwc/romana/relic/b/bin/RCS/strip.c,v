@@ -1,0 +1,338 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.03.17.07.52.29;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.06.15.11.43.38;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.21.09.35.57;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@cef: changes due to coff.h fix for DT_PTR
+@
+text
+@/*
+ * Strip symbols, lines, and relocation from executable.
+ */
+#include <misc.h>
+#include <errno.h>
+#include <coff.h>
+#include <setjmp.h>
+#include <sys/stat.h>
+
+extern char *alloca();
+
+static jmp_buf env;	/* setjmp longjmp buffer */
+static char *filen;	/* current file in process */
+static int errCt;
+
+/*
+ * Put message and longjmp to next file.
+ */
+fatal(s)
+char *s;
+{
+	fprintf(stderr, "strip: %s %r.\n", filen, &s);
+	errCt++;
+	longjmp(env, 1);
+}
+
+/*
+ * Strip a file
+ */
+strip()
+{
+	register SCNHDR *sh;
+	register FILEHDR *fh;	
+	int fd, rv;
+	long i, top, hi;
+	struct stat sb;
+
+	/* inhale input file */
+	if (-1 == (fd = open(filen, 0)))
+		fatal("Can't open for read");
+
+	if (-1 == fstat(fd, &sb))
+		fatal("Can't find file attributes");
+
+	fh = alloca(sb.st_size);	/* get space to inhale file */
+
+	rv = read(fd, fh, sb.st_size);
+	close(fd);
+
+	if (-1 == rv)
+		fatal("Error in read");
+
+	if ((fh->f_magic != C_386_MAGIC) ||
+	    !fh->f_opthdr ||
+	    !(fh->f_flags & F_EXEC))
+		fatal("Not COFF executable");
+
+	fh->f_symptr = fh->f_nsyms = 0;
+	fh->f_flags |= F_RELFLG | F_LNNO | F_LSYMS;
+
+	/* pass segments and find top address */
+	sh = ((char *)fh) + fh->f_opthdr + sizeof(*fh);
+	top = (long)(sh + fh->f_nscns);
+	for (top = i = 0; i < fh->f_nscns; i++, sh++) {
+		/* find top of sector data */
+		if (sh->s_scnptr && (sh->s_flags != STYP_BSS)) {
+			hi = sh->s_size + sh->s_scnptr;
+			if (top < hi)
+				top = hi;
+		}
+		sh->s_relptr = sh->s_lnnoptr = sh->s_nreloc = sh->s_nlnno = 0;
+	}
+
+	if (top > sb.st_size)
+		fatal("Corrupt file");
+
+	if (top < sb.st_size) {	/* file not already stripped */
+		/* exhale stripped file */
+		if (-1 == (fd = creat(filen, sb.st_mode)))
+			fatal("Can't create new copy of file");
+
+		rv = write(fd, fh, top);
+		close(fd);
+
+		if (-1 == rv)
+			fatal("Error in write");
+	}
+}
+
+main(argc, argv)
+char *argv[];
+{
+	register int i;
+
+	for (i = 1; i < argc; i++) {
+		filen = argv[i];
+		if (!setjmp(env))
+			strip();
+	}
+
+	if(!errCt)
+		return (0);
+
+	fprintf(stderr, "%d error(s) flagged\n", errCt);
+	return (1);
+}
+@
+
+
+1.2
+log
+@update by cef
+@
+text
+@d10 2
+d33 2
+a34 2
+	static FILEHDR *fh = NULL;	
+	static FILE *fp = NULL;
+d38 3
+a40 2
+	if (stat(filen, &sb))
+		fatal("Can't locate");
+d42 2
+a43 8
+	/* inhale input file */
+	if (NULL != fp)
+		fclose(fp);
+	fp = xopen(filen, "rb");
+
+	if (NULL != fh)
+		free(fh);
+	fh = alloc(sb.st_size);
+d45 6
+a50 1
+	if (1 != fread(fh, sb.st_size, 1, fp))
+a52 3
+	fclose(fp);
+	fp = NULL;
+
+d77 1
+a77 1
+	if (top < sb.st_size) {
+d79 7
+a85 2
+		fp = xopen(filen, "wb");
+		if (1 != fwrite(fh, top, 1, fp))
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d10 3
+a12 4
+static FILE *ifp = NULL, *ofp = NULL;
+static jmp_buf env;
+static char *tfile = NULL, *filen;
+static struct stat sb;
+a13 8
+#define xread(x, m) if(1 != fread(&x, sizeof(x), 1, ifp)) fatal(rmsg, m);
+#define xwrite(x, m) if(1 != fwrite(&x, sizeof(x), 1, ofp)) fatal(wmsg, m);
+static char rmsg[] = "Error reading %s";
+static char wmsg[] = "Error writing %s";
+
+#define SLASH '/'
+extern char *strrchr();
+
+d20 2
+a21 5
+	int save = errno;
+
+	fprintf(stderr, "strip: %s %r\n", filen, &s);
+	if (0 != (errno = save))
+		perror("errno reports");
+d26 1
+a26 1
+ * Copy ifp to ofp
+a27 21
+fcopy(len)
+long len;
+{
+	char buf[BUFSIZ];
+	int i;
+
+	/* align on BUFSIZ boundary then copy buffers */
+	for (i = ftell(ifp) % BUFSIZ; len; (len -= i), (i = 0)) {
+		if ((i = BUFSIZ - i) > len)
+			i = len;
+
+		if (1 != fread(buf, i, 1, ifp))
+			fatal(rmsg, "text");
+		if (1 != fwrite(buf, i, 1, ofp))
+			fatal(wmsg, "text");
+	}
+}
+
+/*
+ * Strip a file
+ */
+d30 3
+a32 1
+	FILEHDR fh;
+d34 1
+d36 2
+a37 5
+	xread(fh, "file header");
+	if (fh.f_magic != C_386_MAGIC)
+		fatal("Wrong magic number %x", fh.f_magic);
+	if (!fh.f_opthdr || !(fh.f_flags & F_EXEC))
+		fatal("Not executable");
+d39 4
+a42 4
+	fh.f_symptr = fh.f_nsyms = 0;
+	fh.f_flags |= F_RELFLG | F_LNNO | F_LSYMS;
+	xwrite(fh, "file header");
+	fcopy((long)fh.f_opthdr); /* copy to section headers */
+d44 3
+a46 2
+	for (top = i = 0; i < fh.f_nscns; i++) {
+		SCNHDR sh;
+d48 2
+a49 1
+		xread(sh, "sector");
+d51 15
+d67 2
+a68 2
+		if (sh.s_scnptr && (sh.s_flags != STYP_BSS)) {
+			hi = sh.s_size + sh.s_scnptr;
+d72 2
+d75 8
+a82 2
+		sh.s_relptr = sh.s_lnnoptr = sh.s_nreloc = sh.s_nlnno = 0;
+		xwrite(sh, "sector");
+d84 1
+a85 3
+	fcopy(top - ftell(ifp));
+}
+
+d89 1
+a89 3
+	int i;
+	char *p, *cmd;
+	extern char *tempnam();
+d92 4
+a95 17
+		/* fatal errors longjmp to here for next file */
+		if (setjmp(env)) {
+			if (NULL != ifp) {
+				fclose(ifp);
+				ifp = NULL;
+			}
+			if (NULL != ofp) {
+				fclose(ofp);
+				ofp = NULL;
+			}
+			if (NULL != tfile) {
+				unlink(tfile);
+				free(tfile);
+				tfile = NULL;
+			}
+			continue;
+		}
+d97 2
+a98 2
+		if (stat(filen = argv[i], &sb))
+			fatal("Can't find %s", filen);
+d100 2
+a101 33
+		/* open input file */
+		ifp = xopen(filen, "rb");
+
+		if (NULL != (p = strrchr(filen, SLASH))) {
+			*p = '\0';
+			tfile = tempnam(filen, NULL);
+			*p = SLASH;
+		}
+		else
+			tfile = tempnam(".", NULL);
+
+		ofp = xopen(tfile, "wb");
+
+		strip();
+
+		if (NULL != ifp) {
+			fclose(ifp);
+			ifp = NULL;
+		}
+		if (NULL != ofp) {
+			fclose(ofp);
+			ofp = NULL;
+		}
+
+		cmd = alloc(strlen(filen) + strlen(tfile) + 6);
+		sprintf(cmd, "mv %s %s", tfile, filen);
+		system(cmd);
+		chmod(filen, sb.st_mode);
+		free(cmd);
+		free(tfile);
+		tfile = NULL;
+	}
+	exit(0);
+@

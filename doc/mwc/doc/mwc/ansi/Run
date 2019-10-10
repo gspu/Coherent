@@ -1,0 +1,50 @@
+# Run script for ANSI lexicon.
+# ansi0.p has the table of contents
+# ansi1.p has the acknowledgement
+# ansi2.p has the introduction
+# ansi3.p has the introduction to the lexicon
+# ansi4.$i.p has the lexicon
+# ansi5.p has the logic tree
+# ansi6.p has the index
+#
+>ansi.x
+echo ".nr # 1" >pgn.r
+#
+troff -r#1 -mansitext -mroff fonts.r top.r introduction \
+	>/tmp/doc/ansi/ansi2.p 2>>ansi.x
+tail -1 ansi.x >pgn.r
+echo ".nr @1 1" >>pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+troff -mansitext -mroff fonts.r pgn.r top.r lexicon.intro \
+	>/tmp/doc/ansi/ansi3.p 2>>ansi.x
+tail -1 ansi.x >pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+# Now, assemble list of lexicon files to be troff'd
+#
+for i in E _ a b c d e f g h i j k l m n o p q r s t u v w
+do
+	ls ../lx/ANSI/$i* >FILES.$i 2>>ansi.x
+done
+#
+# and do the troffing
+#
+for i in E _ a b c d e f g h i j k l m n o p q r s t u v w
+do
+	troff -mansilex -mroff fonts.r pgn.r top.r ../alphabet/$i.r \
+		`cat FILES.$i` 	>/tmp/doc/ansi/ansi4.$i.p 2>>ansi.x
+	tail -1 ansi.x >pgn.r
+done
+#
+# troff the logic tree
+#
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+echo ".nr @1 2" >>pgn.r
+troff -mansitext -mroff fonts.r pgn.r top.r logic.tree \
+	>/tmp/doc/ansi/ansi5.p 2>>ansi.x
+tail -1 ansi.x >pgn.r
+echo ".if \n#%2=0 .nr # \\\n+#" >>pgn.r
+#
+# Now, run Run.extra to troff the table of contents and the index.
+#

@@ -1,0 +1,227 @@
+%!PS-Adobe-2.0      
+%% Title:         CALENDAR.PS
+%% Creator:       C.FOSSETT
+%% CreationDate:  November 10, 1990
+
+%------------------------------ CALENDAR.PS ----------------------------------
+
+% Copyright (c) 1990                                                         
+% Chad Fossett               Commercial use is absolutely prohibited.       
+% 8026 Nightingale Way       Personal use is permitted as long as this      
+% San Diego, CA  92123       copyright notice remains present and intact.   
+% All Rights Reserved.                                                       
+
+% CALENDAR.PS produces a wall-style monthly calendar for December, 1990.
+% It can be easily modified to print any month.  It can also be tailored
+% to individual tastes by adjusting the calendar size and aspect-ratio,
+% and by adding personalized special events to any date.
+
+%----------------------------------------------------------------------------
+%
+%      The calendar is laid out as follows:
+%
+%                         columns on the x-axis
+%              0     1     2     3     4     5     6
+%            0                                               Each cell is
+%                0 0   1 0   2 0   3 0                       designated as   
+%            1                                               the intersection
+%                0 1                                         of the two lines
+%    rows    2                                               at its upper
+%   on the       0 2                           5 2           left corner
+%   y-axis   3                                               (see the x,y
+%                            2 3                             notation in
+%            4                                               the cells to
+%                                  3 4                       the left for
+%                                                            examples).
+%
+%-----------------------------------------------------------------------------
+
+% As it is set up below, it prints in landscape orientation on an 8 x11 page.
+% The aspect ratio can be changed by adjusting CH and CW below, or by
+% xy scaling the whole calendar at print time.
+% If the size and aspect ratio are OK, then the only things needing
+% attention are the top three definitions (month, startday, and numdays),
+% and any special events, holidays, etc. (enumerated near the end).
+
+
+%------------------------------- PROLOGUE ------------------------------------
+
+/month (DECEMBER  1990) def         % This gets centered at the top
+
+/startday 6 def     % day of the week the month starts on 0=sun, 1=mon etc.
+/numdays 31 def     % number of days in the month
+
+/monthsize 36 def                   % Point size for month (JANUARY  1990),
+/datesize 30 def                    % date (1 2 3 4 etc.),
+/daysize 14 def                     % and day (SUNDAY, MONDAY etc.).
+
+/monthfont {/AvantGarde-Demi findfont monthsize scalefont setfont} def
+/datefont {/AvantGarde-Demi findfont datesize scalefont setfont} def
+/dayfont {/AvantGarde-Book findfont daysize scalefont setfont} def
+
+/CH -82 def                         % Cell Height (y-axis value of 1)
+/CW 105 def                         % Cell Width  (x-axis value of 1)
+
+/cellcoord {CH mul exch CW mul exch} def          % scaling for 1x1 cells
+
+/monthshow {monthfont                             % set the font
+            month dup stringwidth pop CW 7 mul    % and print the month
+            exch sub 2 div                        % centered
+            70 monthsize sub rmoveto show} def    % above the line
+
+/daynames {[(SUNDAY) (MONDAY)                     % 7-element array
+            (TUESDAY) (WEDNESDAY)                 % of the names of
+            (THURSDAY) (FRIDAY)                   % the days of
+            (SATURDAY)]} def                      % the week
+
+/dayshow { dayfont                                % display the daynames
+  0 1 6                                           % start the loop (0-6)
+   {dup 0 cellcoord moveto                        % move to a cell 0
+    daynames exch get                             % get the array element
+    dup stringwidth pop CW exch sub 2 div         % center it left-right
+    26 daysize sub 2 div                          % and up-down
+    gsave rmoveto show grestore                   % show it
+    0 25 rlineto CW 0 rlineto                     % and draw a line
+    0 -25 rlineto stroke                          % around it (on 3 sides)
+   } for                                          % end of the loop
+ } def
+
+/bestgray {106 45                                 % the Guru's
+          {dup mul exch dup                       % (Don Lancaster's)
+           mul add 1.0 exch sub}                  % best gray half-tone
+           setscreen} def                         % setscreen
+
+/box {1 setlinewidth gsave                        % draw a box
+      CW 0 rlineto 0 CH rlineto                   % CH high by
+      CW neg 0 rlineto closepath                  % CW wide
+      stroke grestore
+     } def
+
+/datecalc {7 mul add startday sub 1 add} def      % calculate date (- OK)
+
+/gtcheck {dup 0 gt                                % if greater than 0,
+          {lecheck}                               % do lecheck
+          {pop pop pop} ifelse} def               % if not, pop off
+
+/lecheck {dup numdays le                          % if   numdays,
+          {row5check}                             % do row5check
+          {pop pop pop} ifelse} def               % if not, pop off
+
+/row5check {2 copy pop 5 eq                       % if row equals 5,
+            {xsundaycheck}                        % do x(tra)sundatecheck
+            {sundaycheck} ifelse} def             % if not, sundaycheck
+
+/xsundaycheck {3 copy pop pop 0 eq                % if col equals 0,
+               {xsundateshow pop pop}             % do x(tra)sundateshow
+               {xdateshow pop pop} ifelse} def    % if not, x(tra)dateshow
+
+/sundaycheck {3 copy pop pop 0 eq                 % if col equals 0,
+               {sundateshow pop pop}              % do sundateshow
+               {dateshow pop pop} ifelse} def     % if not, dateshow
+
+/dateshow {datefont
+           2 string cvs dup stringwidth           % prints date towards 
+           pop CW 4 sub exch sub 0 datesize       % the upper-right
+           .9 mul sub rmoveto                     % corner of the cell
+           show } def
+
+/sundateshow {datefont
+           2 string cvs dup stringwidth           % same as dateshow
+           pop CW 4 sub exch sub 0 datesize       % but
+           .9 mul sub rmoveto 0 setlinewidth
+           true charpath gsave                    % instead of black,
+           bestgray .96 setgray fill              % filled with gray
+           grestore stroke } def                  % and outlined
+
+/xdateshow {0 CH -2 div rmoveto gsave             % moves *up* a half
+           CW 0 rlineto                           % cell, and prints
+           1 setlinewidth stroke grestore         % a line across;
+           dateshow} def                          % then dateshow
+
+/xsundateshow {0 CH -2 div rmoveto gsave          % moves *up* a half
+              CW 0 rlineto                        % cell, and prints
+              1 setlinewidth stroke grestore      % a line across;
+              sundateshow} def                    % then sundateshow
+
+/docell {dup 5 lt {box} if          % print a box if lt row 5
+         2 copy                     % col row col row on stack
+         datecalc                   % col row datenum after datecalc
+         gtcheck                    % start a series of checks for
+        } def                       %     a printable number
+
+/calendar {gsave                    % start calendar definition
+
+1 setlinewidth                      % set stroke line width to 1
+
+0 0 cellcoord moveto monthshow      % show the month
+
+dayshow                             % show the days
+
+0 1 5 { dup                         % do dates; loop for rows (nb *6* rows)
+   0 1 6 {                          % nested loop for columns (7)
+      exch 2 copy                   % col row col row on stack
+      cellcoord moveto docell dup   % go to the cell and do it
+         } for pop pop              % end of nested loop
+      } for                         % end of outer loop
+
+grestore} def                       % end calendar definition
+
+
+/littlecal {cellcoord gsave translate             % prints a small calendar.
+            4.5 -20 translate                     % 0 0, then fudge a bit
+            .13 .13 scale                         % reduce the size
+            calendar grestore} def                % and do calendar
+
+/specialfont {/AvantGarde-Book findfont 8 scalefont setfont} def
+
+/specialevent {specialfont                        % prints special events
+              cellcoord moveto gsave              % towards the bottom right
+              dup stringwidth pop CW 4 sub        % of a cell
+              exch sub CH 4 add rmoveto
+              show grestore} def                    
+
+/holiday {specialevent                            % print specialevent,
+          sundateshow} def                        % then gray date
+
+
+%-------------------------------- SCRIPT -------------------------------------
+
+
+-90 rotate                  % landscape mode
+-763.5 472.5 translate      % 0 0 at the UL corner of UL cell
+
+calendar                    % and print it - this is the basic calendar
+
+
+% Then print any special days & events, holidays, small calendars, etc.
+% This is done manually to facilitate month-to-month changes, and
+% to avoid the "clunky stuff" that shows up if they're displayed in
+% the small calendars (at least at 300 dpi on my H-P LaserJet II).
+
+
+(Pearl Harbor Day, 1941) 5 1 specialevent   % a special day in cell 5 1
+(Winter begins) 6 3 specialevent            % onset of winter in 6 3
+(full moon) 0 1 specialevent                % full moon in 0 1
+(Chanukah) 3 2 specialevent                 % a religious celebration in 3 2
+(Grandma's Birthday) 1 3.5 specialevent     % a birthday reminder in cell 1 3.5
+                                            % (the upper "half" cell above 1 4)
+(New Year's Eve) 1 4 specialevent           % New Year's Eve in cell 1 4
+(25) (Christmas) 2 4 holiday                % make the 25th (Christmas)
+                                            % look like a holiday in 2 4
+                                            % (note *2* strings for holidays)
+
+/month (NOVEMBER 1990) def       % print the previous month's calendar
+/startday 4 def                  % which starts on Thursday (4)
+/numdays 30 def                  % and has 30 days
+1 0 littlecal                    % as a small calendar in 1 0
+
+/month (JANUARY 1991) def        % print the next month's calendar
+/startday 2 def                  % which starts on Tuesday (2)
+/numdays 30 def                  % and has 30 days
+5 0 littlecal                    % as a small calendar in 5 0
+
+showpage                         % and finally, show what's there
+
+quit                             % and quit
+
+%---------------------------- END CALENDAR.PS --------------------------------

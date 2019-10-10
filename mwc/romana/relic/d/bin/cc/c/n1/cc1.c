@@ -1,0 +1,307 @@
+/*
+ * This is the mainline of the new,
+ * direct to bits code generator. It is mainly
+ * just a driving routine. The tree reader and
+ * the diagnostic routines are also in this
+ * file. Everything in here is machine independent.
+ */
+#ifdef	vax
+#include "INC$LIB:cc1.h"
+#else
+#include "cc1.h"
+#endif
+
+#if	!OVERLAID
+FILE	*ifp;			/* Input file */
+FILE	*ofp;			/* Output file */
+char	file[NFNAME];		/* File name */
+char	module[NMNAME];		/* Module name */
+int	line;			/* Line number */
+char	id[NCSYMB];		/* Temp. id buffer */
+VARIANT	variant;		/* Variant template */
+#if !TINY
+int	mflag;			/* Debug modify routines */
+int	sflag;			/* Debug select routines */
+int	oflag;			/* Debug output routines */
+#endif
+#endif
+
+int	qccmp();		/* Quicksort compare */
+SYM	*hash1[NSHASH];		/* Hash table */
+int	nnsw;			/* Switch nesting level */
+int	nsw[NNSW];		/* Switch label */
+CASES	*cases;			/* Case buffer */
+
+#if !OVERLAID
+/*
+ * Mainline.
+ * Interpret options and
+ * open files.
+ */
+main(argc, argv)
+char *argv[];
+{
+	passname = "cc1";
+	if (argc < 4)
+		usage();
+	getvariant(argv[1]);
+#if GEMDOS
+	{
+		extern long gemdos();
+		extern char *lmalloc();
+		free(lmalloc((gemdos(0x48,-1L)-4096) & ~1023L));
+	}
+#endif
+	if ((ifp=fopen(argv[2], SRMODE)) == NULL) {
+		fprintf(stderr, "%s: cannot open.\n", argv[2]);
+		exit(BAD);
+	}
+	if ((ofp=fopen(argv[3], SWMODE)) == NULL) {
+		fprintf(stderr, "%s: cannot create.\n", argv[3]);
+		exit(BAD);
+	}
+#if !TINY
+	if (argc > 4)
+		mflag = atoi(argv[4]);
+	if (argc > 5)
+		sflag = atoi(argv[5]);
+	if (argc > 6)
+		oflag = atoi(argv[6]);
+#endif
+	labgen = 10000;
+	oldseg = -1;
+	work1();
+	if (nerr != 0)
+		exit(BAD);
+	exit(OK);
+}
+
+/*
+ * Print usage message.
+ */
+usage()
+{
+#if !TINY
+	fprintf(stderr,
+		"Usage: cc1 variant in out [mlevel [slevel [olevel]]]\n");
+#else
+	fprintf(stderr, "Usage: cc1 variant in out\n");
+#endif
+	exit(BAD);
+}
+#else
+/*
+ * Mainline for the overlaid version
+ * of the coder. The files are already open.
+ * Set up for fatal errors. Process the file
+ * and return status.
+ */
+cc1()
+{
+	passname = "cc1";
+	if (setjmp(death) != 0) {
+		freenode();
+		freepool();
+		freegsym();
+		return (ABORT);
+	}
+	labgen = 10000;
+	oldseg = -1;
+#if MONOLITHIC
+	nnsw = 0;
+#endif
+	work1();
+	freenode();
+	freepool();
+	freegsym();
+	if (nerr != 0)
+		return (BAD);
+	return (OK);
+}
+#endif
+
+/*
+ * Read temp. file.
+ * Do simple things right here.
+ * Read in trees and pass them over
+ * to the tree compilation code.
+ */
+work1()
+{
+	register int	i;
+	register int	op;
+	register TREE	*tp;
+	register int	d;
+	register int	n;
+	register int	tt;
+	register int	ln;
+
+	coderinit();
+	for (;;) {
+		op = bget();
+		switch (op) {
+
+		case LINE:
+			line = iget();
+			/* bput(op); */
+			/* iput(line); */
+			break;
+
+		case DLABEL:
+			bput(DLABEL);
+			tcpy(bget());
+			break;
+
+		case MNAME:
+			sget(module, NMNAME);
+			bput(op);
+			sput(module);
+			break;
+
+		case FNAME:
+			sget(file, NFNAME);
+			/* bput(op); */
+			/* sput(file); */
+			break;
+
+		case GLABEL:
+		case SLABEL:
+			sget(id, NCSYMB);
+			bput(op);
+			sput(id);
+			break;
+
+		case COMM:
+			bput(op);
+			sget(id, NCSYMB);
+			sput(id);
+			zput(zget());
+			break;
+
+		case LLABEL:
+			bput(op);
+			iput(iget());
+			break;
+
+		case BLOCK:
+			bput(op);
+			zput(zget());
+			break;
+
+		case JUMP:
+			genubr(iget());
+			break;
+
+		case ENTER:
+			newseg(bget());
+			break;
+
+		case AUTOS:
+			doautos();
+			break;
+
+		case PROLOG:
+			bput(PROLOG);
+			doprolog();
+			break;
+
+		case ALIGN:
+			bput(ALIGN);
+			bput(bget());
+			break;
+
+		case EPILOG:
+			doepilog();
+			bput(EPILOG);
+			break;
+
+		case EEXPR:
+			tp = modify(treeget(), MEFFECT);
+			code(tp, MEFFECT, 0, 0);
+			break;
+
+		case IBLOCK:
+			iblock(bget());
+			break;
+
+		case IEXPR:
+			tp = treeget();
+			tt = tp->t_type;
+			tp = modify(tp->t_lp, MINIT);
+			iexpr(tp, tt);
+			break;
+
+		case FEXPR:
+		case TEXPR:
+			ln = iget();
+			tp = modify(treeget(), MFLOW);
+			code(tp, MFLOW, op==TEXPR, ln);
+			break;
+
+		case REXPR:
+			tp = modify(treeget(), MRETURN);
+			code(tp, MRETURN, 0, 0);
+			break;
+
+		case SEXPR:
+			if (nnsw >= NNSW)
+				cfatal("switch overflow");
+			nsw[nnsw++] = n = newlab();
+			tp = modify(treeget(), MSWITCH);
+			code(tp, MSWITCH, 0, 0);
+			genubr(n);
+			break;
+
+		case SBODY:
+			if (nnsw <= 0)
+				cbotch("switch underflow");
+			genlab(nsw[--nnsw]);
+			d = iget();
+			n = iget();
+			if (n != 0) {
+				cases = (CASES *)malloc(n*sizeof(CASES));
+				if (cases == NULL)
+					cfatal("too many cases");
+				for (i=0; i<n; ++i) {
+					cases[i].c_val = iget();
+					cases[i].c_lab = iget();
+				}
+				shellsort((char *)cases, n, sizeof(cases[0]), &qccmp);
+			}
+			genswitch(d, n);
+			if (n != 0)
+				free((char *)cases);
+			break;
+
+		case FINISH:
+			bput(op);
+			return;
+
+		case EOF:
+			cfatal("unexpected EOF");
+
+		default:
+			cbotch("bad temporary file opcode %d", op);
+		}
+	}
+}
+
+/*
+ * This routine is used by the library
+ * quicksort routine to compare two elements
+ * in the case constant buffer.
+ */
+qccmp(a, b)
+struct cases *a, *b;
+{
+	return (a->c_val - b->c_val);
+}
+
+/*
+ * Generate a local label.
+ */
+genlab(n)
+{
+	bput(LLABEL);
+	iput(n);
+}

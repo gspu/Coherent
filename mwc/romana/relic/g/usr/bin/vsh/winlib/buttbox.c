@@ -1,0 +1,110 @@
+/*
+ *      Display a box with buttons and edit the buttons
+ *
+ *      Copyright (c) 1990-93 Udo Munk
+ */
+
+#ifdef AIX
+#define NLS
+#endif
+
+#include <curses.h>
+#include <string.h>
+#include "winfun.h"     
+
+extern WINDOW *open_window();
+extern int close_window();
+
+button_box(bp)
+struct bbox *bp;
+{
+	register int i, j, k;
+	int grp = 0, but = 0;
+	int bh, bw;
+	int eoj = 1;
+	int *p;
+	int ret;
+	WINDOW *w;
+
+	bh = bp->b_anz * 3 + 3;     /* compute high of box */
+	bw = strlen(bp->b_text) + 2;/* compute width of box */
+	for (i = 0; i < bp->b_anz; i++) {
+		j = strlen(bp->b_ptr[i]->g_text) + 2;
+		if (j > bw)
+			bw = j;
+		for (j = 0, k = 0; j < bp->b_ptr[i]->g_anz; j++)
+			k += strlen(bp->b_ptr[i]->g_ptr[j]->b_text) + 6;
+		if (k > bw)
+			bw = k;
+	}
+
+	if ((w = open_window(bh, bw, (LINES-bh)/2, (COLS-bw)/2)) == (WINDOW *) 0)
+		nomem();
+
+	wattron(w, A_REVERSE);  /* output inverted box */
+	for (i = 0; i < bh; i++)
+		for (j = 0; j < bw; j++)
+			mvwaddch(w, i, j, ' ');
+	mvwaddstr(w, 1, 1, bp->b_text);
+	for (i = 0; i < bp->b_anz; i++) {
+		mvwaddstr(w, i*3+3, 1, bp->b_ptr[i]->g_text);
+		wmove(w, i*3+4, 1);
+		for (j = 0; j < bp->b_ptr[i]->g_anz; j++) {
+			wprintw(w, "%s ", bp->b_ptr[i]->g_ptr[j]->b_text);
+			wprintw(w, "[%c]  ", (bp->b_ptr[i]->g_ptr[j]->b_val) ? 'x' : ' ');
+		}
+	}
+	wrefresh(w);
+	cursoron();
+
+	while (eoj) {          /* now edit the buttons */
+		for (i = 0, j = 0; i <= but; i++)
+			j += strlen(bp->b_ptr[grp]->g_ptr[i]->b_text) + 6;
+		wmove(w, grp*3+4, j-3);
+		wrefresh(w);
+		switch (k = wgetch(w)) {
+		case '\r':      /* ready, leave function */
+		case KEY_ENTER:
+			ret = WIN_OK;
+			eoj = 0;
+			break;
+		case 033:	/* ESC, function aborted */
+			ret = WIN_ABORT;
+			eoj = 0;
+			break;
+		case ' ':	/* switch current button on/off */
+			p = &(bp->b_ptr[grp]->g_ptr[but]->b_val);
+			if (*p == 0) {
+				*p = 1;
+				waddch(w, 'x');
+			} else {
+				*p = 0;
+				waddch(w, ' ');
+			}
+			break;
+		case KEY_RIGHT:		/* go to next button right */
+			but++;
+			if (but >= bp->b_ptr[grp]->g_anz)
+				but = 0;
+			break;
+		case KEY_LEFT:		/* go to next button left */
+			but--;
+			if (but < 0)
+				but = bp->b_ptr[grp]->g_anz - 1;
+			break;
+		case KEY_DOWN:		/* go to next button down */
+			grp++;
+			if (grp >= bp->b_anz)
+				grp = 0;
+			break;
+		case KEY_UP:		/* go to next button up */
+			grp--;
+			if (grp < 0)
+				grp = bp->b_anz - 1;
+			break;
+		}
+	}
+	close_window(w);
+	cursoroff();
+	return(ret);
+}

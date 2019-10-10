@@ -1,0 +1,69 @@
+# Install SV cron system. You have to run this script as root.
+# 12-30-91 Vlad
+MAINDIR=/usr/lib/cron			# main cron directory
+SPOOLPAR=/usr/spool/cron		# spool directory parent
+SPOOLDIR=/usr/spool/cron/crontabs	# spool directory 
+ALLOW=cron.allow			# list of allowed users
+DENY=cron.deny				# list of denied users
+
+YES=y
+
+# Check if we are supperuser. 'logname' from COHware Vol.I
+if [ "root" != `./logname` ]; then
+	echo You have to be superuser to run this script
+	exit 1
+fi
+
+# Install main cron directory
+if [ ! -d $MAINDIR ]; then
+	mkdir $MAINDIR
+	chmod 700 $MAINDIR
+fi
+
+# Users that allows use crontab
+echo -n "Do you want to allow users to use cron [y/n] - ? "
+read ANS
+while [ $ANS = $YES ]
+do
+	echo -n "User name ? "
+	read NAME
+	echo $NAME >> $MAINDIR/$ALLOW
+	echo -n "More users [y/n] - ? "
+	read ANS
+done	
+
+# Denied users
+echo -n "Do you want to deny to use cron [y/n] - ? "
+read ANS
+while [ $ANS = $YES ]
+do
+	echo -n "User name ? "
+	read NAME
+	echo $NAME >> $MAINDIR/$DENY
+	echo -n "More users [y/n] - ? "
+	read ANS
+done	
+# Install spool cron directory
+if [ ! -d $SPOOLPAR ]; then
+	mkdir $SPOOLPAR
+	chmod 700 $SPOOLPAR
+fi
+if [ ! -d $SPOOLDIR ]; then
+	mkdir $SPOOLDIR
+	chmod 700 $SPOOLDIR
+fi
+
+# copy crond and crontab. To avoid problem with old cp, will use chmod.
+if [ ! -f /etc/crond ]; then
+	cp bin/crond /etc
+	chmod 4511 /etc/crond
+fi
+if [ ! -f /usr/bin/crontab ]; then
+	cp bin/crontab /usr/bin
+	chmod 4511 /usr/bin/crontab
+fi
+
+echo Installation Done.
+echo To use a new cron system remove old crontab, create the new crontabs
+echo "with crontab command. Make a changes in /etc/rc (see README.crond)"
+echo "and reboot the system (just go to single user and back is enough)."

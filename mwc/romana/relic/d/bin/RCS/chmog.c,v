@@ -1,0 +1,463 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.2
+date     92.02.06.09.18.56;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.03.11.44.34;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@by vlad as a replacement for chown, chgrp and chmod. One command
+does all!
+@
+
+
+1.2
+log
+@update by vlad
+@
+text
+@/*
+ * chmog -- change the mode, owner, and group of files.
+ *
+ * This program was done from the 'chmod', 'chown', and 'chgrp'
+ * As result code may not be optimal, but should be pretty reliable
+ * and be backword compatible (including bugs and bad design as exit(2)).
+ *
+ * chmog should be link to chown, chmod, and chgrp. BTW it saves about
+ * 15K :-).
+ *
+ * 1-31-92 Vlad
+ */
+
+#include <stdio.h>
+#include <pwd.h>
+#include <grp.h>
+#include <ctype.h>
+#include <sys/stat.h>
+#include <string.h>
+
+/* Masks by types of permissions */
+#define	AEXEC	(S_IEXEC|(S_IEXEC>>3)|(S_IEXEC>>6))
+#define	AREAD	(S_IREAD|(S_IREAD>>3)|(S_IREAD>>6))
+#define	AWRITE	(S_IWRITE|(S_IWRITE>>3)|(S_IWRITE>>6))
+#define	ASUID	(S_ISUID|S_ISGID)
+#define	ATEXT	S_ISVTX
+
+/* Masks by types of users */
+#define	AOWN	(S_ISUID|S_ISVTX|S_IREAD|S_IWRITE|S_IEXEC)
+#define	AGRP	(S_ISGID|S_ISVTX|(S_IREAD>>3)|(S_IWRITE>>3)|(S_IEXEC>>3))
+#define	AOTH	(S_ISVTX|(S_IREAD>>6)|(S_IWRITE>>6)|(S_IEXEC>>6))
+#define	AALL	(AOWN|AGRP|AOTH)
+
+short	int	uid;
+
+char	*chmod_usage = "chmod mode file ...";
+char	*chown_usage = "chown owner file ...";
+char	*chgrp_usage = "chgrp group file ...";
+char	*chmog_usage = "chmog mod owner group file ...";
+
+char	stickwarn[] = "\
+chmod: Warning: non-super user may not set sticky bit\n\
+";
+
+main(argc, argv)
+int	argc;
+char 	*argv[];
+{
+	char	*cmdname;	/* Name of the command */
+
+	/* Strip the pathname off of the name of the executable */
+	if ((cmdname = strrchr(argv[0], '/')) != (char *) NULL) 
+		cmdname++;
+	else
+		cmdname = argv[0];
+
+	/* Who am I? */
+	if (!strcmp(cmdname, "chmod"))
+		cmd_chmod(argc, argv, 0);	/* Emulate chmod */
+	else if (!strcmp(cmdname, "chown"))
+		cmd_chown(argc, argv, 0, 0);	/* Emulate chown */
+	else if (!strcmp(cmdname, "chgrp"))
+		cmd_chgrp(argc, argv, 0, 0);	/* Emulate chgrp */
+	else if (!strcmp(cmdname, "chmog"))
+		chmog(argc, argv);		/* Be itself */
+	else	/* If some entysiast will link to a different name....*/
+		usage(chmog_usage);
+	exit(0);
+}
+
+/*
+ * This is main entry for chmog. Call all functions (*chmod, *chown, *chgrp)
+ * and set the proper shifts of the argv. If correspoding *argv is '-'
+ * it means that this characteristic of file should be unchanged.
+ */
+chmog(argc, argv)
+int	argc;
+char	**argv;
+{
+	if (argc < 5)
+		usage(chmog_usage);
+
+	/* Change owner */
+	if (strcmp(argv[2], "-")) 
+		cmd_chown(argc, argv, 1, 2);
+	/* Change group */
+	if (strcmp(argv[3], "-")) 
+		cmd_chgrp(argc, argv, 2, 2);
+	/* Change mode. We want to do it at the very and, otherwise
+	 * chown or chgrp will remove setuid & setgid bits
+	 */
+	if (strcmp(argv[1], "-")) 
+		cmd_chmod(argc, argv, 2);
+	exit(0);
+}
+
+/*
+ * Change mode of the file.
+ */
+cmd_chmod(argc, argv, shift_file)
+int	argc;
+char	**argv;
+int	shift_file;	/* Shift argv to the file names */
+{
+	register int i;
+	register char *fn;
+	int status = 0;
+
+	if (argc < 3)
+		usage(chmod_usage);
+	uid = getuid();
+	for (i = 2 + shift_file; i < argc; i++) {
+		fn = argv[i];
+		if (chmod(fn, readmode(argv[1], fn)) < 0) {
+			perror(fn);
+			status = 2;
+		}
+	}
+	if (status)
+		exit(status);
+}
+
+/*
+ * Read in the symbolic mode and
+ * set the variables `who', `op',
+ * and `mode'.
+ * Knows about the old octal modes as well.
+ */
+readmode(s, file)
+register char *s;
+char *file;
+{
+	register int c;
+	register int mode;
+	register int op;
+	register int m1, m2;
+	struct stat sb;
+
+	mode = 0;
+	if (*s>='0' && *s<='7') {
+		while (*s != '\0') {
+			if (*s<'0' || *s>'7')
+				omusage();
+			mode = (mode<<3) | *s++-'0';
+		}
+		checkmode(mode);
+		return (mode);
+	}
+	sb.st_mode = 0;
+	stat(file, &sb);
+	mode = sb.st_mode;
+newsym:
+	m1 = 0;
+	for (;;) {
+		switch (*s++) {
+		case 'u':
+			m1 |= AOWN;
+			continue;
+
+		case 'g':
+			m1 |= AGRP;
+			continue;
+
+		case 'o':
+			m1 |= AOTH;
+			continue;
+
+		case 'a':
+			m1 |= AALL;
+			continue;
+
+		default:
+			s--;
+			break;
+		}
+		break;
+	}
+	if (m1 == 0) {
+		m1 = AALL&~getumask();
+	}
+newop:
+	if ((c = *s++)=='=' || c=='+' || c=='-')
+		op = c;
+	else
+		smusage();
+	m2 = 0;
+	for (;;) {
+		switch (*s++) {
+		case 'r':
+			m2 |= AREAD;
+			continue;
+
+		case 'w':
+			m2 |= AWRITE;
+			continue;
+
+		case 'x':
+			m2 |= AEXEC;
+			continue;
+
+		case 's':
+			m2 |= ASUID;
+			continue;
+
+		case 't':
+			m2 |= ATEXT;
+			continue;
+
+		case 'u':
+			m2 |= mrepl(mode&AOWN);
+			continue;
+
+		case 'g':
+			m2 |= mrepl((mode&AGRP)<<3);
+			continue;
+
+		case 'o':
+			m2 |= mrepl((mode&AOTH)<<6);
+			continue;
+
+		default:
+			s--;
+			break;
+		}
+		break;
+	}
+	switch (op) {
+	case '-':
+		mode &= ~(m1&m2);
+		break;
+
+	case '+':
+		mode |= m1&m2;
+		break;
+
+	case '=':
+		mode = (mode&~m1) | (m1&m2);
+		break;
+	}
+	if (*s == '\0') {
+		checkmode(mode);
+		return (mode);
+	}
+	if (*s=='+' || *s=='-' || *s=='=')
+		goto newop;
+	if (*s++ == ',')
+		goto newsym;
+	smusage();
+}
+
+/*
+ * Get the value of the umask setting.
+ */
+getumask()
+{
+	register int omask;
+
+	omask = umask(0);
+	umask(omask);
+	return (omask);
+}
+
+/*
+ * Check the mode to see if any problem
+ * bits are on.  For now, this is
+ * S_ISVTX for non-super-users.
+ */
+checkmode(mode)
+register int mode;
+{
+	static int beenhere;
+
+	if (!beenhere && uid!=0 && mode&S_ISVTX) {
+		fprintf(stderr, stickwarn);
+		beenhere++;
+	}
+}
+
+/*
+ * Replicate the 3-bits of the mode from
+ * the owner position to all positions.
+ */
+mrepl(m)
+register int m;
+{
+	register int m1;
+
+	m1 = m&AOWN;
+	m = m1 | (m1>>3) | (m1>>6);
+	if (m1 & S_ISUID)
+		m |= S_ISGID;
+	return (m);
+}
+
+smusage()
+{
+	fprintf(stderr, "chmod: badly formed symbolic mode\n");
+	exit(1);
+}
+
+omusage()
+{
+	fprintf(stderr, "chmod: badly formed octal mode\n");
+	exit(1);
+}
+
+/*
+ * Change owner of the file
+ */
+cmd_chown(argc, argv, shift_cmd, shift_file)
+int	argc;
+char	**argv;
+int	shift_cmd;	/* Shift argv to the owner */
+int	shift_file;	/* Shift argv to the file names */
+{
+	register struct passwd *pwp;
+	register int c;
+	register short owner, group;
+	struct stat sb;
+	register short status = 0;
+	int	i_cmd;
+	int	i_file;
+
+	if (argc < 3)
+		usage(chown_usage);
+	i_cmd = 1 + shift_cmd;
+	i_file = 2 + shift_file;
+
+	if ((c = *argv[i_cmd]) >='0' && c <= '9')
+		owner = atoi(argv[i_cmd]);
+	else {
+		if ((pwp = getpwnam(argv[i_cmd])) == NULL)
+			cherr("%s: bad username `%s'\n", argv[0], argv[i_cmd]);
+		owner = pwp->pw_uid;
+	}
+	for (c = i_file; c < argc; c++) {
+		group = 0;
+		if (stat(argv[c], &sb) >= 0)
+			group = sb.st_gid;
+		if (chown(argv[c], owner, group) < 0) {
+			perror(argv[c]);
+			status = 2;
+		}
+	}
+	if (status)
+		exit (status);
+}
+
+/*
+ * Change the group owner of specified files.
+ */
+cmd_chgrp(argc, argv,  shift_cmd, shift_file)
+int	argc;
+char	**argv;
+int	shift_cmd;	/* Shift argv to the group */
+int	shift_file;	/* Shift argv to the file names */
+{
+	register struct group *grp;
+	register int c;
+	register short owner, group;
+	struct stat sb;
+	register short status = 0;
+	int	i_cmd;
+	int	i_file;
+
+	/* Only superuser can invoke chgrp under COHERENT. Vlad */
+	if (geteuid())
+		cherr("%s: only superuser can changed group name.\n", argv[0]);
+
+	if (argc < 3)
+		usage(chgrp_usage);
+	
+	i_cmd = 1 + shift_cmd;
+	i_file = 2 + shift_file;
+
+	/* You can specify group by numeric id or by name. Vlad */
+	if (isdigit((int) *argv[i_cmd])) {
+		if ((grp = getgrgid(atoi(argv[i_cmd]))) == NULL)
+			cherr("%s: bad numeric group id `%s'\n",
+				argv[0], argv[i_cmd]);
+	} else
+		if ((grp = getgrnam(argv[i_cmd])) == NULL)
+			cherr("%s: bad group name `%s'\n", argv[0],argv[i_cmd]);
+
+	group = grp->gr_gid;
+
+	for (c = i_file; c < argc; c++) {
+		owner = 0;
+		if (stat(argv[c], &sb) >= 0)
+			owner = sb.st_uid;
+		if (chown(argv[c], owner, group) < 0) {
+			perror(argv[c]);
+			status = 2;
+		}
+	}
+	if (status)
+		exit (status);
+}
+
+usage(msg)
+char	*msg;
+{
+	fprintf(stderr, "Usage: %s\n", msg);
+	exit(1);
+}
+
+/* VARARGS */
+cherr(x)
+{
+	fprintf(stderr, "%r", &x);
+	exit(2);
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d8 1
+a8 1
+ * chmog should be link to chown, chmod, and chbin. BTW it saves about
+d68 1
+a82 3
+	/* Change mode */
+	if (strcmp(argv[1], "-")) 
+		cmd_chmod(argc, argv, 2);
+d89 6
+d396 2
+a397 1
+	exit (status);
+@

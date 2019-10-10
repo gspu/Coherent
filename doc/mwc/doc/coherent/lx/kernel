@@ -1,0 +1,343 @@
+.TH kernel "" "" "Technical Information"
+.PC "Master program of the COHERENT system"
+.PP
+.II "kernel^tune"
+.II "tune the COHERENT kernel"
+.II "configure the COHERENT kernel"
+The
+.I kernel
+is the master program of the \*(CO system.
+It manages the file systems, processes, devices, and users.
+.PP
+When you boot \*(CO on your system, the \*(CO bootstrap automatically
+loads and runs the program
+.BR /autoboot .
+This file usually is linked to the kernel that you build when you
+installed \*(CO onto your computer.
+.PP
+Your system may have multiple kernels on it.
+For example, when you update \*(CO, often the old kernel is saved;
+and you can also build customized versions of the kernel.
+The \*(CO bootstrap lets you boot other versions of the kernel besides
+the one that is linked to file
+.BR /autoboot .
+For details on how to do this, see the Lexicon article
+.BR booting .
+.PP
+For information on the file system that the kernel supports, see the
+Lexicon entry for
+.BR file .
+.PP
+The Lexicon entry
+.B coff.h
+describes the format of programs that the kernel can execute.
+.PP
+The \*(CO system comes with a set of system calls, which you can
+call from within user application to obtain kernel services.
+See the Lexicon entry
+.B "libc"
+summarizes the calls that the kernel offers.
+.PP
+The function
+.B ulimit()
+returns and sets some limits for the current process.
+For details, see its entry in the Lexicon.
+.PP
+The Lexicon article
+.B "device drivers"
+describes the suite of drivers that come with the \*(CO system.
+It gives the major and minor numbers of each,
+plus information on how to access and manipulate each driver.
+.SH "Modifying the Kernel"
+Beginning with release 4.2, \*(CO contains a System V-style mechanism for
+modifying the kernel and building a new bootable kernel.
+.PP
+File
+.B /etc/conf/mtune
+defines the suite of ``tunable variables'' available within the kernel
+and its drivers.
+These variables define many of the kernel's default behaviors.
+For a complete list of these variables and notes on what each does, see
+.BR /etc/conf/mtune .
+.PP
+File
+.B /etc/conf/stune
+sets the values of the variables actually used in your kernel.
+To modify the values of these variable,
+you can edit
+.B stune
+by hand, or you can use the commands
+.B /etc/conf/bin/cohtune
+and
+.BR /etc/conf/bin/idtune .
+The former command lets you set or modify the values of variables used by
+device drivers; the latter command lets you set or modify variables used
+in the kernel itself.
+.PP
+File
+.B /etc/conf/mdevice
+names the drivers that are available for inclusion in your kernel.
+File
+.B /etc/conf/sdevice
+names the drivers that actually are included in your kernel.
+To include or exclude a driver,
+you can modify
+.B sdevice
+by hand; or you can use the command
+.BR /etc/conf/bin/idenable .
+.PP
+Command
+.B /etc/conf/bin/idmkcoh
+builds a new bootable kernel that incorporates any changes you have made.
+For your changes to become effective, you must build a new kernel that
+incorporates your changes, and then boot it.
+.PP
+Finally, command
+.B /etc/conf/bin/idbld
+walks you the configuration of every device drivers in the kernel,
+then invokes
+.B idmkcoh
+to link a new kernel.
+In effect, this command lets you reconfigure the entire kernel.
+.PP
+Each of the above commands and files is described in its own Lexicon entry.
+.PP
+Two other files are of interest if you wish to modify the kernel.
+.IP \(bu 0.3i
+.II devices.h
+Header file
+.B <sys/devices.h>
+gives the major-device numbers for every driver in your kernel.
+It is read when drivers are compiled.
+If you are adding a new driver, you must add its name and major-device number
+to this header file.
+.IP \(bu
+Normally, when you build a new kernel, the symbol table is stripped from it
+and kept in file \fB/\fIkernel_name\fB.sym\fR.
+The symbols in this file are used to decipher kernel tracebacks, and can be
+read by the debugger
+.BR db .
+However,
+if you wish to hot-patch a kernel variable, that variable's symbol (or name)
+must be kept in the binary itself.
+.II keeplist
+.II "/etc/conf/install_conf/keeplist"
+File
+.B /etc/conf/install_conf/keeplist
+names the variables (or, more properly, the symbols) that are
+left in the binary after it is linked.
+.II patch
+.II /conf/patch
+You can then use the command
+.B /conf/patch
+to hot-patch these variables.
+We discourage you from doing this unless it is absolutely necessary.
+.SH Example
+The Lexicon entry
+.B "device drivers"
+gives an example of how to add a new driver to the kernel.
+.II "buffer cache^change size"
+The following example walks you through the process of changing the size
+of the buffer cache on your system.
+.PP
+The buffer cache is a reserved portion of memory in which the kernel
+stores data recently read from the disk or to be written to the disk.
+When you invoke a command from your command line, the kernel checks its
+buffer cache.
+If you had invoked the command recently, the kernel
+should find it within the buffer cache; and it can then call up the command
+from memory rather than reading it from the disk.
+This speeds up your system noticeably.
+.PP
+.II "life, principles of"
+Like everything else in life, the buffer cache involves a tradeoff:
+the larger the buffer cache, the faster your system will run,
+but the less memory will be available for running your programs.
+By default, \*(CO sets aside a portion of memory for the buffer cache;
+the more memory you have, the more is set aside for the cache.
+However, you can set the size of the cache by hand.
+Usually, this is done to limit the size of the cache, which is necessary
+if your system has limited amounts of memory and
+you want to run large user programs (e.g., the X Window System).
+.PP
+The following walks you through the process of
+modifying the kernel to reduce the size of the buffer cache.
+.IP \fB1.\fR 0.3i
+Log in as the superuser
+.BR root .
+.B cd
+to directory
+.BR /etc/conf .
+.IP \fB2.\fR
+Edit file
+.B /etc/conf/stune
+and add the following lines:
+.DM
+	NBUF_SPEC	100
+	NHASH_SPEC	97
+.DE
+.IP
+.B NBUF_SPEC
+sets the size of the buffer, in blocks.
+Here, we're setting it to 100 blocks (50 kilobytes), which is very small.
+.B NASH_SPEC
+sets the number of hash lists in the kernel; this must be the first prime
+number smaller than the number of blocks in the cache (in this case, 97).
+This, too, is very small.
+.IP \fB3.\fR
+Build a new kernel with the following command:
+.DM
+	/etc/conf/bin/idmkcoh -o /cohtest
+.DE
+.IP
+This builds a new kernel named
+.BR cohtest ,
+which incorporates your changes.
+.IP \fB4.\fR
+Shut down your system and boot the new kernel.
+For information on how to shut the system down, see the Lexicon
+entry for
+.BR shutdown .
+For details on how to boot a kernel other than the default kernel,
+see the Lexicon entry for
+.BR booting .
+.PP
+That's all there is to it.
+If you wish to make these variables patchable, so you can change them
+without going to the bother of building a new kernel, do the following:
+.IP \fB1.\fR 0.3i
+In the file
+.BR /etc/conf/install_conf/keeplist ,
+change
+.DM
+	echo '-I SHMMNI:SEMMNI:NMSQID'
+.DE
+to
+.DM
+	echo '-I SHMMNI:SEMMNI:NMSQID:NBUF:NHASH'
+.DE
+.IP \fB2.\fR
+Build a new kernel as described above.
+.PP
+Then, to change limit the size of the buffer cache to 50 kilobytes, use the
+command:
+.DM
+	/conf/patch /testcoh NBUF=100 NHASH=97
+.DE
+.PP
+Then, boot the patched kernel.
+As noted above, you should
+.I not
+use
+.B /conf/patch
+unless you absolutely must.
+.SH Files
+.nf
+\fB/autoboot\fR \(em The default kernel
+\fB/etc/conf\fR \(em Directory that holds configuration files
+\fB/etc/conf/mdevices\fR \(em Suite of available device drivers
+\fB/etc/conf/mtune\fR \(em Suite of legal patchable variables
+\fB/etc/conf/sdevices\fR \(em Drivers included in kernel
+\fB/etc/conf/stune\fR \(em Patchable variables included in kernel
+\fB/etc/conf/install_conf/keeplist\fR \(em Symbols kept in kernel
+.fi
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "booting," booting
+.Xr "coff.h," coff.h
+.Xr "COHERENT," coherent
+.Xr "device drivers," device_dr
+.Xr "file," file
+.Xr "idmkcoh," idmkcoh
+.Xr "libc," libc
+.Xr "mtune," mtune
+.Xr "stune," stune
+.Xr "ulimit()" ulimit
+.SH Diagnostics
+The kernel can produce the following error messages.
+Most are meaningful only to Mark Williams Company.
+If you encounter these errors, contact MWC and describe the circumstances
+during which you saw the error.
+MWC Support will try to solve this problem for you.
+.II arena
+.Ip "Arena \fInumber\fP too small \fI(hardware)\fR"
+.Ip "Bad block \fInumber\fP (alloc) \fI(hardware)\fR"
+The kernel attempted to allocate a block of memory, only to find that
+there was something physically wrong with it.
+.Ip "Bad block \fInumber\fP (free) \fI(hardware)\fR"
+The kernel attempted to free a block of memory, only to find that
+there was something physically wrong with it.
+.Ip "Bad free \fInumber\fP \fI(hardware)\fR"
+.II freelist
+.Ip "Bad freelist \fI(halt)\fR"
+The \fIfreelist\fR is a list of free blocks on the disk.
+The \*(CO system maintains this list so it can see where it can write
+data on the disk.
+This message indicates that the freelist has been corrupted somehow.
+To fix this problem, run
+.B /etc/shutdown
+to return to single-use mode; use
+.B sync
+to flush the buffers; use
+.B umount
+to unmount the affected file system;
+and then run
+.B fsck
+to repair the file system.
+.Ip "Bad segment count \fI(hardware)\fR"
+.Is "Bus error at \fInumber\fP \fI(hardware)\fR"
+.Is "Cannot allocate stack \fI(hardware)\fR"
+.Is "Cannot create process \fI(hardware)\fR"
+.Is "Corrupt arena \fI(hardware)\fR"
+.Is "Illegal instruction at \fInumber\fP \fI\fI(hardware)\fR\fR"
+.Is "Inode \fInumber\fP busy \fI(hardware)\fR"
+.Is "Inode table overflow \fI(hardware)\fR"
+.Is "Not a separate I/D machine \fI(hardware)\fR"
+.Ip "Out of i-nodes \fI(halt)\fR"
+A \*(CO file system has one i-node for each file it maintains.
+The number of i-nodes is set when the file system is created.
+If you have numerous small files on a file system, it is possible
+to exhaust that file system's resources even though the command
+.B df
+shows that space remains on the file system.
+To get around this problem, you must delete files, one file for each
+i-node needed; or you must use
+.B ar
+to archive a mass of files.
+To do this, first use
+.B /etc/shutdown
+to return the system to single-user mode, as described above.
+Delete files, or use \fBar\fR as described above.
+Then use
+.B sync
+to flush all buffers, and use the command
+.B umount
+to unmount the affected file system.
+Then run \fBfsck\fR on the affected file system before rebooting.
+.B fsck
+checks \*(CO file systems and fixes them if necessary.
+Consult the Lexicon entry on \fBfsck\fR before you use this
+program for the first time.
+.Ip "Out of space (\fIm\fP,\fIn\fP\^) \fI(halt)\fR"
+When this error message appears, your file system still has i-nodes
+but the alloted disk space has been exhausted; perhaps you have a few
+large files that are eating up disk space.
+To get around this problem, you must delete or compress files to clear
+up disk space.
+First, use
+.B /etc/shutdown
+to return to single-user mode, as described above;
+then delete files or compress them as described above until enough space
+has been cleared to allow you to continue your work.
+Use
+.B sync
+to flush buffer, use
+.B umount
+to unmount the affected file system, and
+run \fBfsck\fR on the affected file system.
+Then reboot.
+.Ip "Random trap \fI(hardware)\fR"
+.Is "Raw I/O from non user \fI(hardware)\fR"
+.Is "System too large \fI(hardware)\fR"
+.\".Is "Swapio bad parameter \fI(hardware)\fR"
+.\".Is "Swapio error \fI(hardware)\fR"

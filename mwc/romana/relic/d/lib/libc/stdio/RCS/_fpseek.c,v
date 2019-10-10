@@ -1,0 +1,67 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     90.04.23.22.21.26;  author bin;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     90.04.23.22.21.05;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.2
+log
+@steve 4/23/90
+Integrated MSDOS source with COHERENT stdio source.
+The only difference is using parameter SEEK_CUR instead of an explicit 1.
+@
+text
+@/*
+ * Standard I/O Library Internals
+ * Align file seek addr with current pointer in buffer
+ * by writing out unflushed data or seeking back over unread data
+ * ungot char is discarded
+ */
+
+#include <stdio.h>
+
+int
+_fpseek(fp)
+register FILE	*fp;
+{
+	extern	long	lseek();
+
+	if (fp->_ff&_FUNGOT)
+		(*fp->_gt)(fp);
+	if (fp->_dp <= fp->_cp)
+		return (fflush(fp));
+	if (lseek(fileno(fp), (long)(fp->_cp-fp->_dp), SEEK_CUR) == -1L)
+		return (EOF);
+	fp->_dp = fp->_cp;
+	fp->_cc = 0;
+	return (0);
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d20 1
+a20 1
+	if (lseek(fileno(fp), (long)(fp->_cp-fp->_dp), 1) == -1L)
+@

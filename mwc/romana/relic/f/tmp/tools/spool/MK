@@ -1,0 +1,99 @@
+:
+#
+# This script builds a new MLP system AND distribution disk from the source
+#
+
+# If you set NODISK to something (YES) then no distribution disk will be built
+
+NODISK=""
+
+case `id` in
+   *root*) ;;
+        *) echo "\nSorry, you need to be superuser.\007\n"
+           exit;;
+esac
+
+echo "Putting MLP where it goes..."
+
+TARGET=/usr/bin      
+
+mkdir /usr/spool/mlp;         chmog 755 daemon daemon /usr/spool/mlp
+mkdir /usr/spool/mlp/backend; chmog 755 daemon daemon /usr/spool/mlp/backend
+mkdir /usr/spool/mlp/queue;   chmog 755 daemon daemon /usr/spool/mlp/queue
+mkdir /usr/spool/mlp/route;   chmog 755 daemon daemon /usr/spool/mlp/route
+
+rm -fr /usr/spool/mlp/queue/*
+cp /tools/spool/controls.o /usr/spool/mlp/controls
+chmog 644 daemon daemon /usr/spool/mlp/controls
+>/usr/spool/mlp/status
+chmog 644 daemon daemon /usr/spool/mlp/status
+
+find /usr/spool/mlp         ! -type d -exec chmog 0644 daemon daemon {} \;
+find /usr/spool/mlp           -type d -exec chmog 0755 daemon daemon {} \;
+find /usr/spool/mlp/backend           -exec chmog 0755 daemon daemon {} \;
+
+List="lp lpstat lpsched review"
+
+for Next in $List
+do
+   cp    /tools/spool/$Next  /usr/bin/$Next
+   chmog 04755 daemon daemon /usr/bin/$Next
+
+   cp    /tools/spool/$Next  /usr/spool/mlp/backend/$Next
+   chmog 04755 daemon daemon /usr/spool/mlp/backend/$Next
+done
+
+cd $TARGET; rm -fr lpr lpshut reprint cancel chreq route lpadmin
+
+
+ln lp        lpshut
+ln lp        reprint
+ln lp        lpr
+ln lpstat    cancel
+ln lpstat    chreq
+ln lpstat    route
+ln lpstat    lpadmin
+
+
+if [ "$NODISK" != "" ]
+then
+   exit
+fi
+
+
+echo "Making an MLP install disk..."
+
+DEV=fd0135ds18
+SIZE=250
+
+echo "system" >/usr/spool/mlp/route/root
+chmog 644 /usr/spool/mlp/route/root
+
+find /usr/man/COHERENT/MLP -print | sort -u | cpio -ovc >/tmp/MLPman.cpio
+find /usr/spool/mlp        -print | sort -u | cpio -ovc >/tmp/MLP.cpio
+
+rm -fr /tmp/MLPman.cpio.Z; compress -v /tmp/MLPman.cpio
+rm -fr /tmp/MLP.cpio.Z;    compress -v /tmp/MLP.cpio
+
+rm -fr /tmp/list
+
+mkfs /dev/$DEV $SIZE
+mount /dev/$DEV /mnt
+
+cp /tools/spool/MLP.post /conf
+
+echo "/conf\n/conf/MLP.post\n/tmp\n/tmp/MLP.cpio.Z\n/tmp/MLPman.cpio.Z" | 
+cpio -ov >/tmp/remote
+
+echo "/conf\n/conf/MLP.post\n/tmp\n/tmp/MLP.cpio.Z\n/tmp/MLPman.cpio.Z" | 
+cpio -pdumv /mnt
+
+>/mnt/MLP.1
+
+umount /dev/$DEV
+
+fsck /dev/$DEV
+
+rm -fr /tmp/list /conf/MLP.post 
+cd /usr/spool/mlp/backend
+rm -fr lp lpstat lpsched review

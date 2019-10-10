@@ -1,0 +1,403 @@
+#define	_DDI_DKI	1
+#define	_SYSV4		1
+
+/*
+ * This file contains various miscellaneous STREAMS library functions that
+ * have been moved into a file on their own. Mostly, this stuff deals with
+ * scheduling STREAMS service procedures, running STREAMS service procedures,
+ * invoking bufcall ()/esbbcall () events, and similar stuff.
+ */
+
+#include <common/ccompat.h>
+#include <kernel/strmlib.h>
+#include <sys/debug.h>
+#include <sys/types.h>
+#include <sys/kmem.h>
+#include <sys/stream.h>
+
+
+/*
+ * Allocate and initialize a schedule.
+ *
+ * Callable only from base level. This function may sleep.
+ */
+
+#if	__USE_PROTO__
+ssched_t * (QSCHED_ALLOC) (void)
+#else
+ssched_t *
+QSCHED_ALLOC __ARGS (())
+#endif
+{
+	ssched_t      *	sched;
+
+	if ((sched = (ssched_t *) kmem_alloc (sizeof (* sched), KM_SLEEP))
+	    != NULL) {
+
+		if (SCHLOCK_INIT (sched, KM_SLEEP) == 0) {
+
+			kmem_free (sched, sizeof (* sched));
+			return NULL;
+		}
+
+		sched->ss_head = sched->ss_tail = NULL;
+	}
+
+	return sched;
+}
+
+
+/*
+ * Destroy a schedule.
+ *
+ * The schedule most not have any STREAMS queues threaded on it.
+ */
+
+#if	__USE_PROTO__
+void (QSCHED_FREE) (ssched_t * sched)
+#else
+void
+QSCHED_FREE __ARGS ((sched))
+ssched_t      *	sched;
+#endif
+{
+	ASSERT (sched != NULL);
+	ASSERT (sched->ss_head == NULL && sched->ss_tail == NULL);
+
+	SCHLOCK_DESTROY (sched);
+
+	kmem_free (sched, sizeof (* sched));
+}
+
+
+/*
+ * Remove a queue from a schedule. This function is available for modules and
+ * drivers to call. Note that STREAMS itself will only call this function at
+ * queue destruction time.
+ */
+
+#if	__USE_PROTO__
+void (QSCHED_UNSCHEDULE) (queue_t * q, ssched_t * sched)
+#else
+void
+QSCHED_UNSCHEDULE __ARGS ((q, sched))
+queue_t	      *	q;
+ssched_t      *	sched;
+#endif
+{
+	pl_t		lock_pl;
+	queue_t	      *	scan;
+	queue_t	      *	prev;
+
+	ASSERT (sched != NULL);
+	QUEUE_TRACE (q, "QUEUE_UNSCHEDULE");
+
+	lock_pl = SCHLOCK_LOCK (sched, "QUEUE_UNSCHEDULE");
+
+	for (scan = sched->ss_head, prev = NULL ; scan != NULL ;
+	     scan = (prev = scan)->q_link) {
+
+		if (scan == q) {
+
+			if (prev == NULL)
+				sched->ss_head = q->q_next;
+			else
+				prev->q_link = q->q_next;
+
+			if (sched->ss_tail == q)
+				sched->ss_tail = prev;
+			break;
+		}
+	}
+
+	SCHLOCK_UNLOCK (str_mem->sm_sched, lock_pl);
+}
+
+
+/*
+ * Dequeue and return the first stream in the schedule.
+ */
+
+#if	__USE_PROTO__
+queue_t * (QSCHED_GETFIRST) (ssched_t * sched)
+#else
+queue_t *
+QSCHED_GETFIRST __ARGS ((sched))
+ssched_t      *	sched;
+#endif
+{
+	pl_t		prev_pl;
+	queue_t	      *	q;
+
+	ASSERT (sched != NULL);
+
+	prev_pl = SCHLOCK_LOCK (sched, "QSCHED_GETFIRST");
+
+	if ((q = sched->ss_head) != NULL) {
+
+		if ((sched->ss_head = q->q_link) == NULL)
+			sched->ss_tail = NULL;
+	}
+
+	SCHLOCK_UNLOCK (sched, prev_pl);
+
+	return q;
+}
+
+
+/*
+ * Add a queue to a schedule. This function is available for use by modules
+ * and drivers. It is callable from base or interrupt level and does not
+ * sleep.
+ *
+ * The return value is 0 for success, and -1 if it is unable to schedule the
+ * queue.
+ */
+
+#if	__USE_PROTO__
+int (QSCHED_SCHEDULE) (queue_t * q, ssched_t * sched)
+#else
+int
+QSCHED_SCHEDULE __ARGS ((q, sched))
+queue_t	      *	q;
+ssched_t      * sched;
+#endif
+{
+	pl_t		lock_pl;
+
+	QUEUE_TRACE (q, "QSCHED_SCHEDULE");
+
+	/*
+	 * Link this queue into the tail of the scheduling
+	 * list after locking the scheduling list.
+	 */
+
+	lock_pl = SCHLOCK_LOCK (sched, "QSCHED_SCHEDULE");
+
+	q->q_link = NULL;
+
+	if (sched->ss_tail == NULL)
+		sched->ss_head = q;
+	else
+		sched->ss_tail->q_link = q;
+
+	sched->ss_tail = q;
+
+	SCHLOCK_UNLOCK (str_mem->sm_sched, lock_pl);
+
+
+	/*
+	 * Under this implementation, it is not really possible for a request
+	 * to fail, but because we are using STREAMS internal data here, we
+	 * allow for a portable implementation that may fail.
+	 */
+
+	return 0;
+}
+
+
+/*
+ * Code for checking which bufcall events to call, in a function by itself to
+ * keep things clear and maintainable.
+ *
+ * We take a snapshot of the available memory, then loop over the bufcall ()/
+ * esbbcall () lists and give away memory until our notion of what the memory
+ * pool size ought to be drops to a level where there are cells we think we
+ * should hold off enabling... if we make that decision, we mark things so
+ * that next time through here we look again, then we exit.
+ */
+
+#if	__USE_PROTO__
+void (RUN_BUFCALLS) (void)
+#else
+void
+RUN_BUFCALLS __ARGS (())
+#endif
+{
+	size_t		mem_level;
+	pl_t		prev_pl;
+	sevent_t      *	runlist;
+	sevent_t      *	seventp;
+	int		i;
+
+	/*
+	 * Take a snapshot of the amount of STREAMS memory that is in use, so
+	 * we can parcel it out to the bufcall routines. We clear the bufcall
+	 * defer flag now so that if STREAMS memory is made available after
+	 * our snapshot we will be run again.
+	 */
+
+	ATOMIC_STORE_UCHAR (ddi_global_data ()->dg_run_bufcalls, 0);
+
+	mem_level = str_mem->sm_used;
+	runlist = NULL;
+
+	for (i = N_PRI_LEVELS ; i -- > 0 ; ) {
+		selist_t      *	elistp;
+		unsigned long	max = str_mem->sm_max [i];
+
+		elistp = & str_mem->sm_bcevents [i];
+
+		prev_pl = SELIST_LOCK (elistp);
+
+		while ((seventp = elistp->sl_head) != NULL) {
+			/*
+			 * If the amount of memory requested in this cell is
+			 * enough to push the memory level over the top for
+			 * this allocation priority, then give up.
+			 */
+
+			if (mem_level += seventp->se_size > max)
+				goto give_up;
+
+			/*
+			 * Dequeue the event from the event list and add it to
+			 * our work list.
+			 */
+
+			elistp->sl_head = seventp->se_next;
+
+			seventp->se_next = runlist;
+			runlist = seventp;
+		}
+
+#if	_FIFO_BUFCALL
+		/*
+		 * If we have drained all the events in this cell...
+		 */
+
+		elistp->sl_tail = NULL;
+#endif
+
+give_up:
+		SELIST_UNLOCK (elistp, prev_pl);
+
+		if (seventp != NULL)
+			break;
+	}
+
+
+	/*
+	 * Now use 'i' as a boolean to remember whether we have any
+	 * outstanding event cells we though it better not to run.
+	 */
+
+	i = seventp != NULL;
+
+
+	/*
+	 * Now walk over our little work list...
+	 */
+
+	while (runlist != NULL) {
+
+		seventp = runlist;
+		runlist = seventp->se_next;
+
+		prev_pl = splstr ();
+
+		(* seventp->se_func) (seventp->se_arg);
+
+		(void) splx (prev_pl);
+
+		kmem_free (seventp, sizeof (* seventp));
+	}
+
+
+	/*
+	 * If we found anything worth running, try again after we have given
+	 * the bufcall functions a chance to claim the memory that was free
+	 * first time through. We queue another defer request so that we give
+	 * a chance to other deferred routines.
+	 */
+
+	if (i)
+		SCHEDULE_BUFCALLS ();
+}
+
+
+/*
+ * Streams scheduling routine, invoked before return to user level. Runs any
+ * service procedures that have been enabled, calls bufcall ()/esbbcall ()
+ * events if memory is sitting around, and also wakes up processes sleeping
+ * in kmem_alloc ()/kmem_zalloc () for memory to become available.
+ */
+
+#if	__USE_PROTO__
+void (RUN_STREAMS) (void)
+#else
+void
+RUN_STREAMS __ARGS (())
+#endif
+{
+	queue_t	      *	q;
+
+	/*
+	 * Before we start running through the queues that we need to service,
+	 * turn off the "deferred" flag for this routine to avoid race
+         * conditions.
+	 */
+
+	ATOMIC_STORE_UCHAR (ddi_global_data ()->dg_run_strsched, 0);
+
+	while ((q = QSCHED_GETFIRST (str_mem->sm_sched)) != NULL) {
+		pl_t		prev_pl;
+
+		/*
+		 * Before we run the service procedure, we must ensure
+		 * that we are not going to re-enter the service
+		 * routine. After that, we can turn off the 'enabled'
+		 * flag.
+		 */
+
+		prev_pl = QFREEZE_TRACE (q, "STREAMS_SCHEDULER");
+
+		if ((q->q_flag & QSRVACTIVE) != 0) {
+			/*
+			 * Put the queue back and look for something
+			 * else to do.
+			 */
+
+			QUNFREEZE_TRACE (q, prev_pl);
+			QSCHED_SCHEDULE (q, str_mem->sm_sched);
+
+			continue;
+		}
+
+		q->q_flag = (q->q_flag & ~ QENAB) | QSRVACTIVE;
+
+		if ((q->q_flag & QPROCSOFF) != 0) {
+			/*
+			 * The service procedure of this queue has
+			 * been disabled, so we leave things alone.
+			 */
+
+			goto srvdone;
+		}
+
+		q->q_active ++;
+
+		QUNFREEZE_TRACE (q, prev_pl);
+
+
+		(* q->q_qinfo->qi_srvp) (q);
+
+
+		prev_pl = QFREEZE_TRACE (q, "STREAMS_SCHEDULER");
+
+		q->q_flag &= ~ QSRVACTIVE;
+
+		if (-- q->q_active == 0 && (q->q_flag & QPROCSOFF) != 0) {
+			/*
+			 * Wake up the qprocoffs () procedure waiting
+			 * for us to go exit.
+			 */
+
+			(void) LOCK (str_mem->sm_proc_lock, plstr);
+			SV_BROADCAST (str_mem->sm_proc_sv, 0);
+			UNLOCK (str_mem->sm_proc_lock, plstr);
+		}
+srvdone:
+		QUNFREEZE_TRACE (q, prev_pl);
+	}
+}

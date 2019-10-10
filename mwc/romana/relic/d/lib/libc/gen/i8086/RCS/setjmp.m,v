@@ -1,0 +1,109 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.22.18.10.25;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@//////////
+/ MWC86 runtime.
+/ Nonlocal goto.
+//////////
+
+#include <larges.h>
+
+////////
+/ #include <setjmp.h>
+/
+/ int
+/ setjmp(env);
+/ jmp_buf env;
+/
+/ The header <setjmp.h> defines jmp_buf, an array of int used to save
+/ the current frame pointer, stack pointer and return address.
+/ setjmp(env) saves BP, SP and RA in env and returns 0.
+////////
+
+env	=	0
+savebp	=	0			/ offset of saved BP in environment
+savesp	=	2			/ offset of saved SP
+savera	=	4			/ offset of saved return address
+saveseg	=	6			/ offset of saved ra segment (LARGE model)
+
+	.globl	setjmp_
+
+setjmp_:
+	pop	ax			/ Return address offset to AX
+#if	LARGECODE
+	pop	dx			/ and segment to DX.
+#endif
+	mov	bx, sp
+
+	Lds	bx, Pss env(bx)		/ Environment pointer to DS:BX.
+	mov	savebp(bx), bp		/ Save frame.
+	mov	savesp(bx), sp		/ Save SP with return address popped.
+	mov	savera(bx), ax		/ Save return address offset
+#if	LARGECODE
+	mov	saveseg(bx), dx		/ and segment.
+#endif
+
+	sub	ax, ax
+	Gijmp	savera(bx)		/ Return 0.
+
+////////
+/ int
+/ longjmp(env, value);
+/ jmp_buf env;
+/ int value;
+/
+/ longjmp(env, value) restores the environment saved in "env" and
+/ causes the setjmp() call to return again, this time returning "value".
+////////
+
+env	=	RASIZE
+value	=	env+PTRSIZE
+
+	.globl	longjmp_
+
+longjmp_:
+	mov	bx, sp
+	mov	ax, Pss value(bx)	/ Return value to AX.
+	Lds	bx, Pss env(bx)		/ Environment pointer to DS:BX.
+	mov	cx, savebp(bx)		/ Desired BP to CX.
+
+L0:	cmp	cx, 0(bp)		/ Is the current frame correct?
+	je	L1			/ Yes.
+	mov	bp, 0(bp)		/ Unwind a frame.
+	or	bp, bp			/ Have we hit the top frame?
+	jne	L0			/ No, unwind another.
+
+	mov	bp, cx			/ We hit the top, just take a stab at
+	jmp	L2			/ restoring the frame.
+
+L1:	mov	sp, bp			/ Reset stack to correct place
+	pop	bp			/ and restore frame
+	pop	di			/ and the two
+	pop	si			/ register variables.
+
+L2:	mov	sp, savesp(bx)		/ Restore SP and
+	Gijmp	savera(bx)		/ return from the setjmp.
+
+/ end of setjmp.m
+@

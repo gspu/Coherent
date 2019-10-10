@@ -1,0 +1,95 @@
+# Some simple things that the shell has failed on in the past.
+
+# The remainder of a line after a partial comment has to be scanned
+
+: ${OK=3}
+if [ ! $OK ]; then
+	echo "Failed to look at input after \":\"" 1>&2
+fi
+
+# Some shells don't deal very well with keywords
+
+echo if >/dev/null
+
+# Can we declare functions?
+
+somefunc () {
+	A=$#
+	set "$@"
+	if [ $A -ne $# ]; then
+		echo "Problems expanding null parameters with \$@"
+	fi
+}
+
+# Is "$@" parameter expansion working properly?
+
+somefunc a b "" c ""
+
+somefunc () {
+	A=$#
+	set X "$@"
+	if [ `expr $# - 1` -gt $A ]; then
+		echo "\"\$@\" with no positional parameters should expand" \
+			"to nothing whatsoever"
+	fi
+}
+
+somefunc
+
+# Can we run functions in subshells ?
+
+(somefunc X)
+
+# A backquote (aka grave) expression of a command that outputs nothing should
+# expand to nothing whatsoever.
+
+set X `echo`
+if [ $# -gt 1 ]; then
+	echo "\`echo\` should expand to nothing whatsoever"
+fi
+
+# Is the management of here-documents in functions up to scratch?
+
+somefunc () {
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+	echo <<'end' >/dev/null
+	This is a test
+end
+}
+
+somefunc
+
+# Can we have nested backquote-expressions?
+
+if [ foo != `echo \`echo foo\`` ]; then
+	echo Nested backquote-expressions not supported
+fi
+
+# Can we have nested ${} - style variable-expansions?
+
+if [ foo != ${C=${D=foo}} -o $C != foo -o $D != foo ]; then
+	echo Problem with nested \${}-subsitutions
+fi
+
+# Things known not to work in Coherent sh:
+#	unset

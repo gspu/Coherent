@@ -1,0 +1,102 @@
+.TH idle "" "" "Device"
+.PC "Device that returns system's idle time"
+.B /dev/idle
+.PP
+.II "system idle time, estimate"
+.II /dev/idle
+.II "driver^system idle time, estimate"
+.II "device driver^system idle time, estimate"
+.B /dev/idle
+is the device from which you can read the system's idle time.
+It has major device 0, the same as
+.B /dev/null
+and
+.BR /dev/cmos ;
+and has minor number 11.
+This non-portable device node is used exclusively for tracking system load.
+Its driver recognizes the system calls
+.BR open() ,
+.BR ioctl() ,
+and
+.BR close() ,
+but not
+.B read()
+or
+.BR write() .
+.PP
+The only available
+.B ioctl()
+for
+.B /dev/idle
+writes a pair of
+.BR long  s
+to an address that you supply.
+The
+.B long
+at the lower address contains the number of system idle clock ticks
+(or, more precisely, the number of ticks at the end of which
+the system was idle) that have occurred since system startup.
+The
+.B long
+at the higher address contains the total
+number of clock ticks that have occurred since system startup.
+To estimate system load during a specific interval of time,
+perform the
+.B ioctl()
+for
+.B /dev/idle
+at the start and end of an interval.
+.SH Example
+The following program prints system load over a five-second interval.
+To see a nonzero load percentage, run it concurrently with a CPU-intensive
+process.
+.DM
+#include <sys/null.h>
+.DE
+.DM
+main()
+{
+	long x[2];	/* tick values at start of interval */
+	long y[2];	/* tick values at end of interval */
+.DE
+.DM
+	long delta_idle, delta_lbolt;
+	int fd;
+.DE
+.DM
+	/* We need to open a device before we can ioctl it. */
+	fd = open("/dev/idle", 0);
+.DE
+.DM
+	/* Get tick values at start of interval. */
+	ioctl(fd, NLIDLE, x);
+.DE
+.DM
+	/* Sleep during the interval. */
+	sleep(5);
+.DE
+.DM
+	/* Get tick values at end of interval. */
+	ioctl(fd, NLIDLE, y);
+.DE
+.DM
+	/* Compute number of system idle ticks during the interval. */
+	delta_idle = y[0] - x[0];
+.DE
+.DM
+	/* Compute total number of clock ticks during the interval. */
+	delta_lbolt = y[1] - x[1];
+.DE
+.DM
+	/* System is loaded when it isn't idle, so system load factor
+	 * is 100% minus the percentage of system idle time.
+	 */
+	printf("system load = %ld%%\en",
+		100L - (100L * delta_idle)/delta_lbolt);
+	close(fd);
+}
+.DE
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr "ioctl()," ioctl
+.Xr "null" null

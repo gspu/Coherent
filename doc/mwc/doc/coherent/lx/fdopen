@@ -1,0 +1,90 @@
+.TH fdopen() "" "" "STDIO Function (libc)"
+.PC "Open a stream for standard I/O"
+\fB#include <stdio.h>\fR
+\fBFILE *fdopen(\fIfd, type\^\fB) int \fIfd\^\fB; char *\fItype\^\fB;\fR
+.PP
+.B fdopen()
+allocates and returns a \fBFILE\fR structure, or
+.IR stream ,
+for the file descriptor
+.IR fd ,
+as obtained from
+.BR open() ,
+.BR creat() ,
+\fBdup()\fR, or \fBpipe()\fR.
+.I type
+is the manner in which you want
+.I fd
+to be opened, as follows:
+.DS
+	\fBr\fR	Read a file
+	\fBw\fR	Write into a file
+	\fBa\fR	Append onto a file
+.DE
+.SH Example
+The following example obtains a file descriptor with
+.BR open() ,
+and then uses \fBfdopen()\fR to build a pointer to the \fBFILE\fR structure.
+.DM
+#include <ctype.h>
+#include <stdio.h>
+.DE
+.DM
+void adios(message)
+char *message;
+{
+	fprintf(stderr, "%s\en", message);
+	exit(1);
+}
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	extern FILE *fdopen();
+	FILE *fp;
+	int fd;
+	int holder;
+.DE
+.DM
+	if (--argc != 1)
+		adios("Usage: example filename");
+.DE
+.DM
+	if ((fd = open(argv[1], 0)) == -1)
+		adios("open failed.");
+	if ((fp = fdopen(fd, "r")) == NULL)
+		adios("fdopen failed.");
+.DE
+.DM
+	while ((holder = fgetc(fp)) != EOF) {
+		if ((holder > '\e177') || (holder < ' '))
+			switch(holder) {
+			case '\et':
+			case '\en':
+				break;
+			default:
+				fprintf(stderr, "Seeing char %d\en", holder);
+				exit(1);
+			}
+		fputc(holder, stdout);
+	}
+}
+.DE
+.SH "See Also"
+.Xr "creat()," creat
+.Xr "dup()," dup
+.Xr "fopen()," fopen
+.Xr "libc," libc
+.Xr "open()" open
+.br
+\*(PX Standard, \(sc8.2.2
+.SH Diagnostics
+.B fdopen()
+returns NULL if it cannot allocate a \fBFILE\fR structure.
+Currently, only 20 \fBFILE\fR
+structures can be allocated per program, including
+\fBstdin\fR,
+\fBstdout\fR,
+and
+\fBstderr\fR.

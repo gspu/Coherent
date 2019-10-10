@@ -1,0 +1,1391 @@
+.TH smail "" "" Command
+.PC "Mail delivery system"
+\fBsmail [ \fIflags \fB] \fIaddress ...\fR
+.PP
+.B smail
+is the program that receives and delivers mail.
+It accepts mail from a source either on your local host or on a
+remote host, and delivers that mail to its destination \(em again, either
+on your local host or another remote host.
+.B smail
+does not provide a user interface for
+typing mail or reading it;
+to do so, you must use a ``mailer'' program, such as
+.B mail
+or
+.BR elm .
+.PP
+You will rarely, if ever, need to invoke
+.B smail
+directly.
+You may modify one of its configuration files from time to time, but
+.B smail
+normally is invoked only by other programs.
+The rest of this article gives
+.BR smail 's
+command-line options and describes how it works.
+You will find this information
+useful should you wish to reconfigure your mail system, or chase down a bug.
+.PP
+.B smail
+can be invoked under a variety of names.
+Each name indicates the major use to which
+.B smail
+will be put, e.g., receiving local mail, receiving remote mail,
+attempting to deliver undelivered mail, or displaying information about
+undelivered mail.
+These names are described below; each also has its own Lexicon entry.
+.SH "Command-line Options"
+.B smail
+recognizes the following command-line options:
+.IP \fB\-bc\fR
+Display the contents of file
+.BR COPYING ,
+which is distributed with the source code for
+.BR smail .
+This file details what your rights and restrictions the authors of
+.B smail
+have set upon their work.
+.IP \fB\-bd\fR
+Listen for connection requests on a socket bound in the Internet domain.
+.II SMTP^definition
+.II "Simple Mail Transfer Protocol"
+When a connection occurs, conduct an Simple Mail Transfer Protocol (SMTP)
+conversation with the peer process on the other system.
+This option currently is not implemented under \*(CO, as
+\*(CO does not yet support networking.
+.IP \fB\-bi\fR
+Initialize the
+.B aliases
+file.
+The file that it builds depends upon whether you also use option
+.B \-oA
+on the command line.
+.IP
+By default,
+.B smail
+under \*(CO
+is compiled with the
+.B GDBM
+package.
+.B GDBM
+is a set of functions that permit a program to build and read a simple
+hashed data base; for details on how it works, see the Lexicon entry for
+.BR libgdbm .
+Thus, when you also use option
+.BI \-oA file
+to name an aliases file,
+.B smail
+invokes the command
+.B /usr/lib/mail/newaliases
+to compile the contents of
+.I file
+into a DBM data base.
+.IP "\fB\-bm \fIaddress ...\fR
+Deliver mail to each
+.IR address .
+.IP "\fB\-bP \fIaddress\fR"
+Assume that each
+.I address
+on the command line is a configuration-file variable,
+and write its value onto the standard output.
+For example, the command
+.DM
+	smail -bP hostnames max_message_size
+.DE
+.IP
+produces output of the form:
+.DM
+	lepanto.com
+	102400
+.DE
+.IP
+If you also use the flags
+.B \-d
+or
+.B \-v
+on the command line,
+.B smail
+also displays the variable names.
+Thus, the command
+.DM
+	smail -bP -v max_message_size
+.DE
+.IP
+prints something like the following:
+.DM
+	max_message_size=102400
+.DE
+.IP
+The command
+.DM
+	smail -bP primary_name
+.DE
+.IP
+prints the primary (or ``canonical'') name for the local host that
+.B smail
+uses, and command
+.DM
+	smail -bP config_file
+.DE
+.IP
+prints the name of the primary configuration file.
+The command
+.DM
+	smail -bP help
+.DE
+.IP
+prints a verbose listing of every variable plus its type,
+one variable per line.
+Finally, command
+.DM
+	smail -bP all
+.DE
+.IP
+prints a verbose listing of every variable and its value.
+It is equivalent to the command
+.B "smail \-bP \-v"
+followed by a list of the name of every configuration variable.
+.IP \fB\-bp\fR
+List information about the messages that currently reside in
+.BR smail 's
+input spool directories.
+.II mailq
+This is 
+.BR smail 's
+default mode of operation when you invoke it under the name
+.BR mailq .
+When you also use the flags
+.B \-v
+or
+.BR \-d ,
+.B smail
+displays the transaction-log entries for each message,
+to show what has happened to the message so far.
+.\" HUH???
+.\".IP \fB\-bR\fR
+.\"Enter the mail domain of giant mail messages and RFC standard scrolls.
+.\"Attempt to make it down to protocol level 26 and back.
+.IP \fB\-bS\fR
+Read SMTP commands from the standard input, but do not write SMTP
+replies onto the standard output.
+Report failures via mail rather than through reply codes.
+.IP
+This option is suitable for setting up a batched form of SMTP between
+machines over a remote execution service like \*(UU.
+.II rsmtp
+This is the
+default mode of operation if you invoke
+.B smail
+under the name
+.BR rsmtp .
+.IP \fB\-bs\fR
+Read SMTP commands from standard input, and write SMTP replies onto
+the standard output.
+The following SMTP commands are implemented:
+.DS
+.ta 0.5i 1.5i 2.5i 3.5i
+.B
+	HELO	MAIL	FROM	RCPT
+	TO	DATA	RSET	NOOP
+	VRFY	EXPN	QUIT
+.DE
+.IP
+.II smtpd
+This is the default mode of operation if you invoke
+.B smail
+under the name
+.BR smtpd .
+.IP \fB\-bt\fR
+Run
+.B smail
+in test-address mode:
+.B smail
+reads addresses from standard input, parses them,
+and writes its result onto the standard output.
+This is primarily useful for debugging
+.B smail
+or debugging new
+.B smail
+routers.
+.IP \fB\-bV\fR
+See option
+.BR \-V ,
+below.
+.IP \fB\-bv\fR
+Verify an address.
+.B smail
+reads each address you list on its command line, subjects it
+to aliasing and forwarding expansions, then subjects it to host routing
+or resolving,
+and finally prints the resolved address onto the standard output.
+You can then check whether the resolved address matches what you expect.
+If
+.B smail
+cannot resolve an address, it prints an explanation of why it cannot.
+.IP "\fB\-C \fIfile\fR"
+Use
+.I file
+as the primary configuration file \(em i.e., the file that
+holds global attributes.
+.B smail
+resets the effective user identifier and group identifier
+to those of the real user and group, to avoid
+problems should
+.B smail
+be
+.B setuid
+to the superuser.
+.IP
+If
+.I file
+is `-', then
+.B smail
+does not use a primary configuration file.
+You should use this only for debugging.
+.IP "\fB\-d[\fInumber\^\fB]\fR"
+Turn on debugging.
+.I number
+sets the level of debugging; the default level is one.
+No white space must separate the option and
+.IR number .
+Please note that
+.B \-d
+and
+.B \-v
+are identical;
+.B smail
+recognizes both for historical reasons.
+.IP "\fB\-D \fIfile\fR"
+Write debugging information into
+.IR file .
+Normally, using option
+.B \-v
+or
+.B \-d
+to generate debugging output also disables background delivery of
+mail, because programs should not continue to write to the standard
+error after the mail process exits; however, if you name a
+debugging-output file, background delivery can continue.
+.IP \fB\-ee\fR
+.IS \fB\-oee\fR
+.II berkenet
+These options refer to a ``berkenet'' style of error-processing that
+.B smail
+does not support.
+If used,
+.B smail
+mails an error message back to you.
+.IP \fB-em\fR
+.IS \fB\-oem\fR
+Mail error messages to the sender.
+This is the default.
+.IP \fB\-ep\fR
+Write error messages onto the standard-error device.
+.IP \fB\-eq\fR
+If an error occurs, do not notify the sender of it.
+This only works for mail being delivered locally:
+an error that occurs on a remote host's mail system still
+generates a mail message to the sender.
+To set this behavior on both the local host
+and a remote host, supply a header that reads:
+.DM
+	Precedence: junk
+.DE
+.IP \fB\-ew\fR
+.IS \fB\-oew\fR
+Mail errors to the sender, just as with option
+.BR \-m .
+With some mail-delivery programs,
+this option asks the program to invoke the command
+.B write
+to write errors onto the sender's screen, should she be logged in.
+.IP "\-F \fIfullname\fR"
+Set to fullname the full name of the sender for incoming mail.
+Use this option only if you wish to use smail to receive a single mail
+message from the standard input.
+.IP "\fB\-f \fIsender\fR"
+Set to
+.I sender
+the address for incoming mail.
+Use this option only if you want
+.B smail
+to receive a single mail message from the standard input.
+.IP "\fB\-h \fInumber\fR"
+Set to
+.I number
+the hop count for a message.
+If this command-line option is not used,
+.B smail
+computes the hop count from the number of
+.B Received:
+fields in the message's header.
+.B smail
+uses the hop count as a primitive method of detecting an infinite loop:
+if the hop count is too large,
+.B smail
+rejects the mail.
+.IP
+NB, an infinite loop occurs when two sites each think that a given
+user resides on the other.
+A message mailed to that user will ping-pong
+between the sites; unless the message is stopped somehow, its
+header can grow infinitely large.
+.IP \fB\-I\fR
+Use the ``hidden-dot'' algorithm when reading a message.
+If a message contains a line that begins with one or more periods,
+.B smail
+removes that leading period; a line that consists of a single period
+terminates the message.
+This option is always set for messages received via SMTP.
+.IP \fB\-i\fR
+A line that consists of a single period does not terminate an incoming
+message.
+.II rmail
+This is the default if you invoke smail under the name
+.BR rmail .
+.IP \fB\-m\fR
+If a user mails a message to an alias list or mailing list that
+includes her name, send a copy of the message to that user.
+By default,
+if the user mails a message to a list that includes her name,
+.B smail
+does
+.I not
+send a copy of a message back to her.
+.IP \fB\-N\fR
+Disable delivery of a message.
+.B smail
+performs all other processing,
+and the transport programs are expected to go through most of the
+steps involved in delivery.
+Use this option when you wish to debug
+smail but do not want to have the messages delivered.
+.IP \fB\-n\fR
+Do not process aliases.
+With this option,
+.B smail
+will not expand entries in alias files;
+however, it will still expand entries in mailing-list files and forwarding
+files.
+.IP "\fB\-oC \fIfile\fR"
+See option
+.BR \-C ,
+above.
+.IP \fB\-odb\fR
+If mail is to be delivered, deliver it in the background.
+Note that background delivery is not currently supported in the SMTP modes:
+mail is delivered in the foreground.
+.IP "\fB-oD \fIfile\fR"
+Use
+.I file
+as the
+.B directors
+file, instead of the default
+.BR /usr/lib/mail/directors .
+.B smail
+resets the effective user and group identifiers to those of the real user
+and group, to avoid problems
+should an installation setuid
+.B smail
+to the superuser.
+If file is `-',
+.B smail
+does not read a
+.B directors
+file.
+Use this option only when
+you are debugging
+.BR smail .
+.IP \fB\-odf\fR
+If mail is to be delivered, deliver it in the foreground.
+.IP "\fB-oE \fIfile\fR"
+Use
+.I file
+as the delivery-retry control file, instead of the default
+.BR /usr/lib/mail/retry .
+.B smail
+resets the effective user and group
+identifiers to those of the real user and group, to avoid problems
+should an installation setuid
+.B smail
+to the superuser.
+If file is `-',
+.B smail
+does not read a retry file.
+Use this option only when you
+are debugging
+.BR smail .
+.IP \fB\-oep\fR
+See option
+.BR \-ep ,
+above.
+.IP \fB\-oeq\fR
+See option
+.BR \-eq ,
+above.
+.IP \fB\-oI\fR
+See option
+.BR \-I ,
+above.
+.IP \fB\-oi\fR
+See option
+.BR \-i ,
+above.
+.IP "\fB-oL \fIdirectory\fR"
+Use
+.I directory
+as the library directory \(em that is, the directory
+that holds configuration files and mailing-list directories.
+This overrides the default value compiled into
+smail through its option
+.B smail_lib_dir
+(under \*(CO
+.BR /usr/lib/smail ),
+as well as any name set in a configuration file.
+.IP "\fB\-oMr \fIsender_proto\fR"
+Use
+.I sender_proto
+as the protocol by which sending host delivers the mail message.
+You can include this value in expansion strings via the variable
+.BR $sender_proto .
+.IP "\fB\-oMs \fIsender_host\fR"
+Set to sender_host the system that can send the mail message.
+You can include this value in expansion strings via the variable
+\fB$\fIsender_host\fR.
+.IS \fB\-om\fR
+See option
+.BR \-m ,
+above.
+.IP "\fB\-oQ \fIfile\fR"
+Set the path name of the host-name qualification file to
+.IR file ,
+instead of the default
+.BR /usr/lib/mail/qualify .
+.B smail
+resets the effective user and group identifiers to those of the
+real user and group, to avoid problems should an installation setuid
+.B smail
+to the superuser.
+If
+.I file
+is `-',
+.B smail
+does not read a qualify file.
+Use this option only when you are debugging
+.BR smail .
+.IP "\fB\-oR \fIfile\fR"
+.II /usr/lib/mail/routers
+.II routers
+Use
+.I file
+as the router file, instead of the default
+.BR /usr/lib/mail/routers .
+.B smail
+resets the effective user and group identifiers to the real user
+and group identifiers, to avoid problems should an installation setuid
+.B smail
+to the superuser.
+If file
+is `-',
+.B smail
+does not read a router file.
+Use this option only when you are debugging
+.BR smail .
+.IP "\fB\-oT \fIfile\fR"
+.II /usr/lib/mail/transports
+.II transports
+Use
+.I file
+as the transport file, instead of the default
+.BR /usr/lib/mail/transports .
+.B smail
+resets the effective user and group identifiers to those of the
+real user and group, to avoid problems should an installation setuid
+.B smail
+to the superuser.
+If file is `-',
+.B smail
+does not read a transport file.
+Use this option only when you are debugging
+.BR smail .
+.IP "\fB\-oU\fR"
+Tell
+.B smail
+to report memory usage when it exits.
+.IP "\fB\-oX \fImail-service\fR"
+.II TCP/IP
+Tell
+.B smail
+to listen for SMTP requests on the TCP/IP service or port
+.IR mail-service .
+You can use this option with
+.B \-bd
+mode to define alternate debugging versions of 
+.BR smail 's
+SMTP listening daemon; this can be useful when you test a new installation.
+.IP
+Please note that because \*(CO does not yet support networking, this
+option does nothing.
+.IP \fB\-Q\fR
+.IS \fB\-odq\fR
+Spool incoming messages, but do not deliver them until later queue.
+This mode of operation is somewhat more efficient in terms of CPU
+usage, but slows down the flow of mail.
+.IP "\fB\-q[\fIinterval\^\fB]\fR"
+Force
+.B smail
+to process its input spool directory.
+If you set
+.IR interval ,
+.B smail
+continually checks its input\-spool directory,
+and sleeps for
+.I interval
+between checks.
+.I interval
+is a string that consists of a number
+followed by one of the following letters to indicate unit of time:
+.DS
+	\fBs\fR	seconds
+	\fBm\fR	minutes
+	\fBh\fR	hours
+	\fBd\fR	days
+	\fBw\fR	weeks
+	\fBy\fR	years
+.DE
+.IP
+For example, option
+.B \-q2h30m
+tells
+.B smail
+to check its input spool directory every two hours and 30 minutes.
+This flag is useful with the
+.B \-bd
+mode of operation, as it awakens the daemon process after each
+interval to process the queue.
+.II runq
+This is 
+.BR smail 's
+default mode of operation when you invoke it under the name
+.BR runq .
+.IP "\fB\-r \fIsender\fR"
+See option
+.BR \-f ,
+above.
+.IP \fB\-t\fR
+Extract addresses from the
+.BR To: ,
+.BR Cc: ,
+and
+.B Bcc:
+fields of the message header.
+This is useful for mailers that do not compute the recipient addresses
+themselves.
+In this mode, the addresses given on the command line
+will not receive mail, even as a result of expanding
+aliases or forwarding addresses.
+.B smail
+ignores this option unless it is in the mode
+set by command-line option
+.B \-bm
+(which is the default mode).
+.IP \fB\-V\fR
+Print the version smail onto the standard output.
+.SH "Normal Use"
+A user agent can submit new mail message by invoking
+.B smail
+and passing it a message via the standard input.
+For example, mailers such as
+.B mail
+and
+.B elm
+submit mail by invoking
+.B smail
+with a command such as
+.DM
+	smail -em -i \fIaddress\fP ...
+.DE
+.PP
+Because
+.B smail
+also works correctly if invoked as
+.BR sendmail ,
+it is common to install
+.B smail
+as
+.BR /usr/lib/sendmail ,
+so that existing binaries on BSD systems, or other systems that currently run
+.BR sendmail ,
+need not be modified to run
+.B smail
+instead.
+.II sendmail
+This also lets you run applications that have been configured to send mail via
+.B sendmail
+without modifying their sources or recompiling.
+.PP
+Some user agents, such as GNU Emacs, may wish to have
+.B smail
+decipher the recipient list from the header.
+These programs can invoke
+.B smail
+with a command, such as:
+.DM
+	smail -em -t -i
+.DE
+.PP
+.II uuxqt
+.II rmail
+To receive mail over \*(UU,
+.B uuxqt
+invokes the command
+.BR rmail ,
+which is a link to
+.BR smail .
+.B rmail
+can also be another program that invokes
+.B smail
+directly as:
+.DM
+	smail -em -i -f\fIsender-address recipient address\fP ...
+.DE
+.PP
+.II rsmtp
+.II uux
+An alternative method of receiving mail over \*(UU is through the command
+.BR rsmtp ,
+which receives batched SMTP requests.
+This can be used between two sites running
+.B smail
+to gain many of the benefits of the SMTP protocol, such
+as the ability to use recipient addresses that
+.B uux
+cannot correctly pass to a remote
+.B rmail
+program.
+For example, an address that contains quotations
+marks or spaces cannot be expected to pass correctly over an
+.B uux-rmail
+link, but will pass correctly over a
+.B uux-rsmtp
+link.
+.SH "Addressing Under smail"
+The following describes how
+.B smail
+interprets an E-mail address.
+.PP
+.B smail
+understands domain-style addresses (e.g.,
+.BR henry@mwc.com )
+\*(UU-style path names, (e.g.,
+.BR mwc!lepanto!henry ),
+and local addresses (e.g.,
+.BR henry ).
+It assumes that an address of the form \fIuser\^\fB@\fIdomain\fR
+is a domain address, that an address of the form
+\fIhost\^\fB!\fIaddress\fR
+is a \*(UU path, and anything else is a local address.
+.PP
+When it parses a mixed address (that is, an address that contains both a
+`!' and a `@'),
+.B smail
+gives precedence to `@' over `!'.
+Thus, it parses the address
+.B a!b@c
+as
+.BR (a!b)@c ,
+rather than
+.BR a!(b@c) ,
+which means that mail
+addressed to
+.B a!b@c
+is forwarded to system
+.B c
+instead of to system
+.BR a .
+.SH "Resolving Addresses"
+An E-mail address has two forms:
+internal and external.
+The internal form of an address is what appears on the
+.B To:
+line in the message's header.
+This is the recipient's address as typed by the person who mailed the message.
+This is regardless of whether the sender typed the recipient's
+full address, or typed an alias for the recipient.
+(For details on how to use aliases to address mail messages,
+see the Lexicon entry for
+.BR aliases .)
+The external form of an address (also called the message's
+.IR envelope ),
+is the address that smail passes to the mail-delivery agent (either
+.B uux
+or
+.BR lmail ).
+.PP
+Resolving is the act of transforming an internal address into an envelope.
+It has two stages:
+host resolution and alias resolution.
+.II "routing^definition"
+.I "Host resolution"
+(also called
+.IR routing )
+is how
+.B smail
+figures out the identity of the computer to which it must send the message.
+.II "alias resolution"
+.II "alias expansion"
+If
+.B smail
+determines that the message must be delivered on your local machine,
+it then applies
+.I "alias resolution"
+(also called
+.IR "alias expansion" )
+to the address.
+If the address proves to be an alias,
+.B smail
+expands the alias and again performs host resolution to find the machine to
+which it should deliver the message.
+If, however, the address names a user on your local machine, then
+.B smail
+hands the message to the local mailer
+.B lmail
+for delivery.
+.PP
+Although
+.B smail
+understands domain-style addresses (i.e., addresses that
+contain a `@' and are read from right to left), it can deliver mail only to
+\*(UU paths (i.e., addresses that contain `!' characters and are read from
+left to right) and local addresses.
+Thus, it must resolve a domain address into a \*(UU path or local address.
+.PP
+To resolve a domain-style address,
+.B smail
+must find the route to the most specific part of the domain,
+as specified in the routing file
+.BR /usr/lib/mail/paths .
+Two degrees of resolution can occur:
+.IP "\fBFull Resolution\fR"
+.B smail
+finds the full route to the machine.
+In this case,
+.B smail
+either tacks the user specification onto the end of the machine's \*(UU path,
+or resolves it into a local address, whichever is appropriate.
+.IP "\fBPartial Resolution\fR"
+.B smail
+finds a route for only the right portion of the domain
+specification; e.g., for
+.DM
+	henry@lepanto.mwc.com
+.DE
+.IP
+it finds
+.B mwc.com
+but cannot identify
+.BR lepanto .
+Here,
+.B smail
+tacks the complete address (in the form
+.BR domain!user )
+onto the end of the \*(UU path.
+For example, if
+.B smail
+finds that the route to
+.B mwc.com
+is via systems
+.BR foo ,
+.BR bar ,
+and
+.BR baz ,
+it constructs the path:
+.DM
+	foo!bar!baz!lepanto.mwc.com!henry
+.DE
+.IP
+This assumes that routing program on system
+.B baz
+(perhaps
+.BR smail ,
+perhaps some other program) will recognize the token
+.B lepanto.mwc.com
+as being a domain rather than a host.
+.PP
+It is an error to route a partially resolved address to the local host (a
+null \*(UU path), because the local host is responsible for resolving the
+address more fully.
+.PP
+The command-line option
+.B \-r
+tells
+.B smail
+to attempt to route the first (leftmost) component of a \*(UU path,
+regardless of whether it knows how to
+send mail directly to a site named further to the right in the path.
+This is called
+.IR "always routing" .
+For example, if a mail message is address to
+.DM
+	foo!bar!baz!mwc!lepanto!fred
+.DE
+.PP
+option
+.B \-r
+tells
+.B smail
+always to route the mail to
+.BR foo ,
+even if also knows how to route mail to
+.BR mwc .
+.PP
+The command-line option
+.B \-R
+tells
+.B smail
+to route mail to the rightmost host named on a \*(UU path.
+This is called
+.IR "reroute routing" .
+Use it if you have a very up-to-date routing table,
+and wish to bypass some obsolete routing information in the current path.
+.PP
+If file
+.B /usr/lib/mail/paths
+does not contain a path to the remote system,
+.B smail
+forwards mail to the the host named in the entry
+.B smart_path
+in file
+.BR /usr/lib/mail/config .
+This lets your system depend on another, better
+informed, system to deliver your mail.
+Note that before you name another system as your system's
+.BR smart_path ,
+you should get the permission of the person who administers that system.
+Please note that if you start to forward mail to a system without permission,
+that system's administrator may forward your mail to the bit bucket.
+.PP
+After
+.B smail
+resolves an address, it reparses the address to see if it is now a \*(UU
+path or local address.
+If the new address turns out to be another domain address,
+.B smail
+complains.
+This error occurs when an address partially resolves to the local host.
+.PP
+By default,
+.B smail
+does not alter an explicit \*(UU path of any mail message.
+If the stated path is unusable (i.e., the next host is unknown), then
+.B smail
+applies always\-routing and attempts to deliver the message to first
+(leftmost) system named in the \*(UU path.
+If this fails,
+.B smail
+then uses reroute\-routing and again attempts to deliver the message.
+If this too fails,
+.B smail
+finally attempts to to find a path to a smart-host and passes the mail to it.
+And if that finally fails,
+.B smail
+mails an error message to user who mailed the message,
+and abandons any further attempt to deliver the message.
+.SH Headers
+.II "RFC 822"
+Document RFC822, which governs Internet mail, demands that a mail message
+contain certain entries in its header.
+These entries include one that begins with the string
+.BR To: ,
+one that begins with the string
+.BR From: ,
+and one that begins with the string
+.BR Date .
+If a message's header does not contain one or more of these entries,
+.B smail
+inserts it.
+.SH "Build the From: Line of a Message"
+The header of a mail message includes a line that begins
+.BR From: .
+This line names the user who originated the message.
+This line is extremely important,
+as it will read by users and programs on the recipient's system
+to identify the sender, and possibly reply to the message.
+.PP
+.B smail
+collapses the
+.B From_
+and
+.B >From_
+lines within a mail message to generate a simple ``from'' argument,
+which it then uses to create its own
+.B From:
+line.
+This processing sometimes is called
+.I from-ming
+a message.
+The following gives the rules for from-ming:
+.IP \(bu 0.3i
+First, it concatenates all hosts named on remote from lines, separating
+them from each other by `!'s.
+.IP \(bu
+It appends onto that concatenated address, the address from the last
+.B From_
+line.
+.IP \(bu
+If that address is in domain format
+(i.e., the form \fIuser\^\fB@\fIdomain\fR),
+.B smail
+rewrites it in bang-path format (i.e., the form \fIdomain\^\fB!\fIuser\fR).
+If a host or domain names the local system,
+.B smail
+ignores it.
+.IP \(bu
+Finally,
+.B smail
+removes redundant information from the
+.B From_
+line.
+.PP
+.B smail
+generates its own
+.B From_
+line.
+For mail that is to be forwarded via \*(UU,
+.B smail
+generates a line of the form remote-from host;
+.I host
+is the \*(UU host name (not the domain name), so that
+.B From_
+can indicate a valid \*(UU path, thus leaving the sender's domain address in
+.BR From: .
+.SH "Undeliverable Mail"
+.B smail
+returns to sender all mail that is undeliverable.
+A message is declared to be undeliverable if the user is unknown,
+or if the user resides on an unknown host.
+.SH Logging
+.B smail
+uses two log files:
+.IP \fB/usr/spool/smail/log/logfile\fR
+The log of every mail message that your system receives.
+Please note that if your system is busy, this file will quickly become
+very large.
+You should embed the command
+.B /usr/lib/mail/savelog
+in
+.BR root 's
+.B cron
+file to ensure that this file is truncated and saved regularly.
+For details on
+.B savelog
+or
+.BR cron ,
+see their articles in the Lexicon.
+.IP \fB/usr/spool/smail/log/paniclog\fR
+The log of every mail that created a panic situation.
+If your system is configured properly, this file will never become large.
+.SH "Registered Domains and Subdomains"
+You may wish to register your domain with the NIC.
+This will give you an internationally recognized e-mail address.
+For more information, send E-mail to
+.BR postmaster@internic.net .
+.PP
+Once you have registered your domain, you can also set up subdomains for
+other systems, so they can receive information from the Internet
+via your system.
+The rest of this section discusses how to describe subdomains to
+your system, and related topics.
+.PP
+Let's say that you have registered your domain, and you have named it
+.BR mydomain .
+To route mail systems subordinate to mydomain, do the following:
+.IP \fB1.\fR
+Insert the following entry into
+.BR /usr/lib/mail/paths :
+.DM
+	.mydomain.com  %s 50
+.DE
+.IP
+This tells
+.B smail
+that the local host (i.e., your machine) must resolve
+that any address that ends in the suffix
+.BR .mydomain.com ,
+or it is an error.
+.IP \fB2.\fR
+For each site in
+.BR mydomain ,
+create two entries in
+.BR /usr/lib/mail/paths .
+For example, for the site
+.BR foo.mydomain.com ,
+create the entries:
+.DM
+	foo foo!%s  200
+	foo.mydomain.com  foo!%s  200
+.DE
+.IP
+If the site bar.mydomain.com is fed by the route
+.BR froboz!florp!bar ,
+insert these lines into
+.BR paths :
+.DM
+	bar froboz!florp!bar!%s  200
+	bar.mydomain.com  froboz!florp!bar!%s  200
+.DE
+.PP
+Note that you do not have to register subdomains with the NIC.
+Once you register the top-level domain with the NIC,
+you control the entire name space \(em you can subdomain
+to your heart's content.
+.PP
+The only restrictions on subdomaining may be with your Internet Nameserver.
+.II "MX record"
+Most nameservers for \*(UU domains publish a ``wildcard'' mail exchanger
+(MX) record, that essentially says, ``send everything
+for \fB*.mydomain.com\fR to this Internet gateway.''
+However, some nameserver managers require you to register every site
+in your domain, for which they provide a separate MX record.
+The advantage of this scheme is that anybody on the Internet who sends
+mail to your domain immediately receives an error message if the message
+is addressed to a non-existent site.
+For details, check with the person who manages your nameserver.
+.PP
+To route for an entire subdomain (e.g.,
+.BR .subd.mydomain.com ),
+you must choose a gateway for that domain (e.g.,
+.BR gateway.subd.mydomain.com ),
+and then use a line like this:
+.DM
+	.subd.mydomain.com gateway!%s  200
+.DE
+.PP
+.B smail
+automatically chooses the longest subdomain match it can find, so
+this rule applies before the
+.B .mydomain.com
+.B %s
+rule.
+.PP
+Note that the gateway need not be in the subdomain itself.
+You could have a line elsewhere in the
+.B paths
+file on
+.B mydomain
+that says:
+.DM
+	gateway.mydomain.com  gateway!%s  200
+.DE
+.PP
+Your main gateway may also have information about machines in subdomains,
+although this is not necessary.
+For instance, if your main machine is
+directly connected to a machine in a subdomain, you may want to put this
+information into
+.BR paths ,
+so the mail will not go through the gateway for that domain.
+.PP
+For example, the machine
+.B smith.subd.mydomain.com
+might be directly connected to your master gateway,
+.BR mydomain.com :
+.DM
+	smith  smith!%s  200
+	smith.subd.mydomain.com smith!%s  200
+.DE
+.PP
+Without this rule, mail for
+.B smith
+would be queued for forwarding through
+.BR gateway.subd.mydomain.com .
+.SH "Compatibility With sendmail"
+.B smail
+was designed to be a plug-in replacement for the BSD program
+.BR sendmail ,
+in that external programs can call
+.B smail
+in the same way that they call
+.B sendmail
+and expect similar results.
+However,
+.B smail
+is completely different internally and has entirely different configuration
+files.
+As a result, the option
+.B \-o
+to
+.B smail
+only sets a few configuration parameters that were believed
+to be commonly used by other programs.
+Also, for convenience, some new (upper-case only) parameters
+are defined only in
+.BR smail .
+.B smail
+ignores attempts to use this flag to set other options.
+For a complete list of the
+.B \-o
+options that
+.B smail
+recognizes, see the section on command-line options, above.
+.PP
+.II /usr/lib/sendmail
+.II sendmail
+For compatibility with other software systems (in particular, the Taylor
+\*(UU package), \*(CO links
+.B smail
+to command
+.BR /usr/lib/sendmail .
+Thus, a program that expects to use
+.B sendmail
+can use
+.B smail
+without being recompiled or reconfigured.
+.SH "Configuration Files"
+For most sites, the configuration compiled into
+.B smail
+is sufficient, and thus no configuration files are needed.
+However, you can use any or all of
+the following optional configuration files to restructure how
+.B smail
+behaves on your system:
+.IP \fB/usr/lib/mail/config\fR
+General configuration.
+This file can override compiled-in configuration,
+including the names of any of the following configuration files.
+.IP \fB/usr/lib/mail/directors\fR
+Configuration file for
+.B smail
+directors, i.e., configured methods for resolving local addresses.
+.IP \fB/usr/lib/mail/routers\fR
+Configuration file for
+.B smail
+routers, i.e., configured methods for resolving or routing to remote hosts.
+.IP \fB/usr/lib/mail/transports\fR
+Configuration for
+.B smail
+transports, i.e., configured methods of mail delivery.
+.PP
+The contents of file
+.B config
+dictate how
+.B smail
+configures its internal workings \(em where it looks to find
+other configuration files, where it should send error messages, and so on.
+The contents of
+.BR routers ,
+.BR directors ,
+and
+.B transports
+together tell
+.B smail
+how to deliver mail both on your local system and on remote systems.
+The following describes how these files work together.
+.PP
+When
+.B smail
+is given a list of addresses to which a message is to be
+delivered, it processes the list iteratively until it produces a list of
+resolved addresses.
+When an address is resolved,
+.B smail
+will know which transport it must use to deliver the message
+to the person or persons to whom it is addressed,
+and all data that this transport requires.
+To accomplish this, smail goes through the following steps:
+.IP \fBA.\fR 0.3i
+.B smail
+first parses each address to find a host name, called the
+.IR target ,
+and the remaining part of the address, called the
+.IR remainder .
+.IP
+As a simple example, in the address
+.BR tron@uts.amdahl.com ,
+the host part
+.B uts.amdahl.com
+is the target and
+.B tron
+is the remainder.
+Likewise, in the address
+.BR sun!amdahl!tron ,
+the target is
+.B sun
+and the remainder is
+.BR amdahl!tron .
+.IP \fBB.\fR
+.B smail
+then shows each address to directors,
+in the order given in file
+.BR /usr/lib/mail/directors ,
+until one of the directors says that it knows what to do with that address.
+That director can either return a new
+list of addresses, or put the address onto a list of resolved addresses.
+If new addresses are produced,
+.B smail
+places them onto the input list, to be processed from step
+.BR A .
+.IP \fBC.\fR
+When an address has passed through step
+.BR B ,
+.B smail
+shows it to various routers,
+in the order given in file
+.BR /usr/lib/mail/routers ,
+until a router can match the target name for the address.
+If no router can
+match the complete target, then
+.B smail
+selects the router that matches the longest portion of the target.
+The router names the transport to be
+used to deliver the message to that address, plus some other information
+that the transport requires (e.g., the next host and next address values).
+The information as to which transport to use can come either
+from the definition of the router, from a method file, or may be
+specified by the router specifically.
+.PP
+When all addresses have been resolved,
+.B smail
+sorts them and passes them to transports.
+The transport then delivers the message to the addresses it is given.
+.PP
+Host names and local user-names are matched independent of case; for
+example, ``Postmaster'', ``POSTMASTER'', and ``postmaster'' are in effect
+all the same.
+In addition,
+.B smail
+keeps an internal hash table of all regular recipient addresses,
+that is, all addresses that do not specify files or shell commands.
+This table is used to discard duplicate regular recipient addresses.
+This hash table is independent of case, as well, so
+that the address
+.B Postmaster@SRI-NIC.ARPA
+is considered a duplicate of
+.BR postmaster@sri-nic.arpa .
+.SH "Other Files and Directories"
+.B smail
+also uses the following configuration files:
+.IP \fB/usr/lib/mail/qualify\fR
+Configuration file for host-name qualification.
+.IS \fB/usr/lib/mail/retry\fR
+Optional delivery retry configuration file, i.e., minimum time between
+retries and maximum time to retry before giving up.
+.PP
+.B smail
+reads the following files to learn how to redirect mail locally and to give
+paths to remote sites:
+.IP \fB/usr/lib/mail/aliases\fR
+Aliases for mail addresses.
+.IS \fB/usr/lib/mail/paths\fR
+Paths to remote hosts.
+.IS \fB/usr/lib/mail/lists\fR
+Mailing-list files.
+.IS \fB/usr/spool/mail\fR
+The directory that holds each user's mailbox file.
+.IS \fB$HOME/.forward\fR
+Forwarding address or addresses for a given user.
+.PP
+.B smail
+uses the following directories to hold incoming mail messages and its
+work files:
+.IP \fB/usr/spool/smail\fR
+Directory that holds spool directories and work files.
+.IS \fB/usr/spool/smail/input\fR
+Spool directory for incoming messages.
+.IS \fB/usr/spool/smail/error\fR
+Directory that holds mail messages that failed for a reason that the
+site administrator should investigate.
+.IS \fB/usr/spool/smail/msglog\fR
+Directory that holds transaction logs for individual messages.
+.IS \fB/usr/spool/smail/lock\fR
+This directory holds 
+.BR smail 's
+input lock files.
+.PP
+The following files log 
+.BR smail 's
+activity.
+Please note that these files will grow without end.
+Your system's system administrator should check and
+truncate these files from time to time.
+She can also use the script
+.B /usr/lib/mail/savelog
+to manage these files; for details, see the Lexicon
+entry for this command:
+.IP \fB/usr/spool/smail/log/logfile\fR
+A log of 
+.BR smail 's
+transactions.
+.IS \fB/usr/spool/smail/log/paniclog\fR
+A log of configuration or system errors encountered by
+.BR smail .
+.SH "See Also"
+.Xr "commands," commands
+.Xr "mail [command]," mail.c
+.Xr "mail [overview]," mail.o
+.Xr "mailq," mailq
+.Xr "rmail," rmail
+.Xr "rsmtp," rsmtp
+.Xr "runq," runq
+.Xr "savelog," savelog
+.Xr "smtpd" smtpd
+.SH Diagnostics
+If all goes well,
+.B smail
+returns zero to the shell when it exits.
+If an error occurs, it returns a value other than zero.
+The meaning of each code is set in 
+.BR smail 's
+source file
+.BR exitcodes.h ,
+as follows:
+.LB
+\fBEX_USAGE\fR	Error in command-line usage
+\fBEX_DATAERR\fR	Data-format error
+\fBEX_NOINPUT\fR	Cannot open input file
+\fBEX_NOUSER\fR	Addressee unknown
+\fBEX_NOHOST\fR	Host unknown
+\fBEX_UNAVAILABLE\fR	Service unavailable
+\fBEX_SOFTWARE\fR	Internal software error
+\fBEX_OSERR\fR	System error
+\fBEX_OSFILE\fR	Critical OS file missing
+\fBEX_CANTCREAT\fR	Cannot create (user) output file
+\fBEX_IOERR\fR	Error in file I/O
+\fBEX_TEMPFAIL\fR	Temporary failure; user can retry
+\fBEX_PROTOCOL\fR	Remote error in protocol
+\fBEX_NOPERM\fR	Permission denied
+.PP
+If you invoke
+.B smail
+with its option
+.BR -bd ,
+then the message
+.DM
+	bind() failed: address already in use
+.DE
+.PP
+means that another process is already listening to the SMTP socket.
+.SH Notes
+Many mail bugs are not
+.B smail
+bugs.
+.B smail
+cannot help it if remote sites trash your mail messages.
+.PP
+Setting the input spool directory processing interval to a period of more
+than 2,147,483,647 seconds will result in an incorrectly calculated
+processing interval \(em and is a rather silly thing to do at any event.
+.PP
+Copyright \(co 1987, 1988 Ronald S. Karr and Landon Curt Noll.
+Copyright \(co 1992 Ronald S. Karr.
+.PP
+For details on the distribution rights and restrictions associated with
+this software, see file
+.BR COPYING ,
+which is included with the source code to the
+.B smail
+system; or type the command:
+.DM
+	smail -bc.
+.DE

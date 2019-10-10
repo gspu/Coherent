@@ -1,0 +1,188 @@
+.TH sigset() "" "" "System Call (libc)"
+.PC "Specify action to take upon receipt of a given signal"
+.B "#include <signal.h>
+\fBvoid (*sigset (\fIsigtype\^\fB, \fIfunction\^\fB))()\fR
+\fBint \fIsigtype\^\fB;\fR
+void (*\fIfunction\^\fB)();\fR
+.PP
+.B sigset()
+tells the signal handler what to do when the current process receives signal
+.IR sigtype .
+.PP
+.I sigtype
+identifies the signal being sought.
+For a list of recognized signals, see the Lexicon entry for
+.BR signal() .
+Note that the signal
+.BR SIGKILL ,
+which kills a process, can be neither caught nor ignored.
+.PP
+.I function
+points to the function to be executed when
+.I sigtype
+is received.
+This can be a function of your own creation; or you can use one of the following
+macros, which expand into pointers to system-defined functions:
+.IP \fBSIG_DFL\fR
+This is the default action.
+The process terminates just as if it called the function
+.BR exit() .
+In addition, the system writes a core file in the current working directory if
+.I sigtype
+is any of the following:
+.BR SIGQUIT ,
+.BR SIGSYS ,
+.BR SIGTRAP ,
+.BR SIGSEGV ,
+or
+.BR SIGSYS .
+For more information on core files, see the Lexicon entry
+.BR core .
+.IP \fBSIG_IGN\fR
+Ignore
+.IR sigtype .
+The system discards all signals of this type.
+.IP \fBSIG_HOLD\fR
+Hold
+.IR sigtype .
+The signal is held until the process calls
+.B sigrelse()
+to release it.
+Once the signal is released, it is processed as defined by
+.BR sigset() .
+Only one ``copy'' of
+.I sigtype
+can be held at any given time.
+.PP
+If all goes well,
+.B sigset()
+returns a pointer to the routine that had previously been in place to process
+.IR sigtype .
+If something goes wrong (e.g.,
+.I sigtype
+is not defined in
+.BR signal.h ),
+.B sigset()
+returns
+.B SIG_ERR
+and sets
+.B errno
+to an appropriate value.
+.SH "sigset() Versus signal()"
+The \*(CO system also include the system call
+.BR signal() ,
+which also handles signals.
+.B signal()
+predates
+.B sigset()
+and its related functions
+.BR sighold() ,
+.BR sigignore() ,
+.BR sigpause() ,
+and
+.BR sigrelse() .
+You should
+.I never
+combine
+.B signal()
+with the
+.B sigset()
+family of functions:
+use one or the other, but not both.
+.PP
+The
+.B sigset()
+functions differ from
+.B signal()
+in the way they handle signals while a signal is being processed:
+.B signal()
+automatically invokes
+.B SIG_DFL
+for
+.I sigtype
+while
+its
+.I function
+is executing;
+whereas
+.B sigset()
+and its related functions
+invoke
+.BR SIG_HOLD .
+.PP
+Thus, with
+.BR signal() ,
+sending signal
+.I sigtype
+to a program while that signal's
+.I function
+is already executing will trigger the default action,
+which in most instances is to exit from the program.
+The signal-handling function itself can call
+.B signal()
+to reset the signal-handler to point to itself or another function;
+however, there remains a brief interval of vulnerability between the time
+the signal-processing function is called and the time it calls
+.B signal()
+to program the signal handler.
+With
+.BR sigset() ,
+however, if another
+.I sigtype
+is received while its
+.I function
+processing, the signal handler holds it,
+and releases it automatically after
+.I function
+returns.
+.PP
+.B sigset()
+also differs from
+.B signal()
+in the way in which the signal-handler is reset once
+.I sigtype
+has been processed.
+With
+.BR signal() ,
+.I function
+is automatically reset to
+.B SIG_DFL
+just before a signal of type
+.I sigtype
+is processed.
+If you wish
+.I sigtype
+always to be processed by
+.IR function ,
+you must explicitly re-invoke
+.B signal()
+for
+.I sigtype
+within
+.IR function .
+However, the
+.B sigset()
+family of routines always process
+.I sigtype
+by the routine to which
+.I function
+points until you explicitly change it.
+.SH "See Also"
+.Xr "libc," libc
+.Xr "sighold()," sighold
+.Xr "sigignore()," sigignore
+.Xr "signal()," signal
+.Xr "sigpause()," sigpause
+.Xr "sigrelse()" sigrelse
+.SH Notes
+Functions called from within a signal handler should be re-entrant;
+this includes the standard I/O library.
+Thus, in general, it is not a good idea to call
+.B printf()
+from inside a signal handler.
+The risk is that
+a signal will arrive while the main program is updating a static
+structure, or calling
+.BR malloc() ;
+then the signal handler will run when
+something is not in a consistent state, with unpredictable results.

@@ -1,0 +1,106 @@
+.TH trap "" "" Command
+.PC "Execute command on receipt of signal"
+\fBtrap [\fIcommand\^\fB] [\fIn ...\^\fB]\fR
+.PP
+.HS
+The shell executes \fIcommand\fR on receipt of signal \fIn ...\fR.
+If \fIcommand\fR omitted, the shell
+resets traps on given signals to original values.
+If \fIcommand\fR is a null string, given signals are ignored.
+If \fIn\fR is zero, the shell executes \fIcommand\fR when it exits.
+With no arguments, it prints currently set traps.
+The shell executes trap directly.
+.HE
+The command
+.B trap
+tells the shell to execute
+.I command
+when it receives signal
+.IR n .
+.PP
+You can name more than one signal on the command line for
+.BR trap .
+Each signal
+.I n
+is an integer, as defined in the header file
+.BR signal.h .
+For information on the traps that \*(CO recognizes and what each one
+means, see the Lexicon entry for the system call
+.BR signal() .
+If
+.I n
+is zero, the shell executes
+.I command
+when it exits.
+.PP
+If you name no
+.I command
+on the command line for
+.BR trap ,
+then
+.B trap
+resets the trap for signal
+.I n
+to its original value.
+If
+.I command
+is a null string (i.e., the string ""),
+the shell traps signal
+.I n
+but does nothing; in effect, this turns off signal
+.IR n .
+.PP
+If you invoke
+.B trap
+with no arguments, it
+prints the signal number and associated command
+for each signal for which a trap has been set.
+.PP
+The shell executes
+.B trap
+directly.
+.SH Example
+The following example takes two files and outputs only those lines which
+are the same.
+.DM
+# If input only one file-name then simply "cat".
+if [ $# = 1 ]; then
+	cat $1
+	exit 0
+.DE
+.DM
+# If input two file-names - Ok, else "Usage".
+else
+	if [ $# != 2 ]; then
+		echo "Usage: cmn file1 [file2]"
+		exit 1
+	fi
+fi
+.DE
+.DM
+# TMP is original name of temporary file (/tmp/temp_(pid)
+TMP=/tmp/temp_$$
+.DE
+.DM
+# Temporary file has to be removed
+trap 'rm $TMP; exit 1' 1 2 9
+.DE
+.DM
+# Difference between "file1" and "difference between file1 and file2" 
+# is the common strings "file1" and "file2"
+# The strings that are in "file1" and absent in "file2" print in TMP.
+diff $1 $2 | sed -n -e "s/^< //p" > $TMP
+.DE
+.DM
+# The strings that are in "file1" and absent in TMP print in stdout.
+diff $1 $TMP | sed -n -e "s/^< //p"  
+.DE
+.DM
+# Remove temporary file
+rm $TMP
+.DE
+.SH "See Also"
+.Xr "commands," commands
+.Xr "ksh," ksh
+.Xr "sh," sh
+.Xr "signal()" signal

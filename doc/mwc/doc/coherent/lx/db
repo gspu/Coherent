@@ -1,0 +1,843 @@
+.TH db "" "" "Command"
+.PC "Assembler-level symbolic debugger"
+\fBdb \fB[\-a \fIsymfile\^\fB] [\-cdefort] [[\fImapfile\^\fB] \fIprogram\^\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC "\fB\-a \fIsymfile\fR.
+Use
+.I symfile
+as the symbol file, instead of reading the executable's symbol table.
+.IC \fB\-c\fR
+Map \fIprogram\fR as a core file
+.IC \fB\-d\fR
+Map \fIprogram\fR as a system dump;
+\fImapfile\fR defaults to \fB/coherent\fR
+.IC \fB\-e\fR
+Next argument is object file and rest of command line
+is passed to the child process
+.IC \fB\-f\fR
+Map \fIprogram\fR as binary data
+.IC \fB\-k\fR
+Map program as a kernel process; \fImapfile\fR defaults to \fB/coherent\fR
+.IC \fB\-o\fR
+\fIprogram\fR is an object file
+.IC "\fB\-p \fIprompt\fR"
+Change the command prompt from \fBdb:\fR to \fIprompt\fR
+.IC \fB\-r\fR
+Access all files read-only
+.IC \fB\-s\fR
+Do not load symbol table.
+.IC \fB\-t\fR
+Perform input and output via \fB/dev/tty\fR
+rather than stdin and stdout
+.Pp
+By default, \fIprogram\fR is assumed to be an object file.
+\fImapfile\fR defaults to \fBl.out\fR or \fBa.out\fR,
+and \fIprogram\fR defaults to \fBcore\fR.
+.HE
+.B db
+is an interactive, symbolic debugger.
+It allows you to run object files and executable programs under trace
+control (see the Lexicon entry for \fBptrace\fR),
+run programs with embedded breakpoints,
+and dump and patch files in a variety of forms.
+You can use it to debug assembly-language programs that have been assembled
+by \fBas\fR, the Mark Williams assembler, and programs that have been
+compiled with the Mark Williams C compiler
+.BR cc .
+.SH "What is db?"
+.B db
+is a symbolic debugger, which means that it works with the
+symbol tables that the compiler builds into the object files it generates.
+Because
+.B db
+works on the level of assembly language, you need a working knowledge of
+i80386 assembly language and microprocessor architecture.
+.SH "Invoking db"
+To invoke
+.BR db ,
+type its name, plus the options you want (if any) and the name of the
+files with which you will be working.
+.I mapfile
+is an object file that supplies a symbol table.
+.I program
+is the executable program to be debugged.
+If both names are given, the options default to
+.BR \-c .
+If only one name is given, it is the
+.IR program ;
+in this case the options default to
+.BR \-o .
+If both names are omitted,
+.I mapfile
+defaults to
+.B l.out
+or
+.BR a.out ,
+and
+.I program
+defaults to
+.BR core .
+If possible,
+.B db
+accesses
+.I program
+with write permission.
+.PP
+.B db
+recognizes the following command-line options:
+.IP "\fB\-a \fIsymfile\fR" 0.3i
+Read
+.I symfile
+for the list of symbols within the executable, instead of the
+executable's symbol table.
+This lets you copy an executable's symbol table in
+.IR symfile ,
+then strip that executable.
+.IP \fB\-c\fR
+.I program
+is a core file produced by a user core dump.
+.B db
+checks the name of the command that invoked the process that produced the core,
+against the name of the
+.I mapfile,
+if given.
+Pure segments are read from the
+.IR mapfile .
+.IP \fB\-d\fR
+.I program
+is a system dump.
+If the command line names no files,
+.I mapfile
+defaults to
+.B /COHERENT
+and
+.I program
+defaults to
+.BR /dev/dump .
+.IP \fB\-e\fR
+The next argument is an object file;
+.B db
+executes it as a child process and passes it the rest of the command line.
+This permits the shell to expand wildcard characters that you place in the
+.B db
+command line, without spoiling the syntax of the
+.B db
+command.
+.IP \fB\-f\fR
+Map
+.I program
+as a straight array of bytes (file).
+.IP \fB\-k\fR
+Map program as a kernel process; \fImapfile\fR defaults to \fB/coherent\fR,
+and
+.I program
+defaults to
+.BR /dev/kmem .
+.IP \fB\-o\fR
+.I program
+is an object file.
+If
+.I mapfile
+is given, it is another object file that provides the symbol table.
+.IP "\fB\-p \fIprompt\fR"
+Change the command prompt from \fBdb:\fR to \fIprompt\fR.
+.IP \fB\-r\fR
+Only read the file, even if you have write permission for it.
+Use this to give a file additional protection.
+.IP \fB\-s\fR
+Do not load symbol table.
+.IP \fB\-t\fR
+Perform input and output for
+.B db
+via
+.BR /dev/tty .
+This permits you to debug a process whose standard input or output
+has been redirected.
+.SH "Commands and Addresses"
+.B db
+executes commands that you give it from the standard input.
+.B db
+displays the prompt
+.DM
+	db:
+.DE
+.PP
+when it is ready to receive a command.
+To change its prompt, use the \fB\-p\fR option, described above.
+A command usually consists of an
+.IR address ,
+which tells
+.B db
+where in the program to execute the command; and then
+the command name and its options, if any.
+.PP
+An address is represented by an
+.IR expression ,
+which can be built out of one or more of the following elements:
+.IP \(bu 0.3i
+The `.', which represents the current address.
+When you enter an address,
+.B db
+sets the current address to that location.
+To advance the current address, type the
+.B <Enter>
+key.
+.IP \(bu
+The name of a register.
+.B db
+recognizes the names of all registers on the 80386 microprocessor
+and the 80387 numeric co-processor.
+You can preceed a register name with a `%', but this is not required.
+If your program contains function
+.BR eax() ,
+the identifier
+.B eax
+identifies the function
+and
+.B %eax
+the register.
+If your program does not define
+.BR eax ,
+then either
+.B eax
+or
+.B %eax
+means the register.
+For example, the commands
+.DM
+	sin:b
+	:e
+	:s
+	%st0?N
+.DE
+.IP
+sets a breakpoint at routine
+.BR sin() ,
+executes to it,
+single steps into it,
+and then prints the contents of the NDP stacktop
+.BR %st0 ,
+which one step into
+.B sin()
+contains the argument.
+.IP
+Typing the name of a register displays its contents.
+.B db
+displays register contents and stack traceback in hexadecimal values,
+regardless of the current default radix.
+.IP \(bu
+The symbols
+\fBd\fR, \fBi\fR, and \fBu\fR, which represent
+location 0 in, respectively, the data space,
+the instruction space, and the u-area.
+.IP \(bu
+The names of
+global symbols and symbolic addresses can be used in place of the
+addresses where they occur.
+This is useful when
+setting a breakpoint at the beginning of a subroutine.
+.IP \(bu
+An integer constant, which can be used in the same manner as a global symbol.
+The default is hexadecimal;
+a leading
+.B 0
+indicates octal and
+.B 0x
+indicates hexadecimal.
+.IP \(bu
+You can use the following binary operators:
+.DS
+	\fB+\fR	Addition
+	\fB-\fR	Subtraction
+	\fB*\fR	Multiplication
+	\fB/\fR	Integer division
+.DE
+.IP
+All arithmetic is done in
+.BR long s.
+.IP \(bu
+You can use the following unary operators:
+.DS
+	\fB~\fR	Complementation
+	\fB-\fR	Negation
+	\fB*\fR	Indirection
+.DE
+.IP
+All operators are supported with their normal level of precedence.
+You can use parentheses `()' for binding.
+.PP
+Every symbol refers to a segment:
+the data segment, the instruction segment, or the u-area.
+This segment, in turn, dictates the format in which
+.B db
+displays by default what it finds at that address.
+The format used by an expression is that of its leftmost operand.
+The symbols
+\fBd\fR, \fBi\fR, and \fBu\fR
+name specific segments in the absence of other symbols.
+.SH "Displaying Information"
+To display information about
+.IR program ,
+use an expression of the form
+.DS
+	\fB[\fIaddress\^\fB][,\fIcount\^\fB]?[\fIformat\^\fB]\fR
+.DE
+.PP
+This displays
+.I format
+for
+.I count
+iterations, starting at
+.IR address .
+The symbol `.' represents the
+.IR address ,
+which defaults to the current display address if omitted.
+.I count
+defaults to one.
+The
+.I format
+string
+consists of one or more of the following characters:
+.DS
+	^	Reset display address to `.'
+	+	Increment display address
+	-	Decrement display address
+	\fBb\fP	Byte
+	\fBc\fP	\fBchar\fR; control and non-\fBchar\fRs escaped
+	\fBC\fP	Like `c' except `\e0' not displayed
+	\fBd\fP	Decimal
+	\fBf\fP	\fBfloat\fR
+	\fBF\fP	\fBdouble\fR
+	\fBi\fP	Machine instruction, disassembled
+	\fBl\fP	\fBlong\fR
+	\fBn\fP	Output `\en'
+	\fBN\fR	NDP (80387) register
+	\fBO\fP	octal
+	\fBp\fP	Symbolic address
+	\fBs\fP	String terminated by `\e0', with escapes
+	\fBS\fP	String terminated by `\e0', no escapes
+	\fBu\fP	\fBunsigned\fR
+	\fBw\fP	word
+	\fBx\fP	Hexadecimal
+	\fBY\fP	time (as in i-node, etc.)
+.DE
+.PP
+The format characters
+.BR d ,
+.BR o ,
+.BR u ,
+and
+.BR x ,
+specify a numeric base.
+Each of these can be followed by
+.BR b ,
+.BR l ,
+or
+.BR w ,
+which specify a datum size, to describe a single datum for display.
+A format item may also be preceded by a count
+that specifies how many times the item is to be applied.
+.I format
+defaults to the previously set format for the segment (initially
+.B o
+for data and u-area, and
+.B i
+for instructions).
+Except where otherwise noted,
+.B db
+increments the display address
+by the size of the datum displayed after each format item.
+.SH "Execution Commands"
+In the following commands,
+.I address
+defaults to the address where execution stopped, unless otherwise specified;
+.I count
+and
+.I expr
+default to one.
+.I commands
+is an arbitrary string of
+.B db
+commands, terminated by a newline.
+A newline may be included by preceding it with a backslash `\e'.
+.IP "\fB[\fIaddress\^\fB]=\fR"
+Print
+.I address
+(offset) in hexadecimal.
+.I address
+defaults to `.'.
+.IP "\fB[\fIaddress\^\fB]=\fIvalue\^\fB[,\fIvalue\^\fB[,\fIvalue\^\fB]...]\fR"
+Patch
+.I value
+into the program, beginning at point
+.IR address .
+The address
+defaults to `.'.
+You can list up to ten
+.IR value s.
+The command
+.B =
+assigns values to sequential locations in the
+traced process.
+.II "db^setting registers"
+.B db
+determines the size of the assigned value
+from the last display format used.
+You can set and display the registers of the traced process,
+just like any other address in the traced process.
+.IP \fB?\fR
+Print the last error message.
+.IP \fB[\fIaddress\^\fB][,\fIn\^\fB]?[\fIft\^\fB]\fR
+Display formatted information.
+.I ft
+indicates the format, which must be one of
+.BR bcCdfFilnNopsSuvwxY .
+For details, see the command
+.BR :hf ,
+below
+.IP \fIaddress\fB?\fR
+Print
+.IR address .
+.IP \fB!\fIcommand\fR
+Pass
+.I command
+to a shell for execution.
+.IP "\fB[\fIaddress\^\fB] :a\fR"
+Print
+.I address
+symbolically.
+.I address
+defaults to `.'.
+.IP "\fB[\fIaddress\^\fB]:b[\fIcommands\^\fB]\fR"
+Set a breakpoint at
+.IR address .
+Execute
+.I commands
+when the breakpoint is encountered.
+.I commands
+defaults to \fBi+.:a\eni+.?i\en:x\en\fR \(em
+that is, print the breakpoint address, disassemble the instruction at the
+breakpoint address, and read more commands from the console.
+.IP "\fB:br [\fIcommands\^\fB]\fR"
+Set breakpoint at return from current routine, and execute
+.IR commands .
+The default
+.I commands
+are the same as for \fB:b\fR, above.
+.IP "\fB[\fIaddress\^\fB] :c\fR"
+Continue execution from
+.IR address .
+.IP "\fB[\fIaddress\^\fB] :d[r][s]\fR"
+Delete the breakpoint previously set at
+.IR address .
+If the optional
+.B r
+or
+.B s
+is specified, delete return or single-step breakpoint.
+.I address
+defaults to `.'.
+.IP "\fB[\fIaddress\^\fB]:e[\fIcommandline\^\fB]\fR"
+Begin traced execution of the object file at
+.I address
+(default, entry point).
+.B db
+parses
+.I commandline
+and passes it to the traced process.
+.B argv[0]
+must be typed directly after
+.B :e
+if supplied.
+For example,
+.DM
+	:eprogname foo bar baz
+.DE
+.IP
+sets
+.B argv[0]
+to
+.BR progname , 
+.B argv[1]
+to
+.BR foo ,
+.B argv[2]
+to
+.BR bar ,
+and
+.B argv[3]
+to
+.BR baz .
+Quotation marks, apostrophes, and redirection are parsed as by the shell,
+but special characters `?*[]' and shell punctuation `(){}|;' are not.
+For complete shell command line parsing use the
+.B \-e
+option, above.
+.IP
+Note that you must use the
+.B :e
+command to start the program execution prior to using the
+single-step, trace-back, or display-register commands.
+For example, the following \*(CO command sequence sets a breakpoint at
+\fBmain()\fR, begins execution, and single-steps ten times through
+the program after having reached the breakpoint:
+.DM
+	main:b
+	:e
+	,10:s
+.DE
+.IP \fB:f\fR
+Print type of fault that caused a core dump or stopped the traced process.
+.IP \fB:h\fR
+Print help information.
+.IP \fB:hf\fR
+Print help information about display formats.
+.B db
+recognizes the following display formats:
+.RS
+.IP \fBb\fR
+Byte.
+.IS \fBc\fR
+.BR char ;
+control, and non-\fBchar\fRs printed as escape sequences.
+.IS \fBC\fR
+.BR char ;
+control and non-\fBchar\fRs print as `.'.
+.IS \fBd\fR
+Decimal.
+.IS \fBf\fR
+.BR float .
+.IS \fBF\fR
+.BR double .
+.IS \fBi\fR
+Disassembled machine instruction.
+.IS \fBl\fR
+.BR long .
+.IS \fBn\fR
+Output `\en'.
+.IS \fBN\fR
+NDP (80387) floating-point register (ten bytes).
+.IS \fBo\fR
+Octal.
+.IS \fBp\fR
+Symbolic address.
+.IS \fBs\fR
+String (NUL-terminated) with escape sequences.
+.IS \fBS\fR
+String (NUL-terminated).
+.IS \fBu\fR
+.BR unsigned .
+.IS \fBv\fR
+File system l3-block address (three bytes).
+.IS \fBw\fR
+Word.
+.IS \fBx\fR
+Hexadecimal.
+.IS \fBY\fR
+Time.
+.RE
+.IP
+Options
+.BR d ,
+.BR o ,
+.BR u ,
+and
+.B x
+specify numeric bases (decimal, octal, unsigned decimal, hexadecimal).
+Each may be followed by
+.BR b ,
+.BR w ,
+or
+.B l
+to indicate a datum size (respectively, byte, word, or long).
+.IP \fB:m\fR
+Display segmentation map.
+.IP \fB:p\fR
+Display all breakpoints.
+.IP "\fB[\fIexpr\^\fB] :q\fR"
+If
+.I expr
+is nonzero, quit the current level of command input (see
+.BR :x ).
+.I expr
+defaults to one.
+End-of-file is equivalent to
+.BR :q .
+.IP \fB:r\fR
+Display the contents of all registers on the microprocessor.
+.IP \fB:rN\fR
+Display the contents of all registers on the microprocessor and
+on the numeric co-processor.
+If your system does not possess a numeric co-processor, it displays the
+contents of the pseudo-registers used by \*(CO's emulator.
+.IP "\fB[\fIaddress\^\fB][,\fIcount\^\fB]:s[c][\fIcommands\^\fB]\fR"
+Single-step execution starting at
+.IR address ,
+for
+.I count
+steps, executing
+.I commands
+at each step.
+.I commands
+defaults to
+\fBi+.?i\fR.
+.IP
+After a single-step command,
+\fB<Enter>\fR is equivalent to \fB.,1:s[c]\fR.
+The option
+.B c
+tells
+.B db
+to turn off single-stepping at a subroutine call
+and turn it on again upon return.
+.IP "\fB[\fIdepth\^\fB] :t\fR"
+Print a call traceback to
+.I depth
+levels.
+If
+.I depth
+is zero (default), unwind the whole stack.
+.IP "\fB[\fIexpr\^\fB] :x\fR"
+If
+.I expr
+is nonzero, read and execute commands from the standard input
+up to end of file or to receiving the command
+.BR :q .
+.I expr
+defaults to one.
+.PP
+Note that the
+.BR :c ,
+.BR :s ,
+.BR :t ,
+and
+.B :r
+commands cannot be executed before a program is started.
+If you are debugging the program
+.BR hello ,
+do the following first:
+.DM
+	db hello
+	main:b
+	:e
+.DE
+.PP
+This invokes the debugger for
+.B hello
+and advances it to
+.BR main .
+Now you can use the full set of commands.
+.SH Examples
+The first example uses
+.B db
+to examine a program named
+.BR myprog ,
+which has core-dumped.
+To debug it, use the command
+.DM
+	db myprog core
+.DE
+.PP
+You could then issue the following commands to see where the problem lay:
+.IP \fB:f\fR 0.3i
+This command displays the fault that caused the core dump.
+.IP \fB:r\fR
+This displays the contents of registers at the point where the program
+core dumped.
+.IP \fB:t\fR
+This command traces back the stack.
+With this command, you can see how your program arrived at the point where
+it core dumped.
+You can use this to find the point in your code where the program
+``jumps the rails''; often, this is all the information you need to
+fix the fault.
+.IP \fBi1?\fR
+This prints the value of global variable
+.B i1
+in your program at the time of the core dump.
+.IP \fB:q\fR
+Quit
+.BR db .
+At this point, you should have a good idea of what went wrong with your
+program.
+.PP
+For another example, consider the following program, named
+.BR segv.c :
+.DM
+	main()
+	{
+		register char *cp;
+.sp \n(pDu
+		cp = &main;
+		*cp = 1000;
+	}
+.DE
+.PP
+Compile this program with the command
+.BR "cc segv.c" .
+To run it, type
+.BR segv ;
+as you can see, it crashes with a segmentation violation,
+producing a core-dump file named
+.BR core .
+Now, you can use
+.B db
+to find out why the program core dumped.
+.PP
+To invoke the debugger, type:
+.DM
+	db segv core
+.DE
+.PP
+Now, type the
+.B db
+command:
+.DM
+	:f
+.DE
+.PP
+This tells
+.B db
+to print the type of fault that caused the program to dump core.
+.B db
+replies:
+.DM
+	segmentation violation
+.DE
+.PP
+Now, type:
+.DM
+	*%eip?
+.DE
+.PP
+.B db
+replies:
+.DM
+	000000E9	 movb	(%ebx), $0xE8
+.DE
+.PP
+Here,
+.B db
+gives you the value of the instruction pointer register
+.B %eip
+when the segmentation violation occurred and disassembles
+the instruction at that location.
+The offending instruction is trying to store indirectly through register
+.BR %ebx .
+Type:
+.DM
+	:t
+.DE
+.PP
+.B db
+prints a traceback of the call stack:
+.DM
+	7FFFFD24  000000E9  main(1, 0x7FFFFD38, 0x7FFFFD40)
+.DE
+.PP
+This shows the program was in
+.B main()
+and not in any other function.
+Type:
+.DM
+	:r
+.DE
+.PP
+.B db
+prints contents of the machine registers:
+.DM
+	%cs =000B       %eip=000000E9   %ss =0013       %fw =00011246
+	%ds =0013       %es =0013       %fs =0000       %gs =0000
+	%eax=00000001   %ebx=000000D4   %ecx=00000013   %edx=7FFFFD40
+	%esp=7FFFFD1C   %ebp=7FFFFD24   %edi=004090F4   %esi=00400D24
+.DE
+.PP
+This shows that register
+.B %ebx
+has the value 0xD4 at the time of the core dump.
+Print the contents of
+.B %ebx
+symbolically:
+.DM
+	%ebx?p
+.DE
+.PP
+.B db
+replies:
+.DM
+	00000020	 main
+.DE
+.PP
+The program is trying to store into the address of
+.BR main .
+This causes a segmentation violation because \*(CO does not allow
+programs to write on code.
+Finally, type
+.DM
+	:q
+.DE
+.PP
+to exit from
+.BR db .
+.PP
+In the last example,
+suppose you want to print the current address, the instruction at the
+current address, and the contents of global variable
+.B j
+when you hit function
+.B fn
+while running
+.BR db .
+Type:
+.DM
+	db cmd
+	main:b
+	:e
+	fn:b.:a\e
+	.?i\e
+	j?\e
+	:x
+.DE
+.PP
+The backslash `\e' at the end of a line ``escapes'' a newline \(em that is,
+it tells
+.B db
+to ignore the newline, and concatenate the contents of the next line onto
+those of the present line.
+Thus, the
+.B fn
+command line (four physical lines with escaped newlines)
+forms a single
+.B db
+command that says the following:
+.IP \fB.:a\fR 0.3i
+Print the current
+.\" PC
+position as an address.
+.IS \fB.?i\fR
+Print the contents of the current
+.\" PC
+position as an instruction.
+.IS \fBj?\fR
+print the contents of
+.BR j .
+.IS \fB:x\fR
+Read more
+.B db
+input from the console.
+.PP
+The
+.B :x
+is necessary if you want to keep debugging interactively
+after
+.B db
+executes the breakpoint command list!
+.SH "See Also"
+.Xr "commands," commands
+.Xr "coff.h," coff.h
+.Xr "core," core
+.Xr "l.out.h," l.out.h
+.Xr "od," od
+.Xr "ptrace()" ptrace

@@ -1,0 +1,87 @@
+ppttyy -- Device Driver
+
+Device driver for pseudoterminals
+
+The COHERENT device driver ppttyy lets  your system support up to 128 pairs of
+pseudoterminals.   A  _p_s_e_u_d_o_t_e_r_m_i_n_a_l  is  a  means  of  letting  a  process
+masquerade as a terminal.  for example, a windowing terminal describes each
+window as  a pseudoterminal; text written to  the pseudoterminal appears in
+the window that ``owns'' that pseudoterminal.
+
+Each pseudoterminal  consists of a pair  of devices: a master  device and a
+slave device.   The purpose of these  pairs is to allow  COHERENT to insert
+line-discipline  processing into  a  chain of  processes  whose inputs  and
+outputs  are  interconnected.  _L_i_n_e-_d_i_s_c_i_p_l_i_n_e  processing  refers to  such
+tasks  as   handling  backspacing,  watching  out   for  special  interrupt
+characters  (such as  <ccttrrll-CC>), and  converting line-feed  characters into
+carriage-return--line-feed character pairs.   Here is a picture of the flow
+of data:
+
+    app     master          line    slave   app
+    using   pty     shunt   disc.   pty     using
+    master  device          module  device  slave
+                \....................../
+                        pty driver
+
+Within  the driver,  input to  the  master device  becomes output  from the
+slave,  and vice  versa.  Typically,  the  slave device  is connected  to a
+process that expects input from a  keyboard device -- the command shells sshh
+and kksshh are examples of such  processes.  The master device is connected to
+a  process  that  handles  raw  data,  such  as  ``script''-type  utilities
+(programs that  transcribe both  sides of  a login session  to a  file) and
+multisession or windowing managers.
+
+Only one process  at a time can open a  master device; the device is opened
+as soon as requested.  Several processes  can open a slave device, but will
+block until the matching master device has been open.  When blocked in this
+way, the slave is said to be ``waiting for pseudocarrier.''
+
+An attempt to read a master  device when no input is available, or to write
+to a  master device when  the slave cannot  accept data, will  block unless
+nonblocking I/O  has been specifically requested; in  this case, the system
+calls rreeaadd() or wwrriittee() fail and eerrrrnnoo is set to EAGAIN.
+
+The system  call iiooccttll() may be  used on slave devices  with all valid line
+discipline  commands,  including  TTCCGGEETTAA,  TTCCSSEETTAA,  TTCCSSEETTAAWW,  TTCCSSEETTAAFF,  and
+TTCCFFLLSSHH. There are no valid iiooccttll() commands for master devices.
+
+The system call  ppoollll() is allowed with both master  and slave ppttyy devices.
+However priority polls (PPOOLLLLPPRRII) are not supported.
+
+Master  devices  are  named  /ddeevv/ppttyy[pp-ww][00-ff]. Corresponding  slaves  are
+/ddeevv/ttttyy[pp-ww][00-ff]. Like  any other device, each ppttyy has  a major and minor
+number.   The   major  number  is  9  (PPTTYY_MMAAJJOORR   in  system  header  file
+<ssyyss/ddeevviicceess.hh>). For  slave devices, minor numbers  are assigned according
+to the following scheme:
+
+               _d_e_v_i_c_e   _M_a_j_o_r _n_u_m_b_e_r   _M_i_n_o_r _n_u_m_b_e_r
+               /dev/ttyp0     9              0
+               /dev/ttyp1     9              1
+               ...
+
+               /dev/ttyp9     9              9
+               /dev/ttypa     9             10
+               /dev/ttypb     9             11
+               ...
+
+               /dev/ttypf     9             15
+               /dev/ttyq0     9             16
+               ...
+
+               /dev/ttyw0     9             112
+               ...
+
+               /dev/ttywf     9             127
+
+For master devices, use ppttyy instead  of ttttyy in the device name, and add 128
+to the minor number.
+
+The kernel  variable NNUUPPTTYY sets the  number of ppttyy pairs  that may be used.
+The  default   is  eight.    If  you  want   more  than  this,   edit  file
+/eettcc/ccoonnff/mmttuunnee and change variable  NNUUPPTTYY_SSPPEECC to the value that you want.
+Then  use the  command  /eettcc/ccoonnff/bbiinn/iiddmmkkccoohh to  build a  new kernel  that
+incorporates  this change;  when the  new  kernel is  built, boot  it.  For
+details, see the Lexicon entry for the command iiddmmkkccoohh.
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss

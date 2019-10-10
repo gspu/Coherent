@@ -1,0 +1,327 @@
+. /usr/lib/shell_lib.sh
+
+OTHER_GROUP=bin
+OTHER_USER=bin
+
+#
+# Create (empty) mailboxes for some of the unusual accounts.
+#
+
+for i in root; do
+	>> /usr/spool/mail/$i
+	chmog 600 $i user /usr/spool/mail/$i
+done
+
+
+#
+# Convert /etc/passwd file for shadowing by replacing passwords with "*".
+#
+
+2>/dev/null >/etc/passwd.new || {
+	echo "Cannot open temporary output"
+	exit 1
+}
+
+echo "Converting your existing password file for use with Coherent 4.2"
+
+[ -f /etc/shadow ] || {
+	cp /etc/passwd /etc/shadow
+	chmod 600 /etc/shadow
+}
+
+exec 3<&0 4>&1 </etc/passwd >/etc/passwd.new 
+
+split_parts () {
+	for i; do
+		eval $i=\${LINE%:\${LINE#*:}}
+		LINE=${LINE#*:}
+	done
+}
+
+DIALUP_PASSWD=
+
+while read LINE ; do
+	split_parts USER PASSWD UID GID FULLNAME HOME SHELL
+	case $USER in
+	'')	break
+		;;
+
+	remacc)	DIALUP_PASSWD=$PASSWD	# The remacc account is history
+		continue
+		;;
+
+	*)	;;
+	esac
+	echo "$USER:*:$UID:$GID:$FULLNAME:$HOME:$SHELL"
+done
+
+exec <&3 >&4 3<&- 4<&-
+
+mv /etc/passwd.new /etc/passwd
+chmod 644 /etc/passwd
+
+#
+# If there is not an existing /etc/default/login, make one interactively
+#
+
+REQUIRE_PASSWORD=NO
+
+while ! [ -f /etc/default/login ];  do
+	#
+	# We must be able to get timezone information at this point
+	#
+
+	while ! [ -f /etc/timezone ]; do
+		/etc/setdate
+	done
+
+	. /etc/timezone
+
+	cat <<EOF
+Your COHERENT system initially allows logins by users "root" (superuser) and
+"bin" (system administrator). In addition, the password file contains special
+entries for accounts such as "daemon" (the spooler), "sys" (to access system
+information), and "uucp" (for communication with other COHERENT systems).
+
+If your system has multiple users or allows remote logins, you should require
+a password for all accounts.
+EOF
+
+	read_input "Do you wish to require accounts to have passwords" \
+		REQUIRE_PASSWORD "n" require_yes_or_no
+	if is_yes $REQUIRE_PASSWORD; then
+		REQUIRE_PASSWORD="YES"
+	else
+		REQUIRE_PASSWORD="NO"
+	fi
+
+	cat <<EOF >/etc/default/login
+# login(4) control file.
+#
+# The total elapsed time in seconds before login terminates and returns
+# control to the 'getty' process. The user is allowed five attempts within
+# this time to enter a valid login and password sequence. The default is
+# 120 seconds.
+#
+# TIMEOUT=120
+
+#
+# The maximum size of file that the user is allowed to create, in units of
+# 512-byte blocks. There is no default.
+#
+# ULIMIT=
+
+#
+# The current time zone. The default is EST5EDT.
+
+TIMEZONE=${TZ}
+
+#
+# Defines the computer clock tick frequency in Hertz. No default value is
+# provided.
+
+HZ=100
+
+#
+# Sets the allowable terminal devices for a superuser login. If this parameter
+# is not specified, the superuser may login from any terminal. If multiple
+# devices are permitted, they must be separated by a colon. A wild-card match
+# character of '?' is permitted for the device names, for instance /dev/tty??.
+#
+# CONSOLE=/dev/console:/dev/color?:/dev/mono?
+
+#
+# May be set to YES to force all users to have passwords or may be set to NO
+# if accounts without passwords are permitted. The default value is YES
+
+PASSREQ=${REQUIRE_PASSWORD}
+
+#
+# May be set to YES if the login shell's name is to be recorded in the
+# environment, or NO if it is not to be recorded in the environment. The
+# default value is YES.
+#
+# ALTSHELL=YES
+
+#
+# This may be set to the default user path for all shells. If this is not
+# provided, the default path is set to /bin:/usr/bin.
+#
+# PATH=/bin:/usr/bin
+
+#
+# This may be set to the default path for superuser logins. If this is not
+# provided, the default superuser path is /bin:/etc:/usr/bin
+#
+# SUPATH=/bin:/etc:/usr/bin
+
+#
+# This may be set to the desired default value for the user file mode creation
+# mask. No default value is provided
+#
+# UMASK=0
+
+#
+# This may be set to the number of weeks of inactivity allowed before a login
+# is disabled for lack of use. By default, no limit is enforced.
+#
+# IDLEWEEKS=
+
+#
+# This is a Coherent-only option that gives a command line to be executed when
+# login initially creates a \$HOME/.lastlogin file. Since this is normally
+# a user's first login, this can be used to execute appropriate welcome or
+# registration programs.
+
+NEWUSER=exec /etc/default/welcome
+
+EOF
+	chmog 644 root root /etc/default/login
+done
+
+#
+# If there is no /etc/default/welcome, create one.
+#
+
+[ -f /etc/default/welcome ] || {
+	cat <<EOF >/etc/default/welcome
+cat <<END
+Welcome to the system, \$USER. Since this is your first login, here are some
+quick hints; if you have mail, you can read it simply by typing "mail". To
+get quick help on a command, use 'help <command>', or use 'man <command>' to
+get detailed instructions.
+END
+EOF
+	chmog 555 $OTHER_USER $OTHER_GROUP /etc/default/welcome
+}
+
+
+#
+# If there is no /etc/dialups file, create one.
+#
+
+[ -f /etc/dialups ] || {
+	cat <<EOF >/etc/dialups
+/dev/tty??
+/dev/com?r
+/dev/com?fr
+EOF
+	chmog 644 $OTHER_USER $OTHER_GROUP /etc/dialups
+}
+
+
+#
+# If there is no /etc/d_passwd file, create one; if there used to be a
+# "remacc" password in the old /etc/password file, make it the default
+# remote password here.
+#
+
+[ -f /etc/d_passwd ] || {
+	cat <<EOF >/etc/d_passwd
+:${DIALUP_PASSWD}:Default dialup password
+/usr/lib/uucp/uucico:${DIALUP_PASSWD}:Dialup password for UUCP
+/bin/sh:${DIALUP_PASSWD}:Normal dialup extra password
+/usr/bin/ksh:${DIALUP_PASSWD}:Normal dialup extra password
+/usr/bin/vsh:${DIALUP_PASSWD}:Normal dialup extra password
+EOF
+	chmog 644 $OTHER_USER $OTHER_GROUP /etc/d_passwd
+}
+
+
+#
+# If there is not /etc/usrtime file, create one.
+#
+
+[ -f /etc/usrtime ] || {
+	cat <<EOF >/etc/usrtime
+# <user names>:<enable>:<ttys>:<weekday>:<time>:<comment>
+#
+# <user names> is a comma-separated list of user names, or one of the special
+# user names ALL, INTERACTIVE, SLIP and UUCP. If the user field is empty, the
+# line becomes a default for users not specifically mentioned further down in
+# the file.
+#
+# <enable> can be empty (implying logins are permitted), LOGIN, NOLOGIN, or a
+# date range in the form yyyymmdd-yyymmdd, possibly negated with a "!".
+#
+# <ttys> is a comma-separated list of permitted devices the user may access.
+# The wildcard character '?' is permitted in tty names; if the list begins
+# with a "!", logins on the listed devices are prohibited.
+#
+# <weekday> can be blank (implying no restrictions), or a comma-separated list
+# of weekdays when logins are permitted. If the list begins with a "!", then
+# logins on the indicated days are prohibited.
+#
+# <time> can be blank (implying no restrictions), or a comma-separated list of
+# time ranges when the user is permitted to log in, in the form hhmm-hhmm. If
+# the time list begins with a "!", logins in the indicated times are
+# prohibited.
+#
+# <comment> is abitrary text for the convenience of the system administrator.
+#
+sys,bin:::::These accounts should always be allowed logins
+xmail,daemon:NOLOGIN::::This accounts should never be allowed logins
+EOF
+	chmog 400 root root /etc/usrtime
+}
+
+
+#
+# Ask about setting up passwords if this is not an update
+#
+
+is_yes "$UPDATE_FLAG" || {
+	DEF='n'
+	is_yes $REQUIRE_PASSWORDS && DEF='y'
+
+	cat <<EOF
+If you enter a password for an account, you will be required to enter it twice
+in order to be sure that you typed it correctly, since passwords are never
+printed to the screen when they are being entered.
+
+If you change your mind, you can change the setting of an password later with
+the 'passwd' utility. Note that if you set a password for the super-user
+'root' (and it is generally a good idea to do so), then you must take great
+care NEVER to lose or forget the password, otherwise you will be locked out
+from your own computer.
+EOF
+
+	while : ; do
+		read_input "Do you want to set a password for user \"root\"" \
+			YES_NO $DEF require_yes_or_no || continue
+		is_yes $YES_NO && passwd root
+
+		read_input "Do you want to set a password for user \"bin\"" \
+			YES_NO $DEF require_yes_or_no || continue
+		is_yes $YES_NO && passwd bin
+
+		read_input "Do you want to set a password for user \"uucp\"" \
+			YES_NO $DEF require_yes_or_no || continue
+		is_yes $YES_NO && passwd uucp
+
+		break
+	done
+
+	[ -c /dev/modem ] && {
+		cat <<EOF
+You should consider setting up a password for remote users dialing into your
+system. In order to do this, you should consult the documentation for "login"
+to see how to configure the "/etc/d_passwd" and /etc/dialup" files.
+EOF
+	}
+}
+
+
+#
+# Ask about creating additional accounts.
+#
+
+cat <<EOF
+If you want, you can create additional logins on your system now, or you
+can simply press <enter> to indicate that you don't wish to create any
+additional user accounts.
+
+EOF
+
+/etc/newusr
+

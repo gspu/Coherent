@@ -1,0 +1,567 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4;
+comment  @ * @;
+
+
+1.4
+date     93.05.10.12.58.55;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     90.05.10.18.53.38;  author root;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.12.22.31.50;  author root;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.12.22.31.09;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial RCS revision.
+@
+
+
+1.4
+log
+@michael: added -p option, same function as '-r'
+@
+text
+@/*
+ * mkdir.c
+ * 5/10/90
+ * Usage: mkdir [ -rp ] dir ...
+ * Make directories.
+ *
+ * Changes by michael 5/10/93
+ *      implemented -p option
+ *
+ * Changes by steve 5/10/90:
+ *	in getchild(), bumped strncpy count by 1 to return NUL-terminated result
+ *	in getparent(), hacked bogus "ending slash" code so that e.g.
+ *		getparent("/foo") returns "/" rather than ""
+ *
+ * Changes by steve 4/12/90:
+ *	corrected fatal() call
+ *	added success return status to mkdir()
+ *	improved return status of getchild()
+ *	implemented -r option
+ */
+
+#include	<sys/dir.h>
+#include	<sys/ino.h>
+#include	<signal.h>
+#include	<stdio.h>
+#include	<errno.h>
+
+
+#define	equal(s1, s2)	(strcmp(s1, s2) == 0)
+
+int	interrupted;
+int	rflag;
+
+char	*getparent(),
+	*getchild(),
+	*concat(),
+	*malloc(),
+	*strcat(),
+	*strcpy(),
+	*strncpy();
+
+/*
+ * main
+ * Interrupts are handled to prevent the formation of mangled directories.
+ */
+main(argc, argv)
+register char	**argv;
+{
+	register int status = 0;
+
+	catch(SIGINT);
+	catch(SIGHUP);
+	signal(SIGQUIT, SIG_IGN);
+
+	if (argc > 1 && argv[1][0] == '-' &&
+			(argv[1][1] == 'r' || argv[1][1] == 'p')) {
+		++rflag;
+		--argc;
+		++argv;
+	}
+	if (*++argv == NULL) {
+		fprintf(stderr, "Usage: mkdir [-rp] dir ...\n");
+		exit(1);
+	} else
+		while (*argv) {
+			if (mkdir(*argv++) < 0)
+			 	status = 1;		/* error */
+			if (interrupted)
+				exit(1);
+		}
+	exit(status);
+}
+
+/*
+ * Make a directory.
+ * If the parent exists and is writeable, the directory and its "." and
+ * ".." links are created.
+ */
+int
+mkdir(dir)
+register char	*dir;
+{
+	register char	*parent,
+			*child;
+
+	if ((child = getchild(dir)) == NULL) {
+		error("cannot get child name %s", dir);
+		return -1;
+	} else if (equal(child, ".") || equal(child, "..")) {
+		error("%s not allowed", dir);
+		return -1;
+	}
+	if ((parent = getparent(dir)) == NULL)
+		return -1;
+	if (access(parent, 03)) {
+		if (rflag && errno == ENOENT) {
+			/* Make parent recursively. */
+			if (mkdir(parent) != 0) {
+				free(parent);
+				return -1;
+			}
+		} else {
+			switch (errno) {
+			case ENOENT:
+				error("parent directory %s does not exist", parent);
+				break;
+			case EACCES:
+				error("no permission to mkdir in %s", parent);
+				break;
+			default:
+				noway(dir);
+				break;
+			}
+			free(parent);
+			return -1;
+		}
+	}
+	if (mknod(dir, IFDIR|0777, 0)) {
+		switch (errno) {
+		case EEXIST:
+			error("%s already exists", dir);
+			break;
+		case EPERM:
+			error("not the super-user");
+			break;
+		default:
+			noway(dir);
+			break;
+		}
+		free(parent);
+		return -1;
+	} else if (link(dir, concat(dir, "/."))) {
+		linkerr(dir, ".");
+		free(parent);
+		return -1;
+	} else if (link(parent, concat(dir, "/.."))) {
+		linkerr(dir, "..");
+		free(parent);
+		return -1;
+	}
+	free(parent);
+	return (chown(dir, getuid(), getgid()) < 0) ? -1 : 0;
+}
+
+
+/*
+ * Return name of parent in an allocated buffer.
+ */
+char	*
+getparent(dir)
+char	*dir;
+{
+	register	i;
+	register char	*p;
+	char		*par;
+	int 		tmp;
+
+	i = strlen(dir);
+	par = malloc(i+1);
+	if (par == NULL) {
+		nomemory();
+		return NULL;
+	}
+	strcpy(par, dir);
+
+	for (p=par+i; p>par; )
+		if (*--p != '/')
+			break;
+	for (++p; *--p!='/'; )
+		if (p == par) {
+			*p = '.';
+			break;
+		}
+	*++p = 0;
+	tmp = strlen(par) - 1;
+	if (tmp > 0 && par[tmp] == '/')
+		par[tmp] = 0;			/* kill any ending slash */
+	return par;
+}
+
+/*
+ * Return rightmost component of pathname
+ * in a statically allocated buffer.
+ */
+char	*
+getchild(dir)
+register char	*dir;
+{
+	register char	*p,
+			*q;
+	int		i;
+	static char	ch[DIRSIZ+1];
+
+	p = &dir[strlen(dir)];
+	do {
+		if (p == dir)
+			fatal("illegal directory name");
+	} while (*--p == '/');
+	q = p;
+	while (q > dir)
+		if (*--q == '/') {
+			++q;
+			break;
+		}
+	i = p+1 - q;
+	if (i > DIRSIZ)
+		i = DIRSIZ;
+	return strncpy(ch, q, i+1);
+}
+
+
+/*
+ * Return concatenation of 's1' and 's2' in a malloc'ed buffer.
+ * Free the previous buffer.
+ */
+char	*
+concat(s1, s2)
+char	*s1,
+	*s2;
+{
+	static char	*str;
+
+	if (str)
+		free(str);
+	str = malloc(strlen(s1)+strlen(s2)+1);
+	if (str == NULL) {
+		nomemory();
+		return -1;
+	}
+	strcpy(str, s1);
+	return strcat(str, s2);
+}
+
+
+/*
+ * Recover from link failure.
+ * In the event that "." or ".." cannot be created, remove all traces
+ * of the directory.
+ */
+linkerr(dir, name)
+char	*dir,
+	*name;
+{
+	unlink(concat(dir, "/."));
+	unlink(concat(dir, "/.."));
+	unlink(dir);
+	error("link to %s failed", name);
+	return -1;
+}
+
+
+nomemory()
+{
+	error("out of memory");
+	return -1;
+}
+
+
+noway(dir)
+char	*dir;
+{
+	error("cannot make %s", dir);
+	return -1;
+}
+
+
+onintr()
+{
+	signal(SIGINT, SIG_IGN);
+	signal(SIGHUP, SIG_IGN);
+	++interrupted;
+}
+
+
+catch(sig)
+{
+	if (signal(sig, SIG_IGN) == SIG_DFL)
+		signal(sig, onintr);
+}
+
+error(arg1)
+char	*arg1;
+{
+	fprintf(stderr, "mkdir: %r\n", &arg1);
+}
+
+fatal(arg1)
+char 	*arg1;
+{
+	error(arg1);
+	exit(1);
+}
+
+/* end of mkdir.c */
+@
+
+
+1.3
+log
+@steve 5/10/90
+Corrected bug producing incorrect ".." entry for e.g. "mkdir /foo".
+@
+text
+@d4 1
+a4 1
+ * Usage: mkdir [ -r ] dir ...
+d7 3
+d55 2
+a56 1
+	if (argc > 1 && argv[1][0] == '-' && argv[1][1] == 'r') {
+d62 1
+a62 1
+		fprintf(stderr, "Usage: mkdir [ -r ] dir ...\n");
+@
+
+
+1.2
+log
+@steve 4/12/90
+Implemented -r option, fixed exit status bug, improved style.
+@
+text
+@d3 1
+a3 1
+ * 4/12/90
+d7 5
+d171 2
+a172 1
+	if (par[tmp = strlen(par)-1] == '/')
+d204 1
+a204 1
+	return strncpy(ch, q, i);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@a0 2
+
+
+d2 10
+a11 1
+ * mkdir -- make directories
+d13 2
+a14 1
+#include	<dir.h>
+d21 1
+a21 1
+#define	equal( s1, s2)	(strcmp( s1, s2) == 0)
+d24 1
+d43 3
+a45 3
+	catch( SIGINT);
+	catch( SIGHUP);
+	signal( SIGQUIT, SIG_IGN);
+d47 7
+a53 2
+	if (*++argv == NULL)
+	{	fprintf(stderr, "Usage: mkdir dir ...\n");
+d55 1
+a55 2
+	}
+	else
+d57 2
+a58 2
+			if (mkdir( *argv++) < 0)
+			 	status = 1;  /* error */
+a64 1
+
+d66 1
+a66 1
+ * make a directory
+d70 2
+a71 1
+mkdir( dir)
+d77 6
+a82 3
+	if ((int) (child = getchild( dir)) < 0) {
+		error("can't get child dir name %s", dir);
+		return(-1);
+d84 26
+a109 6
+	parent = getparent( dir);
+	if (equal( child, ".") || equal( child, "..")) {
+		error("%s not allowed", dir);
+		return(-1);
+	}
+	if (access( parent, 03))
+a110 12
+		case ENOENT:
+			error("parent dir %s doesn't exist", parent);
+			return(-1);
+		case EACCES:
+			error("no permission to mkdir in %s", parent);
+			return(-1);
+		default:
+			noway( dir);
+		}
+
+	if (mknod( dir, IFDIR|0777, 0))
+		switch (errno) {
+d112 2
+a113 2
+			error("%s already exists\n", dir);
+			return(-1);
+d116 1
+a116 1
+			return(-1);
+d118 2
+a119 1
+			noway( dir);
+d121 10
+a130 3
+	if (link( dir, concat( dir, "/."))) {
+		linkerr( dir, ".");
+		return(-1);
+d132 2
+a133 6
+	if (link( parent, concat( dir, "/.."))) {
+		linkerr( dir, "..");
+		return(-1);
+	}
+	if (chown( dir, getuid( ), getgid( )) < 0)
+	   return(-1);
+d138 1
+a138 1
+ * return name of parent
+d141 1
+a141 1
+getparent( dir)
+d146 1
+a146 1
+	static char	*par;
+d149 2
+a150 4
+	if (par)
+		free( par);
+	i = strlen( dir);
+	par = malloc( i+1);
+d152 2
+a153 2
+		nomemory( );
+		return(-1);
+d155 1
+a155 1
+	strcpy( par, dir);
+d167 2
+a168 2
+	   par[tmp] = 0;  /* kill any ending slash */
+	return (par);
+a170 1
+
+d172 2
+a173 1
+ * return rightmost component of pathname
+d176 1
+a176 1
+getchild( dir)
+d184 1
+a184 1
+	p = &dir[strlen( dir)];
+d187 1
+a187 1
+			fatal( -1, "don't be silly");
+d198 1
+a198 1
+	return(strncpy( ch, q, i));
+d203 2
+a204 1
+ * return concatenation of `s1' and `s2'
+d207 1
+a207 1
+concat( s1, s2)
+d214 2
+a215 2
+		free( str);
+	str = malloc( strlen( s1)+strlen( s2)+1);
+d218 1
+a218 1
+		return(-1);
+d221 1
+a221 1
+	return(strcat( str, s2));
+d226 1
+a226 1
+ * recover from link failure
+d230 1
+a230 1
+linkerr( dir, name)
+d234 5
+a238 5
+	unlink( concat( dir, "/."));
+	unlink( concat( dir, "/.."));
+	unlink( dir);
+	error("link to '%s' failed", name);
+	return(-1);
+d245 1
+a245 1
+	return(-1);
+d252 2
+a253 2
+	error("can't make %s", dir);
+	return(-1);
+d257 1
+a257 1
+onintr( )
+d259 2
+a260 3
+
+	signal( SIGINT, SIG_IGN);
+	signal( SIGHUP, SIG_IGN);
+d265 1
+a265 1
+catch( sig)
+d267 3
+a270 4
+	if (signal( sig, SIG_IGN) == SIG_DFL)
+		signal( sig, onintr);
+}
+
+d274 1
+a274 1
+	fprintf( stderr, "mkdir: %r\n", &arg1);
+d283 2
+@

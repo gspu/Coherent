@@ -1,0 +1,246 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @# @;
+
+
+1.3
+date     92.01.16.15.53.52;  author root;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.01.13.09.03.13;  author root;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.11.14.14.41.14;  author hal;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Master script for linking 286 kernels.
+@
+
+
+1.3
+log
+@updated by hal for floppy only kernels
+@
+text
+@#
+# bld - make a complete COHERENT mwc kernel.
+#
+# $Log:	bld,v $
+# Revision 1.3  92/01/10  10:09:12  hal
+# Add "dbg" option.
+# Default to rootdev = pipedev = (0,0).
+# 
+#
+
+# Shell variables
+#	DRIVERS is the list of device drivers to be linked into the kernel.
+#	COH_TYPE is one of [ fl | at | ss | aha ] and is for information -
+#		it is the suffix on the name of the kernel produced.
+#	BOOTDEV is the device name for the COHERENT boot floppy or partition -
+#		it is passed to the "config" script.
+#	HD is the device driver name for the hard drive device driver linked
+#		into this kernel - it is one of [ aha154x | at | ss ], or
+#		may be omitted entirely for a floppy-only system.
+#	KB is one of [ kb | nkb ] - the first of these uses fixed keyboard
+#		tables and scan code set 1, and source is provided in the
+#		driver kit;  use it if you are concerned about supporting
+#		keyboards of questionable compatibility or want to work with
+#		keyboard driver source - the second of these uses loadable
+#		keyboard tables for international support, but requires
+#		full compatibility, and source code is not provided in the
+#		driver kit.
+#	DEBUG is empty for normal kernels, is "dbg" if debug versions of
+#		kernel and drivers are wanted
+
+# Default arguments -
+#   use old kb driver, at hard disk, let tboot set rootdev & pipedev
+BOOTDEV="None"
+HD=at
+COH_TYPE=at
+KB=kb
+
+if [ $USRSYS ]
+then
+if [ $USRSRC ]
+then
+if [ $KOBJ ]
+then
+if [ $LOBJ ]
+then
+DRIVERS="rm fl lp mm "
+DEBUG="NO"
+for ARG
+do
+	case $ARG in
+	at)
+#		BOOTDEV="at0a"
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	aha)
+#		BOOTDEV="sd0a"
+		HD=aha154x
+		COH_TYPE=$ARG
+		;;
+	ss)
+#		BOOTDEV="ss0a"
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	fh)
+		BOOTDEV="fha0"
+		HD=""
+		COH_TYPE=fh
+		;;
+	fv)
+		BOOTDEV="fva0"
+		HD=""
+		COH_TYPE=fv
+		;;
+	kb|nkb|kb_d|kb_f)
+		KB=$ARG
+		;;
+	dbg)
+		DEBUG="CFLAGS=-DDEBUG"
+		;;
+	*)	echo "Usage: $0 [at|ss|aha|fh|fv|kb|nkb|kb_d|kb_f|dbg]"
+		exit 0
+		;;
+	esac
+done
+DRIVERS="$KB $HD $DRIVERS"
+echo "Kernel:    /coh.$COH_TYPE"
+echo "Version:   `version ID`"
+echo "Devices:   $DRIVERS"
+echo "Default root/pipe device is $BOOTDEV."
+echo "Debug setting: $DEBUG"
+if [ $DEBUG = "NO" ]
+then
+	DEBUG=""
+fi
+export KB HD
+( cd $USRSRC/ldrv; make ld_support )			|| exit 1
+( cd $USRSRC/io; make -f Mf.mwc $DEBUG install )	|| exit 1
+( make $DEBUG kernel )					|| exit 1
+./config.mwc ibm-at $DRIVERS root=$BOOTDEV		|| exit 1
+cp coherent /tmp/coh					|| exit 1
+strip /tmp/coh						|| exit 1
+set `ls -s /tmp/coh`
+SIZE=$1
+rm /tmp/coh						|| exit 1
+echo "Coherent bootable limit is 138 blocks.  This kernel is $SIZE"
+if [ $SIZE -gt 138 ] ;then
+	echo 
+	echo Your Coherent image exceeds the bootable limit of 138 blocks
+	echo by `expr $SIZE - 138` 'block(s).'  You will need to decrease the
+	echo size of your kernel in order to make it bootable.
+	echo
+	echo We suggest removing some of the non critical drivers from the
+	echo default list of drivers linked into Coherent.  These additional
+	echo drivers may then be linked as loadable drivers using the
+	echo ldconfig script located in this directory.
+fi
+mv coherent /coh.$COH_TYPE
+chown sys /coh.$COH_TYPE
+chgrp sys /coh.$COH_TYPE
+chmod 400 /coh.$COH_TYPE
+echo "New kernel in /coh.$COH_TYPE"
+ls -l /coh.$COH_TYPE
+# the rest is error exits
+else
+echo "Error - LOBJ not defined - (e.g. /usr/lobj)"
+fi
+else
+echo "Error - KOBJ not defined - (e.g. /usr/kobj)"
+fi
+else
+echo "Error - USRSRC not defined - (e.g. /usr/src/sys)"
+fi
+else
+echo "Error - USRSYS not defined - (e.g. /usr/sys)"
+fi
+@
+
+
+1.2
+log
+@new bld srcipt by hal for building 321 kernels.
+@
+text
+@d4 5
+a8 1
+# $Log$
+d31 7
+d47 1
+a47 4
+COH_TYPE=fl
+HD=""
+DEBUG=""
+KB=kb
+d52 1
+a52 1
+		BOOTDEV="at0a"
+d57 1
+a57 1
+		BOOTDEV="sd0a"
+d62 1
+a62 1
+		BOOTDEV="ss0a"
+d66 10
+d82 1
+a82 1
+	*)	echo "Usage: $0 [at|ss|aha|fl|kb|nkb|kb_d|kb_f|dbg]"
+a86 2
+BOOTDEV=${BOOTDEV-fha0}
+BOOTDEV="None"
+d92 5
+a96 1
+echo $DEBUG
+@
+
+
+1.1
+log
+@Last version before going to 286/io/coh tree.
+@
+text
+@d2 1
+a2 1
+# Build - make a complete COHERENT kernel.
+d4 2
+d24 2
+d35 1
+a35 1
+DRIVERS="rm fl lp mm"
+a36 1
+BOOTDEV="at0a"
+d38 1
+d44 1
+a44 1
+#		BOOTDEV="at0a"
+d49 1
+a49 1
+#		BOOTDEV="sd0a"
+d54 1
+a54 1
+#		BOOTDEV="ss0a"
+d61 4
+a64 1
+	*)	echo "Usage: $0 { at | ss | aha | fl } { kb | nkb | kb_d | kb_f }"
+d69 2
+d76 1
+d79 2
+a80 2
+( cd $USRSRC/i8086/drv; make -f Mf.mwc install )	|| exit 1
+( make kernel )						|| exit 1
+@

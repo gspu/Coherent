@@ -1,0 +1,44 @@
+# /etc/brc.install Wed Sep 29 14:33:15 1993 CDT
+
+# COHERENT executes this script when it boots.
+# If the exit status is 0, it goes multiuser immediately.
+# This version invokes /etc/install
+# to complete the installation of COHERENT.
+
+# Use the following when pipedev is set to /dev/ram1:
+/etc/mkfs /dev/ram1 384
+/etc/mount /dev/ram1 /tmp.pipe
+
+# Set the date from the system clock.
+
+. /etc/timezone
+/bin/date -s `/etc/ATclock` >/dev/null
+
+# Load keyboard table, if necessary.
+
+/etc/drvld.all
+
+# Trap in case interrupted.
+
+trap 'echo; echo Aborted...; exit 1' 1 2 3
+if /etc/install -b Coh_420 /dev/fva0 5
+then
+	sync
+	/etc/coh_intro
+	echo Checking filesystems, please wait...
+	if /etc/fsck
+	then
+		echo You are now running single user COHERENT \(as root\).
+		echo Type \<Ctrl-D\> if you wish to go multiuser.
+		sync
+		exit 1
+	else
+		echo System rebooting automatically, please wait...
+		/etc/reboot
+		exit 1
+	fi
+else
+	echo The COHERENT system installation failed, please reboot and try again.
+fi
+sync
+exit 1

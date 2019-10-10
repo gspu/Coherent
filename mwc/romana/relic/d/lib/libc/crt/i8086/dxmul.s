@@ -1,0 +1,207 @@
+////////
+/
+/ Intel 8086 floating point.
+/ Double multiply.
+/ SMALL model.
+/
+////////
+
+	.globl	drmul
+	.globl	dlmul
+	.globl	_fpac_
+	.globl	dzero
+
+////////
+/
+/ drmul - double multiply (rvalue)
+/ dlmul - double multiply (lvalue)
+/
+/ compiler calling sequences:
+/	push	<right double argument>
+/	push	<left  double argument>
+/	call	drmul
+/	add	sp, $16
+/
+/	mov	ax,offset <right double argument>
+/	push	ax
+/	push	<left  double argument>
+/	call	dlmul
+/	add	sp, $10
+/
+/ outputs:
+/	_fpac_ = result.
+/
+////////
+
+l	=	8	/ left argument.
+r	=	16	/ right argument (rvalue)
+rp	=	16	/ right argument (lvalue)
+
+sign	=	-2	/ sign of result
+r0	=	-4	/ hi fraction of r arg has implicit bit
+s3	=	-6
+exp	=	-8	/ exponent of result
+
+claim	=	8
+
+drmul:	push	si
+	push	di
+	push	bp
+	mov	bp,sp
+
+	lea	si, r(bp)	/ si = pointer to right op.
+	jmp	0f
+
+dlmul:	push	si
+	push	di
+	push	bp
+	mov	bp,sp
+
+	mov	si, rp(bp)	/ si = ptr to r op
+
+0:	sub	sp, $claim
+
+	mov	ax, l+6(bp)
+	shl	ax, $1		/ ah = l exp
+	jne	0f
+retz:
+	call	dzero
+	jmp	done
+0:
+	rclb	dh, $1		/ l sign
+	mov	cx, 6(si)
+	shl	cx, $1		/ ch = r exp
+	je	retz
+
+	adcb	dh, $0		/ result sign
+	movb	sign(bp), dh
+
+	movb	al, ah
+	movb	cl, ch
+	subb	ah, ah
+	subb	ch, ch
+	add	ax, cx
+	sub	ax, $128	/ result exp
+	jng	retz
+
+	cmp	ax, $256	/ will decrease by at most 1
+	ja	retinf
+
+	mov	exp(bp), ax
+	orb	l+6(bp), $128	/ set implicit bit of l arg
+	mov	cx, 5(si)
+	orb	ch, $128	/ cx = r0 = hi word of r fraction
+	sub	bx, bx		/ bx = s2
+
+	movb	ah, l(bp)	/ compute r0 * l3
+	subb	al, al
+	mul	cx
+	mov	di, dx		/ di = s3
+
+	mov	ax, 3(si)	/ r1 * l2
+	mul	l+1(bp)
+	add	di, dx
+	adcb	bl, bh
+
+	mov	ax, 1(si)	/ r2 * l1
+	mul	l+3(bp)
+	add	di, dx
+	adcb	bl, bh
+
+	subb	al, al		/ r3 * l0
+	movb	ah, (si)
+	mul	l+5(bp)
+	add	di, dx
+	adcb	bl, bh
+
+	mov	ax, l+1(bp)	/ r0 * l2
+	mul	cx
+	mov	r0(bp), cx	/ save
+	sub	cx, cx		/ cx = s1
+	add	di, ax
+	adc	bx, dx
+	adcb	cl, ch
+
+	mov	ax, 3(si)	/ r1 * l1
+	mul	l+3(bp)
+	add	di, ax
+	adc	bx, dx
+	adcb	cl, ch
+
+	mov	ax, 1(si)	/ r2 * l0
+	mul	l+5(bp)
+	add	di, ax
+	adc	bx, dx
+	adcb	cl, ch
+
+	mov	s3(bp), di
+	sub	di, di		/ di = s0
+
+	mov	ax, r0(bp)	/ r0 * l1
+	mul	l+3(bp)
+	add	bx, ax
+	adc	cx, dx
+	adc 	di, di
+
+	mov	ax, 3(si)	/ r1 * l0
+	mul	l+5(bp)
+	add	bx, ax
+	adc	cx, dx
+	adc	di, $0
+
+	mov	ax, r0(bp)	/ r0 * l0
+	mul	l+5(bp)
+	add	cx, ax
+	adc	di, dx
+
+	js	0f		/ no adjust
+
+	sub	exp(bp), $1
+
+	shl	s3(bp), $1
+	rcl	bx, $1
+	rcl	cx, $1
+	rcl	di, $1
+0:
+	sub	ax, ax
+	sub	dx, dx
+	shlb	s3(bp), $1	/ round
+	adcb	ah, s3+1(bp)
+	adc	bx, dx
+	adc	cx, dx
+	adc	di, dx
+	adc	exp(bp), $0
+
+	movb	_fpac_, ah	/ store fraction in _fpac_
+	mov	_fpac_+1, bx	/ s2
+	mov	_fpac_+3, cx	/ s1
+
+	mov	ax, exp(bp)
+	je	retz
+	orb	ah, ah
+	jne	retinf
+
+	shl	di, $1		/ punt implicit bit
+	movb	ah, sign(bp)
+	shr	ax, $1
+	rcr	di, $1
+
+	mov	_fpac_+5, di	/ and store
+	movb	_fpac_+7, al
+done:
+	mov	sp, bp
+	pop	bp
+	pop	di
+	pop	si
+	ret
+retinf:
+	mov	ax, $-1
+	mov	_fpac_, ax
+	mov	_fpac_+2, ax
+	mov	_fpac_+4, ax
+	shr	sign(bp), $1
+	rcr	ax, $1
+	mov	_fpac_+6, ax
+	jmp	done
+
+

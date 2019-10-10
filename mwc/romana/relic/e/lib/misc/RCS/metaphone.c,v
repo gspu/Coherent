@@ -1,0 +1,232 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    ; strict;
+comment  @ * @;
+
+
+1.1
+date     92.02.28.11.15.57;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Metaphone algorithm for translating a word to
+ * a short phonetic equivalent for lookup.
+ * char * metaphone(char * word)
+ *
+ * Original algorithm by Larry Phillips
+ * Algorithim is in public domain.
+ */
+#include <ctype.h>
+
+static char vsvfn[26] = {
+     /*  A  B C  D E F G  H I J K L M N O P Q R S T U V W X Y Z */
+	 1,16,4,16,9,2,4,16,9,2,0,2,2,2,1,4,0,2,4,4,1,0,0,0,8,0
+};
+
+#define FN(x) ((c = (x)) ? vsvfn[c - 'A'] : 0)
+#define VOWEL(x)   (FN(x) &  1) /* AEIOU */
+#define SAME(x)    (FN(x) &  2) /* FJLMNR */
+#define VARSON(x)  (FN(x) &  4) /* CGPST */
+#define FRONTV(x)  (FN(x) &  8) /* EIY */
+#define NOGHF(x)   (FN(x) & 16) /* BDH */
+
+#define SAY(x)	{ *Metaph++ = (x); continue; }
+
+#define MAXMET 4	/* size of thing created */
+#define TRANS 32
+
+char *
+metaphone(word)
+unsigned char *word;
+{
+	unsigned char *n, *n_start, *n_end, c;
+	unsigned char *Metaph, *metaph_end;
+	int KSflag;	/* state flag */
+	unsigned char ntrans[TRANS + 2];
+	static unsigned char metaph[MAXMET + 1];
+
+	/* clear work areas */
+	memset(ntrans, '\0', TRANS + 2);
+	memset(metaph, '\0', MAXMET + 1);
+
+	/* Isolate word and make upper case */
+	for (n = ntrans + 1, n_end = ntrans + TRANS;
+	     (c = *word++) && n < n_end;)
+		if (isalpha(c))
+			*n++ = toupper(c);
+		else
+			break;
+
+	n_end = n;
+	n = ntrans + 1;
+	
+	/* process first character */
+	switch (*n) {
+	case 0:
+		return (n);	/* no word found */
+
+	case 'P':
+	case 'G':
+	case 'K':
+		if ('N' == n[1])
+			*n++ = '\0';
+		break;
+
+	case 'A':
+		if ('E' == n[1])
+			*n++ = '\0';
+		break;
+
+	case 'W':
+		switch (n[1]) {
+		case 'H':
+			n[1] = *n;
+			*n++ = 'E';
+			break;
+		case 'R':
+			*n++ = 0;
+		}
+		break;
+
+	case 'X':
+		*n = 'S';
+	}
+
+	/* Process rest of word  SAY does continue */
+	KSflag = 0;
+	metaph_end = (Metaph = metaph) + MAXMET;
+	n_start = n;
+	for (; Metaph < metaph_end; n++) {
+		if (KSflag) {
+			KSflag = 0;
+			SAY(*n)
+		}
+		if (n >= n_end)
+			break;
+
+		/* Drop double letters except CC */
+		if (n[-1] == *n && *n != 'C')
+			continue;
+
+		/* check for FJLMNR or first letter vowel */
+		if (SAME(*n) || ((n == n_start) && VOWEL(*n)))
+			SAY(*n)
+
+		switch (*n) {
+		case 'B':
+			if (n < n_end || n[-1] != 'M')
+				SAY(*n)
+			break;
+
+		case 'C':
+			if (n[-1] != 'S' || !FRONTV(n[1])) {
+				if (n[1] == 'I' && n[2] == 'A')
+					SAY('X')
+				if (FRONTV(n[1]))
+					SAY('S')
+				if (n[1] == 'H')
+					if ((n == n_start && !VOWEL(n[2])) ||
+					      n[-1] == 'S')
+						SAY('K')
+					else
+						SAY('X')
+				else
+					SAY('K')
+			}
+			break;
+
+		case 'D':
+			SAY((n[1] == 'G' && FRONTV(n[2])) ? 'J' : 'T')
+
+		case 'G':
+			if ((n[1] != 'H' || VOWEL(n[2])) &&
+			    (n[1] != 'N' || ((n + 1) < n_end &&
+			    (n[2] != 'E' || n[3] != 'D'))) &&
+			    (n[-1] != 'D' || !FRONTV(n[1])))
+				SAY((FRONTV(n[1]) && n[2] != 'G') ? 'J' : 'K')
+			break;
+
+		case 'H':
+			if (!VARSON(n[-1]) && (!VOWEL(n[-1]) || VOWEL(n[1])))
+				SAY('H')
+			break;
+
+		case 'K':
+			if (n[-1] != 'C')
+				SAY('K')
+			break;
+
+		case 'P':
+			SAY(n[1] == 'H' ? 'F' : 'P')
+
+		case 'Q':
+			SAY('K')
+
+		case 'S':
+			if (n[1] == 'H' || (n[1] == 'I' && 
+			    (n[2] == 'O' || n[2] == 'A')))
+				SAY('X')
+			else
+				SAY('S')
+
+		case 'T':
+			if (n[1] == 'I' &&
+			    (n[2] == 'O' || n[2] == 'A'))
+				SAY('X')
+			if (n[1] == 'H')
+				SAY('O')
+			if (n[1] != 'C' || n[2] == 'H')
+				SAY('T')
+			break;
+
+		case 'V':
+			SAY('F')
+
+		case 'W':
+			if(VOWEL(n[-1]))
+				SAY(*n)
+			break;
+
+		case 'Y':
+			if(!VOWEL(n[1]))
+				SAY(*n)
+			break;
+
+		case 'X':
+			if (n == n_start)
+				SAY('S')
+			KSflag = 1;
+			SAY('K')
+
+		case 'Z':
+			SAY('S')
+		}
+	}
+	return (metaph);
+}
+
+#ifdef TEST
+#include <misc.h>
+main()
+{
+	char buf[80];
+
+	while (NULL != ask(buf, "string"))
+		printf("%s\n", metaphone(buf));
+}
+#endif
+@

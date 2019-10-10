@@ -1,0 +1,440 @@
+head     1.10;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.10; strict;
+comment  @# @;
+
+
+1.10
+date     93.06.14.13.42.36;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     93.04.09.08.41.13;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.03.02.08.18.24;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.01.18.16.24.34;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.11.23.09.40.33;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.11.13.11.09.51;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.09.29.09.51.46;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.09.09.08.43.38;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.08.28.08.58.53;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.17.15.22.25;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.10
+log
+@Hal: kernel 78 update
+@
+text
+@# bld - make 386 kernel
+#
+# requires a running 386 kernel
+#
+
+# make sure the environment is set for kernel objects
+if [ $K386OBJ ]
+then
+	:
+else
+	echo "Error - K386OBJ environment variable not set!"
+	exit 1
+fi
+
+# make sure the environment is set for kernel libraries
+if [ $K386LIB ]
+then
+	:
+else
+	echo "Error - K386LIB environment variable not set!"
+	exit 1
+fi
+
+#CFLAGS=${CFLAGS-"-DTRACER -VPSTR -D__COHERENT__"}
+CFLAGS=${CFLAGS-"-DTRACER -VPSTR"}
+CC=${CC-"exec /bin/cc"}
+
+OPTS="${K386OBJ}/tty.o ${K386OBJ}/pipe.o ${K386OBJ}/putchar.o"
+OPTS=${OPTS}" ${K386OBJ}/rm.o ${K386OBJ}/fdc.o ${K386OBJ}/fl386.o"
+OPTS=${OPTS}" ${K386OBJ}/ipc.o"
+
+DEFAULT_KB=y
+DEFAULT_ASYNC=y
+DEFAULT_MM=y
+DEFAULT_HD=y
+USE_ASY=n
+USE_LP=y
+USE_PTY=y
+USE_ASYNC=y
+MAKE_LIBS=y
+PATCH="flCon=fl386con"
+KEROBJ=${K386LIB}/ker386.o
+TARGET=/at386.tst
+ASYNC=/etc/default/async
+
+# Each drvl entry is 0x14, or 20 decimal, bytes.
+
+while [ $# -gt 0 ]
+do
+	ARG=$1
+	case $ARG in
+	aha)
+	OPTS=${OPTS}" ${K386OBJ}/aha_dsl.o ${K386OBJ}/aha.o ${K386OBJ}/scsi.o"
+		PATCH="${PATCH} drvl+260=sdcon"
+		;;
+	al)
+		OPTS=${OPTS}" ${K386OBJ}/alx.o ${K386OBJ}/com1.o ${K386OBJ}/com2.o"
+		PATCH="${PATCH} drvl+100=a0con drvl+120=a1con"
+		DEFAULT_ASYNC=n
+		;;
+	asy)
+		OPTS=${OPTS}" ${K386OBJ}/asy.o"
+		PATCH="${PATCH} drvl+100=asycon"
+		USE_ASY=y
+		DEFAULT_ASYNC=n
+		;;
+	at)
+		OPTS=${OPTS}" ${K386OBJ}/$ARG.o"
+		PATCH="${PATCH} drvl+220=atcon"
+		DEFAULT_HD=n
+		;;
+	emu)
+		OPTS=${OPTS}" em87.o "
+		;;
+	hs)
+		OPTS=${OPTS}" ${K386OBJ}/hs.o"
+		PATCH="${PATCH} drvl+140=hscon"
+		DEFAULT_ASYNC=n
+		;;
+	fha)
+OPTS=${OPTS}" ${K386OBJ}/stubs.o ${K386OBJ}/at.o ${K386OBJ}/ss.o"
+OPTS=${OPTS}" ${K386OBJ}/aha_dsl.o ${K386OBJ}/aha.o ${K386OBJ}/scsi.o"
+PATCH="${PATCH} rootdev=makedev(4,14) pipedev=makedev(8,131) ronflag=1"
+PATCH="${PATCH} NBUF=64 NHASH=61 NCLIST=16 ALLSIZE=32768"
+		DEFAULT_HD=n
+		USE_PTY=n
+		USE_LP=n
+		USE_ASYNC=n
+		DEFAULT_ASYNC=n
+		;;
+	fva)
+OPTS=${OPTS}" stubs.o ${K386OBJ}/at.o ${K386OBJ}/ss.o"
+OPTS=${OPTS}" ${K386OBJ}/aha_dsl.o ${K386OBJ}/aha.o ${K386OBJ}/scsi.o"
+PATCH="${PATCH} rootdev=makedev(4,15) pipedev=makedev(8,131) ronflag=1"
+PATCH="${PATCH} NBUF=64 NHASH=61 NCLIST=16 ALLSIZE=32768"
+		DEFAULT_HD=n
+		USE_PTY=n
+		USE_LP=n
+		USE_ASYNC=n
+		DEFAULT_ASYNC=n
+		;;
+	kb|kb_d|kb_f|nkb)
+		OPTS=${OPTS}" ${K386OBJ}/$ARG.o"
+		DEFAULT_KB=n
+		;;
+	nl)
+		MAKE_LIBS=n
+		;;
+	sc)
+		CFLAGS=${CFLAGS}" -DSERIAL_CONSOLE"
+		;;
+	ss)
+		OPTS=${OPTS}" ${K386OBJ}/$ARG.o"
+		PATCH="${PATCH} drvl+260=sscon"
+		;;
+	ticom)	# piggy's Tiwanese 4 port card
+		PATCH="${PATCH} AL_ADDR+8=0x2b0 AL_ADDR+12=0x2b8"
+		;;
+	vt)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtnkb.o"
+		;;
+	vtkb)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtkb.o"
+		;;
+	vtkb_d)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtkb_d.o"
+		;;
+	vtkb_f)
+		DEFAULT_KB=n
+		DEFAULT_MM=n
+OPTS=${OPTS}" ${K386OBJ}/vtmm.o ${K386OBJ}/vtmmas.o ${K386OBJ}/vtkb_f.o"
+		;;
+	xl)
+		PATCH="${PATCH} ftCon=ftxlcon PHYS_MEM=589824"
+OPTS=${OPTS}" ${K386OBJ}/xlft.o ${K386OBJ}/xla.o ${K386OBJ}/xl_dec.o"
+		;;
+	-a)
+		shift
+		ASYNC=$1
+		;;
+	-c)
+		shift
+		CFLAGS="$CFLAGS $1"
+		;;
+	-o)
+		shift
+		TARGET=$1
+		;;
+	*=*)
+		PATCH="${PATCH} ${ARG}"
+		;;
+	*)
+echo "Usage:  $0"
+echo "  {aha|al|asy|at|fha|fva|hs|inst|kb|kb_d|kb_f|nkb"
+echo "    |sc|ss|ticom|vt|vtkb|vtkb_d|vtkb_f|xl}"
+echo "  {-o target} {-a async_file} {-c cflags} {addr=value}..."
+		exit 1
+		;;
+	esac
+	shift
+done
+
+if [ ${USE_LP} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/lp.o"
+	PATCH="${PATCH} drvl+60=lpcon"
+fi
+if [ ${USE_PTY} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/pty.o"
+	PATCH="${PATCH} drvl+180=ptycon"
+fi
+if [ ${USE_ASYNC} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/albaud.o"
+fi
+if [ ${DEFAULT_KB} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/kb.o"
+fi
+if [ $DEFAULT_ASYNC = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/asy.o"
+	PATCH="${PATCH} drvl+100=asycon"
+	USE_ASY=y
+fi
+if [ $DEFAULT_HD = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/at.o"
+	PATCH="${PATCH} drvl+220=atcon"
+fi
+if [ ${DEFAULT_MM} = "y" ]
+then
+	OPTS=${OPTS}" ${K386OBJ}/mmas.o ${K386OBJ}/mm.o"
+fi
+make "CFLAGS=$CFLAGS" "CC=$CC" ${KEROBJ} 	|| exit 1
+if [ ${MAKE_LIBS} = "y" ]
+then
+	make "CFLAGS=$CFLAGS" "CC=$CC" libs 	|| exit 1
+fi
+set -x
+
+#if [ -f $TARGET ]
+#then
+#	mv $TARGET $TARGET.old || exit 1
+#fi
+
+ld -K -o $TARGET -e stext ${KEROBJ} ${OPTS} || exit 1
+if [ -n "${PATCH}" ]
+then
+	/conf/patch $TARGET $PATCH || exit 1
+fi
+if [ ${USE_ASY} = "y" ]
+then
+	su root /conf/asypatch -v $TARGET < $ASYNC
+fi
+@
+
+
+1.9
+log
+@kernel 75
+@
+text
+@d29 1
+a29 1
+OPTS=${OPTS}" ${K386OBJ}/rm.o ${K386OBJ}/fl.o"
+d41 1
+a41 1
+PATCH=
+d139 4
+d161 1
+a161 1
+echo "    |sc|ss|ticom|vt|vtkb|vtkb_d|vtkb_f}"
+@
+
+
+1.8
+log
+@kernel 73 update
+@
+text
+@a36 1
+USE_IPC=y
+d43 1
+a43 1
+TARGET=/foobar
+a85 1
+		USE_IPC=n
+a96 1
+		USE_IPC=n
+d165 1
+a165 1
+if [ ${USE_IPC} = "y" ]
+a166 5
+	OPTS=${OPTS}" ${K386OBJ}/semcon.o ${K386OBJ}/sem.o"
+	PATCH="${PATCH} drvl+460=semcon"
+fi
+if [ ${USE_LP} = "y" ]
+then
+@
+
+
+1.7
+log
+@hal: kernel 72
+@
+text
+@d24 1
+d41 1
+d44 1
+a44 1
+TARGET=/at386.test
+d109 3
+d207 4
+a210 1
+make "CFLAGS=$CFLAGS" "CC=$CC" libs 	|| exit 1
+d225 1
+a225 1
+	/conf/asypatch -v $TARGET < $ASYNC
+@
+
+
+1.6
+log
+@hal: kernel 69 update
+@
+text
+@d71 3
+a166 2
+	OPTS=${OPTS}" ${K386OBJ}/shmcon.o ${K386OBJ}/shm.o"
+	PATCH="${PATCH} drvl+480=shmcon"
+@
+
+
+1.5
+log
+@hal: kernel 68: added window support, untested 287 support
+@
+text
+@d29 2
+d77 1
+a77 1
+OPTS=${OPTS}" stubs.o ${K386OBJ}/at.o ${K386OBJ}/ss.o"
+a161 1
+	OPTS=${OPTS}" ${K386OBJ}/ipc.o"
+@
+
+
+1.4
+log
+@*** empty log message ***
+@
+text
+@a160 2
+	OPTS=${OPTS}" ${K386OBJ}/msgcon.o ${K386OBJ}/msg.o"
+	PATCH="${PATCH} drvl+500=msgcon"
+@
+
+
+1.3
+log
+@update by hal for kernel 62 (60 files)
+@
+text
+@d102 3
+d150 1
+a150 1
+echo "    |ss|ticom|vt|vtkb|vtkb_d|vtkb_f}"
+@
+
+
+1.2
+log
+@update by hal for kernel 61
+@
+text
+@d199 1
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d5 22
+a26 1
+CFLAGS="-DTRACER -VPSTR"
+d39 1
+a39 1
+KEROBJ=ker386.o
+a101 5
+	# option "ld" will link .o's without checking for needed recompiles
+	# - useful when comparing files generated with different headers
+	ld)
+		KEROBJ=kld386.o
+		;;
+d114 15
+d146 2
+a147 1
+echo "  {aha|al|asy|at|fha|fva|hs|inst|kb|kb_d|kb_f|ld|nkb|ss|ticom|vt}"
+d198 1
+a198 1
+make "CFLAGS=$CFLAGS" ${KEROBJ} 	|| exit 1
+@

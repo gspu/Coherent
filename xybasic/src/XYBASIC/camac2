@@ -1,0 +1,455 @@
+;CAMAC2 07/10/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1979, 1980 by Mark Williams Company, Chicago
+;routines for CAMAC version
+
+	if	camac
+
+;CLOCK is the interrupt service routine to tick the real-time clock.
+;The interrupt branches to 1008H, POKEd during initialization to come here.
+;The three bytes at TIMEX contain (seconds*2)-120, minutes-60 and hours-24.
+clock:	push	psw
+	push	h
+	lxi	h,timex		;address seconds * 2 counter
+	inr	m		;tick it
+	jnz	clocx		;done
+	mvi	m,255 and -120	;reset to -120
+	inx	h		;address minutes counter
+	inr	m		;tick...
+	jnz	clocx		;done
+	mvi	m,255 and -60
+	inx	h		;address hours counter
+	inr	m		;tick...
+	jnz	clocx
+	mvi	m,255 and -24	;welcome to tomorrow
+clocx:	pop	h
+	if	not cpm
+	mvi	a,255
+	out	4		;reinitialize the clock
+	endif
+	pop	psw
+	ei			;reenable interrupts
+	ret
+
+;GTCAM looks for an unsubscripted <camvar>, i.e. a <camvar name> not
+;followed by (.
+;Retn:	Carry	set iff not found
+;	(CVCNT)	number of components in <camvar>, 0 if none
+;	(CVLOC)	location of <camvar>
+	if	camac
+gtcam:	lhld	textp
+	push	h		;save TEXTP in case failure
+	call	gtnam		;look for var name
+	jc	gtca1		;none
+	lda	varty
+	cpi	camst
+	jnz	gtca1		;var name but not a camvar
+	mvi	d,'('
+	call	gtd
+	jnc	gtca1		;camvar but subscript follows
+	pop	h
+	call	stlku		;look up the camvar
+	jc	snerr		;not declared, SN error
+	inx	h		;point to first component count byte
+	mov	e,m
+	inx	h
+	mov	d,m		;dimension to DE
+	inx	h		;point to first value byte
+	shld	cvloc		;and save location
+	inx	d		;dim + 1 = component count
+	xchg
+	shld	cvcnt		;and saved
+	xchg
+	ret			;return, Carry reset from above
+gtca1:	lxi	h,0
+	shld	cvcnt		;reset CVCNT for failure
+	pop	h
+	shld	textp		;restore original TEXTP
+	stc			;set Carry to indicate failure
+	ret
+	endif
+
+;GTCSN skips a comma, issues SN error if none, preserves HL.
+gtcsn:	push	h
+	call	gtcom
+	jc	snerr
+	pop	h
+	ret
+
+;GTCEX gets a comma followed by an integer <expr>.
+gtcex:	call	gtcsn
+	jmp	gtexp
+
+;CVCHK checks if components remain in camvar.
+;Retn:	Zero	Set iff no components remain
+;	BC	(CVLOC)
+;	DE	(CVCNT)
+;	HL	CMDAT
+cvchk:	lxi	d,cmdat
+cvch0:	lhld	cvloc
+	mov	b,h
+	mov	c,l		;camvar location to BC
+	lhld	cvcnt
+	xchg			;count to DE
+	mov	a,d
+	ora	e
+	ret
+
+;CVALS reads (A) values from camvar or integer exprs to CNAF.
+;A range error occurs if C is not 1-7 or 101-162.
+;Retn:	Carry	Set iff serial crate
+;	HL	CMCRA
+cvalc:	mvi	a,1		;get C value only
+cvals:	push	psw		;save count
+	call	gtcam		;look for camvar
+	lxi	d,cmcra
+	call	cvch0		;loc to BC, count to DE, destination to HL
+	jz	cval2		;no camvar, must be list of integer values
+cval1:	ldax	b		;fetch component low order value
+	mov	m,a		;and store
+	inx	b
+	inx	h
+	ldax	b		;fetch component high order value
+	ora	a
+	jnz	crerr		;range error if high order is nonzero
+	inx	b		;point to next
+	dcx	d		;and decrement count
+	pop	psw
+	dcr	a		;decrement remaining count
+	jz	cval4		;all values found
+	push	psw
+	mov	a,d
+	ora	e
+	jnz	cval1		;more components in camvar
+	xchg
+	shld	cvcnt		;reset CVCNT -- no more components
+	xchg
+	call	gtcsn		;and skip comma
+;remaining values must be given by integer values
+cval2:	pop	psw
+	mov	e,a		;remaining component count to E
+cval3:	call	gtexp		;look for integer value
+	mov	a,b
+	ora	a
+	jnz	crerr		;range error if high order nonzero
+	mov	m,c		;store value
+	inx	h
+	dcr	e
+	jz	cval5		;done
+	call	gtcsn		;skip comma
+	jmp	cval3		;and get next integer value
+cval4:	mov	h,b
+	mov	l,c		;loc to HL
+	shld	cvloc		;and saved
+	xchg
+	shld	cvcnt		;and count saved
+cval5:	lxi	h,cmcra
+	mov	a,m		;fetch C
+	dcr	a		;C-1
+	cpi	7
+	cmc			;Carry reset iff C is 1-7
+	rnc			;local
+	sui	100		;C-101
+	cpi	62		;Carry set iff C is 101-162
+	jnc	crerr		;range error
+	inr	a		;C-100
+	mov	m,a		;serial crate is C-100
+	ret			;serial, return Carry set
+
+;CAMRG is called from CAMAC and BLOCK to check ranges of NAF components.
+camrg:	inx	h
+	mov	a,m
+	dcr	a		;fetch N-1
+	cpi	31
+	jnc	crerr		;N range error unless 1-31
+	inx	h
+	mov	a,m		;fetch A
+	cpi	16
+	jnc	crerr		;A range error unless 0-15
+	inx	h
+	mov	a,m		;fetch F
+	cpi	32
+	rc			;F range ok if 0-31
+crerr:	error	f, O, R		;fatal OR error
+
+;CVALD is called by BYPASS, INHIBIT, LOOPCOL and ONLINE to get
+;crate number C and data item S (zero or nonzero).
+;Retn:	Carry	Set iff serial crate
+;	A	23 if data = 0, 19 if nonzero
+;	B	0 if data = 0, 32 if nonzero for 3908 controller
+;	B	0 if data = 0, 4 if nonzero for 3909 controller
+cvald:	call	cvalc		;get crate number
+	push	psw		;save serial status
+	lhld	cvcnt
+	xchg			;remaining component count to DE
+	lhld	cvloc		;and location to HL
+	lxi	b,3
+	call	cmbdu		;Carry set iff more than 3 components remain
+	jnc	cvad1		;not enough components, look for integer
+	dad	b
+	dad	b		;address D1
+	mov	a,m
+	inx	h
+	ora	m		;Zero set iff D1=0
+	jmp	cvad2
+cvad1:	call	gtcex		;skip comma and look for integer value
+	mov	a,b
+	ora	c		;Zero set iff 0
+cvad2:	if	c3908
+	lxi	b,(32 shl 8) or 19	;32 to B, 19 to C
+	else
+	lxi	b,(4 shl 8) or 19	;4 to B, 19 to C
+	endif
+	jnz	cvad3		;data nonzero
+	lxi	b,23		;0 to B, 23 to C for data = 0
+cvad3:	pop	psw		;restore serial status to Carry
+	mov	a,c		;and desired value to A
+	ret
+
+;CWRIT sets and writes D1-D3 during local or serial CAMAC.
+cwrit:	call	cvchk		;check if components remain in camvar
+	jz	cwrt1		;no data components in camvar
+	ldax	b		;fetch data byte
+	mov	m,a		;and store D1
+	inx	h
+	inx	b
+	ldax	b		;fetch next
+	mov	m,a		;and store D2
+	inx	h
+	inx	b
+	dcx	d		;decrement count
+	mov	a,d
+	ora	e
+	jz	cwrt2		;only one data component, take integer
+	ldax	b
+	mov	m,a		;store D3
+	inx	b
+	ldax	b
+	jmp	cwrt3
+cwrt1:	call	gtcex		;skip comma and evaluate integer data
+	mov	m,c
+	inx	h
+	mov	m,b		;store D1 and D2
+	inx	h
+cwrt2:	call	gtcex		;skip comma and evaluate integer data
+	mov	m,c		;store D3
+	mov	a,b
+cwrt3:	ora	a
+	jnz	crerr		;range error if high order nonzero
+	lxi	h,camwr+2
+	call	cset3		;set OUTs for desired crate
+	lxi	h,cmdat
+	jmp	camwr		;write the desired data
+
+;LAMIN is called from local and serial LAMPAT to read values
+;from ports and assign values accordingly.
+;Call:	B	offset of first port to read
+;	C	count of ports to read
+lamin:	lxi	d,cmdat		;destination to DE
+	lxi	h,rport+1
+	call	cratn
+	add	b		;32*C + (B)
+	mov	m,a		;is first port to be read
+lami1:	call	rport		;read value
+	stax	d		;and store
+	inx	d
+	inr	m		;bump port #
+	dcr	c
+	jnz	lami1		;read more values
+				;then fall through to CADAT to assign
+;CADAT assigns data from D1-D3 to camvar or integer destinations.
+cadat:	call	cvchk		;check if components remain in camvar
+	jz	cada1		;no data components in camvar
+	mov	a,m		;fetch data byte
+	stax	b		;and store D1
+	inx	h
+	inx	b
+	mov	a,m		;fetch next
+	stax	b		;and store D2
+	inx	h
+	inx	b
+	dcx	d		;decrement count
+	mov	a,d
+	ora	e
+	jz	cada2		;only one data component, take integer
+	mov	a,m		;fetch third
+	stax	b		;and store D3
+	inx	b
+	xra	a
+	stax	b		;store high order 0
+	ret
+cada1:	mov	c,m
+	inx	h
+	mov	b,m		;value to BC
+	inx	h
+	call	crdin		;assign value to destination
+cada2:	mov	c,m
+	mvi	b,0
+				;and fall through to CRDIN to assign second
+;CRDIN assigns the integer value in BC to the destination set by GTLHS.
+;If no destination variable is present, the data is ignored.
+;	HL	preserved
+crdin:	push	h
+	call	gtcnd		;look for comma
+	jc	crdi1		;return if none
+	push	b
+	call	gtlhs		;get destination
+	pop	b		;value to BC
+	mvi	a,intst		;integer value token
+	call	asigv		;assign value to destination
+crdi1:	pop	h		;restore HL
+	ret
+
+;CSETC is a subroutine to change the crate # in an impure code routine.
+;CSET3 does a CSETC with C=3.
+;Call:	(CMCRA)	Crate # desired
+;	C	Count of # of fields to change
+;	HL	Address of first field to change
+;Successive fields changed follow the first at 4-byte intervals.
+cset3:	mvi	c,3
+csetc:	call	cratn		;crate # to A7-A5
+	mov	b,a		;save shifted crate #
+	mov	a,m		;fetch former crate #
+	ani	0E0H		;mask to A7-A5
+	cmp	b		;compare to specified crate #
+	rz			;same crate, leave unchanged
+	lxi	d,4		;offset to DE
+cset1:	mov	a,m		;fetch impure code field
+	ani	1FH		;mask to A4-A0
+	ora	b		;or in desired crate #
+	mov	m,a		;and store new field
+	dcr	c
+	rz			;done
+	dad	d		;point to next
+	jmp	cset1		;and update the next
+
+;CRATN fetches the current crate # to A7-A5.
+cratn:	lda	cmcra		;fetch crate #
+	rrc
+	rrc
+	rrc			;to A7-A5
+	ret
+
+;RPTCB reads port # C*32 + (B).
+rptcb:	call	cratn		;crate # to A7-A5
+	add	b		;plus offset
+	jmp	rdp1		;read port and return
+
+;SCCOD replaces CN with serial driver CN and D3 with C.
+;Retn:	A	subaddress A
+;	B	slot N
+;	C	fn code F
+;	E	crate C
+;	HL	pointer to D2
+sccod:	lxi	h,sdrvr
+	mov	e,m		;serial driver slot to E
+	dcx	h
+	mov	d,m		;serial driver crate to D
+	dcx	h
+	mov	c,m		;F to C
+	dcx	h
+	mov	a,m		;A to A
+	dcx	h
+	mov	b,m		;N to B
+	mov	m,e		;and driver slot is new N
+	dcx	h
+	mov	e,m		;C to E
+	mov	m,d		;and driver crate is new C
+	dcx	h		;address data D3
+	mov	m,e		;D3 is C
+	dcx	h	
+	ret
+
+;SCWRC is called from CAMCLR and BYPASS to encode and write data.
+scwrc:	push	psw
+	call	sccod		;reset C, N, D3
+	mvi	m,60		;and D2
+	dcx	h
+	pop	psw
+	mov	m,a		;and D1
+				;and fall through to SCWRT to write
+
+;SCWRT is called by serial CAMAC commands to perform a command write.
+;The crate # is reset in the impure code sequences.
+;The LAM mask register is written and the data in CMDAT is written.
+scwrt:	lxi	h,camwr+2
+	call	cset3		;reset crate # for data write
+	lxi	h,camfn+2
+	call	cset3		;reset crate # for function execution
+	lxi	h,csda1
+	call	camwr		;write data -- 255, 11, 0
+	lxi	d,(12 shl 8) or 23
+	call	cmsfn		;execute F(23) A(12)
+	if	c3908
+	mvi	b,9
+	call	rptcb		;read X response from C*32 + 9
+	ora	a
+	else
+	mvi	b,rsprt
+	call	rptcb		;read status from C*32 + 10 on 3909
+	cma
+	ani	2		;mask to X
+	endif
+	jz	scnox
+	lxi	h,cmdat
+	call	camwr		;write data
+	lxi	d,16
+	jmp	cmsfn		;execute F(16) A(0) and return
+scnox:	call	prntm		;print NO DRIVER X RESPONSE message
+	db	'NO DRIVER X RESPONSE'
+	if	rtpak
+	db	' IN LINE', ' ' or 80H
+	else
+	db	':' or 80H
+	endif
+	ori	1		;reset Zero
+	push	psw
+	jmp	cqxc1		;print current line and return to DMODE
+
+;SCWAI is called at the end of serial CAMAC commands to wait for completion.
+scwai:	lxi	h,csda2
+	call	camwr		;write data -- 244, 12, 0
+	lxi	d,(13 shl 8) or 17
+	call	cmsfn		;execute F(17) A(13)
+scwa1:	lxi	d,(1 shl 8) or 27
+	call	cmsfn		;execute F(27) A(1)
+	call	ctest		;look for <control-C> from console
+	mvi	b,10
+	call	rptcb		;read port C*32 + 10
+	if	c3908
+	ora	a
+	else
+	cma
+	ani	1
+	endif
+	jz	scwa1
+	ret
+
+;SCDAT stores (A), 0, 0 in D1-D3, writes D1-D3 and and executes F(16) A(1).
+scdat:	lxi	h,cmdat+2
+	mvi	m,0		;D3
+	dcx	h
+	mvi	m,0		;D2
+scda1:	dcx	h		;BYPASS entry point
+	mov	m,a		;D1
+	call	camwr		;write the data
+	lxi	d,(1 shl 8) or 16
+				;and fall through to CMSFN
+;CMSFN executes a CAMAC function during serial CAMAC commands.
+;Call:	D	desired subaddress A
+;	E	desired fn code F
+cmsfn:	lxi	h,cmfnc
+	mov	m,e		;store F
+	dcx	h
+	mov	m,d		;store A
+	dcx	h		;address N
+	jmp	camfn		;and execute the desired function
+
+;data for serial CAMAC command execution
+csda1:	db	255, 11, 0
+csda2:	db	244, 12, 0
+
+	endif			;end of CAMAC conditional
+
+;end of CAMAC2
+	page

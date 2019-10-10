@@ -1,0 +1,220 @@
+: CohUpd320.post 9/6/91
+: COHERENT Update Version 3.2.0.
+: Installation postprocessing.
+
+cd /
+
+: Set FIRST to indicate if first attempt at update installation.
+if [ -f /conf/CohUpd320.tmp ]
+then
+	if [ ! -f /coherent.old ]
+	then
+		echo '/coherent.old does not exist, reinstallation failed.'
+		exit 1
+	fi
+	mv -f /coherent.old /coherent
+	FIRST=false
+else
+	FIRST=true
+fi
+
+: Patch the new /coherent.
+echo '
+cThis update procedure replaces your existing COHERENT system
+with an updated version.  It renames the previous version (file /coherent)
+to /coherent.old and puts the updated version in file /coherent.
+When you reboot after installation, you must type "coherent"
+to boot the new system.
+'
+
+: Remove /autoboot if it exists.
+if [ -f /autoboot ]
+then
+	rm /autoboot
+	echo '
+The update procedure deletes the file /autoboot which
+causes your system to boot COHERENT automatically.
+After you have rebooted successfully, type
+	ln /coherent /autoboot
+if you want your system to boot automatically.
+'
+fi
+
+: Determine the desired keyboard configuration.
+echo -n 'Hit <Enter> to continue...'
+read x
+echo '
+cYour current COHERENT system contains built-in support for either
+an American, German or French keyboard layout.  This COHERENT update
+adds support for user-configurable keyboard layouts.  However,
+user-configurable keyboard layouts may not work correctly with
+some keyboards which are not fully IBM-AT compatible.  If you wish to
+be able to change keyboard layouts at runtime, you must select option 4.
+
+Keyboard layouts:
+	1	American
+	2	French
+	3	German
+	4	User-configurable
+'
+while true; do
+	echo -n 'Enter 1-4: '
+	read x
+	case $x in
+		1|A*)	KB=kb.a;;
+		2|F*)	KB=kb_f.a;;
+		3|G*)	KB=kb_d.a;;
+		4|U*)	KB=nkb.a
+			echo '
+If the user-configurable keyboard layout does not work with your keyboard
+when you reboot after update installation, you will need to boot your
+old COHERENT system by typing "coherent.old" at the "AT boot?" prompt.
+Then install the update again with a different keyboard layout.
+'
+			/etc/kbdinstall -u;;
+		*)	continue;;
+	esac
+	break
+done
+KBUNDEF="-u iscon_"
+KBPATCH="drvl_+20=iscon_"
+
+: Determine the desired root hard disk device configuration.
+echo -n 'Hit <Enter> to continue...'
+read x
+echo '
+cThe root filesystem of your current COHERENT system
+is on either a standard AT-compatible hard disk or on an
+Adaptec AHA-154x series SCSI host adapter.
+
+Root hard disk:
+	1	AT-compatible (MFM/RLL/IDE)
+	2	Adaptec AHA-154x (SCSI)
+'
+while true; do
+	echo -n 'Enter 1 or 2: '
+	read x
+	case $x in
+		1)	HD=at.a
+			HDUNDEF="-u atcon_"
+			HDPATCH="drvl_+110=atcon_";;
+		2)	HD=aha154x.a
+			HDUNDEF="-u sdcon_"
+			HDPATCH="drvl_+130=sdcon_";;
+		*)	continue;;
+	esac
+	break
+done
+
+: Build COHERENT kernel into /coherent.new.
+if [ -f /coherent.old ]
+then
+	mv /coherent.old /coherent.older
+	echo Renamed previous /coherent.old to /coherent.older...
+	echo -n 'Hit <Enter> to continue...'
+	read x
+fi
+cd /conf
+(/bin/ld $KBUNDEF $HDUNDEF -o /coherent.new kernel320.o $KB $HD mm.a tty.a support.a \
+	&& /conf/patch /coherent.new $KBPATCH $HDPATCH \
+	&& /conf/patch /coherent.new drvl_+30=lpcon_ drvl_+40=flcon_ drvl_+80=rmcon_ \
+	&& /etc/cohpatch) || echo 'Update installation failed.' && exit 1
+chmod 400 /coherent
+chown sys /coherent
+chgrp sys /coherent
+
+: Replace the shell.  Cannot copy over busy shared text program.
+if $FIRST
+then
+	echo -n 'Hit <Enter> to continue...'
+	read x
+	echo '
+cThe update installs new versions of many files onto your existing system.
+For the important file /bin/sh, it saves the old version
+in /bin/sh.old in case you need to use the old version.
+'
+	mv /bin/sh /bin/sh.old
+	mv /bin/sh.320 /bin/sh
+fi
+
+: Load serial drivers via /etc/drvld.all.
+if $FIRST
+then
+	echo "/etc/drvld -r /drv/al0" >>/etc/drvld.all
+	echo "/etc/drvld -r /drv/al1" >>/etc/drvld.all
+	echo -n 'Hit <Enter> to continue...'
+	read x
+	echo '
+cPrevious versions included support for serial lines COM1 through COM4
+as part of /coherent.  In order to provide additional flexibilty,
+COHERENT V3.2 now supports the serial lines as loadable device drivers.
+When you boot COHERENT, file /etc/drvld.all loads the serial line drivers.
+'
+fi
+
+: Uncompress files shipped compressed for space reasons.
+echo -n 'Hit <Enter> to continue...'
+read x
+cd /
+echo Uncompressing COHERENT update files, please wait...
+uncompress /conf/V320.tar.Z
+echo Extracting COHERENT update files, please wait...
+tar xfm /conf/V320.tar
+rm /conf/V320.tar
+
+: Rebuild command and library help index files.
+/bin/help -r '-d@' -f/usr/lib/helpfile -i/usr/lib/helpindex
+/bin/help -r '-d#' -f/etc/helpfile -i/etc/helpindex
+
+: Optionally uncompress online manual update pages.
+: This takes the same action as the user took with the original pages.
+echo -n 'Hit <Enter> to continue...'
+read x
+if [ -d /usr/man/COHERENT ]
+then
+	echo -n 'c'
+	echo Uncompressing updated COHERENT online manual pages, please wait...
+	uncompress /usr/man/updman.tar.Z
+	echo Extracting updated COHERENT online manual pages, please wait...
+	cd /usr/man
+	tar xfm /usr/man/updman.tar
+	rm /usr/man/updman.tar
+	cat /usr/man/updman.index >>/usr/man/man.index
+	sort -uo /usr/man/man.index /usr/man/man.index
+	cat /usr/man/updman.help >>/usr/man/man.help
+	echo
+elif [ -f /usr/man/man.tar.Z ]
+then
+	echo '
+cBecause you left the COHERENT online manual pages in compressed form
+in file /usr/man/man.tar.Z when you initially installed COHERENT,
+this update leaves the updated manual pages in compressed form
+in file /usr/man/updman.tar.Z.
+'
+else
+	rm /usr/man/updman.tar.Z
+	echo '
+cBecause you removed the COHERENT online manual pages when you initially
+installed COHERENT, this update does not install updated online manual pages.
+'
+fi
+
+echo -n 'Hit <Enter> to continue...'
+read x
+echo '
+cAfter installation is finished, you must shut down your system and
+reboot to try the updated version of COHERENT.  When you reboot,
+type "coherent" at the "AT boot?" prompt to boot the new system.
+If the boot fails, reboot again and type "coherent.old"
+at the "AT boot?" prompt to boot your existing COHERENT system;
+then try installing the update again with different options.
+'
+echo -n 'Hit <Enter> to continue...'
+read x
+
+: Done.
+touch /conf/CohUpd320.tmp
+sync
+exit 0
+
+: end of CohUpd320.post

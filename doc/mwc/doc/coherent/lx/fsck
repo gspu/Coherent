@@ -1,0 +1,376 @@
+.TH fsck "" "" Command
+.PC "Check and repair file systems interactively"
+\fB/etc/fsck\fR [ \fB\-fnqsSy\fR ] [ \fB\-t\fI tempfile\fR ] [ \fIfilesystem \^.\^.\^. \fR]
+.PP
+.HS
+.SH Options:
+.IC \fB\-f\fR
+Fast check; check only if a block is claimed by more than one i-node,
+by an i-node and the free list, or more than once in the free list
+.IC \fB\-n\fR
+Default reply of no to all queries
+.IC \fB\-q\fR
+Quiet option; syppress file name warning messages
+.IC \fB\-s\fR
+Force reconstruction of the free list for all unmounted file systems.
+.IC \fB\-S\fR
+Same as \fB\-s\fR, but works on mounted file systems as well
+.IC \fB\-t\fR
+Use \fItempfile\fR for temporary storage
+.IC \fB\-y\fR
+Default reply of yes to all queries
+.HE
+.B fsck
+checks and interactively repairs file systems.
+If all is well, \fBfsck\fR merely prints the number of files used, the
+number of blocks used, and the number of blocks that are free.
+If the file system is found to be inconsistent in one of the
+aspects outlined below, \fBfsck\fR asks whether it should
+fix the inconsistency and waits for you to reply \fByes\fR or \fBno\fR.
+.PP
+The following file system aspects are checked for consistency by
+.BR fsck :
+.IP \(bu 0.3i
+If a block is claimed by more than one i-node, by an i-node and the free
+list, or more than once in the free list.
+.IP \(bu
+Whether an i-node or the free list claims blocks beyond the file system's range.
+.IP \(bu
+Link counts that are incorrect.
+.IP \(bu
+Whether the directory size is not aligned for 16 bytes.
+.IP \(bu
+Whether the i-node format is correct.
+.IP \(bu
+Whether any blocks are not accounted for.
+.IP \(bu
+Whether a file points to an unallocated i-node.
+.IP \(bu
+Whether a file's i-node number is out of range.
+.IP \(bu
+Whether the super block refers to more than 65,536 i-nodes.
+.IP \(bu
+Whether the super block assigned more blocks to the i-nodes
+than the system contains.
+.IP \(bu
+Whether the format of the free block list is correct.
+.IP \(bu
+Whether the counts of the total free blocks and the free i-nodes are correct.
+.PP
+.B fsck
+prints a warning message when a file name is null, has an
+embedded slash \*(Ql/\*(Qr, is not null-padded, or if \*(Ql.\*(Qr
+or \*(Ql..\*(Qr files do not have the correct i-node numbers.
+.PP
+.II lost+found
+When \fBfsck\fR repairs a file system, any file that is orphaned
+(that is, allocated but not referenced) is deleted if it is empty,
+or copied to a directory called \fBlost+found\fR, with its
+i-node number as its name.
+The directory \fBlost+found\fR must exist in the root of the file system
+being checked before \fBfsck\fR is executed, and it must have room for
+new entries without requiring that new blocks be allocated.
+.PP
+.B fsck
+recognizes the following options:
+.IP \fB\-f\fR 0.3i
+Fast check.
+\fBfsck\fR only checks whether a block has been claimed by more than
+one i-node, by an i-node and the free list, or more than once in the free list.
+If necessary, \fBfsck\fR will reconstruct the free list.
+.IP \fB\-n\fR
+No option:
+a default reply of \fBno\fR is given to all of \fBfsck\fR's questions.
+.IP \fB\-q\fR
+Quiet option:
+run quietly.
+\fBfsck\fR automatically removes all unreferenced pipes, and automatically
+fixes list counts in the super block and the free list.
+File-name warning messages are suppressed, but \fBfsck\fR
+still prints the number of files used,
+the number of blocks used, and the number of blocks that remain free.
+.IP \fB\-s\fR
+Sort the free lists, both free blocks and free i-nodes, based on the
+interleave number.
+This is useful in reducing fragmentation of a file system.
+This option ignores mounted file systems.
+.IP \fB\-S\fR
+Same as
+.BR \-s ,
+except that it also works on mounted file systems.
+Not recommended for the faint of heart.
+.IP \fB\-t\fR
+Name the temporary file used by
+.BR fsck .
+.IP \fB\-y\fR
+Yes option:
+a default reply of \fByes\fR is given to all of \fBfsck\fR's questions.
+.PP
+If you do not name a file system in \fBfsck\fR's command line, \fBfsck\fR
+checks the file systems named in the file \fB/etc/checklist\fR.
+.SH Files
+\fB/etc/checklist\fR
+.SH "See Also"
+.Xr "clri," clri
+.Xr "commands," commands
+.Xr "icheck," icheck
+.Xr "ncheck," ncheck
+.Xr "ram," ram
+.Xr "sync," sync
+.Xr "umount" umount.c
+.SH Diagnostics
+The following describes
+.BR fsck 's
+error messages and questions.
+The error messages fall into two categories:
+.IR warnings ,
+which describe something possibly wrong with a file;
+and
+.IR fatals ,
+which indicate that something has gone wrong with a file system, or with
+.B fsck
+itself, with which
+.B fsck
+cannot cope.
+Each question describes the condition in question; here, it is followed
+by advice on what is probably the correct response.
+.Ip "Bad action in virtual system \fI(fatal)\fR"
+.Is "Bad block \fInumber\fR, i-number = \fInumber\fR \fI(warning)\fR"
+.Is "\fINumber\fR Bad blocks in Free List\fR \fI(warning)\fR"
+.Ip "Bad/Dup blocks in \fIi-node type file name\fR (Clear i-node) [yes/no] \fI(question)\fR"
+The given i-node contains bad or duplicately referenced blocks.
+You are asked if you would like to clear the i-node completely.
+If you answer yes, then the file will be lost forever.
+.Ip "Bad entry in block \fInumber\fR in directory \fIname/i-node\fR \fI(warning)\fR"
+.Ip "Bad Free List (SALVAGE) [yes/no] \fI(question)\fR"
+.B fsck
+is asking if you want it to salvage the free list automatically.
+This is almost certainly a good thing to do.
+.Ip "Bad or Dup blocks in \fIdirectory/file\fR (Remove) [yes/no] \fI(question)\fR"
+The given file's i-node references bad or duplicately referenced blocks.
+.B fsck
+is asking if you wish to remove
+.I file
+from the directory.
+.Ip "Bad Super Block: \fInumber\fR \fI(warning)\fR"
+.Is "\fINumber\fR Blocks missing\fR \fI(warning)\fR"
+.Ip "***** BOOT Coherent (NO SYNC!) *****\fR \fI(message)\fR"
+Do as the message says:
+reboot \*(CO \fIwithout\fR running the command
+.BR sync .
+.Ip "Cannot close Ram Disk Close /dev/rram1close \fI(fatal)\fR"
+.Is "Cannot create temp file \fIname\fR \fI(fatal)\fR"
+.Is "Cannot open Ram Disk Close /dev/rram1close \fI(fatal)\fR"
+.Is "Cannot open read/write Ram Disk /dev/rram1 \fI(fatal)\fR"
+.Ip "Can not Read: Blk num: \fInumber\fR  (CONTINUE) [yes/no] \fI(question)\fR"
+The given action could not be performed.
+If you choose to not continue,
+.B fsck
+will abort.
+If you choose to continue, the results may be unpredictable.
+.Ip "Can not Seek: Blk num: \fInumber\fR  (CONTINUE) [yes/no]\fR \fI(question)\fR"
+The given action could not be performed.
+If you choose to not continue,
+.B fsck
+will abort.
+If you choose to continue, the results may be unpredictable.
+.Ip "Can not Write: Blk num: \fInumber\fR  (CONTINUE) [yes/no] \fI(question)\fR"
+The given action could not be performed.
+If you choose to not continue,
+.B fsck
+will abort.
+If you choose to continue, the results may be unpredictable.
+.Ip "Can't access ram disk /dev/rram1, use the -t option \fI(fatal)\fR"
+.Is "Can't malloc memory, phase 2 \fI(fatal)\fR"
+.Is "Can't malloc space for interleave table. Free-block list is not rebuilt. \fI(warning)\fR"
+.Is "Can't open: \fIfile system \fI(warning)\fR"
+.Is "Can't open checklist file: /etc/checklist \fI(fatal)\fR"
+.Is "Can't stat: \fIfile system \fI(warning)\fR"
+.Is "Can't stat temp file \fIname\fR \fI(fatal)\fR"
+.Ip "Count = \fIcount\fR, should be \fIcount\fR (Adjust) [yes/no] \fI(question)\fR"
+The given i-node claims to have a different number of
+links than was actually found in the file system.
+You are asked if you wish to adjust the count found in the i-node.
+If you answer yes, then
+.B fsck
+will correct the i-node count.
+.Ip "Directory Misaligned i-number = \fInumber\fR \fI(warning)\fR"
+.Is "Dir i-number = \fInumber\fR connected. Parent was i-number = \fInumber\fR \fI(warning)\fR"
+.Is "Dir i-number = \fInumber\fR connected.  It has bad/dup blocks. \fI(warning)\fR"
+.Is "Dir i-number = \fInumber\fR connected.  It has no .. entry. \fI(warning)\fR"
+.Ip "Dup/Bad blocks in root i-node (Continue) [yes/no] \fI(question)\fR"
+The root i-node has bad or duplicate blocks.
+This may require a guru to fix properly.
+.B fsck
+is asking whether you want it to continue.
+If not, then
+.B fsck
+will abort.
+.Ip "Dup Block \fInumber\fR, i-number = \fInumber\fR \fI(warning)\fR"
+.Is "\fINumber\fR Dup blocks in Free List\fR \fI(warning)\fR"
+.Ip "DUP Table Overflow (Continue) [yes/no] \fI(question)\fR"
+The table of duplicately referenced disk blocks has overflowed.
+You can continue with the
+.B fsck
+(as best as it is able), or abort.
+.Ip "Embedded slashes in entry in block \fInumber\fR in directory \fIname/i-node\fR \fI(warning)\fR"
+.Is "Error seeking tmp file \fI(fatal)\fR"
+.Is "Error writing tmp file \fI(fatal)\fR"
+.Is "Error writing to tmp file \fI(fatal)\fR"
+.Ip "Excessive Bad Blocks i-number = \fInumber\fR (Continue) [yes/no] \fI(question)\fR"
+The specified i-node references an excessive number of bad blocks.
+You can continue with the
+.B fsck
+(at the next i-node), or abort.
+.Ip "Excessive Dup Blocks i-number = \fInumber\fR (Continue) [yes/no] \fI(question)\fR"
+The specified i-node references an excessive number of duplicate blocks.
+You can continue with the
+.B fsck
+(at the next i-node), or abort.
+.Ip "Excessive \fIbad/dup\fR blocks in free list (Continue) [yes/no] \fI(question)\fR"
+This indicates that there are excessive bad or duplicately
+referenced blocks in the free list off of the superblock.
+This is a very bad condition.
+You should choose to continue, which will fall to phase 6 to salvage the free
+list.
+If you answer no, then
+.B fsck
+will abort.
+.Ip "Expect roughly \fInumber\fR missing blocks next time fsck is run as a result of i-nodes being cleared.\fR \fI(message)\fR"
+.Ip "file is not a block or character device; OK? [yes/no]: \fI(question)\fR"
+You are attempting to
+.B fsck
+a file that is not a block or character device.
+If you are certain it is a file system, then answer yes to continue.
+.Ip "File System Read-Only (NO WRITE) \fI(fatal)\fR"
+.Is "***** File System \fIsystem\fR was modified *****\fR \fI(message)\fR"
+.Is "\fINumber\fR files \fInumber\fR blocks \fInumber\fR free \fI(message)\fR"
+.Is "Fixblock error. \fI(fatal)\fR"
+.Ip "Free Block count wrong in superblock. (FIX) [yes/no] \fI(question)\fR"
+The free block count in the superblock is incorrect.
+You should allow
+.B fsck
+to repair it unless you are a guru and have reason to believe that
+.B fsck
+should not use the redundancy
+in the file system (via all previously reported messages) to
+repair this crucial piece of data in the superblock.
+.Ip "Free i-node count wrong in superblock. (FIX) [yes/no] \fI(question)\fR"
+The free i-node count in the superblock is incorrect.
+You should allow
+.B fsck
+to repair it unless you are a guru and have reason to believe that
+.B fsck
+should not use the redundancy
+in the file system (via all previously reported messages) to
+repair this crucial piece of data in the superblock.
+.Ip "Inconsistent . entry in block \fInumber\fR in directory \fIname/i-node\fR \fI(warning)\fR"
+.Is "Inconsistent .. entry in block \fInumber\fR in directory \fIname/i-node\fR \fI(warning)\fR"
+.Is "i-number = \fInumber\fR is in a bad inode block. \fI(warning)\fR"
+.Ip "I-number is out of range  I=\fIfile name\fR (Remove) [yes/no] \fI(question)\fR"
+.I file
+has an i-node number that is out of range.
+.B fsck
+is asking if you wish to remove the stated file
+(which, after all, does not exist).
+.Ip "I-node \fInumber\fR is a multiply referenced directory i-node. \fI(warning)\fR"
+.Is "internal linktable corruption. \fI(fatal)\fR"
+.Is "Invalid interleave factors in superblock. Default free-block list spacing assumed.\fR \fI(warning)\fR"
+.Is "Invalid Response \fI(fatal)\fR"
+.Is "Link count discrepancy in \fIi-node type file name\fR"
+.Is "\fIfile system\fR mounted on \fIpoint\fR as of \fItime\fR \fI(message)\fR"
+.Is "Name too long. \fI(warning)\fR"
+.Is "Non null padded entry in block \fInumber\fR in directory \fIname/i-node\fR \fI(warning)\fR"
+.Is "Null name entry in block \fInumber\fR in directory \fIname/i-node\fR \fI(warning)\fR"
+.Ip "Out of Range Block number: \fInumber\fR  (CONTINUE) [yes/no] \fI(question)\fR"
+The given action could not be performed.
+If you choose to not continue,
+.B fsck
+will abort.
+If you choose to continue, the results may be unpredictable.
+.Ip "Possible Directory Size Error i-number = \fInumber\fR \fI(warning)\fR"
+.Is "Possible File Size Error i-number = \fInumber\fR \fI(warning)\fR"
+.Is "Possible file system on ram disk /dev/rram1, use the -t option \fI(fatal)\fR"
+.Is "Ram disk close /dev/rram1close not mknoded properly \fI(fatal)\fR"
+.Is "Ram disk /dev/rram1 not mknoded properly \fI(fatal)\fR"
+.Ip "Root i-node is not a directory (FIX) [yes/no] \fI(question)\fR"
+The root i-node must be a directory.
+.B fsck
+is asking whether you wish to fix this.
+If not, then
+.B fsck
+will abort.
+.Ip "Root i-node is unallocated.  Terminating \fI(fatal)\fR"
+.Is "Size check: fsize \fIblocks\fR isize \fIfirst non-i-node block\fR \fI(warning)\fR"
+.Is "Sorry.  No lost+found directory. \fI(warning)\fR"
+.Is "Sorry.  No space in lost+found directory. \fI(warning)\fR"
+.Is "Temp File must not be on file system to fsck \fI(fatal)\fR"
+.Is "Too many file systems in checklist file: /etc/checklist \fI(fatal)\fR"
+.Is "Too large free block count \fI(warning)\fR"
+.Is "Too large free i-node count \fI(warning)\fR"
+.Is "Too many links in i-node \fInumber\fR \fI(fatal)\fR"
+.Is "Tried to checkpath i-node \fInumber\fR which is not dir. \fI(fatal)\fR"
+.Ip "Unallocated \fIfile\fR (Remove) [yes/no] \fI(question)\fR"
+.I file's
+i-node is unallocated.
+.B fsck
+is asking if you wish to remove the stated file
+(which, after all, does not exist).
+.Ip "Unknown File Type i-number = \fInumber\fR (Clear) [yes/no]: \fI(question)\fR"
+The mode field in the specified i-node is unknown.
+If you wish, you can clear the named i-node.
+.Ip "\fIfile system\fR unmounted.  Last mounted on \fIpoint\fR. \fI(message)\fR"
+.Ip "Unref Dir \fIname\fR (Reconnect) [yes/no] \fI(question)\fR"
+The given directory's i-node is unreferenced.
+You are asked if you would like to reconnect the stated directory.
+If you answer yes, then the directory will be reconnected in directory
+.B /lost+found
+in the given file system.
+If not, it will remain unreferenced and you will
+be asked later if you would like to remove it.
+.Ip "Unref \fIi-node type file name\fR (Reconnect) [yes/no] \fI(question)\fR"
+The given i-node is unreferenced.
+.B fsck
+is asking if you wish to reconnect it to the stated file.
+If you answer yes, then the file will be reconnected in directory
+.B /lost+found
+in the given file system.
+If not, it will remain unreferenced and you will
+be asked later if you would like to remove it.
+.Ip "Unref \fIi-node type file name\fR (Clear i-node) [yes/no] \fI(question)\fR"
+The given i-node is unreferenced.
+.B fsck
+asks if you wish to clear the i-node completely.
+If you answer yes, the file is lost forever.
+You have already decided not to reconnect it, so there
+seems to be no reason to keep it anyway.
+.SH Notes
+The correction of file systems almost always involves the destruction of data.
+.PP
+You should run
+.B fsck
+only when the \*(CO system is in single-user mode.
+.PP
+.B fsck
+cannot modify a file system during its work.
+This rule was adopted to prevent
+.B fsck
+from attempting to modify a corrupt file system, and so making matters worse.
+However, this means that
+.B fsck
+cannot change the size of directory
+.BR lost+found .
+Thus, if more files are detached from the file system than
+.B lost+found
+can hold,
+.B fsck
+must delete them outright.
+If you are running an application that uses large numbers of transient
+files (e.g., a news system), you should increase the size of
+.B lost+found
+so that it has a fighting chance of holding all detached files that
+.B fsck
+finds.
+To do so, use the command
+.BR /etc/mklost+found .
+For details, see its entry in the Lexicon.

@@ -1,0 +1,515 @@
+/*
+ * C compiler.
+ * Jump and shape optimization.
+ * Jump to jump, etc.
+ * Common sequences.
+ * Cross jumping.
+ */
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+#define	NLHASH	64
+#define	LHMASK	077
+
+static	INS	*labhash[NLHASH];
+
+/*
+ * Shuffle segments,
+ * Move all non 'SHRI' segments to the front,
+ * then squash any extra switches out of the stream.
+ * This is necessary to make code that is together in
+ * memory together in the 'ins' lists.
+ */
+shuffle()
+{
+	register INS	*fp, *ip;
+	register INS	*niloc;
+	INS		*bep, *bfp;
+	register int	curseg;
+
+	niloc = &ins;
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type != ENTER)
+			continue;
+		bfp = ip;
+		do {
+			ip = ip->i_fp;
+		} while (ip->i_type != ENTER);
+		if (bfp != ins.i_fp) {
+			bep = ip;
+			ip = bfp->i_bp;
+			bfp->i_bp->i_fp = bep->i_fp;
+			bep->i_fp->i_bp = bfp->i_bp;
+			niloc->i_fp->i_bp = bep;
+			bfp->i_bp = niloc;
+			bep->i_fp = niloc->i_fp;
+			niloc->i_fp = bfp;
+			niloc = bep;
+		}
+	}
+	curseg = dotseg;
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type != ENTER)
+			continue;
+		while ((fp=ip->i_fp)!=&ins && fp->i_type==ENTER)
+			ip = deleteins(ip, ip->i_fp)->i_fp;
+		if (ip->i_seg == curseg) {
+			ip = deleteins(ip, ip->i_fp);
+			continue;
+		}
+		curseg = ip->i_seg;
+	}
+}
+
+/*
+ * Delete node ip.
+ * Return a pointer to the previous node.
+ * Merge any line number references onto ip1.
+ */
+INS *
+deleteins(ip, ip1)
+register INS	*ip;
+INS		*ip1;
+{
+	register INS	*bp, *fp;
+
+	mrgdbgt(ip, ip1);
+	if ((ip->i_type==JUMP || ip->i_type==LLLINK) && ((fp=ip->i_ip)!=NULL))
+		decrefc(fp);
+	bp = ip->i_bp;
+	fp = ip->i_fp;
+	bp->i_fp = fp;
+	fp->i_bp = bp;
+	free((char *) ip);
+	return (bp);
+}
+
+/*
+ * Decrement the reference count on a label.
+ * Delete it if the label is now unreferenced.
+ * It is a fatal error to hand this routine a non label.
+ */
+decrefc(ip)
+register INS	*ip;
+{
+	if (ip->i_type != LLABEL)
+		cbotch("decrefc passed non label");
+	if (--ip->i_refc == 0)
+		deleteins(ip, ip->i_fp);
+}
+
+/*
+ * Set up label reference counts and delete any unused labels.
+ */
+labels()
+{
+	register INS	*fp, *ip, *lp;
+	INS		*findlab();
+	register int	curseg, i;
+
+	for (i=0; i<NLHASH; ++i)
+		labhash[i] = NULL;
+	curseg = dotseg;
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type == ENTER)
+			curseg = ip->i_seg;
+		else if (ip->i_type == LLABEL) {
+			ip->i_refc = 0;
+			/*
+			 * Hack the reference count on the
+			 * label if it is the label on a switch
+			 * table to prevent it from being deleted
+			 * by the next bit of code. Kludgy.
+			 */
+			if (curseg != SCODE)
+				++ip->i_refc;
+			else if ((fp=ip->i_fp) != &ins) {
+				if (fp->i_type == LLLINK)
+					++ip->i_refc;
+				else if (fp->i_type == CODE
+				     &&  fp->i_op >= ZBYTE
+				     &&  fp->i_op <= ZGPTR)
+					++ip->i_refc;
+			}
+			labhash[ip->i_labno&LHMASK] = ip;
+		}
+	}
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type!=JUMP && ip->i_type!=LLLINK)
+			continue;
+		if ((lp=findlab(ip->i_labno)) != NULL) {
+			while ((fp=lp->i_fp)!=&ins && fp->i_type==LLABEL)
+				lp = fp;
+			ip->i_labno = lp->i_labno;
+			++lp->i_refc;
+		}
+		ip->i_ip = lp;
+	}
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type!=LLABEL || ip->i_refc!=0)
+			continue;
+		ip = deleteins(ip, ip->i_fp);
+		++nlabdel;
+	}
+}
+
+/*
+ * Find label.
+ * Quick test using hashtable.
+ * Long linear search if that fails.
+ */
+INS *
+findlab(n)
+register int	n;
+{
+	register INS	*lp;
+
+	if ((lp=labhash[n&LHMASK])!=NULL && lp->i_labno==n)
+		return (lp);
+	for (lp=ins.i_fp; lp!=&ins; lp=lp->i_fp)
+		if (lp->i_type==LLABEL && lp->i_labno==n)
+			return (lp);
+	return (NULL);
+}
+
+/*
+ * Delete dead code.
+ * Dead code begins after an unconditional jump and continues
+ * until the next label, segment change or the EPILOG.
+ */
+deadcode()
+{
+	register INS	*fp, *ip;
+	register int	t;
+
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		t = ip->i_type;
+		if (t == LLLINK) {	/* Switch table */
+			while ((fp=ip->i_fp) != &ins && (fp->i_type == LLLINK
+			  || (fp->i_type == CODE && opinfo[fp->i_op].op_style
+			  == OF_WORD)))
+				ip = fp;
+		} else if (t != JUMP || ip->i_rel != UNCON)
+			continue;
+		fp = ip->i_fp;
+		while (fp != &ins) {
+			t = fp->i_type;
+			if (t==LLABEL || t==EPILOG || t==ENTER)
+				break;
+			fp = deleteins(fp, fp->i_fp)->i_fp;
+			++ndead;
+			++changes;
+		}
+	}
+}
+
+/*
+ * Fix some of the more common funny things
+ * associated with jump instructions and labels.
+ * There are more things that could be done.
+ * These five things should get most of the common things.
+ */
+fixbr()
+{
+	register INS	*ip, *ip1, *ip2;
+	INS 		*ip3, *ip4;
+	int 		t;
+
+again:
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		t = ip->i_type;
+		/* Jump to jump. */
+		if ((t==JUMP && ischnrel(ip->i_rel)) || t==LLLINK) {
+			ip1 = ip->i_ip;
+			if (ip1 != NULL) {
+				ip2 = ip1;
+				for (;;) {
+					while (ip2->i_type == LLABEL)
+						ip2 = ip2->i_fp;
+					if (ip2->i_type!=JUMP
+					||  ip2->i_rel!=UNCON)
+						break;
+					ip3 = ip2->i_ip;
+					if (ip3==NULL
+					 || ip3==ip1
+					 || ip3==ip2->i_bp)
+						break;
+					ip2 = ip3;
+				}
+				ip2 = ip2->i_bp;
+				if (ip1 != ip2) {
+					decrefc(ip1);
+					increfc(ip2);
+					ip->i_labno = ip2->i_labno;
+					ip->i_ip = ip2;
+					++nbrbr;
+					++changes;
+				}
+			}
+		}
+		/* Reversible jump over unconditional jump. */
+		if (t==JUMP && isrevrel(ip->i_rel)) {
+			ip1 = ip->i_fp;
+			if (ip1->i_type==JUMP && ip1->i_rel==UNCON) {
+				ip2 = ip1->i_fp;
+				if (ip2->i_type==LLABEL && ip->i_ip==ip2) {
+					ip1->i_rel = revrel(ip->i_rel);
+					deleteins(ip, ip1);
+					++ncbrbr;
+					++changes;
+					goto again;
+				}
+			}
+		}
+		/* Jump to next instruction. */
+		if (t==JUMP && ip->i_ip==ip->i_fp) {
+			deleteins(ip, ip->i_fp);
+			++nbrnext;
+			++changes;
+			goto again;
+		}
+		/*
+ 		 * The preceding optimizations do not change the code order,
+		 * so they can be executed even if VNOOPT.
+		 * The following optimizations do change the code order,
+		 * so they are suppressed if VNOOPT.
+		 */
+		if (isvariant(VNOOPT))
+			continue;
+		/*
+		 * [ip]JUMP L1; [ip1]L2:...; [ip2]L1:...; [ip3]JUMP L2; ...
+		 * becomes [ip2]L1:...; [ip1]L2:...; [ip]JUMP L1; ...
+		 * Saves a jump in every for loop.
+		 */
+		if (t==JUMP && ip->i_rel==UNCON) {
+			ip1 = ip->i_fp;
+			if (ip1!=&ins && ip1->i_type==LLABEL) {
+				ip2 = NULL;
+				for (ip3=ip1->i_fp; ip3!=&ins; ip3=ip3->i_fp) {
+					if (ip3->i_type==LLABEL
+					   && ip->i_ip==ip3)
+						ip2 = ip3;
+					else if (ip2!=NULL
+					      && ip3->i_type==JUMP
+					      && ip3->i_rel==UNCON
+					      && ip3->i_ip==ip1) {
+						ip4 = ip2->i_bp;
+						ip->i_bp->i_fp = ip2;
+						ip3->i_bp->i_fp = ip1;
+						ip4->i_fp = ip;
+						ip->i_fp = ip3;
+						ip2->i_bp = ip->i_bp;
+						ip1->i_bp = ip3->i_bp;
+						ip->i_bp = ip4;
+						ip3->i_bp = ip;
+						deleteins(ip3, ip1);
+						++nexbr;
+						++changes;
+						goto again;
+					}
+				}
+			}
+		}
+		/*
+		 * [ip] JUMP L1; <code1>; [ip2] JUMP L2; [ip1] L1: <code2>; [ip3] L2:
+		 * becomes [ip1] L1: <code2>; [ip] JUMP L2; <code1>; [ip3] L2:
+		 * Saves a jump in every switch and restores natural code order.
+		 * <code2> often ends in JUMP or LLLINK, in which case JUMP L2
+		 * gets optimized out later.
+		 */
+		if (t==JUMP && ip->i_rel==UNCON && precedes(ip, ip->i_ip)) {
+			ip1 = ip->i_ip;
+			ip2 = ip1->i_bp;
+			if (ip2->i_type==JUMP && ip2->i_rel==UNCON
+			    && precedes(ip1, ip2->i_ip)) {
+				ip3 = ip2->i_ip;
+				/* Rearrange the code. */
+				ip->i_bp->i_fp = ip1;
+				ip3->i_bp->i_fp = ip;
+				ip2->i_fp = ip3;
+				ip1->i_bp = ip->i_bp;
+				ip->i_bp = ip3->i_bp;
+				ip3->i_bp = ip2;
+				/* Change JUMP L1 at ip into JUMP L2. */
+				ip->i_ip = ip3;
+				ip->i_labno = ip3->i_labno;
+				increfc(ip3);
+				decrefc(ip1);
+				/* Delete the now extraneous JUMP. */
+				deleteins(ip2, ip3);
+				++nexbr;
+				++changes;
+				goto again;
+			}
+		}
+	}
+}
+
+/*
+ * Return true iff ip1 precedes ip2 in the INS node chain.
+ */
+static
+precedes(ip1, ip2)
+register INS *ip1, *ip2;
+{
+	while ((ip1 = ip1->i_fp) != &ins)
+		if (ip1 == ip2)
+			return(1);
+	return(0);
+}
+
+/*
+ * Increment the reference count on a label.
+ * It is a fatal error to hand this routine a non label.
+ */
+increfc(ip)
+register INS	*ip;
+{
+	if (ip->i_type != LLABEL)
+		cbotch("increfc passed non label");
+	++ip->i_refc;
+}
+
+/*
+ * Insert a label.
+ * It has been 'increfc'ed.
+ * Return pointer to the new label.
+ */
+INS *
+inslab(ip)
+register INS	*ip;
+{
+	register INS	*lp, *bp;
+
+	if (ip->i_type == LLABEL) {
+		increfc(ip);
+		return (ip);
+	}
+	lp = (INS *) malloc(sizeof(INS));
+	if (lp != NULL) {
+		lp->i_type = LLABEL;
+		lp->i_labno = newlab();
+		lp->i_sp = NULL;
+		lp->i_refc = 1;
+		bp = ip->i_bp;
+		bp->i_fp = lp;
+		lp->i_fp = ip;
+		ip->i_bp = lp;
+		lp->i_bp = bp;
+	}
+	return (lp);
+}
+
+/*
+ * Cross jumps.
+ * If the same code precedes an unconditional jump and
+ * the label to which it jumps, replace the former with
+ * a jump to a new local label.
+ */
+xjumps()
+{
+	register INS	*ip, *lp;
+
+	for (ip=ins.i_fp; ip!=&ins; ip=ip->i_fp) {
+		if (ip->i_type!=JUMP || ip->i_rel!=UNCON
+		|| (lp = ip->i_ip)==NULL)
+			continue;
+		if (!docomseq(lp, ip, &nxjump))
+			return;
+	}
+}
+
+/*
+ * Compare two nodes.
+ * True return if the same.
+ * Never called on strange stuff
+ * or labels.
+ */
+xeq(ip1, ip2)
+register INS	*ip1, *ip2;
+{
+	register int	t;
+
+	if ((t=ip1->i_type) != ip2->i_type)
+		return (0);
+	if (t==JUMP || t==LLLINK) {
+		if (ip1->i_labno != ip2->i_labno)
+			return (0);
+		if (t==JUMP && ip1->i_rel!=ip2->i_rel)
+			return (0);
+		return (1);
+	}
+	if (t != CODE)
+		cbotch("xeq");
+	if (ip1->i_op != ip2->i_op)
+		return (0);
+	if (ip1->i_naddr != ip2->i_naddr)
+		return (0);
+	return (cmpfield(ip1, ip2));
+}
+
+/*
+ * Detect common sequences before jumps.
+ * When found, replace the later with a jump to a new
+ * local label preceding the former.
+ */
+comseq()
+{
+	register INS	*ip, *xp, *yp;
+
+	for (xp=ins.i_fp; xp!=&ins; xp=xp->i_fp) {
+		if (xp->i_type!=JUMP || xp->i_rel!=UNCON)
+			continue;
+		ip = xp->i_ip;
+		if (ip==NULL || ip->i_type != LLABEL)
+			continue;
+		for (yp=xp->i_fp; yp!=&ins; yp=yp->i_fp) {
+			if (yp->i_type==JUMP && yp->i_rel==UNCON
+			&&  yp->i_ip==ip) {
+				if (!docomseq(xp, yp, &ncomseq))
+					return;
+			}
+		}
+	}
+}
+
+
+/*
+ * Back up through the code looking for valid cross jumps.
+ * When found, insert a new local label before the first
+ * and change the second into an unconditional jump to it.
+ * Called from xjumps and comseq.
+ * Returns 0 if the new node allocation fails.
+ */
+docomseq(xp, yp, countp)
+register INS *xp, *yp;
+int *countp;
+{
+	for (;;) {
+		xp = xp->i_bp;
+		if (xp==&ins || xp->i_type==LLABEL || xp->i_type==LLLINK)
+			break;
+		yp = yp->i_bp;
+		if (yp==&ins || yp->i_type==LLABEL || yp->i_type==LLLINK
+			     || xeq(xp, yp)==0)
+			break;
+		xp = inslab(xp);
+		if (xp == NULL)
+			return (0);
+		mrgdbgt(yp, xp->i_fp);
+		if ((yp->i_type==JUMP || yp->i_type==LLLINK) && yp->i_ip!=NULL)
+			decrefc(yp->i_ip);
+		yp->i_type = JUMP;
+		yp->i_labno = xp->i_labno;
+		yp->i_sp = NULL;
+		yp->i_ip = xp;
+		yp->i_rel = UNCON;
+		yp->i_long = 0;
+		++*countp;
+		++changes;
+	}
+	return(1);
+}

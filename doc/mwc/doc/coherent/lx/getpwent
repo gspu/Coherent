@@ -1,0 +1,116 @@
+.TH getpwent() "" "" "General Function (libc)"
+.PC "Get password file information"
+.B "#include <pwd.h>"
+\fBstruct passwd *getpwent(\|)\fR
+.PP
+The \*(CO system has five
+routines that search the file
+.BR /etc/passwd ,
+which contains information about every user of the system.
+The returned structure
+.B passwd
+is defined in the header file
+.BR pwd.h .
+For a description of this structure, see
+.BR pwd.h .
+.PP
+.B getpwent()
+returns the next entry from
+.BR /etc/passwd .
+.SH Example
+The following example demonstrates
+.BR getpwent() ,
+.BR getpwnam() ,
+.BR getpwuid() ,
+.BR setpwent() ,
+and
+.BR endpwent() .
+.DM
+#include	<pwd.h>
+#include	<stdio.h>
+#include	<unistd.h>
+.DE
+.DM
+.ta 0.5i 2.5i
+main()
+{
+	int euid,	/* Effective user id */
+	    ruid;	/* Real user id */
+	struct passwd *pstp;	
+	int i;
+.DE
+.DM
+.ta 0.5i 2.5i
+	/* Print out all users and home directories */
+	i = 0;
+	setpwent();	/* Rewind file /etc/passwd */
+	while ((pstp = getpwent()) != NULL) 
+	     printf("%d: user name is %s, home directory is %s.\en",
+	             ++i, pstp->pw_name, pstp->pw_dir);
+.DE
+.DM
+.ta 0.5i 1.0i
+	/* Find real user name. 
+	 * NOTE: functions getpwuid and getpwnam rewind /etc/passwd
+	 * by calling setpwent().
+	 */
+	ruid = getuid();
+	if ((pstp = getpwuid(ruid)) == NULL) { 
+		/* If this message appears, something's wrong */
+		fprintf(stderr, "Cannot find user with id number %d\en", pstp);
+		exit (EXIT_FAILURE);
+	} else
+		printf("User's real name is %s\en", pstp->pw_name);
+.DE
+.DM
+.ta 0.5i 1.0i
+	/* Find the user id for superuser root */
+	((pstp = getpwnam("root")) == NULL) ?
+		fprintf(stderr, "Do you have user root on your system?\en") :
+		printf("root id is  %d\en", pstp->pw_uid);
+.DE
+.DM
+	/* Check if the effective process id is the superuser id.
+	 * 
+	 * NOTE: if you wish to see how to enable the root
+	 * privileges, you can run this command:
+	 * cc pwfun.c
+	 * su root chown root pwfun
+	 * su root chmod 4511 pwfun
+	 */
+.DE
+.DM
+.ta 0.5i 2.5i
+	euid = geteuid();	/* Get effective user id. */
+	printf("Process ");
+	(euid == pstp->pw_uid) ? printf("has ") : printf("doesn't have ");
+	printf("the root privileges\en");
+	exit(EXIT_SUCCESS);
+}
+.DE
+.SH Files
+.B /etc/passwd
+.br
+.B pwd.h
+.SH "See Also"
+.Xr "endpwent()," endpwent
+.Xr "getpwnam()," getpwnam
+.Xr "getpwuid()," getpwuid
+.Xr "libc," libc
+.Xr "pwd.h," pwd.h
+.Xr "setpwent()" setpwent
+.SH Diagnostics
+.B getpwent()
+returns NULL for any error or on end of file.
+.SH Notes
+All structures and information returned are
+in static areas internal to
+.BR getpwent() .
+Therefore, information from a previous call is overwritten by each
+subsequent call.
+.PP
+If your system has implemented shadow passwords, you must use the
+shadow-password routine
+.B getspent()
+to retrieve records that contain passwords.
+For details, see this function's entry in the Lexicon.

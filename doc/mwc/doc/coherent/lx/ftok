@@ -1,0 +1,96 @@
+.TH ftok() "" "" "General Function (libc)"
+.PC "Generate keys for interprocess communication"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+\fBkey_t ftok(\fIfilename\^\fB, \fIprocid\^\fB)\fR
+\fBchar *\fIfilename\^\fB;\fR
+\fBchar \fIprocid\^\fB;\fR
+.PP
+The COHERENT system implements three methods by which one process can
+communicate with another:
+semaphores, messages, and shared memory.
+In each case, a process must use a key of type
+.B key_t
+(which is defined in header file
+.BR <sys/types.h> )
+to identify itself.
+.PP
+One problem is that each process generates its own key, by its own method.
+Therefore, two processes could independently generate the same key,
+which could create serious problems for interprocess communication.
+.PP
+The function
+.B ftok()
+generates keys for processes that perform interprocess communication.
+.I filename
+is the full path name of a file.
+This can be the full path name of the file in which the program
+resides on disk.
+The file named in
+.I filename
+must exist and be accessible for the system call
+.BR stat() ,
+or
+.B ftok()
+will fail.
+.I procid
+is a one-character identifier with which this process distinguishes itself
+from all other processes that are pegged to
+.IR filename .
+How a process generates
+.I procid
+is up to the program itself.
+.PP
+For example, the program
+.B myproc
+can generate a unique key for itself with the call:
+.DM
+	key_t mykey;
+	mykey = ftok("/usr/bin/myproc", 'A');
+.DE
+.PP
+Note the following caveats:
+.IP \(bu 0.3i
+Because
+.B ftok()
+generates its key from a file's i-node major and minor numbers
+rather than its name, it
+generates the same key for two files that are linked.
+For example, if files
+.B /usr/henry/foo
+and
+.B /usr/henry/bar
+are linked to each other, then the calls
+.DM
+	ftok("/usr/henry/foo", 'A');
+.DE
+.sp \n(pDu
+and
+.DM
+	ftok("/usr/henry/bar", 'A');
+.DE
+.sp \n(pDu
+will generate the same key.	
+.IP \(bu
+If the file named by
+.I filename
+is destroyed and then recreated, the call to
+.B ftok()
+generates a different key than it did before
+.I filename
+was destroyed.
+.IP \(bu
+If the file named by
+.I filename
+does not exist,
+.B ftok()
+returns \fB(key_t) -1\fR.
+.SH Example
+For an example of this function, see the entry for
+.BR msgget() .
+.SH "See Also"
+.Xr "ipc.h," ipc.h
+.Xr "libc," libc
+.Xr "msgget()," msgget
+.Xr "semget()," semget
+.Xr "shmget()" shmget

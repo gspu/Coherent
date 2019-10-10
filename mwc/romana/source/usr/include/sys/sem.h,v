@@ -1,0 +1,159 @@
+head	1.1;
+access
+	hal
+	ljg
+	jrd
+	chris
+	fred;
+symbols
+	r12:1.1
+	r10:1.1;
+locks; strict;
+comment	@ * @;
+
+
+1.1
+date	94.03.28.21.09.38;	author hal;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@@mwc.com
+ -lgl) */
+
+#ifndef __SYS_SEM_H__
+#define __SYS_SEM_H__
+
+/*
+ * IPC Semaphore Facility
+ */
+
+#include <common/feature.h>
+#include <common/ccompat.h>
+#include <common/__pid.h>
+#include <common/__time.h>
+#include <common/__size.h>
+#include <common/_imode.h>
+
+
+/*
+ * Semaphore Operation Flags.
+ */
+
+#define SEM_UNDO 010000		/* set up adjust on exit entry */
+
+
+/*
+ * Semctl Command Definitions.
+ */
+
+#define	GETNCNT	3		/* get semncnt */
+#define	GETPID	4		/* get sempid  */
+#define	GETVAL	5		/* get semval  */
+#define	GETALL	6		/* get all semval's */
+#define	GETZCNT 7		/* get semzcnt */
+#define	SETVAL	8		/* set semval  */
+#define	SETALL	9		/* set all semval's */
+
+
+/*
+ * Structure Definitions.
+ */
+
+/*
+ * There is one semaphore id data structure for each set of semaphores
+ * in the system.
+ */
+
+#if	_SYSV4
+
+struct semid_ds {
+	struct ipc_perm	sem_perm;	/* semaphore permission struct */
+	struct sem    *	sem_base;	/* pointer to first semaphore in set */
+	unsigned short	sem_nsems;	/* # of semaphores in set */
+	__time_t	sem_otime;	/* last semop time */
+	long		__pad1;
+	__time_t	sem_ctime;	/* last change time */
+	long		__pad2;
+	long		__pad3 [4];
+};
+
+#else
+
+struct semid_ds {
+	struct ipc_perm	sem_perm;	/* semaphore permission struct */
+	struct sem    *	sem_base;	/* pointer to first semaphore in set */
+	unsigned short	sem_nsems;	/* # of semaphores in set */
+	__time_t	sem_otime;	/* last semop time */
+	__time_t	sem_ctime;	/* last change time */
+};
+
+#endif
+
+
+/*
+ * There is one semaphore structure for each semaphore in the system.
+ */
+
+struct sem {
+	unsigned short	semval;		/* semaphore value */
+	short		sempid;		/* pid of last operation */
+	unsigned short	semncnt;	/* # awaiting semval > cval */
+	unsigned short	semzcnt;	/* # awaiting semval = 0 */
+};
+
+
+/*
+ * User semaphore template for semop system calls.
+ */
+
+struct sembuf {
+	unsigned short	sem_num;	/* semaphore # */
+	short		sem_op;		/* semaphore operation */
+	short		sem_flg;	/* operation flags */
+};
+
+
+#if	_KERNEL
+
+/*
+ * There is one linked list of undo structures per process.
+ */
+
+typedef	struct sem_undo	__sem_undo_t;
+
+struct sem_undo {
+	__sem_undo_t  *	un_np;		/* ptr to next active undo structure */
+	short		un_aoe;		/* adjust on exit values */
+	short		un_num;		/* semaphore # */
+	int		un_id;		/* semid */
+};
+
+#endif	/* _KERNEL */
+
+__EXTERN_C_BEGIN__
+
+int		semctl		__PROTO ((int _semid, int _semnum, int _cmd,
+					  ...));
+int		semget		__PROTO ((__key_t _key, int _nsems,
+					  int _semflg));
+int		semop		__PROTO ((int _semid, struct sembuf * _sops,
+					  __size_t _nsemops));
+
+__EXTERN_C_END__
+
+#endif /* ! defined (__SYS_SEM_H__) */
+@

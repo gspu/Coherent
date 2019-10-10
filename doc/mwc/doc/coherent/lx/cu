@@ -1,0 +1,523 @@
+.TH cu "" "" "Command"
+.PC "\*(UN-compatible communications utility" 
+\fBcu \fB[options] [\fIsystem\^\fB] [\fIphone\^\fB] [dir]\fR
+.PP
+.HS
+.IC "\fB\-a \fIport\fR"
+Use named port
+.IC "\fB\-c \fIphone\fR"
+Phone number to call
+.IC "\fB\-d\fR"
+Set maximum debugging level
+.IC "\fB\-e\fR"
+Set even parity
+.IC "\fB\-h\fR"
+Echo locally
+.IC "\fB\-I \fIfile\fR"
+Set configuration file to use
+.IC "\fB\-l \fIline\fR"
+Use named device (e.g. tty0)
+.IC "\fB\-n\fR"
+Prompt for telephone number
+.IC "\fB\-o\fR"
+Set odd parity
+.IC "\fB\-p \fIport\fR"
+Use named port
+.IC "\fB\-s \fIspeed, -#\fR"
+Use given speed
+.IC "\fB\-t\fR"
+Map carriage return to carriage return/linefeed
+.IC "\fB\-x \fIactivity\fR"
+Log a given \fIactivity\fR, for debugging purposes
+.IC "\fB\-z \fIsystem\fR"
+System to call
+.HE
+The command
+.B cu
+implements a version of the communications utility used under \*(UN System V.
+(Its name is an acronym for ``call \*(UN''.)
+With it, you can interactively telephone other systems,
+upload files, download files, and perform other communications tasks.
+Unlike the program
+.BR ckermit ,
+which is also included with \*(CO,
+.B cu
+uses the information stored in \*(UU data-base files
+.BR dial ,
+.BR port ,
+and
+.B sys
+to automate the dialing of a remote system.
+.PP
+To tell
+.B cu
+to dial a given system, just use that system's name on the
+.B cu
+command line.
+.B cu
+then reads from files
+.BR dial ,
+.BR port ,
+and
+.B sys
+the information on how to dial the system you have named; then uses that
+information to open the port, set up the modem, and dial the system,
+up to the point where you see a login prompt on the remote system.
+For example, to dial system
+.BR mwcbbs ,
+use the command:
+.DM
+	cu mwcbbs
+.DE
+.PP
+Instead of dialing a remote system, you may wish to talk directly to a
+modem \(em for example, to reset its registers; or you may wish to log
+into a local system that is directly connected to your system via a serial
+port.
+To talk directly to a device, use the option
+.B \-p
+followed by the name of the port into which the device is plugged, plus
+the command
+.BR dir .
+This command tells
+.B cu
+that you wish to talk to the port directly.
+(Ports are named in the file
+.BR port ;
+for details, see its entry in the Lexicon.)
+For example, to talk directly a modem that is on a port named
+.BR MWCBBS ,
+use the command:
+.DM
+	cu -p MWCBBS dir
+.DE
+.PP
+To have
+.B cu
+dial a specific telephone number over a specific port, again use the option
+.B \-p
+option to name the port, followed by the telephone number to call.
+For example, the command
+.DM
+	cu -p MWCBBS 17085590412
+.DE
+.PP
+connects to the modem on port
+.B MWCBBS
+and dial the telephone number 1-708-559-0412.
+.PP
+.B cu
+assumes that a string that begins with an alphabetic character names a
+system.
+To call a system whose name begins with numeral,
+use the command-line option \fB\-z\fR, described below.
+.SH "cu Commands"
+You can give commands to
+.B cu
+while you converse with the remote system.
+Each command begins with an escape character,
+which by default is the tilde `~'.
+.B cu
+recognizes the escape character only when it appears at the beginning
+of a line.
+After you type the escape character,
+.B cu
+replies with the name of your system, to show that it is ready to receive
+your command.
+If you do not see
+.BR cu 's
+reply within a second or two, something has gone wrong.
+.PP
+To send to the remote system an escape character at the beginning of a line,
+enter it twice; for example, typing
+.DM
+	~~
+.DE
+.PP
+sends a single `~' to the remote system.
+All commands are either a single character or a word that begins with `%'.
+.PP
+.B cu
+recognizes the following commands:
+.IP \fB~.\fR
+Terminate the conversation.
+.IP "\fB~! \fIcommand\fR"
+Run
+.I command
+in a shell on your local system.
+If no
+.I command
+is given, start up a shell.
+.IP "\fB~$ \fIcommand\fR"
+Run
+.I command
+on your local system, and
+redirect to the remote system what
+.I command
+writes to the standard output.
+.IP "\fB~| \fIcommand\fR"
+Run
+.I command
+on your local system, and pipe into
+.I command
+what the remote system sends to your system.
+.IP "\fB~+ \fIcommand\fR"
+Combine the commands \fB~$\fR and \fB~|\fR.
+.II rz
+.II sz
+You can use this command to invoke alternative file-transfer utilities,
+e.g.,
+.B rz
+and
+.BR sz .
+.IP "\fB~#\fR"
+.IS "\fB~%break\fR"
+Send a break signal.
+.IP "\fB~c \fIdirectory\fR"
+.IS "\fB~%cd \fIdirectory\fR"
+.B cd
+to
+.I directory
+on your local system.
+.IP "\fB~> \fIfile\fR"
+Send
+.I file
+to the remote system.
+This command just dumps the file over the communication line, and performs no
+error checking.
+It assumes that the remote system is expecting it.
+You should first open a file on the remote system such as through the command
+.DM
+	cat > filename
+.DE
+.IP
+before you invoke this feature of
+.BR cu .
+.IP "\fB~<\fR
+Receive a file from the remote system.
+.B cu
+prompts you to name the file into which it will write what it receives from
+the remote system, then prompts you
+for the command to execute on the remote system to begin the file transfer
+(often, just \fBcat \fIfilename\fR).
+.B cu
+reads data from the remote system
+and writes them into into the file you named on your system
+until it detects the variable
+.BR eofread .
+.IP "\fB~p \fIherefile farfile\fR"
+.IS "\fB~%put \fIherefile farfile\fR"
+Copy (or \fIput\^\fR) file
+.I herefile
+on your system
+into file
+.I farfile
+on the remote system.
+.IP "\fB~t \fIfarfile herefile\fR"
+.IS "\fB~%take \fIfarfile herefile\fR"
+Take file
+.I farfile
+from the remote system, and write it into file
+.I herefile
+on your system.
+This runs the appropriate commands on the remote system.
+.IP "\fB~s \fIvariable \fB[\fIvalue\^\fB]\fR"
+Set the
+.B cu
+.I variable
+to
+.IR value .
+If no value is not given, set
+.I variable
+to
+.BR true .
+.BR cu 's
+variables are described below.
+.IP "\fB~! \fIvariable\fR"
+Set the
+.B cu
+.I variable
+to
+.BR false .
+.BR cu 's
+variables are described below.
+.\".IP \fB~z\fR
+.\".IS \fB~<ctrl-Z>\fR
+.\"Use job control to suspend the
+.\".B cu
+.\"session.
+.IP \fB~%nostop\fR
+Turn off \fBXON\fR/\fBXOFF\fR flow control.
+.IP \fB~%stop\fR
+Turn on \fBXON\fR/\fBXOFF\fR flow control.
+.IP \fB~v\fR
+List all
+.B cu
+variables and their values.
+.BR cu 's
+variables are described below.
+.IP \fB~?\fR
+Help:
+list all
+.B cu
+commands.
+.SH "cu Variables"
+The following variables are build into
+.B cu
+to control its default behaviors:
+.IP \fBbinary\fR 0.75i
+This variable indicates whether to pass binary information
+untouched when it transfers a file.
+If this variable is false,
+.B cu
+converts newline characters to carriage returns.
+If set to true, then
+.B cu
+passes binary data through untouched.
+The default is
+.BR false .
+.IP \fBbinary-prefix\fR
+This variable gives the string that prefaces a binary character
+in a file transfer.
+This variable applies only if the variable
+.B binary
+variable is true.
+The default is
+.BR <ctrl-Z> .
+.IP \fBdelay\fR
+If this variable is true,
+.B cu
+delays for one second after it recognizes the escape character.
+The default is true.
+.IP \fBecho-check\fR
+If
+.BR true ,
+.B cu
+checks file transfers by examining what the remote system echoes.
+This is not a robust method of checking the integrity of a transferred file,
+but it is the best that
+.B cu
+offers.
+The default is
+.BR false .
+.IP \fBechonl\fR
+The character that
+.B cu
+looks for after it sends each line in a file.
+The default is the carriage return.
+.IP \fBeofread\fR
+This sets the string that
+.B cu
+looks for after it receives a file retrieved with the command
+.BR ~< .
+The default is
+.BR $ ,
+which is intended to be a typical shell prompt.
+.IP \fBeofwrite\fR
+The string that
+.B cu
+writes after it sends a file with the command
+.BR ~> .
+The default is
+.BR <ctrl-D> .
+.IP \fBeol\fR
+This variable gives the characters that
+.B cu
+recognizes as completing a line of input.
+.B cu
+recognizes the escape character only when it occurs immediately
+.I after
+one of the
+.B eol
+characters.
+.B cu
+recognizes the following
+.B eol
+characters by default:
+.BR <ctrl-C> ,
+.BR <ctrl-D> ,
+.BR <ctrl-O> ,
+.BR <ctrl-Q> ,
+.BR <ctrl-R> ,
+.BR <ctrl-S> ,
+and
+.BR <ctrl-U> .
+.IP \fBescape\fR
+The escape character.
+By default, this is the tilde `~'.
+.IP \fBkill\fR
+This tells
+.B cu
+the character to use to delete a line if the echo-check fails.
+The default is
+.BR <ctrl-U> .
+.IP \fBresend\fR
+The number of times to resend a line if the echo-check continues to fail.
+The default is ten.
+.IP \fBtimeout\fR
+This variable sets the time, in seconds, that
+.B cu
+waits for a character either when it does
+echo-checking or when it looks for the
+.B echonl
+character.
+The default is
+.BR 30 .
+.IP \fBverbose\fR
+Print accumulated information during a file transfer.
+The default is
+.BR true .
+.PP
+To list the values of the variables, use the command \fB~v\fR.
+To modify a variable, use the commands \fB~s\fR or \fB~!\fR.
+For example, to turn off the one-second pause after sending an
+escape character, use the command:
+.DM
+	~! delay
+.DE
+.PP
+To change the escape character from `~' to `\e', use the command:
+.DM
+	~s escape \e
+.DE
+.SH Options
+.B cu
+recognizes the following command-line options:
+.IP "\fB\-a \fIport\fR" 0.75i
+The same as the option \fB\-p\fR, described below.
+.IP "\fB\-c \fInumber\fR"
+Dial
+.IR number .
+You must use this option if the telephone number begins with a letter.
+.IP \fB\-d\fR
+Enter debugging mode.
+This is equivalent to
+.BR "\-x all" .
+.IP \fB\-e\fR
+Use even parity.
+.IP "\fB\-\fIN\fR"
+Equivalent to the command \fB\-s \fIN\fR,
+where
+.I N
+is an integer.
+.IP \fB\-h\fR
+Half-duplex mode:
+echo locally all characters sent to the remote system.
+.IP "\fB\-I \fIfile\fR"
+Use
+.I file
+instead of the configuration file.
+.IP "\fB\-l \fIdevice\fR"
+The device on which to dial out.
+Use this option to dial out on ports that are not list in the file
+.BR port .
+You must have write permission on
+.IR device .
+.IP \fB\-n\fR
+Prompt for the telephone number to use.
+.IP \fB\-o\fR
+Use odd parity.
+If you use both
+.B \-e
+and
+.B \-o
+on the command line, no parity is used.
+If neither is specified,
+.B cu
+uses the default parity of the line.
+.IP "\fB\-p \fIport\fR"
+The port to use.
+If you do not use this option,
+.B cu
+uses the default port for the system being contacted, as set in file
+.BR /usr/lib/uucp/sys .
+.IP "\fB\-s \fIspeed\fR"
+Set the baud rate to
+.IR speed .
+.IP \fB-t\fR
+Map every carriage return character to the pair carriage/linefeed.
+Use this option when transferring files to an \*(MD system.
+.\"or something equally brain-dead.
+.IP "\fB\-z \fIsystem\fR"
+Call
+.IR system .
+You must use this option if the name of the remote system begins with a numeral.
+.IP "\fB\-x \fIactivity\fR"
+Log a given
+.IR activity .
+These logs can help you debug problems with \fBcu\fR.
+.B cu
+recognizes the following activities:
+.DS
+.ta 0.5i 2.0i 3.5i
+.B
+	abnormal
+	chat
+	handshake
+	port
+	config
+	incoming
+	outgoing
+.DE
+.IP
+One
+.B \-x
+option can name multiple activities,
+with the activities separated by commas.
+A
+.B cu
+command line can contain multiple
+.B \-x
+options.
+.IP
+You can also use this option with a number, which turns on that many activities
+from the foregoing list, in the order in which the appear in this list.
+For example, the option
+.B "\-x 2"
+is equivalent to the option
+.B "\-x abnormal,chat" .
+The option
+.B "\-x all"
+logs on all activities.
+.SH "See Also"
+.Xr "ckermit," ckermit
+.Xr "commands," commands
+.Xr "dial," dial
+.Xr "port," port
+.Xr "sys," sys
+.Xr "UUCP" uucp
+.SH Notes
+Unlike
+.BR ckermit ,
+the file-transfer facility in
+.B cu
+is primitive and performs no error checking.
+If you wish primarily to transfer files, you should consider using
+.B ckermit
+instead of
+.BR cu .
+As noted above, the command
+.B ~+
+plugs the standard input and standard output of two commands into each other;
+with this feature, you can use the other file-transfer utilities (e.g.,
+.B rz
+and
+.BR sz )
+to transfer files under
+.BR cu .
+.PP
+.B cu
+requires that the device
+.B /dev/console
+appear last in file
+.BR /etc/ttys .
+If this is not so,
+.B cu
+refuses to disable the enabled port or dial out.
+For details on this file, see the Lexicon entry for
+.BR ttys .
+.PP
+.II "Taylor, Ian"
+.B cu
+was ported to \*(CO from the Taylor \*(UU package, written by
+Ian Taylor (ian@airs.com).

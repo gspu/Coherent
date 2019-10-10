@@ -1,0 +1,99 @@
+ssss -- Device Driver
+
+
+The device driver ssss lets you use SCSI interface devices attached to any of
+the following host adapters:
+
+    Future Domain TMC-845/850/860/875/885
+    Future Domain TMC-840/841/880/881
+    Seagate ST01/ST02
+
+This driver  has major number  13.  It can  be accessed either  as a block-
+special  device  or  as  a  character-special  device.   The  minor  number
+specifies the device and  partition number for disk-type devices; this lets
+you use up to eight SCSI-IDs,  with one logical unit number (LUN) per SCSI-
+ID and  up to four partitions  per LUN.  The present  version supports only
+LUN 0 per SCSI-ID.
+
+The first  ooppeenn call on a  SCSI disk device reads  the partition table into
+memory.
+
+_C_o_n_t_r_o_l_l_e_r _C_o_n_f_i_g_u_r_a_t_i_o_n
+For your Future  Domain or Seagate host adapter to  work with COHERENT, you
+must install  it with  interrupts enabled.  If  you have been  running your
+host adapter  with interrupts disabled,  a good first  choice for interrupt
+number is IRQ 5, unless you  know that you have another device installed on
+your computer  that already uses this  interrupt.  Consult the instructions
+provided with your host adapter,  and the jumper settings, to determine the
+IRQ number.
+
+The base  address value  used by ssss  is the four-digit  hexadecimal memory-
+segment number of the host adapter's starting address.  This number is most
+often CCAA0000; other  common values are CC880000, CCCC0000, CCEE0000,  DDCC0000, and DDEE0000. You
+must use  the correct value,  as specified by  the jumper settings  on your
+host adapter.
+
+Device driver  variables SSSS_BBAASSEE and SSSS_IINNTT correspond  to the base address
+and interrupt vector, respectively.  Device driver variable NNSSDDRRIIVVEE must be
+patched before  the driver is loaded.  The low-order  byte of this variable
+is a bit  map that indicates the SCSI-IDs of  all installed target devices.
+The high-order byte indicates the type of host adapter.  Labelling the bits
+in the low-order byte of NNSSDDRRIIVVEE is as follows:
+
+       _B_i_t _n_u_m_b_e_r:  7 6 5 4 3 2 1 0 <- _l_e_a_s_t _s_i_g_n_i_f_i_c_a_n_t _b_i_t
+
+There should  be a value of  one for each installed  target device.  Do not
+set a  value of one  for the SCSI-ID  of the host  adapter.  The high-order
+byte  of  NNSSDDRRIIVVEE  is  00xx0000  for  Seagate ST01  and  ST02,  00xx8800  for  TMC-
+845/850/860/875/885, and 00xx4400 for TMC-840/841/880/881.  For example, if you
+are using a TMC-885 and a  single hard drive with SCSI ID of zero, then set
+NNSSDDRRIIVVEE  to 0x8001.   See  Lexicon article  hhss  for an  example  of how  to
+configure a device driver.
+
+When  processing BIOS  I/O requests  prior to  booting COHERENT,  SCSI host
+adapters  use  ``translation-mode''  drive  parameters:  number  of  heads,
+cylinders, and  sectors per track.   These numbers are  called translation-
+mode  parameters  because  they have  nothing  to  do  with physical  drive
+geometry.  The translation-mode parameters used by the BIOS code present on
+your host adapter  can be obtained using the ddppbb  utility found on the boot
+diskette of versions 3.2.0 and later of COHERENT.
+
+ssss has  a table, ddrrvv_ppaarrmm,  which contains eight two-word  entries, one for
+each  possible SCSI-ID.   The first  word  of each  entry must  contain the
+number of cylinders for the drive.   The high-order byte of the second word
+is the  number of sectors  per track; the  low-order byte is  the number of
+heads.   Entries in  ddrrvv_ppaarrmm should  be  patched for  each drive  which is
+accessible by the BIOS.  Values need not be patched for drives inaccessible
+by the BIOS.   Note that BIOS code is executed  by COHERENT only during the
+initial  bootstrap.  After  that, drive  parameters  are of  no consequence
+because SCSI I/O requests are  based upon logical block number, rather than
+upon cylinder/head/sector addressing.
+
+The installation  procedure for COHERENT  versions 3.2.0 and  later patches
+all necessary  variables for the  accompanying version of the  ssss driver by
+executing the command:
+
+    /etc/mkdev scsi
+
+_M_i_n_o_r _D_e_v_i_c_e _N_u_m_b_e_r_s
+ssss usually  uses the special files /ddeevv/ssdd*  and /ddeevv/rrssdd*. For information
+on the meaning  of minor numbers with these special  files, see the article
+on aahhaa115544xx.
+
+_L_o_a_d_i_n_g _t_h_e _D_r_i_v_e_r (_C_O_H_E_R_E_N_T _2_8_6 _o_n_l_y)
+ssss must be  loaded on a COHERENT 286 system  that does not have a SCSI hard
+disk as the root device.  To do so, use the command /eettcc/ddrrvvlldd, as follows:
+
+    /etc/drvld -r /drv/ss
+
+_F_i_l_e_s
+/ddeevv/ssdd* -- block-special devices
+/ddeevv/rrssdd* -- character-special devices
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, ddrrvvlldd, ssccssii
+
+_N_o_t_e_s
+Current releases  of ssss support  disk-type devices only.  Zero  is the only
+LUN  allowed.  Future  versions will  add support  for tape-type  and other
+devices, as well as nonzero LUN's.

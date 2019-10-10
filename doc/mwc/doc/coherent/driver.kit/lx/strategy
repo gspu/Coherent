@@ -1,0 +1,87 @@
+.TH strategy "" "" "Entry-Point Routine"
+.PC "Perform block I/O"
+.B "#include <sys/types.h>"
+.B "#include <sys/buf.h>"
+\fBint \fIprefix\fBstrategy(\fIbuffer\^\fB)\fR
+\fBbuf *\fIbuffer\^\fB;\fR
+.PP
+The
+.B strategy
+routine sets up and initiates data transfer with a block device.
+.I buffer
+points to the
+.B buf
+structure to be used in the transfer of data.
+It does not return a meaningful value.
+.PP
+The kernel calls the
+.B strategy
+routine to read and write data on the block device.
+A driver's
+.BR read ,
+.BR write ,
+or
+.B ioctl
+routines may also call its
+.B strategy
+routine to support the character (raw) interface of a block device.
+.PP
+The
+.B strategy
+routine can be called either directly, or via a call to the kernel function
+.BR physiock() .
+.PP
+The
+.B strategy
+routine first validate the I/O request; if the request passes validation
+test, it enqueues the request.
+If no transfer is underway, it starts the I/O; then returns.
+When the I/O is complete, the driver calls
+.B biodone()
+to free the buffer and to notify everyone who had called
+.B biowait()
+to wait for the I/O to finish.
+.PP
+If the amount of data to be transferred exceeds the amount that
+can be transferred, a driver that supports partial reads and writes
+can do the following:
+First, transfer as much data as possible.
+Second, call
+.B bioerror()
+to set the buffer error number to
+.BR EIO .
+Third, set
+\fIbuffer\fB->b_resid\fR
+equal to the number of bytes not transferred.
+The remaining data can then be handled rationally.
+If
+.B strategy
+succeeded in transferring all of the data requested,
+it should set \fIbuffer\fB->b_resid\fR to zero.
+.SH "See Also"
+.B
+biodone(),
+bioerror(),
+biowait(),
+block,
+bp_mapin(),
+buf,
+entry-point routines,
+errno,
+getnextpg(),
+physiock(),
+pptophys(),
+read,
+write
+.R
+.SH Notes
+This entry point is used only by the DDI/DKI interface.
+Under this interface, it is required in every block driver.
+.PP
+The
+.B strategy
+entry point has the context needed to sleep, but it cannot assume it is
+called from the same context of the process that initiated the I/O request.
+Further, the process that initiated the I/O might not even exist when the
+.B strategy
+routine is called.

@@ -1,0 +1,128 @@
+.TH strncpy() "" "" "String Function (libc)"
+.PC "Copy one string into another"
+.B "#include <string.h>"
+\fBchar *strncpy(\fIstring1\^\fB, \fIstring2\^\fB, \fIn\^\fB)\fR
+\fBchar *\fIstring1\^\fB, *\fIstring2\^\fB; unsigned \fIn\^\fB;\fR
+.PP
+.B strncpy()
+copies up to
+.I n
+bytes of
+.I string2
+into
+.IR string1 ,
+and returns
+.IR string1 .
+Copying ends when
+.B strncpy()
+has copied
+.I n
+bytes or has encountered a null character, whichever comes first.
+If
+.I string2
+is less than
+.I n
+characters in length,
+.B strncpy()
+pads
+.I string1
+to length
+.I n
+with one or more null bytes.
+.SH Example
+This example, called \fBswap.c\fR, reads a file of names,
+and changes them from the format
+.DM
+	first_name  [middle_initial] last_name
+.DE
+.PP
+to the format
+.DM
+	last_name, first_name [middle_initial]
+.DE
+.PP
+It demonstrates
+\fBstrncpy()\fR,
+\fBstrncat()\fR,
+\fBstrncmp()\fR, and
+\fBindex()\fR.
+.DM
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#define NNAMES 512
+#define MAXLEN 60
+.DE
+.DM
+char *array[NNAMES];
+char gname[MAXLEN], lname[MAXLEN];
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	FILE *fp;
+	register int count, num;
+	register char  *name, string[60], *cptr, *eptr;
+	unsigned glength, length;
+.DE
+.DM
+	if (--argc != 1) {
+		fprintf (stderr, "Usage: swap filename\en");
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	if ((fp = fopen(argv[1], "r")) == NULL)
+		printf("Cannot open %s\en", argv[1]);
+	count = 0;
+.DE
+.DM
+	while (fgets(string, 60, fp) != NULL) {
+		if ((cptr = index(string, '.')) != NULL) {
+			cptr++; 
+			cptr++;
+		} else if ((cptr = index(string,' ')) != NULL)
+			cptr++;
+.DE
+.DM
+		strcpy(lname, cptr);
+		eptr = index(lname, '\en');
+		*eptr = ','; 
+.DE
+.DM
+		strcat(lname," "); 
+		glength = (unsigned)(strlen(string) - strlen(cptr));
+		strncpy(gname, string, glength);
+.DE
+.DM
+		name = strncat(lname, gname, glength);
+		length = (unsigned)strlen(name);
+		array[count] = malloc(length + 1);
+.DE
+.DM
+		strcpy(array[count],name);
+		count++;
+	}
+.DE
+.DM
+	for (num = 0; num < count; num++)
+		printf("%s\en", array[num]);
+	exit(EXIT_SUCCESS);
+}
+.DE
+.SH "See Also"
+.Xr "libc," libc
+.Xr "strcpy()," strcpy
+.Xr "string.h" string.h
+.br
+\*(AS, \(sc7.11.2.4
+.br
+\*(PX Standard, \(sc8.1
+.SH Notes
+.I string1
+must point to enough space to
+.I n
+bytes;
+otherwise, a portion of the program or operating system
+may be overwritten.

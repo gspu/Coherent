@@ -1,0 +1,530 @@
+.TH vtnkb "" "" "Device Driver"
+.PC "Configurable keyboard driver, virtual consoles"
+.PP
+.II /dev/console
+.II "keyboard^configurable driver"
+.II "virtual consoles^configurable keyboard driver"
+.II "driver^virtual consoles, configurable keyboard"
+.II "device driver^virtual consoles, configurable keyboard"
+The device driver
+.B vtnkb
+drives the keyboard on your system's console \(em that is, the keyboard
+that is plugged directly into your computer.
+.PP
+Unlike the related driver
+.BR vtkb ,
+.B vtnkb
+uses a loadable translation table to interpret keystrokes.
+This permits you to use any number of national keyboard mappings
+on your \*(CO system without changing the kernel in any way.
+You can select among any number of configuration programs stored in
+directory
+.BR /conf/kbd ,
+or you can create your own keymapping table to suit your preferences.
+.PP
+To change the layout and function-key bindings, run one of
+the keyboard-mapping programs kept in directory
+.BR /conf/kbd .
+This directory contains the C source code for the mapping tables, as well as a
+.B Makefile
+that helps you rebuild the mapping programs.
+This rest of this article describes the structure of the driver
+.BR vtnkb ,
+and describes how you can write or modify a keyboard-mapping program.
+.SH "Internal Structure of the Driver"
+.B vtnkb
+understands the following ``shift'' and ``lock'' keys:
+.DS
+.ta 0.5i 1.5i
+	\fBscroll\fR	Scroll lock
+	\fBnum\fR	Keypad \fB<num>\fR lock
+	\fBcaps\fR	\fB<shift>\fR or \fB<caps>\fR lock
+	\fBlalt\fR	Left \fB<alt>\fR key
+	\fBralt\fR	Right \fB<alt>\fR key
+	\fBlshift\fR	Left \fB<shift>\fR key
+	\fBrshift\fR	Right \fB<shift>\fR key
+	\fBlctrl\fR	Left \fB<ctrl>\fR key
+	\fBrctrl\fR	Right \fB<ctrl>\fR key
+	\fBaltgr\fR	\fB<alt graphic>\fR key (non-U.S. keyboards)
+.DE
+.PP
+.B vtnkb
+records the internal shift state, as defined by the current
+positions of the shift and lock keys.
+The shift state is a logical combination of internal states
+.BR SHIFT ,
+.BR CTRL ,
+.BR ALT ,
+and
+.BR ALT_GR .
+The
+.B <lshift>
+and
+.B <rshift>
+keys combine to form the current
+.B SHIFT
+state for non-alphabetic keys.
+Alphabetic keys generally use the current state of the
+.B "<caps-lock>"
+key plus the left and right
+.B "<shift>"
+keys.
+Numeric keys on the keypad generally use the state of the
+.B "<num lock>"
+key plus the left and right
+.B <shift>
+keys.
+The left and right
+.B <ctrl>
+keys form the internal
+.B CTRL
+state.
+Likewise, the left and right
+.B <alt>
+keys form the internal
+.B ALT
+state.
+Note that 102-key keyboards generally replace the right
+.B <alt>
+key with the
+.B <altgr>
+(alt graphics) key, to allow access to the alternate graphics
+characters found on some keyboards.
+.PP
+.B vtnkb
+lets you configure or read the
+internal mapping tables via the following requests to
+.BR "ioctl()" ,
+as defined in header file
+.BR <sgtty.h> :
+.DS
+.ta 0.5i 1.5i
+	\fBTIOCGETF\fP	Get function key bindings
+	\fBTIOCSETF\fP	Set function key bindings
+	\fBTIOCGETKBT\fP	Get keyboard table bindings
+	\fBTIOCSETKBT\fP	Set keyboard table bindings
+.DE
+.PP
+Requests
+.B TIOCGETF
+and
+.B TIOCSETF
+reference a data structure of type
+.BR FNKEY ,
+which is defined in header file
+.BR <sys/kb.h> .
+Structure member
+.B k_fnval
+is a character array that contains a series of
+contiguous function key/value bindings;
+the end of the bindings is marked by manifest constant
+.BR DELIM .
+You can use any value other than
+.B DELIM
+as part of a function-key binding.
+Structure member
+.B k_nfkeys
+indicates how many function keys have associated entries in
+.BR k_fnval .
+Function keys are numbered from zero through
+.BR k_nfkeys -1.
+.SH "How To Write a Keyboard Table"
+The main difference between the keyboard drivers
+.B vtnkb
+and
+.B vtkb
+is that
+.B vtnkb
+uses a ``supplemental'' process to interpret keystrokes.
+You can re-construct the interface to the
+.B vtnkb
+driver by modifying a keyboard-mapping file
+and then using a support module to link that file to the driver.
+.PP
+As noted above, directory
+.B /conf/kbd
+contains the source code for a series of such supplemental programs.
+These programs differ from each other
+only in the keyboard binding or mapping tables each uses;
+by selecting one such program and linking it into
+.BR vtnkb ,
+you can switch easily from the standard keyboard layout used in the
+U.S. to any of a number of layouts used in other countries.
+.B /conf/kbd
+also contains compiled executables, and a
+.B Makefile
+that you use to construct the executables from the corresponding source files.
+.PP
+The keyboard-mapping file is a C program that consists of
+initialized tables and strings.
+In addition, several header files provide the scan codes and other constants
+required for the key tables.
+This format makes the file easy to edit, and also lets you enter
+characters in several different formats.
+.PP
+The support module, in turn, performs several tasks.
+These include scanning the keyboard-mapping file for errors,
+reformatting the table for use by the device driver,
+and passing the reformatted table to the driver.
+.PP
+A keyboard-mapping source file consists primarily of three data structures
+that you must modify to support a given keyboard mapping.
+The first, and simplest, of the structures is
+.BR tbl_name .
+This is a character string that describes the keyboard.
+For example, the stock 101-key U.S. AT keyboard mapping file
+.B /conf/kbd/us.c
+initializes this string to:
+.DM
+	"U.S. AT keyboard table"
+.DE
+.PP
+The second data structure,
+.BR kbtbl ,
+is an array of key-mapping entries.
+It has one entry (or row) for each possible key location.
+Each entry in this structure consists of 11 fields, which hold,
+respectively, the key number, nine possible mapping values, and a mode field.
+The following example is for physical
+key location 3 from key-mapping source file
+.BR /conf/kbd/belgian.c :
+.DM
+	{ K_3, 0x82, '2', none, none, 0x82, '2', '~', none, '~', O|T },
+.DE
+.PP
+Field 1 contains the \fIscan code set 3\fP code value for the desired key.
+Header file
+.B <sys/kbscan.h>
+contains manifest constants of the form \fBK_\fInnn\fR
+that map the AT keyboard's \fIphysical\fP key number
+.I nnn
+to the corresponding scan code set 3 value generated by the keyboard.
+In the above example,
+.B K_3
+corresponds to key location three.
+.PP
+Fields 2 through 10 contain the key mappings
+corresponding to the following shift states, as follows:
+.DS
+.ta 0.5iR 0.8i
+	2	base or unshifted
+	3	\fBSHIFT\fR
+	4	\fBCONTROL\fR
+	5	\fBCONTROL+SHIFT\fR
+	6	\fBALT\fR
+	7	\fBALT+SHIFT\fR
+	8	\fBALT+CONTROL\fR
+	9	\fBALT+CONTROL+SHIFT\fR
+	10	\fBALT_GRAPHIC\fR
+.DE
+.PP
+For ``regular'' keys, the values for these nine fields are eight-bit characters;
+for ``function'' or ``shift'' keys, they are special values.
+The symbolic constant
+.B none
+indicates that you want no output when the key is pressed in the
+specified shift state.
+.PP
+In the case of a function key, the value specified is the number of the
+desired function key.
+Header file
+.B <sys/kb.h>
+defines a set of symbolic constants of the form \fBf\^\fIn\fR,
+where \fIn\fP is the number of the desired function key.
+You should use these constants;
+they will improve the readability of your code, and they will
+protect your keyboard mapping source files
+from any future changes in the structure of the keyboard driver.
+.PP
+In the case of a ``shift'' key, all nine entries must be
+identical and must consist of one of the following symbolic constants:
+.BR scroll ,
+.BR num ,
+.BR caps ,
+.BR lalt ,
+.BR ralt ,
+.BR lshift ,
+.BR rshift ,
+.BR lctrl ,
+.BR rctrl ,
+or
+.BR altgr .
+These are defined in the header file
+.BR <sys/kb.h> .
+Note that 83-key XT-layout keyboards only have one ``control''
+and ``alt'' key, so not every shift-key combination
+may be possible on your target keyboard.
+.PP
+The last (11th) field in the key entry is the ``mode'' field.
+The following symbolic constants specify the
+mode of the current key:
+.IP "\fBS\fR"
+The specified key is a ``shift'' or ``lock'' key.
+Note that all entries in array
+.B k_val
+must be identical for a ``shift'' or ``lock'' key to work correctly.
+.IP "\fBF\fR
+The specified key is a ``function'' or special key.
+The value of all elements of array
+.B k_val
+must specify a function key number.
+.IP "\fBO\fR
+The specified key is ``regular'' and requires no special processing.
+.IP "\fBC\fR"
+The
+.B <caps-lock>
+key affects this key.
+.IP "\fBM\fR"
+Make:
+generate an interrupt only upon key ``make'' (i.e., when the key is depressed).
+This mode is useful for keys that do not repeat.
+Note that using this mode with a ``shift'' key stops you from
+unshifting upon release of the key!
+.IP "\fBT\fR"
+Typematic:
+generate an interrupt when the key is depressed,
+and generate subsequent key-depression interrupts while the key is depressed.
+The rate at which interrupts are generated is
+specified by the typematic rate of the keyboard.
+This type is usually associated with a ``regular'' key.
+.IP "\fBMB\fR"
+Make/Break:
+generate an interrupt when the key is depressed and when it is released.
+No additional interrupts are generated no matter how long the key is depressed.
+This mode is used for ``shift'' keys.
+.IP "\fBTMB\fR"
+Typematic/Make/Break:
+generate an interrupt when the key is first depressed;
+generate subsequent key depression interrupts while the key remains depressed;
+and generate an interrupt when the key is released.
+.PP
+The above example specifies a mode field of \fBO|T\fP,
+which corresponds to a ``regular'' key with typematic repeat,
+and no special handling of the ``lock'' keys.
+.PP
+The last data structure,
+.BR funkey ,
+consists of an array of function-key initializers, one per function key.
+The initializers are simple, quoted character strings delimited by
+either hexadecimal value
+.BR 0xFF ,
+octal value
+.BR "\e377" ,
+or symbolic constant
+.BR DELIM .
+Note that any other value can be used as part of a function-key binding.
+Function keys are numbered starting at zero.
+.PP
+Function keys are useful not only in the classic sense of the
+programmable function keys on the keyboard, but also as a general
+purpose mechanism for binding arbitrary length character
+sequences to a given key.
+For example, physical key location 16 is usually associated with
+the \fB<tab>\fR and \fB<back tab>\fR on the AT keyboard; and
+.B /conf/kbd/us.c
+sets the key mapping table entry for key 16 as follows:
+.DM
+	{ K_16, f42, f43, none, none, f42, f43, none, none, none, F|T },
+.DE
+.PP
+For traditional reasons, the \fB<back tab>\fR key outputs the
+sequence \fB<esc>[Z\fP whereas the \fB<tab>\fR key simply outputs the
+horizontal-tab character \fB<ctrl-I>\fR.
+Because at least one of the mapping values for this key is more than one
+character long, the key must be defined as a ``function'' key
+and all entries for the the key must correspond to function-key numbers.
+In this example, function key number 42 was chosen for
+.BR <tab> ,
+and function key number 43 was chosen for
+.BR "<back tab>" .
+The constant
+.B none
+indicates that you want no output
+when the key is pressed in the specified shift state.
+The corresponding
+.B funkey
+initialization entries for function keys
+.B f42
+and
+.B f43
+are as follows:
+.DM
+	/* 42 */      "\et\e377",          /* Tab */
+	/* 43 */      "\e033[Z\e377",      /* Back Tab */
+.DE
+.PP
+We strongly recommend that you comment your function-key bindings.
+.PP
+You can also change function-key bindings via the command
+.BR fnkey .
+This command lets you temporarily alter one or more
+function-key mappings without changing your key-mapping sources.
+.SH "Examples"
+Prior to the release of the 101- and 102-key, enhanced-layout AT keyboards,
+the \fB<ctrl>\fR key was positioned to the left of `A' key.
+Most terminals also locate the \fB<ctrl>\fR key there.
+The first example shows how to swap the left \fB<ctrl>\fR
+key and the \fB<caps-lock>\fR key on a 101- and 102-key keyboard.
+The \fB<caps-lock>\fR key is physical key 30, whereas the left \fB<ctrl>\fR
+key is physical key 58.
+Their respective entries in file
+.B /conf/kbd/us.c
+source file are as follows:
+.DM
+	{ K_30, caps, caps, caps, caps, caps, caps, caps, caps, caps,  S|M },
+	{ K_58, lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl, S|MB },
+.DE
+.PP
+Note that the \fB<caps-lock>\fR key is defined with mode \fBM\fP as it is
+a ``lock'' key.
+The keyboard will interrupt only on key depressions, because
+releasing a ``lock'' key has no effect.
+The left \fB<ctrl>\fR key is defined with mode \fBMB\fP
+as it is a ``shift'' key.
+The keyboard generates an interrupt on both key depression and key release,
+because the driver must track the state of this key.
+.PP
+To swap the aforementioned keys, simply change all occurrences of
+.B caps
+to
+.B lctrl
+and vice-versa, as well as swapping the mode fields.
+After making the changes, the entries now appear as:
+.DM
+	{ K_30, lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl,lctrl, S|MB },
+	{ K_58, caps, caps, caps, caps, caps, caps, caps, caps, caps,  S|M  },
+.DE
+.PP
+The second example converts a 101- or 102-key
+keyboard table to support an XT-style 83-key keyboard layout.
+The following section summarizes the ``typical'' differences
+found when comparing the two keyboard layouts.
+Needless to say, given the extreme variety in keyboard designs,
+your mileage may vary:
+.DS
+.ta 0.5iC 1.75iC 3.25iC 4.25i
+	\fILocation	101/102 Value	83-key Value	Comments\fP	
+.ft R
+	14	\fBnone\fP	Various	Keyboard-specific
+	30	\fBcaps	lctrl\fR
+	58	\fBlctrl	lalt\fR
+	64	\fBrctrl	caps\fR
+	65	\fBnone\fP	\fBF2\fR	Function Key
+	66	\fBnone\fP	\fBF4\fR	Function Key
+	67	\fBnone\fP	\fBF6\fR	Function Key
+	68	\fBnone\fP	\fBF8\fR	Function Key
+	69	\fBnone\fP	\fBF10\fR	Function Key
+	70	\fBnone\fP	\fBF1\fR	Function Key
+	71	\fBnone\fP	\fBF3\fR	Function Key
+	72	\fBnone\fP	\fBF5\fR	Function Key
+	73	\fBnone\fP	\fBF7\fR	Function Key
+	74	\fBnone\fP	\fBF9\fR	Function Key
+	90	\fBnum	Esc\fR
+	95	\fB/\fP	\fBnum\fR
+	100	\fB*\fP	\fBscroll\fR
+	105	\fB-\fP	\fBnone\fR	\fB<SysReq>\fP not used
+	106	\fB+\fP	\fB*\fP
+	107	\fBnone\fP	\fB-\fP
+	108	\fB<Enter>\fR	\fB+\fP
+	110	\fBesc\fR	\fBnone\fP	Not on XT layout
+	112-123	\fBF1-F12\fR	\fBnone\fP	Not on XT layout
+	124	\fBnone\fP	\fBnone\fP	\fB<PrtScr>\fR not used
+	125	\fBscroll\fR	\fBnone\fP	Not on XT layout
+	126	\fBnone\fP	\fBnone\fP	\fB<Pause>\fR not used
+.DE
+.SH "Building New Binaries"
+After you have modified an existing keyboard-mapping table,
+use the following commands to rebuild the corresponding executables:
+.DM
+	cd /conf/kbd
+	su root
+	make
+.DE
+.PP
+If you have created a new keyboard mapping table, you must edit
+.BR /conf/kbd/Makefile .
+Duplicate an existing entry from the
+.BR Makefile ,
+and change the duplicated name to match the name of
+your new keyboard-mapping table.
+After you have finished your editing, build an executable from your source
+file by simply executing the above series of commands.
+.PP
+To load your new keyboard table, simply type the
+name of the executable that corresponds to your keyboard-mapping file.
+For example, if you just built executable
+.B french
+from source file
+.BR french.c ,
+type the following command:
+.DM
+	/conf/kbd/french
+.DE
+.PP
+If the keyboard-support module finds an error, it will print an appropriate
+message.
+If it finds no errors, it will update the internal tables of the
+.B vtnkb
+keyboard driver, reprogram the keyboard, and print a message of the form:
+.DM
+	Loaded French AT keyboard table
+.DE
+.PP
+.II /etc/drvld.all
+.II drvld.all
+To ensure that the keyboard-support module is loaded automatically when
+you boot your \*(CO system, edit file
+.B drvld.all
+to name the module you wish to use.
+For example, to ensure that the French keyboard table is loaded automatically
+when you boot your system, insert the following command into
+.BR /etc/drvld.all :
+.DM
+	/conf/kbd/french
+.DE
+.SH "Disabling <Ctrl><Alt><Del>"
+By convention, function-key 0, when enabled, causes the
+computer system to reboot.
+.II "<ctrl><alt><del>, disable"
+.II "keyboard^<ctrl><alt><del>"
+.II "keyboard^rebooting"
+This function key is usually bound to the key sequence
+.BR "<ctrl><alt><del>" ,
+but you can disable it by setting the value of driver-variable
+.B KBBOOT
+to zero.
+The installation script for configuring your console asks you if
+you want to turn off this feature; and if so, it sets
+.B KBBOOT
+to the correct value.
+.SH "Problems With Incompatible Keyboards"
+If you are experiencing problems with respect to key mappings,
+and you installed one of the loadable keyboard mapping tables
+from the keyboard selection menu,
+you may have an incompatible keyboard.
+Please note that the \*(CO
+.B vtnkb
+driver (and loadable tables) only work with well-engineered
+keyboards, such as those built by IBM, Cherry, MicroSwitch, or Keytronics;
+it may not work correctly with a poorly engineered ``clone'' keyboard.
+.PP
+The preferred action is to replace your
+keyboard with one made by one of the above-named manufacturers.
+If, however, you wish to use a ``clone'' keyboard with \*(CO,
+your best bet is to re-install \*(CO and select the
+.B vtkb
+driver instead of
+.BR vtnkb .
+.B vtkb
+is not loadable and supports only the U.S., German, and French
+keyboard layouts.
+For details on how to replace
+.B vtnkb
+with
+.BR vtkb ,
+see the Lexicon entry for
+.BR keyboard .
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr "keyboard," keyboard
+.Xr "vtkb" vtkb

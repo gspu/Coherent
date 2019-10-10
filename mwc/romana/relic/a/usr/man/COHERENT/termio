@@ -1,0 +1,594 @@
+
+
+termio                    Device Driver                    termio
+
+
+
+
+General terminal interface
+
+
+Under the  COHERENT system, all  asynchronous ports use  the same
+interface, no matter what hardware is involved.  The remainder of
+this section discusses the common features of this interface.
+
+When a terminal file is opened, it normally causes the process to
+wait  until a  connection  is established.   In practice,  users'
+programs seldom open these  files; they are opened by the program
+getty  and become  a  user's standard  input,  output, and  error
+files.  The very first  terminal file opened by the process group
+leader of  a terminal file not already  associated with a process
+group becomes  the control terminal for  that process group.  The
+control terminal plays a special role in handling quit and inter-
+rupt signals,  as discussed below.   The control terminal  is in-
+herited by a child process during  a call to fork.  A process can
+break  this  association  by  changing  its process  group  using
+setpgrp.
+
+A terminal associated with one of these files ordinarily operates
+in full-duplex  mode.  Characters can be typed  at any time, even
+while output  is occurring, and  are only lost  when the system's
+input buffers become completely  full, which is rare, or when the
+user has accumulated  the maximum allowed number of input charac-
+ters that  have not  yet been  read by some  program.  Currently,
+this limit  is 256 characters.  When the  input limit is reached,
+the sytems throws away all the saved characters without notice.
+
+Normally, terminal input is  processed in units of lines.  A line
+is delimited  by a newline  character (ASCII LF),  an end-of-file
+character (ASCII  EOT), or an end-of-line  character.  This means
+that a program attempting to  read will be suspended until an en-
+tire line  has been typed.   Also, no matter  how many characters
+are  requested  in  the read  call,  at  most  one  line will  be
+returned.  It is not, however,  necessary to read a whole line at
+once; any  number of characters may be requested  in a read, even
+one, without losing information.
+
+During  input,  the  system  normally  processes erase  and  kill
+characters.  By default,  the backspace character erases the last
+character typed, except that  it will not erase beyond the begin-
+ning of  the line.  By default, the  <ccttrrll-UU> calls (deletes) the
+entire input  line, and  optionally outputs a  newline character.
+Both these characters  operate on a keystroke-by-keystroke basis,
+independently of  any backspacing or tabbing  which may have been
+done.  Both  the erase and kill characters  may be entered liter-
+ally by  preceding them with  the escape character  (\).  In this
+case, the escape character is not read.  You may change the erase
+and kill characters.
+
+Certain  characters  have  special  functions  on  input.   These
+functions and  their default  character values are  summarized as
+follows:
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+
+IINNTTRR      (<ccttrrll-CC>  or ASCII ETX) generates  an interrupt signal
+          that is sent  to all processes with the associated con-
+          trol terminal.   Normally, each such  process is forced
+          to terminate,  but arrangements  may be made  either to
+          ignore the  signal or to  receive a trap  to an agreed-
+          upon location; see the Lexicon entry for signal.
+
+QQUUIITT      (Control-\  or ASCII ES) generates  a quit signal.  Its
+          treatment is identical  to that of the interrupt signal
+          except that, unless  a receiving process has made other
+          arrangements, it will not only be terminated but a core
+          image file (called ccoorree) will be created in the current
+          working directory.
+
+EERRAASSEE     (<bbaacckkssppaaccee> or  ASCII BS) erases the preceding charac-
+          ter.  It will not erase  beyond the start of a line, as
+          delimited by a newline, EOF, or EOL character.
+
+KKIILLLL       (<ccttrrll-UU> or  ASCII NAK) deletes  the entire  line, as
+          delimited by a newline, EOF, or EOL character.
+
+EEOOFF        (<ccttrrll-DD>  or  ASCII  EOT)  generates  an  end-of-file
+          character  from  a terminal.   When  received, all  the
+          characters waiting to be read are immediately passed to
+          the program without  waiting for a newline, and the EOF
+          is  discarded.   Thus, if  no  characters are  waiting,
+          which is to say the  EOF occurred at the beginning of a
+          line.  zero  characters will  be passed back,  which is
+          the standard end-of-file indication.
+
+NNLL        (ASCII LF) is  the normal line delimiter.  It cannot be
+          changed or escaped.
+
+EEOOLL       (ASCII  LF) is an  additional line delimiter,  line NL.
+          It is not normally used.
+
+SSTTOOPP      (<ccttrrll-SS> or ASCII  DC3) can be used to suspend output.
+          It is useful  with CRT terminals to prevent output from
+          disappearing before  it can  be read.  While  output is
+          suspended, STOP characters are ignored and not read.
+
+SSTTAARRTT     (<ccttrrll-QQ>  or ASCII DC1)  resumes output that  has been
+          suspended  by a  STOP character.   While output  is not
+          suspended, START  characters are ignored  and not read.
+          The  start/stop characters  can not  be changed  or es-
+          caped.
+
+The character  values for INTR,  QUIT, ERASE, KILL,  EOF, and EOL
+may be changed.  to suit individual tastes.  The ERASE, KILL, and
+EOF character may be escaped by a preceding \ character, in which
+case the system ignores its special meaning.
+
+When the carrier signal  from the data-set drops, a hangup signal
+is sent  to all processes that have this  terminal as the control
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+terminal.  Unless other  arrangements have been made, this signal
+causes the  process to  terminate.  If  the hangup signal  is ig-
+nored, any  subsequent read  returns with an  end-of-file indica-
+tion.  Thus  programs that read  a terminal and  test for end-of-
+file can terminate appropriately when hung up on.
+
+When one or more  characters are written, they are transmitted to
+the  terminal  as  soon  as  previously written  characters  have
+finished  typing.  Input  characters are  echoed by  putting them
+into  the output  queue as  they arrive.   If a  process produces
+characters  more rapidly  than they  can be  printed, it  will be
+suspended  when its  output queue exceeds  some limit.   When the
+queue has drained down to some threshold, the program resumes.
+
+Several  calls to  ioctl apply  to  terminal files.   The primary
+calls use the following structure, defined in <tteerrmmiioo.hh>:
+
+
+#define NCC 8
+struct termio {
+        unsigned short c_iflag;    /* input modes */
+        unsigned short c_oflag;    /* output modes */
+        unsigned short c_cflag;    /* control modes */
+        unsigned short c_lflag;    /* local modes */
+        char           c_line;     /* line discipline */
+        unsigned char  c_cc[NCC];  /* control chars */
+};
+
+
+The  special control  characters are defined  by the  array c_cc.
+The relative  positions and initial values  for each function are
+as follows:
+
+
+0   INTR      ^C
+1   QUIT      ^\
+2   ERASE     \b
+3   KILL      ^U
+4   EOF       ^D
+5   EOL       \n
+6   reserved
+7   reserved
+
+
+The field c_iflag describes the basic terminal input control:
+
+
+     IGNBRK    0000001   Ignore break condition.
+     BRKINT    0000002   Signal interrupt on break.
+     IGNPAR    0000004   Ignore characters with parity errors.
+     PARMRK    0000010   Mark parity errors.
+     INPCK     0000020   Enable input parity check.
+     ISTRIP    0000040   Strip character.
+     INLCR     0000100   Map NL to CR on input.
+     IGNCR     0000200   Ignore CR.
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+     ICRNL     0000400   Map CR to NL on input.
+     IUCLC     0001000   Map upper-case to lower-case on input.
+     IXON      0002000   Enable start/stop output control.
+     IXANY     0004000   Enable any character to restart output.
+     IXOFF     0010000   Enable start/stop input control.
+
+
+If IGNBRK is  set, the break condition (a character-framing error
+with data  all zeros) is ignored,  that is, not put  on the input
+queue  and therefore  not  read by  any  process.  Otherwise,  if
+BRKINT is set,  the break condition generates an interrupt signal
+and flushes both the input  and output queues.  If IGNPAR is set,
+characters with other framing and parity errors are ignored.
+
+If  PARMRK is  set, a  character with a  framing or  parity error
+which  is not  ignored is  read as  the three  character sequence
+0377, 0, X, where X is  the data of the character received in er-
+ror.  To  avoid ambiguity in this  case, if ISTRIP is  not set, a
+valid character of 0377 is read  as 0377, 0377.  If PARMRK is not
+set, a  framing or parity error  which is not ignored  is read as
+the character NUL.
+
+If INPCK  is set, input parity checking is  enabled.  If INPCK is
+not set,  input parity checking is  disabled.  This allows output
+parity generation without input parity errors.
+
+If ISTRIP  is set, valid input characters  are stripped to 7-bits
+before being processed; otherwise, all eight bits are processed.
+
+If INLCR is set, a received  NL character is translated into a CR
+character.  If  IGNCR is set, a received  CR character is ignored
+(not read).   Otherwise if ICRNL is set,  a received CR character
+is translated into a NL character.
+
+If IUCLC  is set, a  received upper-case alphabetic  character is
+translated into the corresponding lower-case character.
+
+If IXON is set, start/stop output control is enabled.  A received
+STOP character will suspend output and a received START character
+will restart  output.  All start/stop characters  are ignored and
+not read.  If IXANY is set, any input character will restart out-
+put which has been suspended.
+
+IF IXOFF  is set, the system  will transmit START/STOP characters
+when the input queue is nearly empty/full.
+
+The initial input control value is all bits clear.
+
+The field c_oflag field specifies the system treatment of output:
+
+OPOST     0000001   Postprocess output.
+OLCUC     0000002   Map lower case to upper on output.
+ONLCR     0000004   Map NL to CR-NL on output.
+OCRNL     0000010   Map CR to NL on output.
+ONOCR     0000020   No CR output at column 0.
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+ONLRET    0000040   NL performs CR function.
+OFILL     0000100   Use fill characters for delay.
+OFDEL     0000200   Fill is DEL, else NUL.
+NLDLY     0000400   Select new-line delays:
+NL0       0
+NL1       0000400
+CRDLY     0003000   Select carriage-return delays:
+CR0       0
+CR1       0001000
+CR2       0002000
+CR3       0003000
+TABDLY    0014000   Select horizontal-tab delays:
+TAB0      0
+TAB1      0004000
+TAB2      0010000
+TAB3      0014000   Expand tabs to spaces.
+BSDLY     0020000   Select backspace delays:
+BS0       0
+BS1       0020000
+VTDLY     0040000   Select vertical-tab delays:
+VT0       0
+VT1       0040000
+FFDLY     0100000   Select form-feed delays:
+FF0       0
+FF1       0100000
+
+If  OPOST is  set, output  characters  are post-processed  as in-
+dicated by the  remaining flags; otherwise, characters are trans-
+mitted without change.
+
+If OLCUC is set, a lower-case alphabetic character is transmitted
+as the corresponding  upper-case character.  This function is of-
+ten used with IUCLC.
+
+If ONLCR  is set,  the NL character  is transmitted as  the CR-NL
+character pair.  If OCRNL is set, the CR character is transmitted
+as the NL character.  If ONOCR  is set, no CR character is trans-
+mitted when at column 0  (first position).  If ONLRET is set, the
+NL character  is assumed to do  the carriage-return function; the
+column pointer is set to 0  and the delays specified for CR used.
+Otherwise, the  NL character is assumed to  do just the line-feed
+function;  the  column  pointer  remains unchanged.   The  column
+pointer is also  set to 0 if the CR  character is actually trans-
+mitted.
+
+The delay  bits specify how long transmission  stops to allow for
+mechanical or other  movement when certain characters are sent to
+the terminal.  In all cases, a value of 0 indicates no delay.  If
+OFILL is  set, fill characters are  transmitted for delay instead
+of a  timed delay.  This  is useful for  high baud-rate terminals
+that  need only  a  minimal delay.   If  OFDEL is  set, the  fill
+character is DEL; otherwise, it is NUL.
+
+If a  form-feed or vertical-tab delay is  specified, it lasts for
+about two seconds.
+
+
+COHERENT Lexicon                                           Page 5
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+
+Newline delay  lasts about 0.10  seconds.  If ONLRET  is set, the
+carriage-return delays  are used  instead of the  newline delays.
+If OFILL is set, two fill characters are transmitted.
+
+Carriage-return delay  type 1 is dependent  on the current column
+position, type 2 is about 0.10  seconds, and type 3 is about 0.15
+seconds.   If  OFILL is  set,  delay type  1  transmits two  fill
+characters, and type 2 four fill characters.
+
+Horizontal-tab delay  type 1 depends on  the current column posi-
+tion.  Type 2 is about  0.10 seconds.  Type 3 specifies that tabs
+are  to be  expanded  into spaces.   If  OFILL is  set, two  fill
+characters are transmitted for any delay.
+
+Backspace delay  lasts about 0.05 seconds.  If  OFILL is set, one
+fill character is transmitted.
+
+The actual delays depend on line speed and system load.
+
+The initial output control value is all bits clear.
+
+The field c_cflag describes the hardware control of the terminal,
+as follows:
+
+CBAUD     0000017   Baud rate:
+B0        0         Hang up
+B50       0000001   50 baud
+B75       0000002   75 baud
+B110      0000003   110 baud
+B134      0000004   134.5 baud
+B150      0000005   150 baud
+B200      0000006   200 baud
+B300      0000007   300 baud
+B600      0000010   600 baud
+B1200     0000011   1200 baud
+B1800     0000012   1800 baud
+B2400     0000013   2400 baud
+B4800     0000014   4800 baud
+B9600     0000015   9600 baud
+B19200    0000016   19200 baud
+B38400    0000017   38400 baud
+CSIZE     0000060   Character size:
+CS5       0         5 bits
+CS6       0000020   6 bits
+CS7       0000040   7 bits
+CS8       0000060   8 bits
+CSTOPB    0000100   Send two stop bits, else one
+CREAD     0000200   Enable receiver
+PARENB    0000400   Parity enable
+PARODD    0001000   Odd parity, else even
+HUPCL     0002000   Hang up on last close
+CLOCAL    0004000   Local line, else dial-up
+
+
+
+
+COHERENT Lexicon                                           Page 6
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+The CBAUD bits specify the baud rate.  The zero baud rate, B0, is
+used to  hang up the  connection.  If B0 is  specified, the data-
+terminal-ready  signal is not  asserted.  Normally,  this discon-
+nects the line.   For any particular hardware, the system ignores
+impossible changes to the speed.
+
+The  CSIZE  bits specify  the  character size  in  bits for  both
+transmission  and  reception.  This  size  does  not include  the
+parity bit,  if any.  If CSTOPB  is set, two stop  bits are used;
+otherwise, one stop bit.  For example, at 110 baud, two stop bits
+are required.
+
+If PARENB is set,  parity generation and detection is enabled and
+a parity  bit is added to each character.   If parity is enabled,
+the  PARODD flag  specifies odd  parity  if set;  otherwise, even
+parity is used.
+
+If CREAD is set,  the receiver is enabled.  Otherwise, no charac-
+ters will be received.
+
+If  HUPCL is  set, COHERENT  disconnects the  line when  the last
+process with  the line open  closes the line  or terminates; that
+is, the data-terminal-ready signal is not asserted.
+
+If CLOCAL is set, the system assumes that the line to be a local,
+direct connection  with no modem control.   Otherwise, it assumes
+modem control.
+
+The  initial hardware  control  value after  open  is B300,  CS8,
+CREAD, HUPCL.
+
+The line  discipline uses the  field c_lflag to  control terminal
+functions.  The basic line discipline (0) provides the following:
+
+
+     ISIG      0000001   Enable signals.
+     ICANON    0000002   Canonical input (erase and kill processing).
+     XCASE     0000004   Canonical upper/lower presentation.
+     ECHO      0000010   Enable echo.
+     ECHOE     0000020   Echo erase character as BS-SP-BS.
+     ECHOK     0000040   Echo NL after kill character.
+     ECHONL    0000100   Echo NL.
+     NOFLSH    0000200   Disable flush after interrupt or quit.
+
+
+If ISIG  is set, the  system checks each  input character against
+the  special  control  characters INTR  and  QUIT.   If an  input
+character matches one of these control characters, the system ex-
+ecutes the  function associated with that  character.  If ISIG is
+not set, the system performs no checking; thus, these special in-
+put functions are possible only  if ISIG is set.  You can disable
+these functions individually by changing the value of the control
+character to an unlikely or impossible value (e.g. 0377).
+
+
+
+
+COHERENT Lexicon                                           Page 7
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+If ICANON is  set, the system enables canonical processing.  This
+enables the  erase and  kill edit  functions, and limits  the as-
+sembly of  input characters into lines delimited  by NL, EOF, and
+EOL.  If ICANON is  not set, read requests are satisfied directly
+from  the input  queue.  A  read will not  be satisfied  until at
+least MIN characters have been received or the timeout value TIME
+has  expired.  This  allows the system  to read  efficiently fast
+bursts of input while still allowing single-character input.  The
+MIN and  TIME values are stored  in the position for  the EOF and
+EOL characters,  respectively.  The time  value represents tenths
+of seconds.
+
+If XCASE  is set, and if  ICANON is set, an  upper-case letter is
+accepted on input by preceding it with a \ character, and is out-
+put preceded  by a \ character.  In this  mode, the following es-
+cape sequences are generated on output and accepted on input:
+
+
+          _F_o_r:      _U_s_e:
+
+          `         \'
+          |         \!
+          ~         \^
+          {         \(
+          }         \)
+          \         \\
+
+
+For example, AA is input as \aa, \nn as \\nn, and \NN as \\\nn.
+
+If ECHO is set, characters are echoed as received.
+
+When ICANON is set, the following echo functions are possible: If
+ECHO and ECHOE are set, the erase character is echoed as ASCII BS
+SP BS, which clears the last character from the screen.  If ECHOE
+is set and EHO is not set, the erase character is echoed as ASCII
+SP BS.   If ECHOK is  set, the NL  character is echoed  after the
+kill character to emphasize  that the line will be deleted.  Note
+that an  escape character preceding  the erase or  kill character
+removes any special function.  If ECHONL is set, the NL character
+is echoed even if ECHO is  not set.  This is useful for terminals
+set  to local  echo (``half duplex'').   Unless escaped,  the EOF
+character is not echoed.   Because EOT is the default EOF charac-
+ter, this prevents terminals that respond to EOT from hanging up.
+
+If NOFLSH is set, the normal flush of the input and output queues
+associated with the quit and interrupt characters is not done.
+
+The initial line-discipline control value is all bits clear.
+
+The primary calls to ioctl have the following form:
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 8
+
+
+
+
+termio                    Device Driver                    termio
+
+
+
+ioctl( fildes, command, arg )
+struct termio *arg;
+
+
+The following commands use this form:
+
+TTCCGGEETTAA     Get the  parameters associated  with the  terminal and
+          store in the termio structure referenced by arg.
+
+TTCCSSEETTAA    Set  the parameters  associated with the  terminal from
+          the  structure referenced  by arg.   The change  is im-
+          mediate.
+
+TTCCSSEETTAAWW   Wait  for the  output to  drain before setting  the new
+          parameters.   This form  should be  used  when changing
+          parameters that affect output.
+
+TTCCSSEETTAAFF    Wait for  the output  to drain,  then flush  the input
+          queue and set the new parameters.
+
+Additional calls to ioctl have the following form:
+
+
+ioctl( fildes, command, arg )
+int arg;
+
+
+The following commands use this form:
+
+TTCCSSBBRRKK    Wait  for the  output to drain.   If arg is  zero, then
+          send a break (zero bits for 0.25 seconds).
+
+TTCCXXOONNCC    Start/stop control.  If arg is zero, suspend output; if
+          one, restart suspended output.
+
+TTCCFFLLSSHH    If  arg is zero,  flush the input queue;  if one, flush
+          the output queue; if two, flush both the input and out-
+          put queues.
+
+***** Files *****
+
+/dev/tty*
+
+***** See Also *****
+
+device drivers, ioctl(), stty, termio.h
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 9
+
+

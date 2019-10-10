@@ -1,0 +1,104 @@
+.TH iocblk "" "" "STREAMS Data Structure"
+.PC "\*(ST ioctl structure"
+.B "#include <sys/stream.h>"
+.PP
+The structure
+.B iocblk
+defines an
+.B ioctl
+request.
+Messages of types
+.BR M_IOCTL ,
+.BR M_IOCACK ,
+and
+.B M_IOCNAK
+use it.
+The driver does not create this structure.
+.PP
+A module or driver usually converts a message of type
+.B M_IOCTL
+into one of type
+.B M_ICACK
+or
+.B M_IOCNAK
+by changing its type and updating the relevant fields within
+.BR iocblk .
+When a driver processes a transparent
+.B ioctl
+(defined below), it usually overlays
+.B iocblk
+with a copy of the structure
+.BR copyreq .
+The stream head guarantees that the message is large enough to hold either
+structure.
+.PP
+The following fields within
+.B iocblk
+are available to a driver:
+.IP "\fBint ioc_cmd\fR" 1.25i
+This holds the
+.B ioctl
+command that the user issued.
+.IP "\fBcred_t *ioc_cr\fR"
+This points to the user's credentials.
+.IP "\fBuint_t ioc_id\fR"
+This uniquely identifies the
+.B ioctl
+request within the stream.
+.IP "\fBuint_t ioc_count\fR"
+This gives the number of bytes of data within the
+.B M_IOCTL
+message.
+Data are passed in message blocks of type
+.B M_DATA
+that are linked to the
+.B M_IOCTL
+message.
+In a message of type
+.BR M_IOCACK ,
+this field gives the number of bytes to copy into the user's buffer.
+.IP
+.II "ioctl^transparent"
+.II "transparent ioctl^definition"
+If this field is set to the special value
+.BR TRANSPARENT ,
+the
+.B ioctl
+request is
+.IR transparent .
+This means that the the user did not use the
+.B I_STR
+format of \*(ST
+.BR ioctl s.
+The module or driver must use
+.B M_COPYIN
+messages to obtain user data, and use
+.B M_COPYOUT
+messages to change user data.
+The message block
+.B M_DATA
+linked to the
+.B M_IOCTL
+message block contains the value of the
+.I arg
+parameter to the \*(CO system call
+.BR ioctl() .
+.IP "\fBint ioc_error\fR"
+This field holds the error, if any, for a message of type
+.B M_IOCACK
+or
+.BR M_IOCNAK .
+.IP "\fBint ioc_rval\fR"
+This field is set to the return value, if any, for a message of type
+.BR M_IOCACK .
+The kernel returns this value to the system call
+.B ioctl()
+that generated the request.
+.SH "See Also"
+.B
+copyreq,
+copyresp,
+data structures,
+datab,
+msgb
+.R

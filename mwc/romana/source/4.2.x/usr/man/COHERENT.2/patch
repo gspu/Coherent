@@ -1,0 +1,119 @@
+ppaattcchh -- Command
+
+Patch a variable or flag within the kernel
+/ccoonnff/ppaattcchh [-kk] _i_m_a_g_e _s_y_m_b_o_l=_v_a_l_u_e ...
+
+The command ppaattcchh  alters the value of datum _s_y_m_b_o_l  to _v_a_l_u_e in executable
+_i_m_a_g_e.  In  general,  you should  use  ppaattcchh  to  alter configuration  data
+(constants) in  programs, in  device drivers,  and in the  COHERENT kernel.
+For ppaattcchh to work with a  symbolic constant, _i_m_a_g_e must have a symbol table
+that includes  information about  _s_y_m_b_o_l. Therefore, executables  that have
+been processed by the command ssttrriipp cannot be ppaattcchhed.
+
+_O_p_t_i_o_n_s
+ppaattcchh recognizes the following command-line options:
+
+-kk   Patch  _i_m_a_g_e, and  patch  the kernel  memory of  the running  COHERENT
+     system via device /ddeevv/kkmmeemm. Only  the superuser rroooott can use ppaattcchh to
+     access kernel memory.
+
+-KK   Patch /ddeevv/kkmmeemm only.  Refer to _i_m_a_g_e for its symbol table, but do not
+     change it.
+
+-pp   ``Peek'' -- just display current values; change nothing.
+
+-vv   Verbose -- display values before and after patching.
+
+_V_a_r_i_a_b_l_e _N_a_m_e_s
+_s_y_m_b_o_l and  _v_a_l_u_e can  be either  a numeric constant  or a symbol  from the
+symbol table  of _i_m_a_g_e. _s_y_m_b_o_l and _v_a_l_u_e expressions  can include a numeric
+offset.    In  addition,   _v_a_l_u_e   can  be   composed   of  the   construct
+mmaakkeeddeevv(_m_a_j_o_r,_m_i_n_o_r), where _m_a_j_o_r and _m_i_n_o_r are the ``major'' and ``minor''
+device numbers,  respectively, resulting in a  ddeevv_tt-sized device type.  No
+spaces can appear around the equal sign in the ssyymmbbooll=_c_o_n_s_t_a_n_t construct.
+
+Numeric constants default to decimal, but may be specifyed with a leading 00
+prefix to specify  an octal number or a 00xx  prefix to specify a hexadecimal
+number.
+
+The size  of the altered  _s_y_m_b_o_l field is, by  default, ssiizzeeooff(iinntt).  ppaattcchh
+recognizes the following explicit size overrides:
+
+:cc The size of the altered field is ssiizzeeooff(cchhaarr).
+
+:ii The size of the altered field is ssiizzeeooff(iinntt).
+
+:ll The size of the altered field is ssiizzeeooff(lloonngg).
+
+:ss The size of the altered field is ssiizzeeooff(sshhoorrtt).
+
+_E_x_a_m_p_l_e
+The following  example gives technique  that allows kernel  display -- that
+is,  the output  of  the routines  ccmmnn_eerrrr()  and the  kernel's version  of
+pprriinnttff() --  to go  to a serial  port.  With this,  you can save  the panic
+messages and register dumps on a  terminal screen or printer page while you
+reboot and  try to track down  what went wrong.  To do  so, plug a terminal
+into a serial port, and then do the following.
+
+11. Find  the major  and minor  numbers of  a working  serial port.   Do not
+   configure  the port  for modem  control or  flow control;  use something
+   simple like ccoomm22ll. Make sure you can send data out the port; for example
+   see that the command
+
+       date > /dev/com2l
+
+   sends data to the terminal's screen.  The baud rate for the port will be
+   whatever is specified for the default in file /eettcc/ddeeffaauulltt/aassyynncc -- 9600
+   unless you have changed it.
+
+22. Make sure the port is _n_o_t enabled.
+
+33. Create  a test  kernel around  that you can  modify.  Call  it something
+   easily remembered, such as /tteessttccoohh.
+
+44. Patch the kernel with the command
+
+       /conf/patch -v /testcoh _c_o_n_d_e_v=_m_a_k_e_d_e_v(_m_a_j_o_r,_m_i_n_o_r):_s
+
+   where _m_a_j_o_r  is the major number  for the serial port,  and _m_i_n_o_r is its
+   minor number.
+
+55. Boot the patched kernel.
+
+With this  change, you will not  be able to control  kernel output with XON
+and XOFF, nor  will you seen kernel output from  very early startup (before
+the page tables are working) appear on the serial device.
+
+_E_x_a_m_p_l_e
+The following  example patches the  kernel to redirect error  messages to a
+terminal  device  on a  serial  port,  instead of  displaying  them on  the
+console:
+
+    /conf/patch -v /Ikernel_name "condev=makedev(_m_a_j, _m_i_n):s"
+
+where _k_e_r_n_e_l__n_a_m_e names the kernel you  wish to patch, and _m_a_j and _m_i_n are,
+respectively,  the major  and minor  device numbers of  the serial  port to
+which you wish to redirect messages.
+
+Note that ccoonnddeevv is a short integer, so the ``:s'' is essential.  The patch
+is made to  the file on disk.  You must  reboot before it can work -- chaos
+results if you try to switch console devices in a running kernel.
+
+_S_e_e _A_l_s_o
+ccoommmmaannddss, ddeevviiccee ddrriivveerrss, kkeerrnneell
+
+_N_o_t_e_s
+It is extremely dangerous to patch the COHERENT kernel.  Almost all changes
+that you  may wish to  make the kernel  can be accomplished  more safely by
+using  the commands  iiddttuunnee and  iiddmmkkccoohh.  For details  on how  to use  the
+commands,  see  their  entries  in  the  Lexicon.  Therefore,  do  not  use
+/ccoonnff/ppaattcchh to patch the kernel unless you know _e_x_a_c_t_l_y what you are doing.
+_C_a_v_e_a_t _u_t_i_l_i_t_o_r!
+
+Beginning with  release 4.2 of COHERENT, the symbol  table has been removed
+from the  kernel, and is  kept in its  own file.  The  symbol-table file is
+named after  its corresponding kernel; for example, the  symbol table for a
+kernel  named /ccoohheerreenntt  is kept  in  file /ccoohheerreenntt.ssyymm.  This complicates
+using ppaattcchh to hot-patch a kernel.  As noted above, you are well advised to
+use commands iiddttuunnee and  iiddeennaabbllee to modify your kernel configuration, than
+using ppaattcchh to hot-patch an existing kernel.

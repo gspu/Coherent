@@ -1,0 +1,71 @@
+.TH SV_WAIT() "" "" "DDI/DKI Kernel Routine"
+.PC "Sleep on a synchronization variable"
+.B "#include <sys/ksynch.h>"
+.B "#include <sys/types.h>"
+\fBvoid SV_WAIT(\fIsynch\^\fB, \fIpriority\^\fB, \fIlock\^\fB)\fR
+\fBsv_t *synch\^\fB; int \fIpriority\^\fB; lock_t *\fIlock\^\fB;\fR
+.PP
+.B SV_WAIT()
+puts the calling process to sleep.
+The calling process sleeps on the synchronization variable
+.IR synch ,
+until it is awakened by a call to
+.B SV_SIGNAL()
+or
+.BR SV_BROADCAST() .
+.PP
+.I lock
+points to the basic lock that the caller must hold.
+.B SV_WAIT()
+releases the lock and sets the interrupt priority to
+.I priority
+after it queues the process on the synchronization variable,
+but before it switches context to another process.
+When the caller returns from
+.BR SV_WAIT() ,
+the basic lock is not held and the interrupt-priority level is set to
+.BR plbase .
+The caller will not be interrupted by signals while it sleeps within
+.BR SV_WAIT() .
+.PP
+.I priority
+gives the relative priority that the caller wants after it wakes up.
+.B SV_WAIT()
+recognizes the following values:
+.IP \fBpridisk\fR 1.0i
+Priority appropriate for disk driver.
+.IS \fBprinet\fR
+Priority appropriate for network driver.
+.IS \fBpritty\fR
+Priority appropriate for terminal driver.
+.IS \fBpritape\fR
+Priority appropriate for tape driver.
+.IS \fBprihi\fR
+High priority.
+.IS \fBprimed\fR
+Medium priority.
+.IS \fBprilo\fR
+Low priority.
+.PP
+You can also specify positive or negative offsets from these values.
+Positive offsets request favorable priority;
+the maximum allowable offset is three.
+Offsets can help you to define the relative importance of the locks and
+resources that a driver holds.
+In general, the more highly sought a lock or resource is,
+or the more locks or kernel resources a driver holds, the higher
+.I priority
+should be.
+.SH "See Also"
+.B
+DDI/DKI kernel routines
+.R
+.SH Notes
+.B SV_WAIT()
+has base level only.
+It can sleep.
+.PP
+A driver cannot hold a
+driver-defined basic lock or read/write lock across a
+call to this function;
+it can, however, hold a driver-defined sleep lock.

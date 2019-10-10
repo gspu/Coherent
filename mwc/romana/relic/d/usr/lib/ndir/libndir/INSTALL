@@ -1,0 +1,122 @@
+
+
+			INSTALLATION INSTRUCTIONS
+
+
+The following instructions are for systems resembling Ninth Edition UNIX, with
+hints about dealing with variations you may encounter for your specific system.
+Installation should be done only by someone who is comfortable with modifying
+the standard C library and header files.
+
+If your system already includes directory access routines, you should replace
+them with this package.  We're trying to get this standardized; see the
+discussion in the NOTES file.
+
+I have tried to make the source code as generic as possible, but if your system
+predates Seventh Edition UNIX you will have problems.
+
+DISCLAIMER:  Although I believe the code and procedures described here to be
+correct, I make no warranty of any kind, and you are advised to perform your
+own careful testing before making any substantial change like this to your
+programming environment.
+
+
+0)  For antique systems that do not support C's "void" data type, edit the file
+    sys.dirent.h to add the following:
+
+	typedef int		void;	/* good enough for govt work */
+
+    If for some reason your <sys/types.h> doesn't define them, add the
+    following to sys.dirent.h:
+
+	typedef unsigned short	ino_t;	/* (assuming original UFS) */
+	typedef long		off_t;	/* long is forced by lseek() */
+
+    None of this should be necessary for any modern UNIX system.
+
+1)  Copy the file dirent.h to /usr/include/dirent.h and copy the file
+    sys.dirent.h to /usr/include/sys/dirent.h.  (The file sys._dir.h is also
+    provided for the BRL UNIX System V emulation for 4.nBSD.  That environment
+    uses different directory names for everything.)
+
+2)  Copy the file directory.3c to /usr/man/man3/directory.3 and copy the file
+    dirent.4 to /usr/man/man5/dirent.5; edit the new file
+    /usr/man/man3/directory.3 to change the "SEE ALSO" reference from dirent(4)
+    to dirent(5) and to change the 3C on the first line to 3; edit the new file
+    /usr/man/man5/dirent.5 to change the 4 on the first line to 5; then print
+    the manual pages via the command
+
+	man directory dirent
+
+    to see what the new routines are like.  (If you have a "catman" style of
+    on-line manual, adapt these instructions accordingly.  Manual entries are
+    kept in directories with other names on some systems such as UNIX System V.
+    On systems that already had a directory library documented in some other
+    manual entry, remove the superseded manual entry; if the description of the
+    native filesystem directory format found by "man dir" refers to a directory
+    library, modify it to simply refer to the entry for "dirent".)
+
+3)  Copy the files closedir.c, opendir.c, readdir.c, rewinddir.c, seekdir.c,
+    and telldir.c to the "gen" or "port/gen" subdirectory of your C library
+    source directory.  If you do not have a getdents() system call, copy the
+    file getdents.c to the "sys" or "port/sys" subdirectory and copy the file
+    getdents.2 to /usr/man/man2/getdents.2 (actually you may prefer to put this
+    file in section 3 and adjust the references in the other manual entries
+    accordingly; also adjust the references to dirent(4) to be to dirent(5) if
+    that's where the entry is).  Edit the C library makefile(s) to include the
+    new object modules in the C library.  (See the comments at the beginning of
+    getdents.c for symbols that must be defined to configure getdents.c.)  Then
+    remake and reinstall the C library.  Alternatively, you can just compile
+    the new sources and insert their objects near the front of the C library
+    /lib/libc.a using the "ar" utility (seekdir.o should precede readdir.o,
+    which in turn should precede getdents.o).  On some systems you then need to
+    use the "ranlib" utility to update the archive symbol table.
+
+4)  After the C library has been updated, delete /usr/include/ndir.h or any
+    other header used with a previous directory library to prevent inadvertent
+    use of the superseded directory access interface.  Also delete any
+    corresponding library such as /usr/lib/libndir.a.
+
+5)  To verify installation, try compiling, linking, and running the program
+    testdir.c.  This program searches the current directory "." for each file
+    named as a program argument and prints `"FOO" found.' or `"FOO" not found.'
+    where FOO is of course replaced by the name being sought in the directory.
+    Try something like
+
+	cd /usr/bin			# a multi-block directory
+	WHEREVER/testdir FOO lint BAR f77 XYZZY
+
+    which should produce the output
+
+	"FOO" not found.
+	"lint" found.
+	"BAR" not found.
+	"f77" found.
+	"XYZZY" not found.
+
+    A more thorough test would be
+
+	cd /usr/bin			# a multi-block directory
+	WHEREVER/testdir `ls -a` | grep 'not found'
+
+    This program does not test the seekdir() and telldir() functions.
+
+6)  Notify your programmers that all directory access must be made through the
+    new interface, and that documentation is available via
+
+	man directory dirent
+
+    Make the NOTES file available to those programmers who might want to
+    understand what this is all about.
+
+7)  Change all system sources that were accessing directories to use the new
+    routines.  Nearly all such sources contain the line
+
+	#include <sys/dir.h>
+    or
+	#include <ndir.h>
+
+    so they should be easy to find.  (If you earlier removed some other header
+    file, that is, if this package superseded an earlier version of the
+    directory access library, look for its name too.  See the conversion
+    instructions in the NOTES file.)

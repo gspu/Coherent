@@ -1,0 +1,661 @@
+;CAM 9/7/79  r.a.v.
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1979 by Mark Williams Company, Chicago
+;CAMAC / North Star version routines for SAVE, LOAD, GTFIL, and i/o
+
+	if	camac and nonst	;CP/M CAMAC should have module CPM
+;
+; reference Kinetic Systems Model 6011 Software Manual
+; Disk Operating System (DOS) for routine entry and exit conventions
+; and disk layout info
+;
+; LIMITATIONS:  Since the program (and file) lengths will always be <= 64k,
+; the block counts (lengths) can be kept in 8 bits.  The high order byte
+; of the length is always zeroed.
+; LOAD "filename",R is not implemented.
+;
+;	North Star dos linkage equates
+;
+olorg	equ	$	;save current org
+nthbs	equ	1400h	;base address of North Star dos
+	org	nthbs+0dh
+co	ds	3	;console out from reg b
+ci	ds	3	;console in to reg a
+ninit	ds	3	;uart init, etc.
+contc	ds	3	;control c check (return z flag if present)
+nhder	ds	3	;hard disk error entry
+dlook	ds	3	;directory look up routine
+dwrit	ds	3	;write updated directory back to disk
+dcom	ds	3	;perform disk i/o (read, write, or verify)
+	ds	3	;list (directory) routine unused
+nsdos	ds	3	;NorthStar dos re-entry point
+;
+	org	olorg
+;
+; KineticSystems intrinsic I/O drivers
+;
+conin:
+	call	cstat
+	jz	conin
+	in	0
+	ret
+cnout:
+	in	1
+	ani	4
+	jz	cnout
+	mov	a,c
+	out	0
+	ret
+cstat:
+	in	1
+	ani	2
+	rz
+	mvi	a,0ffh
+	ret
+nsddi:			;^B branch to Northstar DOS
+	lda	nthbs+4	;fetch JMP from DOS
+	cpi	0C3H	;check if JMP is there
+	jnz	0	;no DOS, return to monitor
+	di		;disable interrupts
+	jmp	nsdos	;and to DOS
+
+;save <filename> [,<digit 1 - 3>]
+save:
+	call	gtcho	;test for 'D' following save
+	cpi	'D'
+	jz	savda	;if found, this is saving data
+	if	rtpak
+	jmp	uferr
+	else
+	call	prntm	;print SAVING message
+	db	cr, lf, 'SAVING ', ' ' or 80H
+	call	gtfil	;read filename, initialize file control block
+	if	romsq
+	  lhld	sourc	;first source addess to hl
+	  push	h	;and saved
+	  call	last	;last to bc
+	  pop	d	;first to de
+	else
+	  lxi	d,srcad	;next source address to de
+	  lhld	eofad	;eof address to hl
+	  mov	b,h
+	  mov	c,l	;eof address to bc
+	endif
+	mov	a,c	;compute program length in 256 byte blocks
+	sub	e	;by subtracting first from last and
+	mov	a,b	;ignoring low order result (except for carry)
+	sbb	d
+	inr	a	;and adding one to result
+			;length in blocks now in reg a
+	mvi	b,4	;saving program, so use type 4 file
+	call	crfil	;look for existing file or create new one
+	dcx	h	;back up to point to first block of file bytes
+	dcx	h
+	mvi	b,0	;pass write command to dcom routine
+	endif		;end of NOT RTPAK conditional
+;
+; do disk io
+; entry	b	function:  0=write, 1=read, 2=verify
+;	hl	points to byte 8 (start block) of dir entry
+; retn	all	clobbered
+; doesn't return at all if disk error occurs, jumps to dkerr.
+; reads or writes the entire file into or from the xybasic program buffer.
+;
+ddio:
+	lda	dunit	;get unit number to use to pass to dcom
+	mov	c,a
+	mov	e,m	;get first block address into reg de
+	inx	h
+	mov	d,m
+	inx	h	;point to file length byte
+	mov	a,m	;get it into reg a
+	if	romsq
+	  lhld	sourc	;start address to hl
+	  xchg		;start address to reg de, first block to reg hl
+	else
+	  xchg		;first block to reg hl
+	  lxi	d,srcad	;start address to reg de
+	endif
+	call	ddcom	;now that parameters are set, call dos to do io
+	rnc		;all went well
+dkerr:
+	error	f, D, K	;issue fatal disk error
+;
+; routine to perform directory i/o.
+; entry	hl	directory block number to written or read (0-3)
+;	b	0 for write, 1 for read
+; retn	all	clobbered, carry set if parameter error
+; all i/o is performed through the directory buffer (drbuf)
+;
+dirio:
+	lda	dunit	;disk unit number to reg c
+	mov	c,a
+	mvi	a,1	;one sector a time
+	lxi	d,drbuf ;address of i/o transfer
+			;fall thru to do the i/o
+;
+; call dos routine dcom with interrupts disabled and re-enable
+; them if they were enabled before the call.
+;
+ddcom:
+	di
+	call	dcom
+;
+; entry point to conditionaly re-enable interrupts, based on
+; imode flag.
+;
+cndei:
+	push	psw	;save during enable
+	lda	imode	;were interrupts enabled before?
+	ora	a
+	jnz	noei	;no - skip enable
+	ei
+noei:
+	pop	psw	;restore regs
+	ret
+;
+; search for the file name at fname on the drive in dunit
+;
+srhfn:
+	lxi	h,dunit	;get drive no to reg a
+	mov	a,m
+	inx	h	;now pointing to fname
+			;fall thru to dos look routine
+; call dos dlook routine with conditional ei when done
+;
+	di
+	call	dlook
+	jmp	cndei
+;
+; call dos dwrit routine with conditional ei
+;
+writd:
+	di
+	call	dwrit
+	jmp	cndei
+
+; CREATE <filename>,<length>
+creat:
+	call	gtfnm	;get file name to buffer
+	call	gtcsn	;gobble comma
+	call	gtbex	;get length
+	mov	a,c	;to reg a
+	mvi	b,5	;create a type 5 file (for data)
+			;fall thru to create the file
+;
+; create the file with name at fname on drive in dunit.  Enter with
+; desired length in reg a and the desired file type in reg b.  If the
+; file already exists and is of sufficient length, a pointer to the
+; existing file is returned.  I if the file exists and is too small,
+; then the old file is deleted and a new one of the correct length
+; is created.  Returns with a pointer to byte 10 of the file info
+; in reg hl.
+;
+crfil:
+	push	psw	;save length
+	push	b	;save desired file type
+look:			;look on disk for file with name at fname
+	call	srhfn	;file search
+	pop	b	;get desired type back to reg b
+	jc	notfd	;file wasn't found
+			;file was found, hl pointing into ram directory
+	inx	h	;point to file length
+	inx	h
+	call	chkft	;make sure file is of correct type
+	pop	psw	;get program length
+	cmp	m	;program length - file length
+	jz	fillf	;same length, just re-write the data
+	jc	fillf	;file too big, just re-write the data
+			;now we know file is too small, so delete & recreate
+	push	psw	;save program length again
+	push	b	;save desired type again
+	dcx	h	;backup to blank name field
+	dcx	h
+	mvi	c,8	;length of name field
+			;write blank file name back to disk, thus
+			;deleting file
+delfn:
+	dcx	h
+	mvi	m,' '
+	dcr	c
+	jnz	delfn
+	call	writd
+	jmp	look	;go back to look for file again, which won't be
+			;found, but will return the next free block
+			;on disk
+notfd:
+	ora	a	;did dos complain about filename?
+	jz	dkerr	;yes - issue fatal filename error
+	pop	psw	;get program length back
+	push	b	;save desired file type
+	push	psw	;save program length
+	push	h	;save first free block address, too
+	mov	c,a	;compute new first free block on disk address by
+	mvi	b,0	;adding program (new file) length to current
+	dad	b	;first free block address
+	lxi	d,-351	;cause carry if new file won't fit on disk
+	dad	d
+	jc	dkerr	;won't fit - give fatal disk full error
+	lxi	h,0	;will fit - search directory for empty entry
+			;so we can create a file
+			;directory block number is kept in reg hl
+srchd:
+	mvi	b,1	;pass read flag to dirio
+	push	h	;save directory block number
+	call	dirio	;read a block from directory
+	jc	dkerr	;error in reading directory
+	lxi	h,drbuf ;pointer into directoy block
+	lxi	d,16	;length of a directory entry within the block
+	mov	c,e	;number of entrys in one block (16)
+	mvi	a,' '	;look for a blank in the first byte to show empty
+srchb:
+	cmp	m	;is this entry empty?
+	jz	gotdr	;yes - fill it with new file info
+	dad	d	;no - move on to next entry in this block
+	dcr	c	;any entrys left in this block?
+	jnz	srchb	;yes - keep searching this block
+	pop	h	;no - on to next directory block
+	inx	h
+	mov	a,l	;has the whole directory been searched (4 blocks)?
+	cpi	4
+	jnz	srchd	;no - read the next block in and search it
+	jmp	dkerr	;yes - no room in the directory
+gotdr:			;come here ith reg hl pointing to empty entry
+	lxi	d,fname	;copy new file name into directory
+	mvi	c,8	;length of name
+nmcpy:
+	ldax	d
+	mov	m,a
+	inx	h
+	inx	d
+	dcr	c
+	jnz	nmcpy
+	pop	d	;get block number of directory we are modifying
+	pop	b	;get next free block on disk
+	mov	m,c	;fill next free block in as start of new file
+	inx	h
+	mov	m,b
+	inx	h
+	pop	psw	;get program length in blocks
+	mov	m,a	;make it new file length
+	pop	b	;get desired file type to reg b
+	push	h	;save file info pointer
+	inx	h
+	mvi	m,0	;zero high order length
+	inx	h	;point to file type field
+	mov	m,b	;fill in desired file type
+	xchg		;get dir block number to reg hl
+	mvi	b,0	;pass write flag to dirio
+	call	dirio	;wite updated directory entry back
+	pop	h	;get file info pointer for caller
+	ret
+fillf:			;come here to fill in new length for a file and
+			;write the updated directory entry back to disk
+			;reg hl points to the length byte(s) of the
+			;directory entry (within dos somewhere)
+			;reg a has new file length
+	mov	m,a	;fill in new length
+	push	h	;save pointer to file info
+	call	writd	;write updated directory entry back
+	pop	h	;get file info pointer back for caller
+	ret
+
+;LOAD <FILENAME> [,<digit 1 - 3>]
+load:
+	call	gtcho	;see if load if followed with a 'D'
+	cpi	'D'
+	jz	lodda	;yes - this is a data load
+	if	rtpak
+	jmp	uferr
+	else
+	if	romsq	;must be running in ram
+	  call	issrc
+	endif
+	call	prntm	;print LOADING message
+	db	cr, lf, 'LOADING ', ' ' or 80H
+	call	gtfil
+	call	srhfn	;search directory for file
+	jc	dkerr	;not found - give fatal dk error
+	push	h	;found - save file info pointer
+	inx	h	;point to file length bytes
+	inx	h
+	mvi	b,4
+	call	chkft	;make sure file is of correct type (type 4)
+	mov	h,m	;file length (in blocks to reg h)
+	mvi	l,0	;length in bytes to reg hl
+	lxi	d,srcad	;see if file will fit between srcad and symta
+	dad	d
+	xchg
+	lhld	symta
+	call	cmdhu
+	jnc	omerr	;won't fit - give fatal out of memory error
+	call	new	;will fit - clear existing program (if any)
+	pop	h	;get pointer to directory back
+	mvi	b,1	;read command for dos
+	call	ddio	;do disk io (the load)
+	lxi	d,-1	;find bottom of source text
+	call	findl
+	mov	a,m
+	call	adahl
+	jmp	dmodx	;set stacks and continue iff direct
+	endif		;end of NOT RTPAK conditional
+
+; SAVEDATA <plist>
+savda:
+	lxi	b,(0 shl 8) + 'O' ;fmode='O', lstfl=0
+	jmp	daio1
+
+; LOADDATA <plist>
+lodda:
+	call	idtst	;using input buffer, so id error test
+	lxi	b,(1 shl 8) + 'I' ;fmode='I', lstfl=1
+daio1:
+	lda	fmode	;is file in correct mode?
+	cmp	c
+	jnz	dkerr	;no - issue fatal dk error
+	mov	a,b	;yes - set load/save flag as desired
+	sta	lstfl
+	call	gtcha	;move over 'D'
+daio2:
+	call	gtvar	;get a var address from plist
+	jc	snerr	;not found, must be end of list
+	call	bytsd	;get length of var to reg de
+	mov	b,h	;get var address to reg bc
+	mov	c,l
+	lhld	nxtad	;get next address in buffer
+	lda	lstfl	;data saving?
+	ora	a
+	jz	daio3	;yes - skip type compare & store type
+	mov	a,e	;compare var type to type in file
+	cmp	m
+	jnz	tmerr	;unequal - give error
+	jmp	daio4	;skip - type store 
+daio3:
+	mov	m,e	;store new type
+daio4:
+	call	incad	;move to next address in file
+	mov	a,e	;get length
+	cpi	3	;string variable?
+	jz	strls	;yes - off to string load/save
+daio5:
+	lda	lstfl	;data saving?
+	ora	a
+	jz	daio6	;yes - put data into buffer
+	mov	a,m	;no - get data from buffer
+	stax	b	;and put into variable addrss
+	jmp	daio7	;continue at common inc pointers
+daio6:
+	ldax	b	;get data from var
+	mov	m,a	;and put into buffer
+daio7:
+	inx	b	;increment pointer to variable bytes
+	call	incad	;increment file pointer
+	dcx	d	;decrement byte count
+	mov	a,d	;count = 0?
+	ora	e
+	jnz	daio5	;no - keep transfering
+daio8:
+	call	gtcnd	;yes - look for comma following var
+	jnc	daio2	;found - get next var from list
+	ret		;not found - end of list - done
+strls:
+	lda	lstfl	;saving?
+	ora	a
+	jz	strsv	;yes
+			;no - therefore loading
+	push	b	;save value bytes pointer
+	lxi	d,nlnad	;build string into input buffer
+	push	d	;save buffer start
+	mov	c,m	;get string length to reg c
+	push	b	;and save
+	call	incad	;move over length
+	mov	a,c	;check for zero length
+	ora	a
+	jz	zlens
+daio9:
+	mov	a,m	;get from disk
+	stax	d	;store into input buffer
+	inx	d
+	call	incad
+	dcr	c	;got whole string?
+	jnz	daio9	;no
+zlens:
+	pop	b	;restore length to reg c
+	pop	d	;start of string to reg de
+	pop	h	;value byte pointer to reg hl
+	push	h	;and save
+	mov	m,c	;store new length
+	inx	h
+	mov	m,e	;store new string address
+	inx	h
+	mov	m,d
+	mvi	a,strst	;string type token to A
+	call	esval	;ESTACK the value
+	pop	h	;get value byte pointer
+	dcx	h	;fudge pointer to look like estack entry
+	call	scopv	;copy into string space
+	jmp	daio8	;and get next variable
+strsv:			;save string variable
+	ldax	b	;length to reg a
+	mov	m,a	;write to file
+	mov	e,a	;and make new length for transfer
+	call	incad
+	mov	a,e	;check for zero length string
+	ora	a
+	jz	daio8
+	inx	b	;get string address from reg bc into bc
+	ldax	b	;indirect addressing
+	mov	d,a	;use reg d as temp since length <=255
+	inx	b
+	ldax	b
+	mov	b,a
+	mov	c,d
+	mvi	d,0	;restore correce 16-bit string length
+	jmp	daio6	;and transfer the string
+;
+; increment file i/o pointer ([nxtad] and reg hl) with read or
+; write of buffer if it wraps end of buffer. clobbers only reg a,hl
+;
+incad:
+	inx	h
+	shld	nxtad
+	mov	a,l	;end of buffer?
+	cpi	low(drbuf+256)
+	rnz		;no - return without i/o
+	push	b	;save callers regs
+	push	d
+	lda	lstfl	;set io direction
+	push	psw	;save for end test below
+	mov	b,a
+	lhld	nxtbl	;get current block number for file
+	push	h	;and save
+	call	lstch	;don't allow any i/o past end of file
+	call	dirio	;empty or fill the buffer
+	pop	h	;old block to reg hl
+	inx	h	;on to next block
+	pop	psw	;get load/save flag back
+	ora	a	;if saving . . .
+	cz	lstch	;see if next write will be past end
+	shld	nxtbl	;no - save as new block number
+	lxi	h,drbuf ;reset buffer address pointer
+	shld	nxtad
+	pop	d	;restore callers regs
+	pop	b
+	ret
+;
+; check a block number to be sure it is not past the end of
+; a data file.  if past, give disk error.
+; entry	hl	block number to be checked
+; exit	hl	preserved
+;	d,e,a	clobbered
+;
+lstch:
+	xchg		;block number to reg de
+	lhld	lstbl	;one past end of file
+	call	cmdhu	;is block past?
+	xchg		;restore block
+	rnz		;no - just exit
+	jmp	dkerr	;yes - give disk error
+
+; OPEN { I | O } , <filename>
+open:
+	lda	fmode	;is a file open now?
+	ora	a
+	jnz	dkerr	;yes - give error
+	call	gtcha	;get direction spec
+	cpi	'I'	;input?
+	jz	opnok	;yes - that is ok
+	cpi	'O'	;output?
+	jnz	dkerr	;no - none of the above - error
+opnok:
+	push	psw	;save new fmode till open successfull
+	call	gtcsn	;gobble comma
+	call	gtfnm	;get file name to fname buffer
+	call	srhfn	;search for file
+	jc	dkerr	;not found - error
+	mov	e,m	;get file start block no. to reg de
+	inx	h
+	mov	d,m
+	inx	h
+	xchg		;first block to reg hl
+	shld	nxtbl	;save for load & save data
+	xchg		;reg hl points to file length
+	mvi	b,5	;check for data file
+	call	chkft
+	mov	a,m	;add length to start (in reg de)
+	inx	h
+	mov	h,m
+	mov	l,a
+	dad	d	;length+start to reg hl
+	shld	lstbl	;last legal block +1
+	lxi	h,drbuf ;init buffer address pointer
+	shld	nxtad
+	pop	psw	;get file mode 'I' or 'O'
+	sta	fmode	;save till close
+	cpi	'I'	;input mode?
+	rnz		;no - all done with open
+	lhld	nxtbl	;yes - read first block of file into buffer
+	inx	h	;set pointer to read second block when
+	shld	nxtbl	;buffer is empty first time
+	dcx	h	;read first block for now
+	mvi	b,1	;read token
+	jmp	dirio
+
+; CLOSE
+close:
+	lxi	h,fmode	;make sure file is open for output
+	mov	a,m
+	mvi	m,0	;close it in any case
+	cpi	'O'
+	rnz		;already closed or open for input
+	lhld	nxtad	;write end of file mark
+	mvi	m,0
+	mvi	b,0	;write the final buffer full
+	lhld	nxtbl
+	jmp	dirio
+;
+; check the file type of the file directory entry pointed to
+; by reg hl on entry.  reg hl points to byte 10 (length), and is
+; left undisturbed.  clobbers reg a.  desired type in reg b.
+;
+chkft:
+	push	h	;save length pointer
+	inx	h	;point to file type byte
+	inx	h
+	mov	a,b	;compare against desired type
+	cmp	m
+	jnz	dkerr	;not correct type - give disk error
+	pop	h	;correct type - clean stack & return
+	ret
+;
+; get a North Star filename from text pointed by textp, optionaly
+; followed by a comma and a drive number 1 - 3
+; drive (unit) number is loaded into dunit, and file name (8 bytes)
+; is loaded into fname (following dunit)
+;
+gtfil:
+	call	close	;free drbuf for use
+	call	gtfnm	;get the quoted filename
+	lxi	d,fname	;and echo it
+	mvi	c,8	;length of filename
+	call	prstr
+	jmp	wcrlf
+;
+; check for presence of North Star DOS, then
+; scan off a quoted filename at textp into fname
+;
+gtfnm:
+	lda	nthbs+4	;fetch 1404H to check for DOS
+	cpi	0C3H	;should be a JMP
+	jnz	dkerr	;DK error if DOS not present
+	lxi	h,dkerr	;poke dos hard error entry to give
+	shld	nhder+1	;xybasic "DK" error
+	mvi	a,1	;set default unit to drive 1
+	sta	dunit
+	lxi	h,fname	;blank file name first
+	push	h	;save for name copy below
+	mvi	c,8+1	;follow name with a blank
+blkfn:
+	mvi	m,' '
+	inx	h
+	dcr	c
+	jnz	blkfn
+	if	strng
+	  call	evals	;look for filename
+	  call	fetch
+	  jnc	snerr	;nonstring filename
+	else		;parse string ad hoc if nonstring version
+	  mvi	d,'"'
+	  call	gtdsn
+	  mov	d,h	;string start address to reg de
+	  mov	e,l
+	  mvi	c,0	;char count to reg c
+fnlen:
+	  mov	a,m	;fetch possible filename char
+	  inx	h	;point to next
+	  cpi	'"'
+	  jz	cquot	;got closing quote
+	  cpi	cr
+	  jz	snerr	;sn error if cr before close quote
+	  inr	c	;bump count
+	  jmp	fnlen	;and try next
+cquot:
+	  shld	textp	;update text pointer
+	endif
+	mov	a,c	;check length of file name string
+	ora	a
+	jz	dkerr	;zero is a fatal filename error
+	cpi	8+1
+	jnc	dkerr	;>8 is a fatal filename error
+	pop	h	;get name buffer pointer back
+cpy:			;copy from parsed string into fname buffer
+	ldax	d	;get a character from parsed string
+	cpi	60h	;is character lower case?
+	jc	cpy1	;no - just pass thru to name buffer
+	sui	20h	;yes - convert to upper case first
+cpy1:
+	cpi	','	;comma delimiting drive spec?
+	jz	gotco	;yes - go get drive spec
+	cpi	21h	;neither are blanks or control chars
+	jc	dkerr
+	mov	m,a	;store in buffer
+	inx	d	;bump pointers
+	inx	h
+	dcr	c	;moved whole string yet?
+	jnz	cpy	;no - keep moving
+	ret
+gotco:
+	inx	d	;move over comma to point to drive spec
+	ldax	d	;get drive spec
+	sui	'1'	;less than one is an error
+	jc	dkerr
+	cpi	3	;greater than 3 is an error too
+	inr	a	;convert to range 1 - 3
+	sta	dunit	;and save to be passed to dos
+	ret
+
+	endif		;end of CAMAC conditional
+
+
+;end of CAM
+	page

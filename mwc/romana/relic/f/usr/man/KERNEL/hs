@@ -1,0 +1,109 @@
+hhss -- Device Driver
+
+
+The  COHERENT-286 driver  hhss adds  support  for up  to eight  serial lines:
+/ddeevv/hhss0000 through /ddeevv/hhss0077.  Serial  lines controlled via hhss can be opened
+into either of two ways, as follows:
+
+/ddeevv/hhss??
+     Polled, local mode (no modem control).
+
+/ddeevv/hhss??rr
+     Polled, remote mode (modem control).
+
+Any port  used with  hhss will  be polled, i.e.,  interrupt operation  is not
+used.   Please  refer  to  the  Lexicon  article ccoomm  for  explanations  of
+``local'' vs ``remote'' and ``polled'' vs ``interrupt-driven''.
+
+To use  hhss with COHERENT  286, first configure  it to match  your equipment
+(see below), then load the driver using the following command while running
+as the superuser rroooott:
+
+    /etc/drvld -r /drv/hs
+
+To  unload the  driver without  rebooting  COHERENT 286,  first use  the ppss
+command with  the -dd option to  get the process identifier  for hhss process,
+then unload the driver process by using the kkiillll command.  Note that the hhss
+driver process  will not  unload until all  ooppeenned ports have  been closed.
+For example (user input shown in bold):
+
+    $ ppss -dd
+    TTY       PID
+    -------     0  <idle>
+    -------    38  <hs>
+    ...
+    $ kkiillll kkiillll 3388
+
+To use hhss with COHERENT 386,  link it into the COHERENT 386 kernel by using
+the script  BBuuiilldd, which  is included with  the COHERENT 386  Device Driver
+Kit.
+
+The present  version of COHERENT limits ``polled''  operation to one device
+driver at a  time.  Therefore, if any of the  ccoomm family of devices is used
+in polled mode, hhss devices cannot be used.  Conversely, /ddeevv/ccoomm11ppll through
+/ddeevv/ccoomm44ppll and  /ddeevv/ccoomm11pprr through /ddeevv/ccoomm44pprr  cannot be used  if the hhss
+driver is in use.  Both drivers can be present at the same time, but polled
+devices may  not be ooppeenn  under both drivers  at the same  time.  Note that
+enabling a port via /eettcc/eennaabbllee keeps it open continuously.
+
+_P_o_r_t _C_o_n_f_i_g_u_r_a_t_i_o_n
+The  default  configuration  for  the  hhss  driver is  for  four  ports,  at
+hexadecimal addresses  0x3F8, 0x2F8, 0x3E8,  and 0x2E8, at a  speed of 9600
+baud.  The driver is configured by setting the following parameters:
+
+11. The number of ports.
+
+22. The I/O address for each port.
+
+33. The default speed of each port.
+
+All steps in  the configuration must be done as  the superuser rroooott.  Patch
+the number of  ports into driver variable HHSSNNUUMM.  For  example, if you wish
+to support three ports, enter:
+
+    /conf/patch /drv/hs HSNUM_=3
+
+Address and speed  information are stored sequentially starting at variable
+HHSS_PPOORRTTSS_.  The speed for each port is indicated by the corresponding value
+found  in   <tteerrmmiioo.hh>,  from  one,  corresponding  to   50  baud,  to  16,
+corresponding to 9600 baud.  If the three ports in the example above are at
+hexadecimal adresses of 0x2A0, 0x2B0, and 0x2C0, with speeds of 2400, 2400,
+and  9600 baud,  respectively,  then the  following three  patches must  be
+performed:
+
+    /conf/patch /drv/hs HS_PORTS_=0x2A0 HS_PORTS_+2=12
+    /conf/patch /drv/hs HS_PORTS_+4=0x2B0 HS_PORTS_+6=12
+    /conf/patch /drv/hs HS_PORTS_+8=0x2C0 HS_PORTS_+10=16
+
+Finally, nodes must be created for  each port using the mmkknnoodd command.  The
+major device number is 7; the  minor number will range from 0 through 7 for
+ports  /ddeevv/hhss0000 through  /ddeevv/hhss0077, respectively,  with  128 added  to the
+device minor  number if modem  control is desired.   The following commands
+will make nodes in /ddeevv for local and remote versions of the three ports in
+the example:
+
+    /etc/mknod -f /dev/hs00  c  7  0
+    /etc/mknod -f /dev/hs01  c  7  1
+    /etc/mknod -f /dev/hs02  c  7  2
+    /etc/mknod -f /dev/hs00r c  7  128
+    /etc/mknod -f /dev/hs01r c  7  129
+    /etc/mknod -f /dev/hs02r c  7  130
+
+_S_e_e _A_l_s_o
+ccoomm, ddeevviiccee ddrriivveerrss, ddrrvvlldd
+
+_D_i_a_g_n_o_s_t_i_c_s
+An  attempt to  open a  non-existent device  will generate  error messages.
+This can occur if hardware is absent or not turned on.
+
+_N_o_t_e_s
+hhss is  not part  of the  standard COHERENT 386  release.  To  access serial
+devices under COHERENT  386, use the driver aassyy, which  is described in its
+own Lexicon entry.
+
+Note that if any ccoomm device  driver is used in polling mode, you cannot use
+hhss, and vice versa.
+
+Source code for this device driver  is provided in files hhss.cc and aallbbaauudd.cc.
+In  the production  releases of  COHERENT 4.0.0 and  later, this  device is
+supplanted by the device driver aassyy.

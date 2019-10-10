@@ -1,0 +1,98 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.03.12.21.03.22;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@a hokey version of unmkfs. We're keeping it around for reference
+per stevesf. NOT TO BE DISTRIBUTED!
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@char helpmessage[] = "\
+mkproto - insert bad blocks into a proto specification\n\
+Usage: /etc/mkproto device < proto1 >proto2\n\
+Standard input should specify all parts of the desired proto file except\n\
+bad block specifications which mkproto will insert after scanning the\n\
+specified device for unreadable blocks.\n\
+If the root directory specification is missing, mkproto will append one\n\
+\
+";
+
+#include <stdio.h>
+#include <sys/param.h>
+#include <sys/const.h>
+#include <sys/types.h>
+#include <sys/filsys.h>
+
+int bdfd;
+daddr_t bdsz;
+char bdbf[BSIZE];
+daddr_t blk;
+daddr_t nbad;
+long atol();
+char protomessage[] = "Unexpected end of file on proto input\n";
+
+main(argc, argv)
+char *argv[];
+{
+	if (argc != 2)
+		fatal(helpmessage);
+	if ((bdfd = open(argv[1], 0)) < 0)
+		fatal("Cannot open %s\n", argv[1]);
+	if (gets(bdbf) == NULL)
+		fatal(protomessage);
+	puts(bdbf);
+	if (gets(bdbf) == NULL)
+		fatal(protomessage);
+	bdsz = atol(bdbf);
+	if (bdsz < 4)
+		fatal("Preposterous block size: %D\n", bdsz);
+	puts(bdbf);
+	for (blk = 0; blk < bdsz; blk += 1) {
+		lseek(bdfd, (long)blk*(long)BSIZE, 0);
+		if (read(bdfd, bdbf, BSIZE) != BSIZE) {
+			if (blk == SUPERI)
+				fatal("Bad super block\n");
+			if (blk == INODEI)
+				fatal("Bad root inode block\n");
+			if ((nbad % 8) == 0) {
+				if (nbad)
+					putchar('\n');
+				printf("%%b");
+			}
+			printf(" %D", blk);
+			nbad += 1;
+		}
+	}
+	if (nbad)
+		putchar('\n');
+	if (gets(bdbf) == NULL)
+		printf("d--755 3 1\n$\n");
+	else
+		do puts(bdbf); while (gets(bdbf) != NULL);
+	exit (0);
+}
+
+fatal(cp)
+char *cp;
+{
+	fprintf(stderr, "%r", &cp);
+	exit (1);
+}
+
+@

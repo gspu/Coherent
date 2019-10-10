@@ -1,0 +1,273 @@
+.TH semop() "" "" "General Function (libc)"
+.PC "Perform semaphore operations"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/sem.h>"
+\fBint semop(\fIid\^\fB, \fIoperation\^\fB, \fInops\^\fB)\fR
+\fBint \fIid\^\fB, \fInops\^\fB; struct sembuf \fIoperation\^\fB[];\fR
+.PP
+.II "semaphores^semop()"
+.B semop()
+performs semaphore operations.
+.PP
+.I id
+identifies the set of semaphores to be manipulated.
+It must have been returned by a call to
+.BR semget() .
+.PP
+.I nops
+gives the number of structures in the array pointed to by
+.IR operation .
+.PP
+.I operation
+points to an array of structures of type
+.BR sembuf ,
+which the header file
+.B sem.h
+defines as follows:
+.DM
+.ta 0.5i 3.5i
+struct sembuf {
+	unsigned short sem_num;	/* semaphore # */
+	short sem_op;	/* semaphore operation */
+	short sem_flg;	/* operation flags */
+};
+.DE
+.PP
+Each
+.B sembuf
+describes a semaphore operation.
+Field
+.B sem_op
+identifies the operation to perform
+on the semaphore in the set identified by
+.I id
+and with offset
+.IR sem_num .
+.B sem_op
+specifies one of three semaphore operations, as follows:
+.IP \fB1.\fR 0.3i
+If
+.B sem_op
+is negative, one of the following occurs:
+.RS
+.IP \fBA.\fR 0.3i
+If
+.B semval
+in the semaphore structure identified by
+.I id
+is greater than or equal to the absolute value of
+.BR sem_op ,
+.B semop()
+subtracts the absolute value of
+.B sem_op
+from
+.BR semval .
+.IP \fBB.\fR
+If
+.B semval
+is less than the absolute value of
+.B sem_op
+and (\fBsem_flg\fR & \fBIPC_NOWAIT\fR) is true,
+.B semop()
+sets
+.B errno
+to
+.B EGAIN
+and immediately returns \-1.
+.IP \fBC.\fR
+If
+.B semval
+is less than the absolute value of
+.B sem_op
+and (\fBsem_flg\fR & \fBIPC_NOWAIT\fR) is false, then
+.B semop()
+increments the
+.B semncnt
+associated with the specified semaphore
+and suspends execution of the calling process until one of the following
+occurs:
+.RS
+.IP \fBa.\fR 0.3i
+.B semval
+equals or exceeds the absolute value of
+.BR sem_op .
+When this occurs,
+.B semop()
+decrements the value of
+.B semncnt
+associated with the specified semaphore,
+and subtracts the absolute value of
+.B sem_op
+from
+.BR semval .
+.IP \fBb.\fR
+The
+.I id
+for which the calling process is awaiting action is removed from the system.
+.IP \fBc.\fR
+The calling process receives a signal.
+When this occurs,
+.B semop()
+decrements the field
+.B semncnt
+in the
+.B sem
+structure that
+.I id
+identifies, and the calling process resumes execution in the manner
+defined by the signal.
+(See the Lexicon entry for
+.B signal()
+for details of what behavior each signal initiates.)
+.RE
+.RE
+.IP \fB2.\fR
+If
+.B sem_op
+is positive,
+.B semop()
+adds
+.B sem_op
+to
+.BR semval .
+.IP \fB3.\fR
+If
+.B sem_op
+is zero, one of the following occurs:
+.RS
+.IP \fBA.\fR 0.3i
+If
+.B semval
+is zero,
+.B semop()
+returns immediately.
+.IP \fBB.\fR
+If
+.B semval
+does not equal zero and (\fBsem_flg\fR & \fBIPC_NOWAIT\fR) is true,
+.B semop()
+sets \fBerrno\fR to
+.BR EGAIN ,
+and immediately returns \-1.
+.IP \fBC.\fR
+If
+.B semval
+does not equal zero and (\fBsem_flg\fR & \fBIPC_NOWAIT\fR) is false,
+.B semop()
+increments the
+.B semzcnt
+associated with the specified semaphore
+and suspends execution of the calling process until one of the following occurs:
+.RS
+.IP \fBa.\fR 0.3i
+.B semval
+becomes zero.
+.B semop()
+decrements the value of the field
+.B semzcnt
+associated with the specified semaphore.
+.IP \fBb.\fR
+The set of semaphores identified by
+.I id
+is removed from the system.
+.IP \fBc.\fR
+The calling process receives a signal.
+.B semop()
+then decrements the value of the
+.B semzcnt
+associated with the specified semaphore,
+and the calling process resumes execution in the manner prescribed
+by the signal.
+.PP
+If field
+.B sem_flg
+in a
+.B sembuf
+structure
+contains value
+.B SEM_UNDO
+(i.e., expression (\fBsem_flg\fR & \fBSEM_UNDO\fR) is true)
+then the system stores an
+.I "adjust value"
+for this semaphore operation for this semaphore and links it to the process
+that has invoked
+.BR semop() .
+The adjust value is the inversion of this semaphore operation; when the
+process dies, the system executes these adjust values,
+to undo each of these semaphore operations.
+If you use the function
+.B semctl()
+to change the value of a semaphore or a set of semaphores, then the
+system erases all adjust values for those semaphores.
+.PP
+.B semop()
+returns \-1 and sets
+.B errno
+to the value in parentheses if any of the following error conditions occurs:
+.IP \(bu 0.3i
+.I id
+is not a valid semaphore identifier (\fBEINVAL\fR).
+.IP \(bu
+.B sem_num
+is less than zero or greater than or equal to the number of semaphores
+in the set associated with
+.I id
+(\fBEFBIG\fR).
+.IP \(bu
+.I nops
+exceeds the system-imposed maximum (\fBE2BIG\fR).
+.\" whatever that is
+.IP \(bu
+Permission is denied to the calling process (\fBEACCES\fR).
+.IP \(bu
+.I operation
+would suspend the calling process
+but (\fBsem_flg\fR & \fBIPC_NOWAIT\fR) is true (\fBEAGAIN\fR).
+.IP \(bu
+.I operation
+would cause
+.B semval
+to overflow the system-imposed limit (\fBERANGE\fR).
+.\" whatever that is
+.IP \(bu
+.I operation
+points to an illegal address (\fBEFAULT\fR).
+.IP \(bu
+The calling processing receives a signal
+(\fBEINTR\fR).
+.IP \(bu
+The set of semaphores identified by
+.I id
+has been removed from the system (\fBEDOM\fR).
+.PP
+If all goes well,
+.B semop()
+sets the
+.B sempid
+of each semaphore specified in the array pointed to by
+.I operation
+to the process identifier of the calling process.
+It then returns the value that
+.B semval
+had had at the time that the last operation in the array pointed to by
+.I operation 
+was executed.
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/sem.h
+.R
+.SH "See Also"
+.Xr "libc," libc
+.Xr "semctl()," semctl
+.Xr "semget()" semget
+.SH Notes
+The \*(CO implementation of semaphores does not permit a process to
+lock or unlock a semaphore unless it can gain access to all of the
+semaphores that it requests.
+This is to prevent the situation in which two processes have each locked
+semaphores that the other wants, and each has
+.B IPC_NOWAIT
+set to false \(em thus suspending each other forever.

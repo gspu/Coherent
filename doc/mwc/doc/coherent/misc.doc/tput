@@ -1,0 +1,603 @@
+.TH tput "" "" Command
+.PC "Find and echo terminal-control commands"
+\fBtput [\-T \fIterminal-type\^\fB] \fIcapability [\fIparameter\fB ... ]\fR
+.PP
+The command
+.B tput
+translates the terminal-independent name of a
+terminal capability into its value for the type of terminal you are using.
+This lets shell scripts perform such actions as clear the screen,
+underline text, and center text.
+.PP
+.B tput
+takes as an argument the name of
+.B terminfo
+capability, translates it into the equivalent
+.B termcap
+capability name, reads that capability from the
+.B termcap
+entry for your terminal.
+By default,
+.B tput
+reads the
+.B termcap
+entry for the terminal named by the environmental variable
+.BR TERM ;
+however, option
+.B \-T
+overrides this, and lets you find the setting for a given
+.IR terminal-type .
+.PP
+There are three types of
+.B terminfo/termcap
+capabilities:
+string, Boolean, and numeric.
+.PP
+.I Numeric
+and
+.I Boolean
+capabilities give information about the terminal, such as
+how wide it is or whether whether it has a meta key.
+A
+.I string
+capability either invokes a special
+effect (such as blinking or reverse video) when it is displayed,
+or is the value sent by a a special key (such as a function key).
+Some string capabilities accept parameters, e.g., the the capability
+for deleting lines takes as an argument the number of lines to delete.
+These parameters are specified on the command line,
+after the capability's name.
+They are always numbers.
+.PP
+The following sections give some examples of how to use
+.BR tput .
+A complete list of the functions that
+.B tput
+recognizes is given below.
+Note that not all terminals can perform every function.
+.SH "Simple Examples"
+The first example shows how to
+invoke
+.B tput
+to clear the terminal screen:
+.DM
+	tput clear
+.DE
+.PP
+The next command moves the cursor to row 10, column 30 of the screen:
+.DM
+	tput cup 10 30
+.DE
+.PP
+This command makes the cursor invisible:
+.DM
+	tput civis
+.DE
+.PP
+And the following command makes the cursor visible again:
+.DM
+	tput cnorm
+.DE
+.PP
+The following command deletes ten lines below and including the one
+on which the cursor is positioned:
+.DM
+	tput dl 10
+.DE
+.PP
+.B tput
+produces unique output for each types of terminal capabilities.
+.PP
+If the
+.B terminfo
+capability given on the command line is a string capability,
+.B tput
+displays its value and exits with a status of zero.
+If the capability is not defined for the terminal type being used,
+it produces no output and exits with a status of one.
+.PP
+If the capability is a numeric capability,
+.B tput
+displays its value (an integer).
+If the capability is not defined for your terminal,
+.B tput
+displays the value \-1.
+The exit status is always zero for numeric capabilities,
+unless an error occurs.
+.PP
+If the capability is a Boolean capability,
+.B tput
+produces no output and exits with status zero if the capability
+is defined for the terminal type being used,
+or status one if the capability is not defined.
+.SH "Saving Values Within Environmental Variables"
+You can save the values of numeric capabilities into shell variables.
+If you wish to invoke a given capability repeatedly within a given
+script, this can save you the time needed to run
+.B tput
+repeatedly.
+For example, the command
+.DM
+	COLUMNS=`tput cols` ; export COLUMNS
+.DE
+.PP
+creates and exports an environmental variable named
+.B COLUMNS
+that is initialized to the number of columns on your terminal's screen.
+.PP
+You can also save the value of a string capability in an environmental
+variable.
+To re-invoke that capacity, just
+.B echo
+the variable in which you have stored the string.
+.B echo
+runs more quickly than
+.BR tput ;
+however, note that using
+.B echo
+instead of
+.B tput
+to display a string value can caus a problem if the capability
+uses padding:
+you cannot pass a NUL as an argument to a command, including
+.BR echo .
+.SH "Advanced Examples"
+The following gives advanced examples of using
+.BR tput .
+Most involve some shell programming.
+.PP
+The following sequence of commands prints
+.DM
+	I am infalible
+.DE
+.PP
+and then crosses it out on terminals that can overstrike, and prints
+.DM
+	I am on strike
+.DE
+.PP
+on terminals that cannot.
+.DM
+	if tput os; then
+	    echo 'I am infalible\er- -- ---------'
+	else
+	    echo 'I am on strike'
+	fi
+.DE
+.PP
+The next example centers a set of words given as command-line arguments.
+An alternative approach would be to have
+.B tput
+send the
+.B terminfo
+capability
+.B rep
+to print the multiple spaces instead of using the
+.B while
+loop:
+.DM
+	COLUMNS=`tput cols` ; export COLUMNS
+	echo "$@" | awk '
+	{ spaces = ('$COLUMNS' - length) / 2
+	  while (spaces-- > 0) printf (" ")
+	  print
+	}'
+.DE
+.PP
+The next script saves the current cursor position, prints
+.B "Hello, World"
+centered in the screen in reverse video,
+then returns the cursor to its original position:
+.DM
+	COLUMNS=`tput cols`
+	LINES=`tput lines`
+	line=`expr $LINES / 2`
+	column=`expr \e( $COLUMNS - 6 \e) / 2`
+	tput sc
+	tput cup $line $column
+	tput rev
+	echo 'Hello, World'
+	tput sgr0
+	tput rc
+.DE
+.SH "Boolean Capabilities"
+The following gives the Boolean terminal capabilities that
+.B tput
+recognizes:
+.nf
+.ta 2.0i 4.0i
+.sp \n(pDu
+\fIterminfo	termcap\fR
+\fIName	Equivalent	Description\fR
+.sp \n(pDu
+\fBam\fR	\fBam\fR	Has automatic margins
+\fBbw\fR	\fBbw\fR	\fBcub1\fR wraps from column 0 to last column
+\fBchts\fR	\fBHC\fR	Cursor is hard to see
+\fBda\fR	\fBda\fR	Display may be retained above screen
+\fBdb\fR	\fBdb\fR	Display may be retained below screen
+\fBeo\fR	\fBeo\fR	Can erase overstrikes with a blank
+\fBeslok\fR	\fBes\fR	Using escape on status line is ok
+\fBgn\fR	\fBgn\fR	Generic line type
+\fBhc\fR	\fBhc\fR	Hardcopy terminal
+\fBhs\fR	\fBhs\fR	Has a status line
+\fBhz\fR	\fBhz\fR	Hazeltine; cannot print tildes
+\fBin\fR	\fBin\fR	Insert mode distinguishes nulls
+\fBkm\fR	\fBkm\fR	Has a meta key (a shift that sets parity bit)
+\fBmc5i\fR	\fB5i\fR	Data sent to printer does not echo on screen
+\fBmir\fR	\fBmi\fR	Safe to move while in insert mode
+\fBmsgr\fR	\fBms\fR	Safe to move in standout modes
+\fBnpc\fR	\fBNP\fR	No pad character is needed
+\fBnrrmc\fR	\fBNR\fR	\fBsmcup\fR does not reverse \fBrmcup\fR
+\fBnxon\fR	\fBnx\fR	Padding does not work; XON/XOFF are required
+\fBos\fR	\fBos\fR	Overstrikes
+\fBul\fR	\fBul\fR	Underline character overstrikes
+\fBxenl\fR	\fBxn\fR	Newline ignored after 80 columns (Concept)
+\fBxhp\fR	\fBxs\fR	Standout is not erased by overwriting (HP)
+\fBxon\fR	\fBxo\fR	Uses xon/xoff handshaking
+\fBxsb\fR	\fBxb\fR	Beehive (f1=escape, f2=ctrl-c)
+\fBxt\fR	\fBxt\fR	Tabs are destructive, magic \fBsmso\fR (t1061)
+.fi
+.SH "Numeric Capabilities"
+The following gives the numeric terminal capabilities that
+.B tput
+recognizes:
+.nf
+.ta 2.0i 4.0i
+.sp \n(pDu
+\fIterminfo	termcap\fR
+\fIName	Equivalent	Description\fR
+.sp \n(pDu
+\fBcols\fR	\fBco\fR	Number of columns in a line
+\fBit\fR	\fBit\fR	Width of initial tab settings
+\fBlh\fR	\fBlh\fR	Number of rows in each label
+\fBlines\fR	\fBli\fR	Number of lines on screen or page
+\fBlm\fR	\fBlm\fR	Lines of memory if > \fBlines\fR; zero means varies
+\fBlw\fR	\fBlw\fR	Number of columns in each label
+\fBnlab\fR	\fBNl\fR	Number of labels on screen (start at one)
+\fBpb\fR	\fBpb\fR	Lowest baud rate where padding is needed
+\fBvt\fR	\fBvt\fR	Virtual terminal number (\*(UN)
+\fBwsl\fR	\fBws\fR	Number of columns in status line
+\fBxmc\fR	\fBsg\fR	Number of blanks left by \fBsmso\fR or \fBrmso\fR
+.fi
+.SH "String Capabilities"
+In the following table, a dagger following an explanation means
+that the capability takes one or more parameters (and is evaluated by
+the
+.B tparam
+function (or, in the case of 
+.BR cup ,
+.BR tgoto );
+`*' means that padding may be based on the
+number of lines affected; and ``#n'' refers to the \fIn'\fRth
+parameter.
+.nf
+.ta 2.0i 4.0i
+.sp \n(pDu
+\fIterminfo	termcap\fR
+\fIName	Equivalent	Description\fR
+.sp \n(pDu
+\fBacsc\fR	\fBac\fR	Graphic character set pairs aAbBcC \(em default VT100
+\fBbel\fR	\fBbl\fR	Ring bell (beep)
+\fBblink\fR	\fBmb\fR	Begin blinking mode
+\fBbold\fR	\fBmd\fR	Begin double-sintensity mode
+\fBcbt\fR	\fBbt\fR	Back tab
+\fBcivis\fR	\fBvi\fR	Make cursor invisible
+\fBclear\fR	\fBcl\fR	Clear screen*
+\fBcmdch\fR	\fBCC\fR	Settable command character in prototype
+\fBcnorm\fR	\fBve\fR	Make cursor normal (undo \fBcvvis\fR or \fBcivis\fR)
+\fBcr\fR	\fBcr\fR	Carriage return*
+\fBcsr\fR	\fBcs\fR	Change scrolling region to lines #1 through #2\(dg
+\fBcub\fR	\fBLE\fR	Move cursor left #1 spaces\(dg
+\fBcub1\fR	\fBle\fR	Move cursor left one space
+\fBcud\fR	\fBDO\fR	Move cursor down #1 lines\(dg*
+\fBcud1\fR	\fBdo\fR	Move cursor down one line
+\fBcuf\fR	\fBRI\fR	Move cursor right #1 spaces\(dg*
+\fBcuf1\fR	\fBnd\fR	Move cursor right one space
+\fBcup\fR	\fBcm\fR	Move cursor to row #1, column #2 of screen\(dg
+\fBcuu\fR	\fBUP\fR	Move cursor up #1 lines\(dg*
+\fBcuu1\fR	\fBup\fR	Move cursor up one line
+\fBcvvis\fR	\fBvs\fR	Make cursor very visible
+\fBdch\fR	\fBDC\fR	Delete #1 characters\(dg*
+\fBdch1\fR	\fBdc\fR	Delete one character*
+\fBdim\fR	\fBmh\fR	Begin half-intensity mode
+\fBdl\fR	\fBDL\fR	Delete #1 lines\(dg*
+\fBdl1\fR	\fBdl\fR	Delete one line*
+\fBdsl\fR	\fBds\fR	Disable status line
+\fBech\fR	\fBec\fR	Erase #1 characters\(dg
+\fBed\fR	\fBcd\fR	Clear to end of display*
+\fBel\fR	\fBce\fR	Clear to end of line
+\fBel1\fR	\fBcb\fR	Clear to beginning of line, inclusive
+\fBenacs\fR	\fBeA\fR	Enable alternate character set
+\fBff\fR	\fBff\fR	Form feed for hardcopy terminal*
+\fBflash\fR	\fBvb\fR	Visible bell (must not move cursor)
+\fBfsl\fR	\fBfs\fR	Return from status line
+\fBhd\fR	\fBhd\fR	Move cursor down one-half line
+\fBhome\fR	\fBho\fR	Home cursor (if no \fBcup\fR)
+\fBhpa\fR	\fBch\fR	Move cursor to column #1\(dg
+\fBht\fR	\fBta\fR	Tab to next eight-space hardware tab stop
+\fBhts\fR	\fBst\fR	Set a tab in all rows, current column
+\fBhu\fR	\fBhu\fR	Move cursor up one-half line
+\fBich\fR	\fBIC\fR	Insert #1 blank characters\(dg*
+\fBich1\fR	\fBic\fR	Insert one blank character
+\fBif\fR	\fBif\fR	Name of file containing initialization string
+\fBil\fR	\fBAL\fR	Add #1 new blank lines\(dg*
+\fBil1\fR	\fBal\fR	Add one new blank line*
+\fBind\fR	\fBsf\fR	Scroll forward (up) one line
+\fBindn\fR	\fBSF\fR	Scroll forward #1 lines\(dg
+\fBinvis\fR	\fBmk\fR	Begin invisible text mode
+\fBip\fR	\fBip\fR	Insert pad after character inserted*
+\fBiprog\fR	\fBiP\fR	Path of program for initialization
+\fBis1\fR	\fBi1\fR	Terminal initialization string
+\fBis2\fR	\fBis\fR	Terminal initialization string
+\fBis3\fR	\fBi3\fR	Terminal initialization string
+\fBkBEG\fR	\fB&9\fR	Shifted beginning key
+\fBkCAN\fR	\fB&0\fR	Shifted cancel key
+\fBkCMD\fR	\fB*1\fR	Shifted command key
+\fBkCPY\fR	\fB*2\fR	Shifted copy key
+\fBkCRT\fR	\fB*3\fR	Shifted create key
+\fBkDC\fR	\fB*4\fR	Shifted delete char key
+\fBkDL\fR	\fB*5\fR	Shifted delete line key
+\fBkEND\fR	\fB*7\fR	Shifted end key
+\fBkEOL\fR	\fB*8\fR	Shifted clear line key
+\fBkEXT\fR	\fB*9\fR	Shifted exit key
+\fBkFND\fR	\fB*0\fR	Shifted find key
+\fBkHLP\fR	\fB#1\fR	Shifted help key
+\fBkHOM\fR	\fB#2\fR	Shifted home key
+\fBkIC\fR	\fB#3\fR	Shifted input key
+\fBkLFT\fR	\fB#4\fR	Shifted left arrow key
+\fBkMOV\fR	\fB%b\fR	Shifted move key
+\fBkMSG\fR	\fB%a\fR	Shifted message key
+\fBkNXT\fR	\fB%c\fR	Shifted next key
+\fBkOPT\fR	\fB%d\fR	Shifted options key
+\fBkPRT\fR	\fB%f\fR	Shifted print key
+\fBkPRV\fR	\fB%e\fR	Shifted prev key
+\fBkRDO\fR	\fB%g\fR	Shifted redo key
+\fBkRES\fR	\fB%j\fR	Shifted resume key
+\fBkRIT\fR	\fB%i\fR	Shifted right arrow
+\fBkRPL\fR	\fB%h\fR	Shifted replace key
+\fBkSAV\fR	\fB!1\fR	Shifted save key
+\fBkSPD\fR	\fB!2\fR	Shifted suspend key
+\fBkUND\fR	\fB!3\fR	Shifted undo key
+\fBka1\fR	\fBK1\fR	Upper left of keypad
+\fBka3\fR	\fBK3\fR	Upper right of keypad
+\fBkb2\fR	\fBK2\fR	Center of keypad
+\fBkbeg\fR	\fB@1\fR	Beginning key
+\fBkbs\fR	\fBkb\fR	Backspace key
+\fBkc1\fR	\fBK4\fR	Lower left of keypad
+\fBkc3\fR	\fBK5\fR	Lower right of keypad
+\fBkcan\fR	\fB@2\fR	Cancel key
+\fBkcbt\fR	\fBkB\fR	Back tab key
+\fBkclo\fR	\fB@3\fR	Close key
+\fBkclr\fR	\fBkC\fR	Clear screen or erase key
+\fBkcmd\fR	\fB@4\fR	Command key
+\fBkcpy\fR	\fB@5\fR	Copy key
+\fBkcrt\fR	\fB@6\fR	Create key
+\fBkctab\fR	\fBkt\fR	Clear tab key
+\fBkcub1\fR	\fBkl\fR	Left arrow key
+\fBkcud1\fR	\fBkd\fR	Down arrow key
+\fBkcuf1\fR	\fBkr\fR	Right arrow key
+\fBkcuu1\fR	\fBku\fR	Up arrow key
+\fBkdch1\fR	\fBkD\fR	Delete character key
+\fBkdl1\fR	\fBkL\fR	Delete line key
+\fBked\fR	\fBkS\fR	Clear to end of screen key
+\fBkel\fR	\fBkE\fR	Clear to end of line key
+\fBkend\fR	\fB@7\fR	End key
+\fBkent\fR	\fB@8\fR	Enter/send key (unreliable)
+\fBkext\fR	\fB@9\fR	Exit key
+\fBkf0\fR	\fBk0\fR	Function key f0
+\fBkf1\fR	\fBk1\fR	Function key f1
+\fBkf10\fR	\fBk;\fR	Function key f10
+\fBkf11\fR	\fBF1\fR	Function key f11
+\fBkf12\fR	\fBF2\fR	Function key f12
+\fBkf13\fR	\fBF3\fR	Function key f13
+\fBkf14\fR	\fBF4\fR	Function key f14
+\fBkf15\fR	\fBF5\fR	Function key f15
+\fBkf16\fR	\fBF6\fR	Function key f16
+\fBkf17\fR	\fBF7\fR	Function key f17
+\fBkf18\fR	\fBF8\fR	Function key f18
+\fBkf19\fR	\fBF9\fR	Function key f19
+\fBkf2\fR	\fBk2\fR	Function key f2
+\fBkf20\fR	\fBFA\fR	Function key f20
+\fBkf21\fR	\fBFB\fR	Function key f21
+\fBkf22\fR	\fBFC\fR	Function key f22
+\fBkf23\fR	\fBFD\fR	Function key f23
+\fBkf24\fR	\fBFE\fR	Function key f24
+\fBkf25\fR	\fBFF\fR	Function key f25
+\fBkf26\fR	\fBFG\fR	Function key f26
+\fBkf27\fR	\fBFH\fR	Function key f27
+\fBkf28\fR	\fBFI\fR	Function key f28
+\fBkf29\fR	\fBFJ\fR	Function key f29
+\fBkf3\fR	\fBk3\fR	Function key f3
+\fBkf30\fR	\fBFK\fR	Function key f30
+\fBkf31\fR	\fBFL\fR	Function key f31
+\fBkf32\fR	\fBFM\fR	Function key f32
+\fBkf33\fR	\fBFN\fR	Function key f13
+\fBkf34\fR	\fBFO\fR	Function key f34
+\fBkf35\fR	\fBFP\fR	Function key f35
+\fBkf36\fR	\fBFQ\fR	Function key f36
+\fBkf37\fR	\fBFR\fR	Function key f37
+\fBkf38\fR	\fBFS\fR	Function key f38
+\fBkf39\fR	\fBFT\fR	Function key f39
+\fBkf4\fR	\fBk4\fR	Function key f4
+\fBkf40\fR	\fBFU\fR	Function key f40
+\fBkf41\fR	\fBFV\fR	Function key f41
+\fBkf42\fR	\fBFW\fR	Function key f42
+\fBkf43\fR	\fBFX\fR	Function key f43
+\fBkf44\fR	\fBFY\fR	Function key f44
+\fBkf45\fR	\fBFZ\fR	Function key f45
+\fBkf46\fR	\fBFa\fR	Function key f46
+\fBkf47\fR	\fBFb\fR	Function key f47
+\fBkf48\fR	\fBFc\fR	Function key f48
+\fBkf49\fR	\fBFd\fR	Function key f49
+\fBkf5\fR	\fBk5\fR	Function key f5
+\fBkf50\fR	\fBFe\fR	Function key f50
+\fBkf51\fR	\fBFf\fR	Function key f51
+\fBkf52\fR	\fBFg\fR	Function key f52
+\fBkf53\fR	\fBFh\fR	Function key f53
+\fBkf54\fR	\fBFi\fR	Function key f54
+\fBkf55\fR	\fBFj\fR	Function key f55
+\fBkf56\fR	\fBFk\fR	Function key f56
+\fBkf57\fR	\fBFl\fR	Function key f57
+\fBkf58\fR	\fBFm\fR	Function key f58
+\fBkf59\fR	\fBFn\fR	Function key f59
+\fBkf6\fR	\fBk6\fR	Function key f6
+\fBkf60\fR	\fBFo\fR	Function key f60
+\fBkf61\fR	\fBFp\fR	Function key f61
+\fBkf62\fR	\fBFq\fR	Function key f62
+\fBkf63\fR	\fBFr\fR	Function key f63
+\fBkf7\fR	\fBk7\fR	Function key f7
+\fBkf8\fR	\fBk8\fR	Function key f8
+\fBkf9\fR	\fBk9\fR	Function key f9
+\fBkfnd\fR	\fB@0\fR	Find key
+\fBkhlp\fR	\fB%1\fR	Help key
+\fBkhome\fR	\fBkh\fR	Home key
+\fBkhts\fR	\fBkT\fR	Set tab key
+\fBkich1\fR	\fBkI\fR	Ins char/enter ins mode key
+\fBkil1\fR	\fBkA\fR	Insert line key
+\fBkind\fR	\fBkF\fR	Scroll forward/down key
+\fBkll\fR	\fBkH\fR	Home down key
+\fBkmov\fR	\fB%4\fR	Move key
+\fBkmrk\fR	\fB%2\fR	Mark key
+\fBkmsg\fR	\fB%3\fR	Message key
+\fBknp\fR	\fBkN\fR	Next page key
+\fBknxt\fR	\fB%5\fR	Next object key
+\fBkopn\fR	\fB%6\fR	Open key
+\fBkopt\fR	\fB%7\fR	Options key
+\fBkpp\fR	\fBkP\fR	Previous page key
+\fBkprt\fR	\fB%9\fR	Print or copy key
+\fBkprv\fR	\fB%8\fR	Previous object key
+\fBkrdo\fR	\fB%0\fR	Redo key
+\fBkref\fR	\fB&1\fR	Reference key
+\fBkres\fR	\fB&5\fR	Resume key
+\fBkrfr\fR	\fB&2\fR	Refresh key
+\fBkri\fR	\fBkR\fR	Scroll backward/up key
+\fBkrmir\fR	\fBkM\fR	@code{rmir} or @code{smir} in insert mode
+\fBkrpl\fR	\fB&3\fR	Replace key
+\fBkrst\fR	\fB&4\fR	Restart key
+\fBksav\fR	\fB&6\fR	Save key
+\fBkslt\fR	\fB*6\fR	Select key
+\fBkspd\fR	\fB&7\fR	Suspend key
+\fBktbc\fR	\fBka\fR	Clear all tabs key
+\fBkund\fR	\fB&8\fR	Undo key
+\fBlf0\fR	\fBl0\fR	Label on function key 0 if not \fBf0\fR
+\fBlf1\fR	\fBl1\fR	Label on function key 1 if not \fBf1\fR
+\fBlf10\fR	\fBla\fR	Label on function key 10 if not \fBf10\fR
+\fBlf2\fR	\fBl2\fR	Label on function key 2 if not \fBf2\fR
+\fBlf3\fR	\fBl3\fR	Label on function key 3 if not \fBf3\fR
+\fBlf4\fR	\fBl4\fR	Label on function key 4 if not \fBf4\fR
+\fBlf5\fR	\fBl5\fR	Label on function key 5 if not \fBf5\fR
+\fBlf6\fR	\fBl6\fR	Label on function key 6 if not \fBf6\fR
+\fBlf7\fR	\fBl7\fR	Label on function key 7 if not \fBf7\fR
+\fBlf8\fR	\fBl8\fR	Label on function key 8 if not \fBf8\fR
+\fBlf9\fR	\fBl9\fR	Label on function key 9 if not \fBf9\fR
+\fBll\fR	\fBll\fR	Go to last line, first column (if no \fBcup)\fR
+\fBmc0\fR	\fBps\fR	Print screen contents
+\fBmc4\fR	\fBpf\fR	Turn printer off
+\fBmc5\fR	\fBpo\fR	Turn printer on
+\fBmc5p\fR	\fBpO\fR	Turn printer on for #1 bytes\(dg
+\fBmgc\fR	\fBMC\fR	Clear left and right soft margins
+\fBmrcup\fR	\fBCM\fR	Move cursor to row #1, column #2 of memory\(dg
+\fBnel\fR	\fBnw\fR	Newline (like CR followed by LF)
+\fBpad\fR	\fBpc\fR	Pad character (rather than NUL)
+\fBpfkey\fR	\fBpk\fR	Program function key #1 to type string #2\(dg
+\fBpfloc\fR	\fBpl\fR	Program function key #1 to execute string #2\(dg
+\fBpfx\fR	\fBpx\fR	Program function key #1 to transmit string #2\(dg
+\fBpln\fR	\fBpn\fR	Program label #1 to show string #2\(dg
+\fBprot\fR	\fBmp\fR	Begin protected mode
+\fBrc\fR	\fBrc\fR	Restore cursor to position of last \fBsc\fR
+\fBrep\fR	\fBrp\fR	Repeat character #1, #2 times\(dg*
+\fBrev\fR	\fBmr\fR	Begin reverse-video mode
+\fBrf\fR	\fBrf\fR	Name of file containing reset string
+\fBrfi\fR	\fBRF\fR	Send next input character (for ptys)
+\fBri\fR	\fBsr\fR	Scroll backward (down) one line
+\fBrin\fR	\fBSR\fR	Scroll backward #1 lines\(dg
+\fBrmacs\fR	\fBae\fR	End alternate character set
+\fBrmam\fR	\fBRA\fR	Turn off automatic margins
+\fBrmcup\fR	\fBte\fR	String to end programs that use \fBcup\fR
+\fBrmdc\fR	\fBed\fR	End delete mode
+\fBrmir\fR	\fBei\fR	End insert mode
+\fBrmkx\fR	\fBke\fR	End keypad transmit mode
+\fBrmln\fR	\fBLF\fR	Turn off soft labels
+\fBrmm\fR	\fBmo\fR	End meta mode
+\fBrmp\fR	\fBrP\fR	Like \fBip\fR but when in replace mode
+\fBrmso\fR	\fBse\fR	End standout mode
+\fBrmul\fR	\fBue\fR	End underscore mode
+\fBrmxon\fR	\fBRX\fR	Turn off XON/XOFF handshaking
+\fBrs1\fR	\fBr1\fR	Reset terminal to sane modes
+\fBrs2\fR	\fBr2\fR	Reset terminal to sane modes
+\fBrs3\fR	\fBr3\fR	Reset terminal to sane modes
+\fBsc\fR	\fBsc\fR	Save cursor position
+\fBsgr\fR	\fBsa\fR	Define video attributes #1 through #9\(dg
+\fBsgr0\fR	\fBme\fR	Turn off all attributes
+\fBsmacs\fR	\fBas\fR	Begin alternate character set
+\fBsmam\fR	\fBSA\fR	Turn on automatic margins
+\fBsmcup\fR	\fBti\fR	String to begin programs that use \fBcup\fR
+\fBsmdc\fR	\fBdm\fR	Begin delete mode
+\fBsmgl\fR	\fBML\fR	Set soft left margin to #1\(dg
+\fBsmgr\fR	\fBMR\fR	Set soft right margin to #1\(dg
+\fBsmir\fR	\fBim\fR	Begin insert mode
+\fBsmkx\fR	\fBks\fR	Begin keypad transmit mode
+\fBsmln\fR	\fBLO\fR	Turn on soft labels
+\fBsmm\fR	\fBmm\fR	Begin meta mode (8th bit set)
+\fBsmso\fR	\fBso\fR	Begin standout mode
+\fBsmul\fR	\fBus\fR	Begin underscore mode
+\fBsmxon\fR	\fBSX\fR	Turn on XON/XOFF handshaking
+\fBtbc\fR	\fBct\fR	Clear all tab stops
+\fBtsl\fR	\fBts\fR	Go to status line, column #1\(dg
+\fBuc\fR	\fBuc\fR	Underscore one character and move past it
+\fBvpa\fR	\fBcv\fR	Move cursor to row #1\(dg
+\fBwind\fR	\fBwi\fR	Set window to lines #1-#2, columns #3-#4\(dg
+\fBxoffc\fR	\fBXF\fR	XOFF character
+\fBxonc\fR	\fBXN\fR	XON character
+.fi
+.SH "Error Messages"
+.B tput
+displays various error messages if problems occur.
+In addition, it exits with one of the following status values:
+.IP \fB0\fR
+Normal status; the given capability is present.
+.IS \fB1\fR
+The given Boolean or string capability is not present.
+.IS \fB2\fR
+Usage error;
+.B tput
+was given an invalid argument.
+.IP \fB3\fR
+The terminal type
+or the
+.B termcap
+database cannot be read. 
+.IS \fB4\fR
+The given capability is unknown.
+.SH "See Also"
+.B
+commands,
+libcurses,
+termcap,
+terminfo
+.R
+.SH Notes
+If a given capability is not defined within the terminal's
+.B termcap
+entry,
+.B tput
+returns a null string.
+.PP
+The
+.BR longname ,
+.BR init ,
+and
+.B reset
+sections of the System V version of
+.B tput
+are not implemented.
+.PP
+.B tput
+was written for the Free Software Foundation.
+It is distributed under \*(CO subject to the GNU ``copyleft''.
+Source code is available on the MWC bulletin-board system.
+.PP
+.II "MacKenzie, David"
+GNU
+.B tput
+was written by David MacKenzie.

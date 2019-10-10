@@ -1,0 +1,149 @@
+/////////
+/
+/ Assigned divide. This table does not do doubles yet. It does have to
+/ handle fields; the right hand operand of the field is not preshifted
+/ like it is for add, subtract and the increment/decrement ops. 
+/
+/////////
+
+ADIV:
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FS16
+		ADR		WORD
+			[ZMOV]	[LO R],[AL]
+			[ZCWD]
+			[ZIDIV]	[AR]
+			[ZMOV]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FU16
+		ADR		WORD
+			[ZMOV]	[LO R],[AL]
+			[ZSUB]	[HI R],[HI R]
+			[ZDIV]	[AR]
+			[ZMOV]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FFLD16
+		ADR		WORD
+			[ZMOV]	[LO R],[AL]
+			[ZAND]	[LO R],[LO EMASK]
+			[ZSUB]	[HI R],[HI R]
+			[ZDIV]	[AR]
+			[ZAND]	[LO R],[LO EMASK]
+			[ZAND]	[AL],[LO CMASK]
+			[ZOR]	[AL],[LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FS8
+		ADR		WORD
+			[ZMOVB]	[LO LO R],[AL]
+			[ZCBW]
+			[ZCWD]
+			[ZIDIV]	[AR]
+			[ZMOVB]	[AL],[LO LO R]
+		[IFV]	[ZCBW]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FU8
+		ADR		WORD
+			[ZMOVB]	[LO LO R],[AL]
+			[ZSUBB]	[HI LO R],[HI LO R]
+			[ZCWD]
+			[ZDIV]	[AR]
+			[ZMOVB]	[AL],[LO LO R]
+		[IFV]	[ZSUBB]	[HI LO R],[HI LO R]
+
+%	PEFFECT|PRVALUE
+	WORD		DXAX	*	*	AX
+		ADR|LV		FFLD8
+		ADR		WORD
+			[ZMOVB]	[LO LO R],[AL]
+			[ZAND]	[LO R],[LO EMASK]	/ Zero AH.
+			[ZSUB]	[HI R],[HI R]
+			[ZDIV]	[AR]
+			[ZAND]	[LO R],[LO EMASK]
+			[ZANDB]	[AL],[LO CMASK]
+			[ZORB]	[AL],[LO LO R]
+
+%	PEFFECT|PRVALUE
+	LONG		DXAX	*	DXAX	DXAX
+		ADR|LV		FS32
+		TREG		LONG
+			[ZPUSH]	[HI R]
+			[ZPUSH]	[LO R]
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+			[CALL]	[GID lrdiv]
+			[ZADD]	[REGNO SP],[CONST 8]
+			[ZMOV]	[LO AL],[LO R]
+			[ZMOV]	[HI AL],[HI R]
+
+%	PEFFECT|PRVALUE
+	LONG		DXAX	*	DXAX	DXAX
+		ADR|LV		FU32
+		TREG		LONG
+			[ZPUSH]	[HI R]
+			[ZPUSH]	[LO R]
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+			[CALL]	[GID vrdiv]
+			[ZADD]	[REGNO SP],[CONST 8]
+			[ZMOV]	[LO AL],[LO R]
+			[ZMOV]	[HI AL],[HI R]
+
+%	PEFFECT|PRVALUE
+	LONG		DXAX	*	*	DXAX
+		ADR|LV		FS32
+		ADR		LONG
+			[ZPUSH]	[HI AR]
+			[ZPUSH]	[LO AR]
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+			[CALL]	[GID lrdiv]
+			[ZADD]	[REGNO SP],[CONST 8]
+			[ZMOV]	[LO AL],[LO R]
+			[ZMOV]	[HI AL],[HI R]
+
+%	PEFFECT|PRVALUE
+	LONG		DXAX	*	*	DXAX
+		ADR|LV		FU32
+		ADR		LONG
+			[ZPUSH]	[HI AR]
+			[ZPUSH]	[LO AR]
+			[ZPUSH]	[HI AL]
+			[ZPUSH]	[LO AL]
+			[CALL]	[GID vrdiv]
+			[ZADD]	[REGNO SP],[CONST 8]
+			[ZMOV]	[LO AL],[LO R]
+			[ZMOV]	[HI AL],[HI R]
+
+////////
+/
+/ Floating point, using the numeric
+/ data coprocessor (8087).
+/
+////////
+
+#ifdef NDPDEF
+%	PEFFECT|PRVALUE
+	FF32|FF64	FPAC	*	FPAC	FPAC
+		ADR|LV		FF32
+		TREG		FF64
+			[ZFRDIVF] [AL]
+		[IFV]	[ZFSTF] [AL]
+		[IFE]	[ZFSTPF] [AL]
+
+%	PEFFECT|PRVALUE
+	FF32|FF64	FPAC	*	FPAC	FPAC
+		ADR|LV		FF64
+		TREG		FF64
+			[ZFRDIVD] [AL]
+		[IFV]	[ZFSTD]	[AL]
+		[IFE]	[ZFSTPD] [AL]
+#endif

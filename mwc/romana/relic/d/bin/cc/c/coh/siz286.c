@@ -1,0 +1,153 @@
+/*
+ * siz286.c
+ * 1/31/84
+ * Usage:  siz286 [ file ... ]
+ *
+ * Reads Intel 80286 OMF from standard input or given files,
+ * writes segment sizes on standard output.
+ * Currently understands only about linkable modules.
+ * Prints all numbers in hex.
+ *
+ * Reference:  "The Concrete Representation of 80286
+ * Object Module Formats", Rev. 1.91 (c) Intel 1983.
+ */
+
+#include <stdio.h>
+
+#define	VERSION	"1.2"		/* version number */
+#ifdef	UDI
+#define	VFLAG	"-v"		/* version flag must be l.c. for UDI */
+#else
+#define	VFLAG	"-V"
+#endif
+#ifdef vax
+#include	<ssdef.h>
+#include	<stsdef.h>
+#define	SRMODE	"r"
+#define	OK	(STS$M_INHIB_MSG|SS$_NORMAL)
+#define	BAD	(STS$M_INHIB_MSG|SS$_ABORT)
+#else
+#define	SRMODE	"rb"
+#define	OK	0
+#define	BAD	1
+#endif
+
+#define	LNKMOD	0xA0		/* linkable module */
+#define	MHDLEN	111		/* module header length */
+#define	EXTMSK	0x40		/* SEGDEF external attribute mask */
+
+extern unsigned int geti();
+extern unsigned long getl();
+long len;
+
+main (argc, argv)
+int argc;
+register char **argv;
+{
+	if (strcmp(*++argv, VFLAG) == 0) {
+		++argv;
+		fprintf (stderr, "siz286:  V%s\n", VERSION);
+	}
+	if (*argv == NULL)
+		printsize();
+	else {
+		while (*argv != NULL) {
+			printf("%s:\n", *argv);
+			if (freopen(*argv, SRMODE, stdin) == NULL)
+				fatal ("open for input failed");
+			printsize();
+			argv++;
+		}
+	}
+	exit (OK);
+}
+
+/*
+ * Read an OMF286 object file from stdin and print its size.
+ */
+printsize()
+{
+	register unsigned int n;
+	int nsegs = 0;			/* number of segments */
+	long size;			/* segment size */
+	long segloc;			/* location of SEGDEF section */
+	long seglen;			/* length of SEGDEF section */
+	long total = 0L;		/* sum of segment lengths */
+	if (getb() != LNKMOD)		/* Read file type. */
+		fatal ("object is not a linkable file");
+	ignore(MHDLEN);			/* Ignore module header. */
+	segloc = getl();		/* Get SEGDEF location. */
+	seglen = getl();		/* Get SEGDEF length. */
+	ignore(segloc - (long)(MHDLEN+8));	/* Seek to start of SEGDEF section. */
+	len = seglen;
+	while (len) {			/* Process segment definitions. */
+		++nsegs;
+		n = geti()&EXTMSK;	/* Get attributes, mask to external. */
+		size = geti();		/* Get slimit. */
+		if (n == 0)
+			size++;		/* slimit=length-1 for nonexternals. */
+		total += size;		/* Bump the sum. */
+		printf("\t0x%04lx\t", size);	/* Print the size. */
+		ignore(4);		/* Ignore dlength and LDT position. */
+		n = getb();		/* Get name length. */
+		while (n--)
+			putchar (getb());	/* Print the name. */
+		putchar('\n');
+	}
+	if (nsegs > 1) {			/* Print the sum. */
+		printf("\t0x%04lx\tTotal (hex)\n", total);
+		printf("\t%6ld\tTotal (decimal)\n", total);
+	}
+}
+
+/*
+ * Read a byte from standard input, update len.
+ */
+getb()
+{
+	register int i;
+	if ((i = getchar()) == EOF)
+		fatal ("premature EOF");
+	--len;
+	return (i);
+}
+
+/*
+ * Read a word and return it.
+ */
+unsigned int
+geti()
+{
+	register int i = getb();
+	return (i | (getb() << 8));
+}
+
+/*
+ * Read a long and return it.
+ */
+unsigned long
+getl()
+{
+	register long l = geti();
+	return (l | (((long) geti()) << 16));
+}
+
+/*
+ * Read and ignore n characters.
+ */
+ignore(n)
+register int n;
+{
+	while (n--)
+		getb();
+}
+
+/*
+ * Print error message and exit.
+ */
+fatal (s)
+register char *s;
+{
+	fprintf (stderr, "siz286:  %s\n", s);
+	exit(BAD);
+}

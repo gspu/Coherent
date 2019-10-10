@@ -1,0 +1,81 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @# @;
+
+
+1.1
+date     91.07.24.08.05.17;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@build script for scsi kernels
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@:
+:  Build a Coherent executable with a host adapter driver linked in.
+:
+DRIVERS="rm fl lp mm"
+COH_TYPE=fl
+HD=""
+KB=nkb
+for ARG
+do
+	case $ARG in
+	at|aha|ss)
+		HD=$ARG
+		COH_TYPE=$ARG
+		;;
+	kb|nkb)
+		KB=$ARG
+		;;
+	*)		echo "Usage: $0 { at | ss | aha } { kb | nkb }"
+			exit 0
+			;;
+	esac
+done
+DRIVERS="$KB $HD $DRIVERS"
+echo "Kernel:    /coh.$COH_TYPE"
+echo "Devices:   $DRIVERS"
+
+: default root/pipe device
+BOOTDEV="fva0"
+echo "Default root/pipe device is $BOOTDEV."
+
+( cd /usr/src/sys/i8086/drv; make -f Makefile install )	|| exit 1
+./config ibm-at $DRIVERS root=$BOOTDEV			|| exit 1
+cp coherent /tmp/coh					|| exit 1
+strip /tmp/coh						|| exit 1
+set `ls -s /tmp/coh`
+SIZE=$1
+rm /tmp/coh						|| exit 1
+echo "Coherent bootable limit is 138 blocks.  This kernel is $SIZE"
+if [ $SIZE -gt 138 ] ;then
+	echo 
+	echo Your Coherent image exceeds the bootable limit of 138 blocks
+	echo by `expr $SIZE - 138` 'block(s).'  You will need to decrease the
+	echo size of your kernel in order to make it bootable.
+	echo
+	echo We suggest removing some of the non critical drivers from the
+	echo default list of drivers linked into Coherent.  These additional
+	echo drivers may then be linked as loadable drivers using the
+	echo ldconfig script located in this directory.
+fi
+mv coherent /coh.$COH_TYPE
+chown sys /coh.$COH_TYPE
+chgrp sys /coh.$COH_TYPE
+chmod 400 /coh.$COH_TYPE
+echo "New kernel in /coh.$COH_TYPE"
+ls -l /coh.$COH_TYPE
+@

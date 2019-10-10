@@ -1,0 +1,138 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    root:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.02.25.20.25.11;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by vlad
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@pax.cnv.log - Log of PAX conversion to Coherent.
+
+90/05/25  hws   Initial version
+90/06/04  vlad
+
+o build gwin-dir-lib from usenet - but since Coherent already has a
+  header called dirent.h in /usr/include, change the new header to the other
+  common name for it, ndir.h;  also add a new header called dirent.h to
+  /usr/include/sys.  The new routines were put in /usr/lib/libdir.a so LDFLAGS
+  in Makefile got defined to -ldir and LDFLAGS was added to the compilation
+  rule.
+
+o change  #include <dirent.h>  to  #include <ndir.h> (pax.h)
+
+o change #include <fcntl.h> to #include <sys/fcntl.h> (pax.h)
+
+o remove #include <memory.h> from port.h
+
+o remove ioctl.h
+
+o change  #ifdef __STDC__  to  #if __STDC__ (#ifndef __STDC__  and 
+  #if defined __STDC__)
+  because argument lists are checked when this conditional succeeds but
+  __STDC__ is defined to be 0 by mwc cc;  similarly for #ifndef __STDC__
+
+o config.h - various mods that get rid of double comments
+  changes:	not define TTY (l. 81);
+		not define PAXDIR (l. 91);
+		not define BSD;
+		define DIRENT = -ldir (l. 102);
+		define OFFSET off_t (l. 111);
+		not define void (l. 122);
+		define SIG_T int (l. 131);
+		not define STRCSPN (l. 141);
+		was removed extra /* (l. 154);
+		was included in '/*' ' */' (l. 162);
+o *.c header names were changed or includes were commented out, e.g.:
+    <sys/errno.h> -> <errno.h>
+    <memory.h> was not included; the needed declarations are in <string.h>
+
+o printf format strings referring to asb->sb_size in tar_entry() in list.c
+  had format changed from %d to %ld
+
+o Because COHERNT "open" is V7 "open" were made changes in the files
+  buffer.c, fileio.c, paxdir.c, ttyio.c, & opendir.
+
+o pax.c - added message TAR(v7) for old tapes archive.
+
+o In append.c was added lseek(archivefd, -((OFFSET) blocksize), 1). It was
+  done because ustar started write in the file one block later than 
+  had to started in the append case.
+
+o ustar does not work with 'u' option. According to this was deleted all
+  stuff that had any relation to 'u'. From "pax.c" - "short	newer",
+  from "tar.c" - "case u", 'u' from taropt's option string, f_newer from
+  check command line, and prompt from "usage()".
+
+o ustar.c
+  ustar had default blocking factor for extract 20 bl. This number was
+  in "#define DEF_BLOCKING 20". Now it is "define DEF_BLOCKING 1".
+ 
+o ustar, pax, & cpio want have a big stack for working with directory
+  tree. I think that "fixstack +2000 ustar" could help them. 
+
+o for distinguish between COHERENT "tar" and new "tar" the name for new
+  was changed to "ustar". For this was replacemented "tar" to "ustar"
+  in:
+pax.c:     if (strcmp(myname, "ustar")==0) {
+pax.c: 	    if (strcmp(optarg, "ustar") == 0) {
+pax.c:     } else if (strncmp(&bufstart[257], "ustar", 5) == 0) {
+
+pax.h: #define TMAGIC		"ustar"		/* ustar and a null */
+pax.h:  * Exit codes from the "ustar" program 
+
+ustar.c:  * ustar.c - tar specific functions for archive handling
+ustar.c: /* do_tar - main routine for ustar. 
+ustar.c: /* taropt -  ustar specific getopt
+
+	Makefile
+# BINDIR - points to the directory in which you want the final pax, ustar and
+MISC   = Makefile pax.1 ustar.5 cpio.5 README PATCHLEVEL
+	port.c regexp.c replace.c ustar.c ttyio.c warn.c wildmat.c
+	port.o regexp.o replace.o ustar.o ttyio.o warn.o wildmat.o $(DIROBJ)
+PROGS = pax ustar cpio
+PMAN1 = pax.1 ustar.1
+PMAN5 = pax.5 ustar.5
+ustar: pax
+	rm -f ustar
+	ln pax ustar
+
+o Because 'r' cannot work with tape were added the code for 
+  checking major number in the case of append (file fileio.c)
+
+#define TAPE_DEV 12	/* Tape's major number */
+	if (stat(ar_file, &ap_stat) == -1)
+		fatal("cannot define the attributes of a file\n");
+	if (major(ap_stat.st_rdev) == TAPE_DEV)
+		fatal("option 'r' does not work with tape\n");
+
+o	The was bug in ttyio.c. cpio takes input from stdin and redirect
+	it to stdout. The result is that original cpio can not creat
+	multiple volume backups. Some code were added to funcition 
+	void next() to allow to do multiple volume backups
+
+BUGS
+====
+
+o The problem is when we try to use ustar(pax or cpio) on big directories.
+  This program keeps file's names in the data segment. When total number of 
+  names is big enough, it cannot allocate memory for new directory's entries.
+  Problem is similar to trouble with "unmkfs". 
+  "ustar" (pax, cpio) could create archives about 1.7 - 2 Mb.
+
+@

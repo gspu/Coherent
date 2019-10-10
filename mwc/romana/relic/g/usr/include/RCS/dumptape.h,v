@@ -1,0 +1,202 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.4
+date     93.08.10.13.26.09;  author root;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     93.07.16.10.16.56;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     93.03.02.07.42.38;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.07.12.24.09;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.4
+log
+@kernel 82 header update
+@
+text
+@/* (-lgl
+ * 	COHERENT Version 3.0
+ * 	Copyright (c) 1982, 1993 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * Dump tapes.
+ * A dump tape begins with a header
+ * record. This contains the attributes of the
+ * tape.
+ * The remainder of the tape is filled with
+ * arrays of dumpdata records. The map comes first,
+ * then all the directories, then all the files.
+ */
+#ifndef __DUMPTAPE_H__
+#define __DUMPTAPE_H__
+
+#include <sys/types.h>
+#include <sys/ino.h>
+
+/*
+ * Be warned! This header uses several magic numbers related to raw filesystem
+ * structure that are not portable. Since raw filesystem structure is used,
+ * this command will /not/ run on any filesystems other than the old-style
+ * Coherent filesystem.
+ */
+
+#if	! DIRSIZ
+# define	DIRSIZ		14
+#endif
+#if	! __BUFSIZ
+# define	__BUFSIZ	512
+#endif
+
+/*
+ * Dump tape header.
+ * All entries are in cannonical
+ * format on the tape.
+ */
+struct	dumpheader
+{
+	int	dh_magic;		/* Magic number */
+	ino_t	dh_nino;		/* # of inodes on file system */
+	time_t	dh_bdate;		/* Date at beginning of dump */
+	time_t	dh_ddate;		/* Dump since date */
+	int	dh_level;		/* Dump level */
+	int	dh_reel;		/* Reel number in dump */
+	fsize_t	dh_nbyte;		/* Length of disc */
+	int	dh_blocking;		/* Blocking factor */
+	char	dh_dev[DIRSIZ];		/* Name of dumped device */
+	char	dh_fname[6];		/* File system name */
+	char	dh_fpack[6];		/* File system pack name */
+	int	dh_checksum;		/* Byte checksum */
+};
+
+#define	DH_MAG	0123456			/* Magic number */
+
+/*
+ * Dump data blocks.
+ * These are all a big union.
+ * They are packed into much larger
+ * blocks on the tape.
+ */
+union	dumpdata
+{
+	struct	{
+		int	dd_type;	/* Type = DD_EOT */
+	} dd_st1;
+
+	struct	{
+		int	dd_type;	/* Type = DD_DATA */
+		ino_t	dd_ino;		/* Inode number */
+		daddr_t	dd_block;	/* Block number in file */
+		int	dd_size;	/* Bytes used in this block */
+		char	dd_data[__BUFSIZ];/* Data */
+	} dd_st2;
+
+	struct	{
+		int	dd_type;	/* Type = DD_INO */
+		ino_t	dd_ino;		/* Inode number */
+		struct	dinode dd_dinode; /* On disc inode */
+	} dd_st3;
+
+	struct	{
+		int	dd_type;	/* Type = DD_MAP */
+		ino_t	dd_ino;		/* Base inode of this map block */
+		int	dd_nmap;	/* # of map entries */
+		char	dd_map[__BUFSIZ]; /* Some map */
+	} dd_st4;
+};
+
+#define	DD_EOT	0			/* End of dump */
+#define	DD_INO	1			/* Inode */
+#define	DD_DATA	2			/* Data block */
+#define	DD_MAP	3			/* Map */
+
+#define	DD_BUSY	01			/* Inode in use */
+#define	DD_DUMP	02			/* Inode dumped */
+#define	DD_DIR	04			/* Inode is a directory */
+#define	DD_DEJA	010			/* Already seen flag (dump) */
+#define	DD_HERE	(DD_BUSY|DD_DUMP)	/* On the tape */
+
+/*
+ * This structure is used
+ * to hold the dump dates in the
+ * file `/etc/ddate'.
+ */
+struct	idates {
+	char	id_name[DIRSIZ];	/* Device name */
+	int	id_incno;		/* Level */
+	time_t	id_ddate;		/* The date of the dump */
+};
+
+#define	DDATE	"/etc/ddate"		/* Date file name */
+#define	DTAPE	"/dev/dump"		/* Default dump tape */
+#define	DFSYS	""			/* No default file system */
+
+#endif	/* ! defined (__DUMPTAPE_H__) */
+@
+
+
+1.3
+log
+@Kernel 79 w/streams
+@
+text
+@d24 1
+a24 1
+[B * this command will /not/ run on any filesystems other than the old-style
+@
+
+
+1.2
+log
+@hal: newupdates for kernel 73, several
+changes by nigel for __COHERENT__
+@
+text
+@a18 1
+#include <sys/dir.h>
+d22 14
+d75 1
+a75 1
+		char	dd_data[BUFSIZ];/* Data */
+d88 1
+a88 1
+		char	dd_map[BUFSIZ];	/* Some map */
+d118 1
+a118 1
+#endif
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d3 1
+a3 1
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+d15 2
+d104 2
+@

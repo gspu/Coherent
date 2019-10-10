@@ -1,0 +1,136 @@
+/////////
+/
+/ Shift left.
+/ Small shifts (1 or 2 bits) are easy.
+/ Longer shifts use either 'shift by CL' (words) or a loop (longs).
+/ Shifts by a constant generate the load of CL directly
+/ to get a 'movb' instruction and save a byte.
+/
+/////////
+
+SHL:
+%	PEFFECT|PRVALUE|PREL|P_SLT|P80186
+	WORD		ANYR	ANYR	*	TEMP
+		TREG		WORD
+		BYTE|MMX	WORD
+%	PLVALUE|P_SLT|P80186
+	WORD		ANYL	ANYL	*	TEMP
+		TREG		WORD
+		BYTE|MMX	WORD
+			[ZSAL]	[R],[AR]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL|P_SLT
+	WORD		ANYR	ANYR	*	TEMP
+		TREG		WORD
+		1|MMX		*
+%	PLVALUE|P_SLT
+	WORD		ANYL	ANYL	*	TEMP
+		TREG		WORD
+		1|MMX		*
+			[ZSAL]	[R],[AR]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|PREL|P_SLT
+	WORD		ANYR	ANYR	*	TEMP
+		TREG		WORD
+		2|MMX		*
+%	PLVALUE|P_SLT
+	WORD		ANYL	ANYL	*	TEMP
+		TREG		WORD
+		2|MMX		*
+			[ZSAL]	[R],[CONST 1]
+			[ZSAL]	[R],[CONST 1]
+		[IFR]	[REL0]	[LAB]
+
+/////////
+/
+/ Harder word shifts.
+/ If the right is a constant,
+/ use a MOVB to load the shift count and save a byte.
+/
+/////////
+%	PEFFECT|PRVALUE|PREL|P_SLT
+	WORD		ANYR	ANYR	CX	TEMP
+		TREG		WORD
+		IMM|MMX		WORD
+%	PLVALUE|P_SLT
+	WORD		ANYL	ANYL	CX	TEMP
+		TREG		WORD
+		IMM|MMX		WORD
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSAL]	[R],[REGNO CL]
+		[IFR]	[REL0]	[LAB]
+
+%	PEFFECT|PRVALUE|P_SLT
+	WORD		ANYR	ANYR	CX	TEMP
+		TREG		WORD
+		ADR		WORD
+%	PLVALUE|P_SLT
+	WORD		ANYL	ANYL	CX	TEMP
+		TREG		WORD
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSAL]	[R],[REGNO CL]
+
+/////////
+/
+/ Hard long shifts.
+/ Since the modify phase has ripped out shifts by 0,
+/ any immediate shift is by a nonzero count, so no JCXZ is needed.
+/
+/////////
+
+%	PEFFECT|PRVALUE|P_SLT
+	LONG		DXAX	DXAX	CX	DXAX
+		TREG		LONG
+		IMM|MMX		WORD
+			[ZMOV]	[REGNO CX],[AR]
+		[DLAB0]:[ZSAL]	[LO R],[CONST 1]
+			[ZRCL]	[HI R],[CONST 1]
+			[ZLOOP]	[LAB0]
+
+%	PEFFECT|PRVALUE|P_SLT
+	LONG		DXAX	DXAX	CX	DXAX
+		TREG		LONG
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZJCXZ]	[LAB0]
+		[DLAB1]:[ZSAL]	[LO R],[CONST 1]
+			[ZRCL]	[HI R],[CONST 1]
+			[ZLOOP]	[LAB1]
+		[DLAB0]:
+
+/////////
+/
+/ These strange entries are for LARGE model int-to-pointer conversions.
+/ The pointer is a strange kind of long integer.
+/ Computes the word into the offset, does the shift
+/ and sets the base to 0.
+/
+/////////
+
+#ifndef ONLYSMALL
+%	PEFFECT|PRVALUE|P80186
+	LPTX		DXAX	AX	*	DXAX
+		TREG		WORD
+		BYTE|MMX	WORD
+			[ZSAL]	[LO R],[AR]
+			[ZSUB]	[HI R],[HI R]
+
+%	PEFFECT|PRVALUE
+	LPTX		DXAX	AX	CX	DXAX
+		TREG		WORD
+		IMM|MMX		WORD
+			[ZMOVB]	[REGNO CL],[AR]
+			[ZSAL]	[LO R],[REGNO CL]
+			[ZSUB]	[HI R],[HI R]
+
+%	PEFFECT|PRVALUE
+	LPTX		DXAX	AX	CX	DXAX
+		TREG		WORD
+		ADR		WORD
+			[ZMOV]	[REGNO CX],[AR]
+			[ZSAL]	[LO R],[REGNO CL]
+			[ZSUB]	[HI R],[HI R]
+#endif

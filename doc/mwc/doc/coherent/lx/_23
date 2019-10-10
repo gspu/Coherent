@@ -1,0 +1,105 @@
+.TH "#" "" "" "Preprocessing Operator" "" "(Language/preprocessing/macro replacement)"
+.PC "String-ize operator"
+.PP
+.II "operator, stringize"
+.II "string-ize operator"
+The preprocessing operator
+.B #
+can be used within the replacement list of a function-like macro.
+It and its operand are replaced by a string literal, which
+names the sequence of preprocessing tokens
+that replaces the operand throughout the macro.
+.PP
+For example, the consider the macro:
+.DM
+	#define display(x) show((long)(x), #x)
+.DE
+.PP
+When the preprocessor reads the following line
+.DM
+	display(abs(-5));
+.DE
+.PP
+it replaces it with the following:
+.DM
+	show((long)(abs(-5)), "abs(-5)");
+.DE
+.PP
+Here, the preprocessor replaced
+.B #x
+with
+.BR "\"abs(-5\"" ,
+a string literal that gives the sequence of token that replaces
+.BR x .
+.PP
+The following rules apply to interpreting the
+.B #
+operator:
+.IP \fB1.\fR 0.3i
+If a sequence of white-space characters occurs within the preprocessing tokens
+that replace the argument, it is replaced with one space character.
+.IP \fB2.\fR
+All white-space characters that occur before the first preprocessing token and
+after the last preprocessing token are deleted.
+.IP \fB3.\fR
+The original spelling of the preprocessing tokens is preserved.
+This means that you must take care to preserve certain
+characters:
+a backslash \*(Ql\e\*(Qr should be inserted before every quotation mark
+\*(Ql"\*(Qr that marks a string literal, and before every backslash
+that introduces a character constant.
+.SH Example
+The following uses the operator
+.B #
+to display the result of several mathematics routines.
+.DM
+#include <errno.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+.DE
+.DM
+void show(value, name)
+double value, char *name;
+{
+	if (errno)
+		perror(name);
+	else
+		printf("%10g %s\en", value, name);
+	errno = 0;
+}
+.DE
+.DM
+#define display(x) show((double)(x), #x)
+.DE
+.DM
+main()
+{
+	extern char *gets();
+	double x;
+	char string[64];
+.DE
+.DM
+	for(;;) {
+		printf("Enter a number: ");
+		fflush(stdout);
+		if(gets(string) == NULL)
+			break;
+.DE
+.DM
+		x = atof(string);
+		display(x);
+		display(cos(x));
+		display(sin(x));
+		display(tan(x));
+		display(acos(cos(x)));
+	}
+}
+.DE
+.SH "See Also"
+.Xr "##" _2323,
+.Xr "#define," _23define
+.Xr "C preprocessor" c_preproc
+.R
+.br
+\*(AS, \(sc6.8.3.2

@@ -1,0 +1,74 @@
+: envelope.mwc 3/26/91
+: Usage: envelope.mwc file
+: Address an MWC-logo envelope using PostScript troff.
+: file should be troff input defining macro AD and string ZI.
+: Envelope is COM10, i.e. 9.5 x 4.125 inches.
+
+TMP=/tmp/envelope.tmp
+ADR=/tmp/envelope.tmp1
+ZIP=/tmp/envelope.tmp2
+
+if [ ! -f $1 ]
+then
+	echo envelope.mwc: file $1 not found
+	exit 1
+fi
+
+sed -n -e '/.de AD/,/\.\./p' $1 >$ADR
+sed -n -e '/.ds ZI /s/.ds ZI \(.*\)/(\1) 9.5 inch 0 pbc /p' $1 >$ZIP
+
+troff -l -p >$TMP <<EOF
+.lf R Century_R.fwt
+.lf H HelvNar_R.fwt
+.rb /u/steve/PostScript/lib/mwc2.ps
+.rb /u/steve/PostScript/lib/pbc.ps
+.so $ADR
+.nf
+. Return address
+.po 1.75i
+.sp |1.6i
+.ft H
+.ps 8
+560 - 29th Street \XB7  San Francisco, CA  94131-2239
+. Address
+.po 5i
+.sp |2.35i
+.ft R
+.ps 14p
+.vs 16p
+.nf
+.AD
+.co
+
+/inch { 72 mul } bind def
+
+% Translate to lower left corner of envelope.
+1.5 inch 4.375 inch translate
+
+% Logo.
+1 0 .625 inch .25 inch 2.875 inch mwclogo2
+
+% Line.
+.03 inch setlinewidth
+newpath
+ .25 inch 2.725 inch moveto
+9.25 inch 2.725 inch lineto
+stroke
+
+% Postal bar code.
+.co
+.rb $ZIP
+EOF
+
+rm $ADR $ZIP
+
+echo -n 'Print? '
+read x
+if [ $x = y -o $x = Y ]
+then
+	hpr -B -r $TMP
+fi
+
+exit 0
+
+: end of envelope.mwc

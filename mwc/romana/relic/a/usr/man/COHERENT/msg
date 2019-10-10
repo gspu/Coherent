@@ -1,0 +1,132 @@
+
+
+msg                       Device Driver                       msg
+
+
+
+
+Message device driver
+
+
+The file  /dev/msg is an interface to  the message device driver.
+It is  assigned major device 25  (minor device 0) and  can be ac-
+cessed as a character-special device.
+
+All messaging operations  are performed through the COHERENT sys-
+tem call  ioctl.  Each of the  operations msgctl, msgget, msgsnd,
+and msgrcv  is performed with an integer  array as its parameter.
+The first  element of the array is reserved  for the return value
+(default,  -1).  Subsequent  elements  represent arguments.   The
+call to  ioctl passes  MSGCTL, MSGGET,  MSGSND, or MSGRCV  as the
+second argument,  and an array  of parameters as  the third argu-
+ment.  The first argument is an open file descriptor to /dev/msg.
+
+Prior to accessing the devices, a entry must be created in direc-
+tory /dev, as follows:
+
+
+/etc/mknod /dev/msg c 25 0
+/bin/chmod 444 /dev/msg
+
+
+***** Notes *****
+
+The total space allocated for  message text (NNMMSSGG * NNMMSSCC) must be
+less than 64 kilobytes.
+
+Allocation of too many message queues (NNMMSSQQIIDD) or messages (NNMMSSGG)
+can exhaust  kernel data space,  thus preventing the  system from
+running.  Recommended safe limits are NNMMSSQQIIDD=16 and NNMMSSGG=100.
+
+Private message queues are not supported.  Message queues must be
+removed manually when no longer required.  Queue identifiers con-
+sist of  a scaled slot number plus a  slot usage sequence number.
+Using the system call msgctl with the option IPC_STAT will obtain
+information on the specified slot, even when it returns an error.
+
+To remove  all message  queues, compile  and run the  following C
+code:
+
+
+msgget( 0, 0 );    /* must do first */
+
+
+
+for ( qid = 0x100; qid < 0x4000; qid += 0x100 ) {
+        struct msqid_ds msb;
+        msb.msg_perm.seq = 0;
+        msgctl( qid, IPC_STAT, &msb );
+
+
+
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+msg                       Device Driver                       msg
+
+
+
+
+        if ( msb.msg_perm.seq > 0 )
+                msgctl (msb.msg_perm.seq, IPC_RMID, 0 );
+}
+
+
+To load msg use the command drvld.
+
+***** Files *****
+
+/usr/include/sys/ipc.h
+/usr/include/sys/msg.h
+/dev/msg
+
+***** See Also *****
+
+device drivers, drvld, msgctl(), msgget(), msgop()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+

@@ -1,0 +1,396 @@
+
+
+modem                 Technical Information                 modem
+
+
+
+
+The word  _m_o_d_e_m is an  abbreviation for ``modulation/demodulation
+device''.  With  the COHERENT system,  you can attach  a modem to
+your computer either to dial out for remote communication, to let
+others dial into your COHERENT system, or both.  With your modem,
+too, you  can use COHERENT's  UUCP commands to  exchange mail and
+files with  remote sites automatically, and  to download news and
+files from the USENET.
+
+This article gives a summary of how to connect your modem to your
+computer  and  describe  it  to  the  COHERENT system.   It  also
+discusses some problems that may  crop up when you attempt to use
+your modem.
+
+***** Internal vs. External Modems *****
+
+You  can use  internal  and external  modems  with COHERENT.   An
+internal modem  is, however, more difficult  to diagnose problems
+because  there  are   typically  no  status  lights  to  indicate
+operation.
+
+***** Hooking up a Modem *****
+
+A modem must be hooked up  to a serial port on your computer.  To
+plug your  modem into the computer, simply  take a normal serial-
+port cable, one with an  RS-232 plug of the appropriate gender at
+each end,  plug one end  into your modem  and the other  into the
+serial  port  you  wish  to  use.   The  Lexicon  article  RRSS-223322
+describes the wiring of the RS-232 plug in detail; but if you are
+not skilled with a soldering iron, you are well advised simply to
+purchase a  cable from your  local electronics store  and be done
+with it.
+
+***** Serial Ports *****
+
+The COHERENT system supports up to four serial ports; the devices
+for these are named /ddeevv/ccoomm11rr through /ddeevv/ccoomm44rr. If you are not
+sure which  port you  have plugged  your modem into,  perform the
+following  test:  First,  turn  on  the  modem.  Then,  type  the
+following command:
+
+
+        echo FOO >/dev/com1l
+
+
+If the ``TX'' light on the  modem blinks, then you know the modem
+is plugged into  CCOOMM11. If it does not, try  the command again for
+/ddeevv/ccoomm22ll,  and   so  on  through  ccoomm44ll   until  you  find  the
+appropriate port.  If no  command works, check the wiring on your
+cable and make sure that the plugs are securely inserted.
+
+Once you have established  which port your modem is plugged into,
+links the device /ddeevv/mmooddeemm to it, using the following command:
+
+
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+modem                 Technical Information                 modem
+
+
+
+
+        ln -f /dev/com?l /dev/modem
+
+
+where ? gives the number of the port, 1 through 4.
+
+***** Edit /etc/ttys *****
+
+The next step is to edit  the file /eettcc/ttttyyss to tell COHERENT how
+you want  the port handled.   You must know (1)  whether you want
+the port enabled  or disabled; (2) the baud rate  of the port (as
+set by your modem); and (3)  the name of the port (which you just
+determined).
+
+If  a port  is enabled,  remote  users can  log into  the system,
+either via  a terminal  directly plugged into  the port or  via a
+modem.  COHERENT sends a login prompt to every enabled port.  The
+COHERENT system also  restricts permissions on all enabled serial
+ports, so that only the superuser  rroooott can read and write to the
+port.  This prevents other users who may be using the system from
+accessing the  serial port.  If a port is  disabled, you can dial
+out  or use  a direct-connect UUCP  connection via  that disabled
+port.
+
+To dial  out on an enabled  port, you must first  use the command
+ddiissaabbllee to disable the port.  When you have finished dialing out,
+run the command eennaabbllee to re-enable the port.  Before you can use
+these commands  with a port, the port must  first be described in
+the file /eettcc/ttttyyss.
+
+See the Lexicon  article on ttttyyss for details on  how to edit this
+file.   Note that  a modem  is a  remote device,  and must  be so
+described in /eettcc/ttttyyss, or it will not work correctly.
+
+After you have made your changes, type the command
+
+
+        kill quit 1
+
+
+to make COHERENT re-read /eettcc/ttttyyss and implement your changes.
+
+***** Remote-Access Password *****
+
+If you intend to let people dial into your computer, you are well
+advised  to set  the remote-access  password.  This  will require
+that people  who dial in  know a special password  in addition to
+whatever password  their personal account may  have.  To set this
+password, log in as the superuser rroooott; then enter the command
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+modem                 Technical Information                 modem
+
+
+
+        passwd remacc
+
+
+This will  walk you through  setting a password  for user rreemmaacccc,
+which is the remote-access account.
+
+***** Edit /etc/modemcap *****
+
+Next, you must check the  file /eettcc/mmooddeemmccaapp and see if that file
+holds a description that matches your modem.  mmooddeemmccaapp is used by
+a number  of programs to control access to  modems, and this file
+comes with descriptions for many commonly used modems.  You find,
+however,  that you  must  edit an  existing entry  to match  your
+modem's  features exactly;  for example,  the existing  entry may
+assume that you  have a Touch-Tone telephone whereas you actually
+have a pulse telephone.   The Lexicon entry on mmooddeemmccaapp will walk
+you through  this process.  When you  have completed editing this
+entry, note it down, for you will need to insert it elsewhere.
+
+***** Edit /usr/bin/modeminit *****
+
+Next, check the  file /uussrr/bbiinn/mmooddeemmiinniitt. This program is read by
+programs  that manipulate  the modem,  to re-initialize  it after
+use.   You  must  decide  how  you  want  the  modem  to  be  re-
+initialized.   Basically, if  you wish to  have people  dial into
+your system, you turn on the modem's auto-answer feature; and you
+must  turn off  echoing and  the printing  of result  codes.  The
+commands  to  use  will   vary  from  modem  to  modem;  see  the
+documentation that comes  with your modem for details.  See below
+for details on modifying this script.
+
+***** Edit L-devices *****
+
+If you  intend to use  your modem with  UUCP, you must  insert an
+entry for it  into your the file /uussrr/lliibb/uuuuccpp/LL-ddeevviicceess. See the
+Lexicon entry LL-ddeevviicceess for details.
+
+***** Modem Maladies *****
+
+The rest of this article discusses problems that have arisen with
+remote  login via  modem, as diagnosed  by the  technical support
+staff of Mark Williams Company.
+
+Difficulty in logging in from a  remote site via modem can be the
+result  of problems  in one  or more  of the  following: cabling;
+enabling/disabling  the  port;  flaws  in  the contents  of  file
+/eettcc/ttttyyss; incorrect configuration  of the modem; and setting the
+port to  an incorrect state.   See Lexicon articles  tteerrmmiinnaall and
+UUUUCCPP  for  additional   information.   The  following  paragraphs
+discuss the above-named items in detail.
+
+***** RS-232 Cabling *****
+
+When  attaching  an  external  modem  to  your  computer,  it  is
+important  to  use  a  modem  cable  that supports  ``full  modem
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+modem                 Technical Information                 modem
+
+
+
+control''.   COHERENT   relies  on  modem-control   signals  when
+operating a  modem for remote access  purposes.  When attaching a
+terminal directly  to a serial port, a  ``null modem'' cable must
+be used.   When attaching a  modem, a ``straight  through'' cable
+must  be used.   See  Lexicon articles  RRSS-223322  and tteerrmmiinnaall  for
+further details on cabling.
+
+***** Enabled vs. Disabled Ports *****
+
+A  serial  port can  be  either enabled  or  disabled for  remote
+access.  Enabling  a port allows  a user on a  remote terminal or
+modem to log into your COHERENT system.  Disabling a port permits
+a user  to dial out or  use a direct connect  UUCP connection via
+that disabled port.
+
+If a  port is enabled  for remote logins  and you will  use it to
+call out,  you must use  the command ddiissaabbllee to  disable the port
+before  you  access   the  port.   The  commands  uuuuccpp  and  mmaaiill
+automatically disable and re-enable a port.
+
+The  port name  supplied  to an  eennaabbllee or  ddiissaabbllee command  must
+_e_x_a_c_t_l_y match the last part of  a line in the /eettcc/ttttyyss file (see
+below).   For example,  for the  command  eennaabbllee ccoomm22pprr  to work,
+there  must be  an entry  in the file  /eettcc/ttttyyss which  ends with
+ccoomm22pprr.
+
+When a port  is enabled, (1) the first character  for the port in
+file /eettcc/ttttyyss is set to a `1' (one), (2) the permissions for the
+port are  changed so  that only the  superuser rroooott can  read and
+write  to the  port, preventing  other users  on the  system from
+accessing the port while a remote session is in progress, and (c)
+a login prompt is sent to the port.
+
+***** /etc/ttys *****
+
+This file should  have permissions of 644 (-rw-r--r--) and belong
+to owner  and group  rroooott. Review the  Lexicon entry for  ttttyyss to
+ensure that the format of your version of /eettcc/ttttyyss is correct.
+
+Leaving blanks at the end  of a line in /eettcc/ttttyyss usually results
+in error messages stating that a device could not be found.
+
+You do  not need  to edit  the initial `0'  or `1' in  entries in
+/eettcc/ttttyyss;  this digit  is  updated by  the  commands eennaabbllee  and
+ddiissaabbllee. See the Lexicon  entries for eennaabbllee and ddiissaabbllee for more
+information.
+
+Another problem  can arise when using  a variable-speed modem and
+specifying  the  baud rate  as  `3' in  file  /eettcc/ttttyyss. The  `3'
+setting represents a 2400-1200-300 baud variable-speed port.  The
+problem appears  to be that while a modem  defaults to 2400 baud,
+COHERENT may  actually be  set at one  of the other  speeds.  The
+answer to this probem is to run the command mmooddeemmiinniitt.
+
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+modem                 Technical Information                 modem
+
+
+
+***** Constant Flickering *****
+
+Another problem is a constant flickering of send/receive LEDs and
+an unexplained  continual access of the  hard drive.  This occurs
+when  the port  is enabled  and the  modem is  set in  echo mode:
+COHERENT sends the login prompt to the modem, the modem echoes it
+back to  COHERENT, COHERENT  then thinks  the modem is  trying to
+talk to it and sends the password prompt, and so on _a_d _i_n_f_i_n_i_t_u_m.
+To fix this problem, place  the modem into no-echo mode, and turn
+off the display of result codes.  The following section discusses
+this in more detail.
+
+***** Modem Configuration *****
+
+A modem  that fails to  answer an incoming call,  hangs up before
+locking onto the remote  carrier, becomes stuck in a loop echoing
+characters sent  to it from the computer, or  fails to operate at
+the  expected baud  rate probably  is configured  improperly.  To
+remedy this situation, send the appropriate control string to the
+modem.
+
+We  offer some  guidelines here for  modem settings.   Be warned,
+however, that modems  from different manufacturers usually behave
+differently,  regardless of  claims of  Hayes  compatibility, and
+that you will need to check the manual for your particular modem.
+
+-> Echo should be OFF (usually by setting ``E0'').
+
+-> Result codes should be OFF (usually by setting ``Q1'').
+
+-> Modem status ``DCD'' should follow true carrier detect status,
+   rather than being always on (usually by setting ``&C1'').
+
+-> Auto answer should be ON (usually obtained by setting register
+   S0  to a  nonzero value  equal to the  number of  rings before
+   answer).
+
+-> The delay  value for  ``Wait for Carrier/Dial  Tone'' (usually
+   register S7) should not be too short.
+
+The  scripts  below  show  typical  initialization  for  ``Hayes-
+compatible''  and Trailblazer  modems.  They  are  only examples;
+your modem  may need something  different.  Please note  that the
+commands sslleeeepp  and ssttttyy  are necessary  in the first  example so
+that the command  string will be sent to the  modem at 2400 baud;
+otherwise, the string is sent at the default port speed, which is
+9600 baud.
+
+
+        # initialize 2400-baud Hayes-compatible modem
+        disable com3r
+        sleep 3 > /dev/com3l &
+        stty 2400 > /dev/com3l
+        echo 'AT E0 Q1 V0 S0=1 &C1 M3' > /dev/com3l
+        sleep 3
+
+
+COHERENT Lexicon                                           Page 5
+
+
+
+
+modem                 Technical Information                 modem
+
+
+
+        enable com3r
+
+
+
+        # initialize 9600 baud internal Trailblazer on com2
+        /etc/disable com2r
+        cat > /dev/com2l << EOF
+        at
+        at e0 t v0 x3 h0
+        at s0=1 s7=60 s48=1 s51=252 s52=0 s54=3 s58=2
+        at
+        EOF
+        /etc/enable com2r
+
+
+You can edit the  file /uussrr/bbiinn/mmooddeemmiinniitt to suit your modem.  To
+ensure  that  your  modem is  initialized  every  time you  start
+COHERENT, you should add a line saying
+
+
+        /usr/bin/modeminit
+
+
+to your copy of the file /eettcc/rrcc.
+
+***** See Also *****
+
+mmooddeemmccaapp, RRSS-223322, tteecchhnniiccaall iinnffoorrmmaattiioonn, tteerrmmiinnaall
+
+***** Notes *****
+
+One  final  bit  of  hard-won  wisdom:  once you  have  something
+working, write down  what you did, and store it  in a place where
+you won't lose it.  It makes life easier just knowing that you're
+looking for a female-to-female cable instead of male-to-female or
+male-to-male.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 6
+
+

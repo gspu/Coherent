@@ -1,0 +1,343 @@
+.TH dial "" "" "System Administration"
+.PC "File that tells UUCP how to dial a system"
+.B /usr/lib/uucp/dial
+.PP
+The file
+.B /usr/lib/uucp/dial
+holds information about dialers.
+A
+.I dialer
+is a device, usually a modem, through which
+.B uucico
+or
+.B cu
+``dials'' another computer system.
+The daemon
+.B uucico
+and the command
+.B cu
+use the information in this file to talk to dialers.
+.PP
+.B dial
+consists of a series of descriptions, each of which describes one dialer.
+A description consists of one or more commands;
+each command defines an aspect of how to manipulate the dialer.
+Descriptions must be separated by one blank line.
+.PP
+The following describes the commands you can use in a description:
+.IP "\fBdialer \fIname\fR"
+Name the dialer being described.
+Each description must begin with a \fBdialer\fR command.
+For example, the command
+.DM
+	dialer trailblazer
+.DE
+.IP
+introduces the description for the device named
+.BR trailblazer .
+(A name need not be technical:
+you can also use names like \fBjoe\fR or \fBjunk_modem\fR.)
+.IP "\fBchat \fIfrom_modem to_modem ... from_modem\fR"
+This command gives the chat script with which
+.B uucico
+and
+.B cu
+initialize the dialer and have it dial a remote system.
+.B chat
+can have any number of arguments:
+the odd-numbered strings are received from the modem, and the
+even-numbered ones sent to it.
+Strings are separated by space character; therefore, no string
+can contain a literal space character.
+To represent a space character in a string, use the escape sequence \fB\es\fR.
+.IP
+If, at a given point in the conversation,
+nothing is expected from the modem or is to be sent to it,
+then use an empty pair of quotation marks as a placeholder.
+.IP
+Please note that unlike the chat script used in file
+.BR sys ,
+the chat script in
+.B dial
+contains only the information by which the modem is accessed:
+it does not contain information about how to log into the
+remote computer system.
+.IP
+A chat script can contain the following escape sequences:
+.DS
+	\fB\eD\fR	Telephone number of the remote system
+	\fB\eT\fR	Telephone number  plus dialcode translation
+	\fB\eM\fR	Do not require carrier
+	\fB\em\fR	Require carrier, fail if not present
+	\fB\es\fR	Represent a space character
+.DE
+.IP
+.B uucico
+and
+.B cu
+use the command
+.B phone
+in file
+.B /usr/lib/uucp/sys
+to expand the escape sequence
+.BR \eD .
+.IP
+The following gives an example chat script:
+.DM
+	chat  "" ATQ0V1E1L2M1DT\eD CONNECT\es2400
+.DE
+.IP
+The pair of quotation marks tells
+.B uucico
+(or
+.BR cu )
+to expect nothing from the modem, and to send immediately the string
+\fBATQ0V1E1L2M1DT\fR followed by the telephone number of the remote system.
+This is a typical send string for a Hayes-compatible, 2400-baud modem.
+The string also sets certain registers within the modem:
+.B Q0V1
+turns on verbal result codes,
+.B E1
+turns on echoing,
+and
+.B L2M1
+sets the duration and volume of the modem's speaker.
+.IP
+The last string in the chat script gives the
+.IR "expect string" .
+This is the string that the modem sends when it has succeeded in
+connecting with the remote computer system.
+In this example, if the modem does not send
+.DM
+	CONNECT 2400
+.DE
+.IP
+then the attempt to call the remote system has failed.
+This example shows, as noted above, that no string to the command
+.B chat
+(or any other command used in
+.BR dial )
+can contain a space character.
+To represent a space character within a string, use the escape sequence
+.BR \es .
+.IP "\fBchat-timeout \fIseconds\fR"
+This command
+gives the number of seconds to await the expect string from the modem.
+For example, the command
+.DM
+	chat-timeout 10
+.DE
+.IP
+tells
+.B uucico
+to wait ten seconds for the expected string.
+.IP "\fBchat-fail \fIfailure_string\fR"
+This command
+defines the string that, when received from the modem, indicates that
+a connection attempt has failed.
+.B uucico
+and
+.B cu
+abort when they receive
+.IR failure_string .
+A dialer's description can have multiple \fBchat-fail\fR commands
+(after all, a call can fail for many different reasons).
+For example, the commands
+.DM
+	chat-fail	BUSY
+	chat-fail	NO\esCARRIER
+.DE
+.IP
+tell
+.B uucico
+and
+.B cu
+to abort when they receive either the strings
+.B BUSY
+or
+.BR "NO CARRIER" .
+.IP "\fBchat-seven-bit true|false\fR"
+If
+.BR true ,
+strip all bits to seven bits before comparing them with the expect string
+within the
+.B chat
+script.
+.IP "\fBchat-program \fIprogram \fB[ \fIarguments \fB]\fR"
+Run
+.I program
+before executing the chat script.
+The optional
+.I arguments
+are passed to
+.IR program .
+The following escape sequences can be embedded within
+.IR arguments :
+.DS
+.ta 0.5i 0.8i
+	\fB\eY\fR	Name of the port device
+	\fB\eS\fR	Speed of the port
+	\fB\e\e\fR	A literal backspace character
+.DE
+.IP
+.B uucico
+expands these escape sequences before it passes
+.I arguments
+to
+.IR command .
+.IP "\fBdialtone \fIstirng\fR"
+.I string
+is the code sequence that tells the modem to wait for a dial tone
+(e.g., if you must dial `9' and then pause briefly to get an outside line).
+.B uucico
+outputs
+.I string
+whenever it encounters a `=' within a telephone number.
+The default code is a comma.
+.IP "\fBpause \fIstring\fR"
+.I string
+is the code sequence that tells the modem to pause for one second.
+.B uucico
+outputs
+.I string
+whenever it encounters a `-' within a telephone number.
+The default code is a comma.
+.IP "\fBcarrier true|false\fR"
+.B true
+indicates that the dialer supports the modem carrier signal, and
+.B uucico
+therefore will require that that carrier be on.
+.B false
+indicates that the dialer does not support the modem carrier signal, and
+.B uucico
+therefore will not wait for it.
+.IP "\fBcarrier-wait \fIseconds\fR"
+Wait
+.I seconds
+for the carrier signal.
+The default is 60.
+.IP "\fBdtr-toggle true|false [ true|false ]\fR"
+If the first argument is
+.BR true ,
+toggle DTR before using the modem.
+If the second argument is
+.BR true ,
+sleep for one second after toggling DTR.
+.IP "\fBcomplete-chat\fR \fIstring ... string\fR"
+.IS "\fBcomplete-chat-timeout \fInumber\fR"
+.IS "\fBcomplete-chat-fail \fIfailure_string\fR"
+.IS "\fBcomplete-chat-seven-bit true|false\fR"
+.IS "\fBcomplete-chat-program \fIprogram \fB[ \fIarguments \fB]\fR"
+These commands define a chat script to be run after the \*(UU session
+has run to completion.
+They are exactly like their
+.B chat
+counterparts described above.
+.IP "\fBabort-chat\fR \fIstring ... string\fR"
+.IS "\fBabort-chat-timeout \fInumber\fR"
+.IS "\fBabort-chat-fail \fIfailure_string\fR"
+.IS "\fBabort-chat-seven-bit true|false\fR"
+.IS "\fBabort-chat-program \fIprogram \fB[ \fIarguments \fB]\fR"
+These commands define a chat script to be run if the \*(UU session
+has aborted.
+They are exactly like their
+.B chat
+counterparts described above.
+.IP "\fBcomplete\fR \fIstring\fR"
+.IS "\fBabort\fR \fIstring\fR"
+These are simplified of the
+.B complete-
+and
+.B abort-
+chat scripts described above.
+The former sends
+.I string
+to the dialer after a call has completed successfully;
+the latter sends its
+.I string
+after a call has aborted.
+.IP "\fBprotocol-parameter \fIprotocol parameter\fR"
+Set a protocol parameter.
+This command is exactly the same as its counterpart used in file
+.BR sys .
+For details, see the Lexicon entry for
+.BR sys .
+.IP "\fBseven-bit true|false\fR"
+When your system negotiates the protocol to use with the remote system,
+force your system to accept only a protocol that works over seven-bit
+connection.
+.IP "\fBreliable true|false\fR"
+When your system negotiates the protocol to use with the remote system,
+force your system to accept only a protocol that works over an
+unreliable connection.
+.IP "\fBhalf-duples true|false\fR"
+If
+.BR true ,
+then the dialer supports only half-duplex connections.
+This forces your system to avoid bidirectional protocols during protocol
+negotiation.
+.SH Example
+The following gives the entry for a 9600-baud Trailblazer modem:
+.DM
+	dialer tbfast
+	chat "" AT\esE0\esQ4\esV1\esS7=60\esS50=255\esS51=255\esS66=0 \e
+		\esS111=30\esDP\eD CONNECT\esFAST
+	chat-timeout 60
+	chat-fail BUSY
+	chat-fail NO\esCARRIER
+	chat-fail NO\esANSWER
+	abort-chat "" \ed+++\edATH0\esV0\esE0\esQ1\esS0=1
+	abort-chat "" \ed+++\edATH0\esV0\esE0\esQ1\esS0=1
+.DE
+.PP
+Most of the commands in this example are optional.
+A dialer entry could work with only the first two commands.
+The following describes each command in detail:
+.IP \fBdialer\fR 1.0i
+Give the dialer the name
+.BR tbfast .
+.IP \fBchat\fR
+Give the chat script with which
+.B uucico
+converses with the modem.
+It sets a number of `S' registers, turns echoing off,
+puts the modem into verbose mode, dials the remote system, and
+indicates that the signal for success is the string
+.BR "CONNECT FAST" .
+Note that normally the chat script must be one unbroken string; this example
+is broken into two lines so it will fit onto the page.
+For information on the commands from which you would construct a chat script,
+see the documentation that comes with your modem.
+.IP \fBchat-timeout\fR
+Tells
+.B uucico
+how long to wait before it times out.
+In this case, wait 60 seconds.
+.IP \fBchat-fail\fR
+Define a string with which the modem indicates failure.
+In this case, there are three such commands, each naming a different message.
+.IP \fBabort-chat\fR
+.IS \fBabort-chat\fR
+These give the strings to send to the modem in the case of, respectively, the
+successful completion of call or an aborted call.
+For this entry, the same string is send in either case:
+it turns off echoing and verbose mode, and turns on auto-answering.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "port," port
+.Xr "sys," sys
+.Xr "UUCP" uucp
+.SH Notes
+Only the superuser
+.B root
+can edit
+.BR /usr/lib/uucp/dial .
+.PP
+The file
+.B dial
+supports many commands in addition to the ones described here.
+This article describes only those commands that might be used
+in typical \*(UU connections.
+For more information, see the original Taylor \*(UU documentation,
+which is in the archive
+.BR /usr/src/alien/uudoc104.tar.Z .

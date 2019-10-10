@@ -1,0 +1,58 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef __KERNEL_PARAM_H__
+#define	__KERNEL_PARAM_H__
+
+#include <common/feature.h>
+
+#define NOFILE	60			/* Number of user open files */
+#define	NDRV	32			/* for patch driver only */
+
+extern	unsigned	NBUF;		/* Now an adjustable parameter */
+extern	unsigned	NHASH;		/* Now an adjustable parameter */
+extern	unsigned	NINODE;		/* Now an adjustable parameter */
+extern	unsigned	NCLIST;		/* Now an adjustable parameter */
+extern	unsigned	ALLSIZE;	/* Now an adjustable paramenter */
+extern	unsigned	ISTSIZE;	/* Initial stack size (bytes) */
+
+#define	SYI86UNEEK	333
+
+#define	MSACOUNT	6	/* Number of ints for system call args */
+#define MADSIZE		32767		/* Maximum addressable segment size */
+#define NMICALL		88		/* Machine independent system calls */
+#define H28CALL		0x31		/* # system calls of form 0x??28 */
+#define COHCALL		500		/* Number of COH system call */
+#if	0
+#define	BSIZE		512U		/* Buffer size */
+#endif
+#define SCHUNK		16384		/* I/O chunk size for swap and dump */
+
+
+/*
+ * Commands for system call cohcall()
+ */
+
+#define COH_PRINTF	1
+#define COH_DEVLOAD	2
+#define COH_SETBP	4
+#define COH_CLRBP	5
+#define COH_REBOOT	6
+#define COH_VIO		7
+#define COH_SHM		8
+#define COH_WTEXT	9
+#define COH_GETINT11	10	/* returns hardware word as recorded
+				 * at boot time 
+				 */
+#define COH_GETCYRIX	11
+
+#define	HZ	100	/* Number of clock ticks per second.		*/
+#define T0_RATE	11932	/* Number of timer 0 counts per clock tick.	*/
+/* convert microseconds to timer 0 counts - roughly multiply by 1.1932	*/
+#define USEC_TO_COUNTS(usec)	((usec)+(((usec)*3)/16))
+
+#endif	/* ! defined (__KERNEL_PARAM_H__) */

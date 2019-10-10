@@ -1,0 +1,130 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.55.59;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Nroff/Troff.
+ * Requests (additional).
+ */
+#include <stdio.h>
+#include <ctype.h>
+#include "roff.h"
+#include "code.h"
+#include "env.h"
+#include "div.h"
+#include "reg.h"
+#include "str.h"
+#include "esc.h"
+
+/*
+ * dump a file verbatim to output (pure dag junk)
+ */
+req_rb(argc, argv)
+char *argv[];
+{
+	register FILE *fp;
+	int	c;
+
+	setbreak();			/* break		*/
+	if (argc < 2) {
+		printe(".rb: no file specified");
+		return;
+	}
+	if ((fp = fopen(argv[1], "rb")) == NULL) {
+		printe(".rb: can't open file %s", argv[1]);
+		return;
+	}
+	while ((c = fgetc(fp)) != EOF)
+		putchar(c);
+	fclose(fp);
+}
+
+
+/*
+ * Overstrike bold command.
+ */
+req_bo(argc, argv)
+int argc;
+char *argv[];
+{
+	if (argc == 1)
+		enbldn++;
+	else {
+		enbldn = atoi(argv[1]);
+	}
+}
+
+/*
+ * Overstrike bold off command.
+ */
+req_nb()
+{
+	enbldn = 0;
+}
+
+/*
+ * Flush the buffers (used for transparent flushing...)
+ */
+req_fb()
+{
+	flushl(linebuf, llinptr);	/* Flush the buffer... */
+	llinptr = linebuf;		/* Reset the buffer... */
+}
+
+/*
+ * Restore the cursor position, just in case it got garbaged.
+ */
+req_rp()
+{
+	addidir(DFPOS, 0);
+}
+
+/*
+ * Assign a named font to another name.
+ */
+req_rf(argc, argv)
+int argc;
+char *argv[];
+{
+	register int n;
+
+	if (argc < 2) {
+		printe(".rf: requires source and destination");
+		return;
+	}
+	if ((n = font_number(argv[1][0],argv[1][1])) < 0) {
+		printe(".rf: can't find font %s", argv[1]);
+		return;
+	}
+	assign_font(argv[2][0], argv[2][1], n);
+	return;
+}
+
+/*
+ * Dump a list of fonts to standard error
+ */
+req_zf()
+{
+	font_display();
+}
+@

@@ -1,0 +1,730 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.07.08.12.46.31;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.04.07.08.29.41;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.20.50.22;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.3
+log
+@nigel: mods for coh 4.2
+(alpha)
+@
+text
+@/*
+ * LALR-1 parser generator
+ */
+
+#include <string.h>
+#include "yacc.h"
+
+main(argc,argv)
+char *argv[];
+{
+	options(argc,argv);
+	getfiles();
+	readrules();
+	ntprod();
+	ntderive();
+	listgram();
+	if( nerrors )
+		cleanup(1);
+	ntempty();
+	if( nerrors )
+		cleanup(1);
+	genstates();
+	genslist();
+	sttrans();
+	genlook();
+	go2out();
+	paout();
+	callopt();
+	cleanup(0);
+}
+
+getfiles()
+{
+	if( gramy==NULL )
+		usage();
+	if( strcmp(gramy,"-")==0 )
+		defin = stdin;
+	else
+		if( (defin = fopen(gramy,"r")) == NULL )
+			yyerror(!FATAL, "cannot open grammar file %s", gramy);
+	mktemp(acttmp);
+	mktemp(opttmp);
+	if( (actout = fopen(acttmp,"w")) == NULL )
+		yyerror(!FATAL, "cannot create action temp file %s", acttmp);
+	if( (tabout = fopen(ytabc,"w")) == NULL )
+		yyerror(!FATAL, "cannot create output file %s", ytabc);
+	if( (fhdr = fopen(ytabh, "w")) == NULL )
+		yyerror(!FATAL, "cannot create %s", ytabh);
+	if( verbose )
+		if( (listout = fopen(youtput,"w")) == NULL )
+			yyerror(NLNO, "cannot open listing file %s", youtput);
+	if ((optout = fopen(opttmp, "wb")) == NULL
+	||  (optout = freopen(opttmp, "rwb", optout)) == NULL)
+		yyerror(NLNO, "open error temp %s", opttmp);
+	if( nerrors )
+		cleanup(2);
+}
+
+rewopt()
+{
+	fseek(optout, 0L, 0);
+}
+
+/*
+ * for each non-terminal, generate a list of productions which the
+ * the non terminal derives
+ */
+ntprod()
+{
+	register i;
+	register struct sym *sp;
+
+	/* first run down the production table, counting references to
+           all the non terminals. */
+	for(i=0; i<nnonterm; i++)
+		ntrmptr[i]->s_nprods = 0;
+	for(i=0; i<nprod; i++)
+		ntrmptr[-prdptr[i]->p_left-NTBASE]->s_nprods++;
+	for(i=0; i<nnonterm; i++)
+		if( ntrmptr[i]->s_nprods==0 )
+			yyerror(NLNO|!FATAL, "non terminal %s not defined",
+				ntrmptr[i]->s_name);
+	if( nerrors )
+		cleanup(1);
+	/* now allocate list pointers for each non-terminal */
+	for(i=0; i<nnonterm; i++) {
+		sp = ntrmptr[i];
+		sp->s_prods = (struct prod **)
+			yalloc (sp->s_nprods, sizeof (* sp->s_prods));
+		sp->s_nprods = 0; /* il sera recharge a la suite */
+	}
+	/* finally, run down the production table again filling in the
+	   list pointers for the corresponding non terminal */
+	for(i=0; i<nprod; i++) {
+		sp = ntrmptr[ -prdptr[i]->p_left-NTBASE ];
+		sp->s_prods[sp->s_nprods++] = prdptr[i];
+	}
+}
+
+/*
+ * assure that all non-terminals generate a token string
+ * algorithm:
+ *   assume a priori that no non-terminal generates a token string
+ *   if a non terminal contains a production which consists only
+ *      of non-terminals generating a token string, and terminals
+ *   then it generates a token string
+ *   cycle on this until no new non terminals are found
+ *    - a similar procedure applies for finding out which non terminals
+ *      generate the empty string
+ */
+
+ntderive()
+{
+	register i, j;
+	register struct sym *sp;
+	register struct prod *pp;
+	int *ip;
+	int changed;
+
+	for(i=0; i<nnonterm; i++)
+		ntrmptr[i]->s_flags &= ~DERIV;
+	do {
+		changed = 0;
+		for(i=0; i<nnonterm; i++) {
+			sp = ntrmptr[i];
+			if( sp->s_flags&DERIV )
+				continue;
+			for(j=0; j<sp->s_nprods; j++) {
+				pp = sp->s_prods[j];
+				for(ip = PROD_RIGHT (pp); *ip != -1; ip ++)
+					if( *ip>=NTBASE &&
+					    (ntrmptr[*ip-NTBASE]->s_flags&DERIV)==0 )
+						break;
+				if( *ip == -1 ) {
+					sp->s_flags |= DERIV;
+					changed++;
+					break;
+				}
+			}
+		}
+	} while( changed );
+	for(i=0; i<nnonterm; i++)
+		if( (ntrmptr[i]->s_flags&DERIV)==0 )
+			yyerror(NLNO|!FATAL, "nonterminal %s derives no token string",
+				ntrmptr[i]->s_name);
+	if( nerrors )
+		cleanup(1);
+}
+
+/*
+ * find out which non-terminals derive the empty string
+ * algorithm is simple
+ *  if the non-terminal has a production deriving the empty string
+ *  it derives the empty string trivially
+ *  otherwise if it consists only of productions which can derive the
+ *  empty string, then it derives the empty string as well
+ */
+
+ntempty()
+{
+	register *kp;
+	register struct prod **ppp;
+	register struct sym *sp;
+	int i, changed;
+
+	for(i=0; i<nnonterm; i++) 
+		ntrmptr[i]->s_flags &= ~DERIV;
+	do {
+		changed = 0;
+		for(i=0; i<nnonterm; i++) {
+			sp = ntrmptr[i];
+			if (sp->s_flags & DERIV)
+				continue;
+			for(ppp=sp->s_prods; ppp<&sp->s_prods[sp->s_nprods]; ppp++) {
+				for(kp = PROD_RIGHT (*ppp); *kp!=-1; kp++ )
+					if( *kp<NTBASE ||
+					    (ntrmptr[*kp-NTBASE]->s_flags&DERIV)==0 )
+						break;
+				if( *kp==-1 ) {
+					sp->s_flags |= DERIV;
+					changed++;
+					break;
+				}
+			}
+		}
+	} while( changed );
+}
+
+	/* some useful local variables */
+static newgen;	/* communication between genstates and install */
+static char *ntp;	/* buffer for use by chklhs */
+
+genstates()
+{
+	extern struct sitem  *nititem;
+	register k, sno;
+	int i;
+	struct tgo tgo;
+	struct ntgo ntgo;
+
+	/* initialize the list of states associated with each nt to empty */
+	if( verbose )
+		fprintf(listout, "\nAutomaton state description:\n\n");
+	for(i=0; i<nnonterm; i++) 
+		ntrmptr[i]->s_nstates = 0;
+	ntp = yalloc(nnonterm, sizeof *ntp); /* array used by "install" */
+	nititem->i_nitems = 1;
+	nititem->i_items[0] = PROD_RIGHT (prdptr[0]);
+	closure();
+	install();
+	i = 0;
+	do {
+		newgen = 0; /* newgen is flagged by the install routine */
+		for(; i<nstates; i++) {
+			fwrite(&i, sizeof i, 1, optout); /* sync number */
+			states[i].s_tgo = 0;
+			for(k=0; k<nterm; k++)
+				if( (sno = go2(items[i], k)) >= 0 ) {
+					states[i].s_tgo++;
+					tgo.tg_st = sno;
+					tgo.tg_trm = k;
+					fwrite(&tgo, sizeof tgo, 1, optout);
+				}
+			states[i].s_ntgo = 0;
+			for(k=0; k<nnonterm; k++)
+				if( (sno = go2(items[i], k+NTBASE)) >= 0 ) {
+					states[i].s_ntgo++;
+					ntgo.ng_st = sno;
+					ntgo.ng_nt = k+NTBASE;
+					ntgo.ng_rel = NULL;	/* MWC DSC */
+					fwrite(&ntgo, sizeof ntgo, 1, optout);
+				}
+			states[i].s_nred = 0;
+			for(k=0; k<items[i]->i_nitems; k++)
+				if( *(items[i]->i_items[k]) == -1 )
+					states[i].s_nred++;
+			states[i].s_tgos = NULL;
+			states[i].s_ntgos = NULL;
+			states[i].s_reds = NULL;		/* MWC DSC */
+		}
+	} while( newgen );
+	free(ntp);
+}
+
+/*
+ * generate the closure of a state (found in global variable `nititem'
+ * Algorithm:
+ *  - look at every non terminal's after every '.' item pointer
+ *  - add all the productions associated with this non-terminal
+ *    to the state (the '.' being at the beginning of the rhs) unless
+ *    they are already there. It suffices to test if one of them is
+ *    already there, since productions are added to the closure according
+ *    according to their lhs
+ *    repeat this procedure until no new items are added.
+ *
+ *    "It can be shown that (this procedure) computes exactly the sets
+ *     of items that are valid for gamma X [Aho and Ullmann 1972]"
+ */
+
+closure()
+{
+	register j, **ipp;
+	register struct prod **ppp;
+	struct sitem *itp;
+	struct sym *sp;
+	int i, changed, nt;
+
+	itp = nititem;
+	for(i=0; i<nnonterm; i++)
+		ntrmptr[i]->s_flags &= ~CPRES;
+	for(i=0; i<itp->i_nitems; i++)
+		/* kludge: requires p.left & p.rights contiguous */
+		if( (nt = *(itp->i_items[i]-1)) < 0 ) {	/* ARE THEY???? */
+#if	0
+			fprintf (stderr, "CPRES : %d\n", i);
+#endif
+			ntrmptr[-nt-NTBASE]->s_flags |= CPRES;
+		}
+	do {
+		changed = 0;
+		for(i=0; i<itp->i_nitems; i++) {
+			nt = *(itp->i_items[i]);
+			if( nt>=NTBASE && ((sp = ntrmptr[nt-NTBASE])->s_flags
+			    &CPRES)==0 ) {
+				sp->s_flags |= CPRES;
+				changed = 1;
+				ppp = sp->s_prods;
+				ipp = &itp->i_items[itp->i_nitems];
+				itp->i_nitems += j = sp->s_nprods;
+				bounded(itp->i_nitems, maxitem, "items in state");
+				do
+					*ipp++ = PROD_RIGHT (*ppp++);
+				while( --j );
+			}
+		}
+	} while( changed );
+}
+
+/*
+ * add the state in `nititem' to the collection of sets of accessible
+ * items, returning the state pointer
+ * the real work is concerned with finding out whether the set is there
+ * already or not
+ * we sort the items in nititem, compare with every set in "items",
+ * and return the old state pointer if its there already
+ */
+install()
+{
+	register n, **ipp1, **ipp2;
+	struct sitem *itp, *itp1;
+	int i;
+
+	itp = nititem;
+	bubble(itp->i_items, itp->i_nitems);
+	for(i=0; i<nstates; i++) {
+		itp1 = items[i];
+		if( (n = itp->i_nitems) != itp1->i_nitems )
+			continue;
+		ipp1 = itp->i_items;
+		ipp2 = itp1->i_items;
+		do
+			if( *ipp1++ != *ipp2++ )
+				break;
+		while( --n );
+		if( n==0 )
+			break;
+	}
+	if (i == nstates) {
+		bounded (nstates,maxstates,"states");
+		chklhs ();
+
+		/*
+		 * NIGEL: Changed to stop use of flex-arrays.
+		 */
+
+		itp1 = (struct sitem *)
+			yalloc (1, SITEM_TOTAL_SIZE (itp->i_nitems));
+		* itp1 = * itp;
+		SITEM_EXTRA_INIT (itp1);
+
+		if (SITEM_EXTRA_SIZE (itp->i_nitems) > 0)
+			memcpy (itp1->i_items, itp->i_items,
+				SITEM_EXTRA_SIZE (itp->i_nitems));
+
+		newgen = 1;
+		items [nstates] = itp1;
+		if (verbose)
+			prstate (nstates, listout);
+		nstates ++;
+	}
+	return i;
+}
+
+go2(itp, tk)
+struct sitem *itp;
+int tk;
+{
+	register **ipp1, **ipp, n;
+
+	nititem->i_nitems = 0;
+	ipp1 = nititem->i_items;
+	ipp = itp->i_items;
+	n = itp->i_nitems;
+	do {
+		if( **ipp == tk ) {
+			nititem->i_nitems++;
+			*ipp1++ = *ipp+1;
+		}
+		ipp++;
+	} while( --n );
+	if( nititem->i_nitems==0 )
+		return( -1 );
+	else {
+		closure();
+		return( install() );
+	}
+}
+
+chklhs()
+{
+	register n, **ipp;
+	register char *cp;
+	int nt;
+
+	n = nnonterm;
+	cp = ntp;
+	do *cp++ = 0; while( --n );
+	ipp = nititem->i_items;
+	n = nititem->i_nitems;
+	cp = ntp;
+	do
+		if( (nt = (*ipp++) [-1]) < 0 )
+			cp[ -nt-NTBASE ] = 1;
+	while( --n );
+	for(n=0; n<nnonterm; n++)
+		if( cp[n] )
+			ntrmptr[n]->s_nstates++;
+}
+
+/*
+ * for each nonterminal generate a list of items
+ * containing items with all of the rhs of a production
+ * whose lhs is the non-terminal after the '.'
+ */
+genslist()
+{
+	register struct sym *sp;
+	register i, j;
+	int *ip;
+	int *stp;
+
+	for(i=j=0; i<nnonterm; i++)
+		j += ntrmptr[i]->s_nstates;
+	stp = (int *)yalloc(j, sizeof *stp);
+	for(i=0; i<nnonterm; i++) {
+		sp = ntrmptr[i];
+		sp->s_states = stp;
+		stp += sp->s_nstates;
+		sp->s_nstates = 0; /* a recharcher dans le boucle suivant */
+	}
+	for(i=0; i<nnonterm; i++) {
+		sp = ntrmptr[i];
+		ip = PROD_RIGHT (sp->s_prods[0]); /* pick an item, any item */
+		for(j=0; j<nstates; j++)
+			if( pitem(ip, items[j]) )
+				sp->s_states[sp->s_nstates++] = j;
+	}
+}
+
+/* binary search for an item in a state */
+
+pitem(ip,itp)
+int *ip;
+register struct sitem *itp;
+{
+	register int *el, nb;
+	int ub, lb;
+
+	lb = 0;
+	ub = itp->i_nitems-1;
+	do {
+		nb = (ub+lb) / 2;
+		if( (el = itp->i_items[nb]) < ip )
+			lb = nb+1;
+		else if( el > ip )
+			ub = nb-1;
+		else
+			return(1);
+	} while( lb<=ub );
+	return(0);
+}
+
+/* 
+ * linear insertion sort really.
+ * the decision not to use bubbbbbbbbbbbble sort is thanks to Randall
+ * and to his cs240b notes
+ * (p.s. -- i hate sorting)
+ */
+
+bubble(ipp,n)
+register **ipp;
+int n;
+{
+	register **min, **jpp;
+	int m, *t;			/* MWC DSC */
+
+	do {
+		m = n;
+		min = jpp = ipp;
+		do {
+			if( *jpp < *min )
+				min = jpp;
+			jpp++;
+		} while( --m );
+		t = *min;
+		*min = *ipp;
+		*ipp++ = t;
+	} while( --n );
+}
+
+cleanup(err)
+{
+	unlink(acttmp);
+	unlink(opttmp);
+	stats();
+	exit(err);
+}
+
+stats()
+{
+	extern nsrconf, nrrconf;
+
+	if( !pstat && (nsrconf || nrrconf) ) {
+		if( nrrconf ) {
+			fprintf(stderr, "%d R/R conflict", nrrconf);
+			if( nrrconf != 1 )
+				fprintf(stderr, "s");
+		}
+		if( nrrconf && nsrconf )
+			fprintf(stderr, " and ");
+		if( nsrconf ) {
+			fprintf(stderr, "%d S/R conflict", nsrconf);
+			if( nsrconf != 1)
+				fprintf(stderr, "s");
+		}
+		fprintf(stderr, "\n");
+	}
+	if( verbose )
+		stat1(listout);
+	if( pstat )
+		stat1(stdout);
+}
+
+
+stat1(f)
+FILE *f;
+{
+	extern nsrconf, nrrconf, yygodef, yypact, yyredns;
+	extern ndupgos, ndupacts;
+	extern yydefact;
+
+	fprintf(f, "Statistics:\n");
+	fprintf(f, "%d/%d tokens, %d/%d non terminals\n", nterm, maxterm,
+		nnonterm, maxnterm);
+	fprintf(f, "%d/%d productions, %d/%d states\n", nprod, maxprod,
+		nstates, maxstates);
+	fprintf(f, "%d goto entries; %d saved by goto default\n",
+		yyredns, yygodef);
+	fprintf(f, "%d parsing actions; %d saved by default\n",
+		yypact, yydefact);
+	fprintf(f, "%d duplicated goto entries saved; %d actions\n",
+		ndupgos, ndupacts);
+	if( nsrconf || nrrconf )
+		fprintf(f, "%d R/R conflicts, %d S/R conflicts\n",
+			nrrconf, nsrconf);
+}
+
+char *
+yalloc(n, s)
+{
+	register char *cp;
+
+	if ((cp = calloc(n, s)) == NULL)
+		yyerror (NLNO | FATAL,
+			 "storage overflow (requested %d * %d)\n", n, s);
+
+	return cp;
+}
+
+/*
+ * transform the state representation
+ */
+
+sttrans()
+{
+	register j, k;
+	int i, totgo, tontgo;
+	register struct state *stp;
+	struct tgo *tgp;
+	struct ntgo *ngp;
+
+	/* a la pubelle !! */
+	for(i=0; i<nstates; i++)
+		free(items[i]);
+	free(items);
+
+	if( yydebug )
+		fprintf(listout,"Automaton transition graph:\n\n");
+	for(i=totgo=0; i<nstates; i++) 
+		totgo += states[i].s_tgo;
+	for(i=tontgo=0; i<nstates; i++)
+		tontgo += states[i].s_ntgo;
+	tgp = (struct tgo *)yalloc(totgo, sizeof *tgp);
+	ngp = (struct ntgo *)yalloc(tontgo, sizeof *ngp);
+	rewopt();
+
+	for(j=0; j<nstates; j++) {
+		if( yydebug )
+			fprintf(listout, "State %d:\n\n", j);
+		stp = &states[j];
+		if( fread(&i, sizeof i, 1, optout)!=1 || i!=j )
+			yyerror(NLNO|FATAL, "temp file i/o error");
+		fread(tgp, sizeof *tgp, stp->s_tgo, optout);
+		stp->s_tgos = tgp;
+		stp->s_ntgos = ngp;
+		if( yydebug )
+			for(k=0; k<stp->s_tgo; k++)
+				fprintf(listout, "\t%s\t%d\n", 
+				    ptosym(stp->s_tgos[k].tg_trm),
+				    stp->s_tgos[k].tg_st);
+		fread(ngp, sizeof *ngp, stp->s_ntgo, optout);
+		if( yydebug )
+			for(k=0; k<stp->s_ntgo; k++)
+				fprintf(listout, "\t%s\t%d\n",
+				    ptosym(stp->s_ntgos[k].ng_nt),
+				    stp->s_ntgos[k].ng_st);
+		tgp += stp->s_tgo;
+		ngp += stp->s_ntgo;
+	}
+}
+
+@
+
+
+1.2
+log
+@cef changes:	added new command line options to yacc for large grammars
+-sprod N	allow N symbols per production. Default 20
+-items N	Allow N items in any state. Default 160
+-reds N		Allow N reductions per state. Default 300
+@
+text
+@a2 3
+ *
+ * the comments previously here have been suppressed since they were
+ * boring
+d4 2
+d88 2
+a89 1
+		sp->s_prods = (struct prod **)yalloc(sp->s_nprods, sizeof *sp->s_prods);
+d130 1
+a130 1
+				for(ip=pp->p_right; *ip!=-1; ip++)
+d172 1
+a172 1
+			if( sp->s_flags&DERIV )
+d175 1
+a175 1
+				for(kp = (*ppp)->p_right; *kp!=-1; kp++ )
+d208 1
+a208 1
+	nititem->i_items[0] = prdptr[0]->p_right;
+d237 3
+a239 2
+			states[i].s_tgos = states[i].s_ntgos =
+			    states[i].s_reds = NULL;		/* MWC DSC */
+d272 5
+a276 2
+		/* kludge: requires p.left & p.rights contigouuous */
+		if( (nt = *(itp->i_items[i]-1)) < 0 )	/* ARE THEY???? */
+d278 1
+d292 1
+a292 1
+					*ipp++ = (*ppp++)->p_right;
+d328 17
+a344 7
+	if( i==nstates ) {
+		bounded(nstates,maxstates,"states");
+		chklhs();
+		itp1 = (struct sitem *)yalloc(1, sizeof *itp1 + itp->i_nitems *
+				sizeof itp->i_items[0]);
+		copyb(itp, itp1, sizeof *itp1 + itp->i_nitems *
+			sizeof itp->i_items[0]);
+d346 4
+a349 4
+		items[nstates] = itp1;
+		if( verbose )
+			prstate(nstates, listout);
+		nstates++;
+d351 1
+a351 1
+	return( i );
+d423 1
+a423 1
+		ip = sp->s_prods[0]->p_right; /* pick an item, any item */
+d481 1
+a481 3
+copyb(sp,dp,n)
+register char *sp, *dp;
+register n;
+a482 7
+	do
+		*dp++ = *sp++;
+	while( --n );
+}
+
+cleanup(err)
+{
+d543 5
+a547 3
+	if( cp = calloc(n, s) )
+		return(cp);
+	yyerror(NLNO|FATAL, "storage overflow (requested %d)\n", n*s);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d285 1
+a285 1
+				bounded(itp->i_nitems, MAXITEM, "items in state");
+@

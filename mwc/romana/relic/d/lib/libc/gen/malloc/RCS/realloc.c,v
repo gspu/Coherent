@@ -1,0 +1,98 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.22.18.11.52;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * realloc.c
+ * Fits System V requirements.
+ * Knows format of malloc arena.
+ */
+
+#include <stdio.h>
+#include <sys/malloc.h>
+
+extern char *malloc();
+
+char *
+realloc(cp, size) register char *cp; unsigned size;
+{
+	register unsigned len, needed, nlen;
+	register MBLOCK *mp, *nmp;
+
+	if (cp == NULL)
+		return malloc(size);
+	else if (size == 0) {
+		free(cp);
+		return NULL;
+	}
+
+	/* Add space for blksize, round up to word boundary, fail if too big. */
+	needed = roundup(size + sizeof(unsigned), BLOCKSIZE);
+	if (needed < size)
+		return NULL;
+
+	/* Find mblock of the given cp and its length. */
+	mp = mblockp(cp);
+	len = realsize(mp->blksize);
+
+	/* Request to shrink. */
+	if (len >= needed) {
+		if ((len -= needed) > LEASTFREE) {
+			/* Split block into used and free parts. */
+			mp->blksize = needed;
+			mp = bumpp(mp, needed);
+			mp->blksize = (len|FREE);
+			__a_count++;
+		}
+		return cp;
+	}
+
+	/* Request to grow. */
+	nmp = bumpp(mp, len);		/* next block */
+	nlen = nmp->blksize;		/* length of next block (+1 if free) */
+	if (isfree(nlen) && (nlen += len) > needed) {
+		/* The next block is free and the two are big enough. */
+		if ((nlen - needed) > LEASTFREE) {
+			/* Combine blocks, split into used and free parts. */
+			mp->blksize = needed;
+			mp = bumpp(mp, needed);
+			mp->blksize = nlen - needed;
+		}
+		else {	/* Combine blocks, using all of both. */
+			mp->blksize = nlen = realsize(nlen);
+			mp = bumpp(mp, nlen);
+			__a_count--;
+		}
+		if (nmp == __a_scanp)
+			__a_scanp = mp;
+		return cp;
+	}
+
+	/* Otherwise, malloc new arena, copy current to it, free current. */
+	if ((mp = (MBLOCK *)malloc(size)) == NULL)
+		return NULL;
+	memcpy(mp, cp, len - sizeof(unsigned));
+	free(cp);
+	return((char *)mp);
+}
+@

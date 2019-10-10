@@ -1,0 +1,158 @@
+.TH #define "" "" "Preprocessing Directive" "" "(Language/preprocessing/macro replacement)"
+.II "manifest constant"
+.II "identifier, define as macro"
+.PC "Define an identifier as a macro"
+.PP
+The preprocessing directive
+.B #define
+tells the C preprocessor to regard
+.I identifier
+as a macro.
+.PP
+.B #define
+can define two kinds of macros:
+.IR object-like ,
+and
+.IR function-like .
+.PP
+An object-like macro has the syntax
+.DM
+	#define \fIidentifier replacement-list\fR
+.DE
+.PP
+This type of macro is also called a
+.IR "manifest constant" .
+The preprocessor searches for
+.I identifier
+throughout the text of the translation unit, and replaces it with the
+elements of
+.IR replacement-list ,
+which is then rescanned for further macro substitutions.
+.PP
+For example, consider the directive:
+.DM
+	#define BUFFERSIZE 75
+.DE
+.PP
+When the preprocessor reads the line
+.DM
+	malloc(BUFFERSIZE);
+.DE
+.PP
+it replaces it with:
+.DM
+	malloc(75);
+.DE
+.PP
+A given
+.I identifier
+is replaced only once by a given
+.IR replacement-list .
+This is to prevent such code as
+.DM
+	#define FOO FOO
+.DE
+.PP
+or
+.DM
+	#define FOO BAR
+	#define BAR FOO
+.DE
+.PP
+from generating an infinite loop.
+.PP
+A function-like macro is more complex.
+It has the syntax:
+.DM
+	#define \fIidentifier lparen identifier-list\dopt\u \fP)\fI replacement-list
+.DE
+.PP
+The preprocessor looks for
+.IR identifier ,
+which is a macro that resembles a function in that it is followed by
+a pair of parentheses that may enclose an
+.IR identifier-list .
+It replaces
+.I identifier
+with the contents of
+.IR replacement-list ,
+up to the first lparen \*(Ql(\*(Qr within
+.IR replacement-list .
+.PP
+The preprocessor then examines
+.I identifier-list
+for further macros, which it expands.
+The modified
+.I identifier-list
+is then replaced with the rest of
+.IR replacement-list .
+Pairs of parentheses that are nested between the lparen that begins
+.I replacement-list
+and the \*(Ql)\*(Qr that ends it
+are copied into
+.I identifier-list
+as literal characters.
+The identifiers within
+.I identifier-list
+are preserved after it has been modified by
+.IR replacement-list .
+The only exceptions are identifiers that are prefixed by the preprocessing
+operators
+.B #
+or
+.BR ## ;
+these are handled appropriately.
+.PP
+For example, the consider the macro:
+.DM
+	#define display(x) show((long)(x), #x)
+.DE
+.PP
+When the preprocessor reads the following line
+.DM
+	display(abs(-5));
+.DE
+.PP
+it replaces it with the following:
+.DM
+	show((long)(abs(-5)), "abs(-5)");
+.DE
+.PP
+When an argument to a function-like macro contains no preprocessing
+tokens, or when an argument to a function-like macro contains a
+preprocessing token that is identical to a preprocessing directive,
+the behavior is undefined.
+.SH Example
+For an example of using a function-like macro in a program, see
+.BR # .
+.SH "See Also"
+.Xr "#," _23
+.Xr "##," _2323
+.Xr "#undef," _23undef
+.Xr "C preprocessor" c_preproc
+.br
+\*(AS, \(sc6.8.3
+.SH Notes
+A macro expansion always occupies exactly one line,
+no matter how many lines are spanned by
+the definition or the actual parameters.
+If you have defined macros that span more than one line, you must
+either redefine them to occupy one line, or somehow embed the newline
+character within the macro itself; otherwise, the macro will not
+expand correctly.
+.PP
+A macro definition can extend over more than one line, provided that
+a backslash \*(Ql\e\*(Qr appears before the newline character that
+breaks the lines.
+The size of a
+.B #define
+directive is therefore limited by the maximum
+size of a logical source line, which
+can be up to at least 509 characters long.
+.PP
+Some implementations allowed a user to re-define a macro with a new
+.B #define
+directive.
+The Standard, however, allows only a \*(QLbenign\*(QR redefinition; that is,
+the body of the new definition must exactly match the old definition,
+including parameter names and white space.

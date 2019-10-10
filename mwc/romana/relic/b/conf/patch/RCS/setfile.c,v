@@ -1,0 +1,248 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     92.07.06.15.41.33;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.03.26.15.26.59;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.02.28.11.29.37;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@piggy: all hex numbers have leading zeroes to indicate their length
+@
+text
+@#include <stdio.h>
+#include <errno.h>
+#include <coff.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include "patch.h"
+
+extern char *symbols;		/* String of symbol names.  */
+extern int peek;		/* Are we just looking?  */
+
+/*
+ * Modify the contents of the file namep to match the array of patch
+ * structures pl[].  The argument, n, is the number of entries in pl[]
+ * that should be processed.
+ */
+void
+setfile(namep, n, pl)
+	char *namep;
+	int n;
+	struct plist pl[];
+{
+	int i;
+	int fd;
+	fsize_t seek;		/* Final seek address for each pl[] entry.  */
+	SYMENT	*sym;		/* Holder SYMENTs while looping.  */
+	static FILEHDR mainhdr;	/* Main COFF file header.  */
+	static AOUTHDR opthdr;	/* COFF Optional header (for executables).  */
+	static SCNHDR sh;	/* Section header.  */
+
+	long	text_size;	/* Size of text section in bytes.  */
+	vaddr_t	text_addr;	/* Virtual memory base address for text.  */
+	short	text_scnum;	/* Section number of text section.  */
+	fsize_t text_base;	/* File offset of start of text section.  */
+
+	long	data_size;	/* Size of data section in bytes.  */
+	vaddr_t	data_addr;	/* Virtual memory base address for data.  */
+	short	data_scnum;	/* Section number of data section.  */
+	fsize_t data_base;	/* File offset of start of data section.  */
+
+	char *symname;		/* Name of the currently patched LHS.  */
+
+	/* Open the file to be patched.  */
+	if (peek) {
+		if ((fd=open(namep, O_RDONLY)) < 0) {
+			fprintf(stderr, "Cannot open %s for reading.\n", namep);
+			exit(1);
+		}
+	} else {
+		if ((fd=open(namep, O_RDWR)) < 0) {
+			fprintf(stderr, "Cannot open %s.\n", namep);
+			exit(1);
+		}
+	}
+
+	lseek(fd, 0L, 0);
+
+	/* Read filehdr.  */
+	if (-1 == read(fd, &mainhdr, sizeof(FILEHDR))) {
+		perror(namep);
+		fprintf(stderr, "Cannot read executable header.\n");
+		exit(1);
+	}
+
+	/* Check for valid magic and length of optional header.  */
+	if (!ISCOFF(mainhdr.f_magic) || (mainhdr.f_opthdr < sizeof(opthdr))) {
+		fprintf(stderr, "Bad magic in %s.\n", namep);
+		exit(1);
+	}
+
+	/* Read the optional header.  */
+	if (-1 == read(fd, &opthdr, sizeof(AOUTHDR))) {
+		perror(namep);
+		fprintf(stderr, "Cannot read optional header.\n");
+		exit(1);
+	}
+	
+
+	/* Fill in the parameters we can get from the opthdr.  */
+	text_size = opthdr.tsize;
+	text_addr = opthdr.text_start;
+
+	data_size = opthdr.dsize;
+	data_addr = opthdr.data_start;
+
+	/* Read section headers for offsets.  */
+	text_scnum = -1;	/* Mark as not found.  */
+	data_scnum = -1;	/* Mark as not found.  */
+	for (i = 1; i <= mainhdr.f_nscns; ++i) {
+		if (-1 == read(fd, &sh, sizeof(SCNHDR))) {
+			perror(namep);
+			fprintf(stderr, "Cannot read section header.\n");
+			exit(1);
+		}
+
+		if (STYP_TEXT == sh.s_flags) {
+			text_scnum = i;
+			text_base = sh.s_scnptr;
+		} else if (STYP_DATA == sh.s_flags) {
+			data_scnum = i;
+			data_base = sh.s_scnptr;
+		} /* else ignore this section header.  */
+	}
+
+	/* Did we find both sections?  */
+	if (-1 == text_scnum) {
+		fprintf(stderr, "No text section in %s.\n", namep);
+	}
+
+	if (-1 == data_scnum) {
+		fprintf(stderr, "No data section in %s.\n", namep);
+	}
+
+	/* Range check all the patch addresses.  */
+	for (i = 0; i < n; i += 1) {
+		sym = pl[i].p_lvnp;
+		if (sym->n_scnum == text_scnum) {
+			if ((sym->n_value < text_addr) ||
+			    (sym->n_value > text_addr + text_size) ) {
+
+			    fprintf(stderr, "Symbol out of range for text section.\n");
+			    fprintf(stderr, "%s: %x\n",
+			    	   &(symbols[sym->n_offset - sizeof(long)]),
+				   sym->n_value);
+			    exit(1);
+			}
+		} else if (sym->n_scnum == data_scnum) {
+			if ((sym->n_value < data_addr) ||
+			    (sym->n_value > data_addr + data_size) ) {
+
+			    fprintf(stderr, "Symbol out of range for data section.\n");
+			    fprintf(stderr, "%s: %x\n",
+			    	   &(symbols[sym->n_offset - sizeof(long)]),
+				   sym->n_value);
+			    exit(1);
+			}
+		} else {
+			fprintf(stderr,
+				"Illegal section number %d for symbol %s.\n",
+				sym->n_scnum,
+				&(symbols[(sym->n_offset) - sizeof(long)]));
+			fprintf(stderr, "Was there really a mem fault?\n");
+			exit(1);
+		}
+
+	}
+
+	/* Walk through pl[] seeking and patching.  */
+	for (i = 0; i < n; i += 1) {
+		seek = pl[i].p_lval;
+		sym = pl[i].p_lvnp;
+		/*
+		 * Adjust the file offset for the symbol based on which
+		 * segement it resides in.
+		 */
+		if (sym->n_scnum == text_scnum) {
+			seek = (seek - text_addr) + text_base;
+		} else if (sym->n_scnum == data_scnum) {
+			seek = (seek - data_addr) + data_base;
+		} else {
+			fprintf(stderr, "Unreachable code is setfile().\n");
+			exit(1);
+		}
+
+		lseek(fd, seek, 0);
+
+ 		symname = &(symbols[pl[i].p_lvnp->n_offset - sizeof(long)]);
+		if (patch(fd, &pl[i], namep, symname) < 0) {
+			fprintf(stderr, "Write error in %s\n", namep);
+		}
+	}
+
+	close(fd);
+}
+@
+
+
+1.2
+log
+@piggy update
+@
+text
+@d4 1
+d9 1
+d43 10
+a52 3
+	if ((fd=open(namep, 2)) < 0) {
+		fprintf(stderr, "Cannot open %s\n", namep);
+		exit(1);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d7 1
+a7 1
+extern symbols;		/* String of symbol names.  */
+d38 2
+d113 1
+a113 1
+			    	   symbols + sym->n_offset - sizeof(long),
+d123 1
+a123 1
+			    	   symbols + sym->n_offset - sizeof(long),
+d128 5
+a132 2
+			fprintf(stderr, "Illegal section number %d for symbol %s.\n",
+				sym->n_scnum, symbols + sym->n_offset - sizeof(long));
+d142 4
+d157 2
+a158 1
+		if (patch(fd, &pl[i]) < 0) {
+@

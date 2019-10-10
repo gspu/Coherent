@@ -1,0 +1,313 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.4;
+comment  @ * @;
+
+
+1.4
+date     91.07.24.07.51.27;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.07.15.14.33.03;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.06.20.14.30.46;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.06.10.14.37.26;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version prov by hal
+@
+
+
+1.4
+log
+@update prov by hal
+
+@
+text
+@/* $Header: /usr/src/sys/coh/RCS/pipe.c,v 1.1 88/03/24 16:14:07 src Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Coherent.
+ * Pipes.
+ *
+ * $Log:	/usr/src/sys/coh/RCS/pipe.c,v $
+ * Revision 1.1	88/03/24  16:14:07	src
+ * Initial revision
+ * 
+ * 86/11/19	Allan Cornish		/usr/src/sys/coh/pipe.c
+ * Added check for non-blocking read and write if (io_flag & IPNDLY) set.
+ * Eliminated use of i_a inode field since now included in inode macros.
+ */
+#include <sys/coherent.h>
+#include <errno.h>
+#include <sys/filsys.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <sys/io.h>
+#include <sys/proc.h>
+#include <sys/sched.h>
+#include <signal.h>
+#include <sys/uproc.h>
+
+/*
+ * Create and return a locked pipe inode.  This is called from the
+ * pipe system call.
+ */
+INODE *
+pmake(mode)
+{
+	register INODE *ip;
+
+	if ((ip=ialloc(pipedev, IFPIPE|mode)) != NULL) {
+		iclear(ip);
+		ip->i_pnc = 0;
+		ip->i_prx = 0;
+		ip->i_pwx = 0;
+	}
+	return (ip);
+}
+
+/*
+ * Open a pipe given the inode pointer.
+ */
+popen(ip, mode)
+{
+}
+
+/*
+ * Close a pipe inode.
+ */
+pclose(ip)
+register INODE *ip;
+{
+	if (ip->i_refc == 2) {
+		pevent(ip);
+		ip->i_flag |= IFEOF;
+	}
+}
+
+/*
+ * Only one end of the pipe is going to be left.
+ */
+pevent(ip)
+register INODE *ip;
+{
+	if ((ip->i_flag&IFWFR) != 0) {
+		ip->i_flag &= ~IFWFR;
+		wakeup((char *)&ip->i_pwx);
+	}
+	if ((ip->i_flag&IFWFW) != 0) {
+		ip->i_flag &= ~IFWFW;
+		wakeup((char *)&ip->i_prx);
+	}
+}
+
+/*
+ * Read from a pipe.  The given inode is locked.
+ */
+pread(ip, iop)
+register INODE *ip;
+register IO *iop;
+{
+	register unsigned n;
+	register unsigned ioc;
+
+	while (ip->i_pnc == 0) {
+
+		/*
+		 * Logical End of File.
+		 */
+		if ((ip->i_flag&IFEOF) != 0) {
+			ip->i_flag &= ~IFEOF;
+			break;
+		}
+
+		/*
+		 * Nobody left to write.
+		 */
+		if (ip->i_nlink==0 && ip->i_refc<2)
+			break;
+
+		/*
+		 * Non-blocking read.
+		 */
+		if ( iop->io_flag & IONDLY ) {
+			u.u_error = EAGAIN;
+			return;
+		}
+
+		/*
+		 * Wait for pipe data.
+		 */
+		ip->i_flag |= IFWFW;
+		iunlock(ip);
+		sleep((char *)&ip->i_prx, CVPIPE, IVPIPE, SVPIPE);
+		ilock(ip);
+	}
+
+	/*
+	 * Clear EOF flag.
+	 */
+	if ((ip->i_flag&IFEOF)!=0 && ip->i_pnc==0)
+		ip->i_flag &= ~IFEOF;
+
+	ioc = iop->io_ioc;
+	while (u.u_error==0 && ioc>0 && ip->i_pnc>0) {
+
+		/*
+		 * Calculate length of data to be read.
+		 */
+		if ((n=PIPSIZE-ip->i_prx) > ioc)
+			n = ioc;
+		if (n > ip->i_pnc)
+			n = ip->i_pnc;
+
+		/*
+		 * Read data.
+		 */
+		iop->io_ioc = n;
+		iop->io_seek = ip->i_prx;
+		fread(ip, iop);
+		n -= iop->io_ioc;
+		if ((ip->i_prx+=n) == PIPSIZE)
+			ip->i_prx = 0;
+		ip->i_pnc -= n;
+		ioc -= n;
+	}
+	iop->io_ioc = ioc;
+
+	/*
+	 * Wake processes waiting to write.
+	 */
+	if ((ip->i_flag&IFWFR)!=0 && ip->i_pnc<PIPSIZE) {
+		ip->i_flag &= ~IFWFR;
+		wakeup((char *)&ip->i_pwx);
+	}
+}
+
+/*
+ * Write to a pipe.  The given inode is locked.
+ */
+pwrite(ip, iop)
+register INODE *ip;
+register IO *iop;
+{
+	register unsigned n;
+	register unsigned ioc;
+
+	ioc = iop->io_ioc;
+	while (u.u_error==0 && ioc>0) {
+
+		/*
+		 * Nobody left to read.
+		 */
+		if ( (ip->i_refc < 2) && (ip->i_nlink == 0) ) {
+			u.u_error = EPIPE;
+			sendsig(SIGPIPE, SELF);
+			return;
+		}
+
+		/*
+		 * Calculate free space in pipe.
+		 */
+		if ( (n=PIPSIZE-ip->i_pwx) > ioc )
+			n = ioc;
+		if (n > PIPSIZE-ip->i_pnc)
+			n = PIPSIZE - ip->i_pnc;
+
+		/*
+		 * Non-blocking write.
+		 */
+		if ( iop->io_flag & IONDLY ) {
+			if ( (n != ioc) || (ip->i_flag & IFEOF) ) {
+				u.u_error = EAGAIN;
+				return;
+			}
+		}
+
+		/*
+		 * Insufficent space or EOF still pending.
+		 */
+		if (n==0 || (ip->i_flag&IFEOF)!=0) {
+			ip->i_flag |= IFWFR;
+			iunlock(ip);
+			sleep((char *)&ip->i_pwx, CVPIPE, IVPIPE, SVPIPE);
+			ilock(ip);
+			continue;
+		}
+		iop->io_ioc = n;
+		iop->io_seek = ip->i_pwx;
+		fwrite(ip, iop);
+		n -= iop->io_ioc;
+		if ((ip->i_pwx+=n) == PIPSIZE)
+			ip->i_pwx = 0;
+		ip->i_pnc += n;
+		ioc -= n;
+
+		/*
+		 * Wait processes waiting to read.
+		 */
+		if ((ip->i_flag&IFWFW) && ip->i_pnc>0) {
+			ip->i_flag &= ~IFWFW;
+			wakeup((char *)&ip->i_prx);
+		}
+	}
+	iop->io_ioc = ioc;
+}
+@
+
+
+1.3
+log
+@update by hal
+@
+text
+@@
+
+
+1.2
+log
+@update provided by hal
+@
+text
+@@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d27 1
+a27 1
+#include <coherent.h>
+d34 1
+a34 1
+#include <sched.h>
+@

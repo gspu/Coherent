@@ -1,0 +1,35 @@
+////////
+/
+/ negq( w0, w1, w2, w3 ) - negate a quad word.
+/
+/	Action: Negate a quad word.
+/
+/	Return:	Negated result in _fpac_.
+/
+////////
+	.globl	negq_
+	.shri
+
+negq_:	push	si
+	push	di
+	push	bp
+	mov	bp,sp
+	mov	ax,8(bp)
+	mov	bx,10(bp)
+	mov	cx,12(bp)
+	mov	dx,14(bp)
+	not	dx
+	not	cx
+	not	bx
+	neg	ax
+	sbb	bx,$0
+	sbb	cx,$0
+	sbb	dx,$0
+	mov	_fpac_+0,ax
+	mov	_fpac_+2,bx
+	mov	_fpac_+4,cx
+	mov	_fpac_+6,dx
+	pop	bp
+	pop	di
+	pop	si
+	ret

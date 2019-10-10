@@ -1,0 +1,704 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2;
+comment  @ * @;
+
+
+1.2
+date     93.08.05.08.46.36;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     93.07.19.14.34.38;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@Nigel: changes for 420Alpha to fix
+problems with here docs
+@
+text
+@/*
+ * sh/exec1.c
+ * The Bourne shell.
+ * Shell part of execution.
+ */
+
+#include <assert.h>
+#include "sh.h"
+
+static char	no_last_command [] = "";
+static char   *	lastcmd = no_last_command;
+
+char *skipredir();
+
+/*
+ * Execute the given node, wait for completion, return status.
+ */
+command (np)
+register NODE *np;
+{
+	register int f;		/* Pid of command */
+	int mynllflag;		/* Saved fork not forced flag */
+	CON con;		/* Control link for break/continue */
+	char *innp, **inlp;	/* for NFOR */
+	NODE *cnode;		/* for NCASE */
+	char *cname;		/* for NCASE */
+
+	if (ret_done)
+		return;
+	mynllflag = nllflag;
+	innp = NULL;
+	inlp = NULL;
+	cnode = NULL;
+	f = 0;
+
+	con.c_next = sesp->s_con;
+	con.c_node = np;
+	con.c_bpp = savebuf ();
+	con.c_temp = NULL;
+	sesp->s_con = & con;
+
+	switch (setjmp (con.c_envl)) {
+	case 0:		/* initial setjmp */
+		break;
+	case 1:		/* continue */
+		np = con.c_node;
+		break;
+	case 2:		/* break */
+		goto break2;
+	default:
+		panic (1);
+		NOTREACHED;
+	}
+
+	for ( ; np != NULL; np = np->n_next) {
+	if (ret_done)
+		break;		/* "return" interrupts control flow */
+	recover(ICMD);
+	f = 0;
+	nllflag = mynllflag;
+
+	switch (np->n_type) {
+	case NCOMS:
+		f = comscom (np->n_auxp);
+		break;
+
+	case NFOR:
+		if (innp == NULL) {
+			innp = np->n_strp;
+			nargc = 0;
+			nargv = makargl();
+			for (np = np->n_next->n_auxp; np; np = np->n_next)
+				eval (np->n_strp, EARGS);
+			inlp = nargv;
+			np = con.c_node;
+
+			assert (con.c_temp == NULL);
+			con.c_temp = capture_temp ();
+		}
+		continue;
+
+	case NFOR2:
+		/* do_done_list->n_next == this node */
+		if (* inlp == NULL || assnvar (innp, * inlp ++) == NULL)
+			break;
+		continue;
+
+	case NWHILE:
+		/* do_done_list->n_next == this node */
+		nllflag = 0;
+
+		if (con.c_temp == NULL)
+			con.c_temp = capture_temp ();
+
+		if (command (np->n_auxp))
+			break;
+		continue;
+
+	case NUNTIL:
+		/* do_done_list->n_next == this node */
+		nllflag = 0;
+
+		if (con.c_temp == NULL)
+			con.c_temp = capture_temp ();
+
+		if (! command (np->n_auxp))
+			break;
+		continue;
+
+	case NBRAC:
+		command (np->n_auxp);
+		break;
+
+	case NPARN:
+		if (nllflag || (f = clone()) == 0) {
+			exit (command (np->n_auxp));
+			NOTREACHED;
+		}
+		break;
+
+	case NIF:
+		nllflag = 0;
+		if (! command (np->n_auxp->n_auxp))
+			np = np->n_auxp;
+		else if (np->n_next == NULL)
+			slret = 0;		/* exit status 0 if no elsepart */
+		continue;
+
+	case NELSE:
+		command (np->n_auxp);
+		break;
+
+	case NCASE:
+		eval (np->n_strp, EWORD);
+		if (errflag)
+			break;
+		cname = duplstr (strt, 0);
+		continue;
+
+	case NCASE2:
+		cnode = np->n_auxp;
+		continue;
+
+	case NCASE3:
+		/* end of pattern list == next NCASE2 node */
+		eval (np->n_strp, EPATT);
+		if (errflag)
+			break;
+		if (match (strt, cname)) {
+			command (cnode);
+			break;
+		}
+		continue;
+
+	case NLIST:
+		nllflag = 0;
+		command (np->n_auxp);
+		continue;
+
+	case NANDF:
+		nllflag = 0;
+		if (command (np->n_auxp))
+			break;
+		continue;
+
+	case NORF:
+		nllflag = 0;
+		if (! command (np->n_auxp))
+			break;
+		continue;
+
+	case NBACK:
+		if ((f = clone ()) == 0) {
+			static char *iov[] = { "0</dev/null", NULL };
+
+			bckflag++;
+			dflttrp (IBACK);
+			redirect (iov, NULL);
+			exit (command (np->n_auxp));
+			NOTREACHED;
+		}
+		sback = f;
+		prints ("%d\n", f);
+		f = 0;
+		continue;
+
+	case NPIPE:
+		f = pipecoms (np);
+		break;
+
+	case NFUNC:
+		def_shell_fn (np, capture_temp ());
+		break;
+
+	case NRET:
+		if (in_sh_fn == 0) {
+			printe ("return not inside shell function");
+			break;
+		}
+		ret_done ++;		/* to interrupt control flow */
+		if (np->n_strp [0] != '\0') {
+			eval (np->n_strp, EARGS);
+			slret = atoi (strt);
+		}
+		return slret;
+
+	default:
+		panic (2);
+		NOTREACHED;
+	}
+	break;
+
+	}
+break2:
+	nllflag = mynllflag;
+	if (sesp->s_con != NULL)
+		sesp->s_con = sesp->s_con->c_next;
+	if (f)
+		waitc (f);
+	if (slret)
+		assnvar ("LASTERROR", lastcmd);
+
+	DESTROY_CON (& con);
+
+	if (eflag && (slret || errflag)) {
+		reset (RUABORT);
+		NOTREACHED;
+	}
+	return slret;
+}
+
+/*
+ * Run a simple command.
+ *	Anything but.
+ */
+#define	FARGS	1
+#define	FIORS	2
+#define	FASSG	4
+
+comscom (np)
+register NODE *np;
+{
+	register int f;
+	register char **app, *s, *s1, *sp;
+	int nputs, nargs;
+
+	nargc = 1;
+	nargv = makargl();
+	nargv = addargl(nargv, "sh");
+	niovp = makargl();
+	nenvp = makargl();
+	nctlp = NULL;
+	/*
+	 * Scan for arguments.
+	 * or a control node.
+	 */
+	nputs = 0;
+	f = 0;
+	for ( ; np; np = np->n_next) {
+#ifdef	VERBOSE
+		prints (" <node %d>", np->n_type);
+#endif
+		switch (np->n_type) {
+		case NIORS:
+			f |= FIORS;
+#if	0
+			/* Old code. */
+			eval(np->n_strp, EWORD);
+			niovp = addargl(niovp, duplstr(strt, 0));
+			if (xflag)
+				nputs += puta(nputs, strt);
+#else
+			/*
+			 * New code by steve 1/24/91.
+			 * This allows globs in redirection args.
+			 */
+			s = skipredir(np->n_strp);
+			nargs = nargc;
+			eval(s, EARGS);			/* expand as arg */
+			for (s1 = np->n_strp, sp = strt; s1 < s; )
+				*sp++ = *s1++;
+			strcpy(sp, nargv[nargs]);	/* build redir arg */
+			niovp = addargl(niovp, duplstr(strt, 0));
+			if (xflag)
+				nputs += puta(nputs, strt);
+			--nargc;
+			for (app = nargv+nargs; *app; app++) {
+				*app = *(app + 1);	/* shift remaining args */
+				if (xflag && *app != NULL)
+					nputs += puta(nputs, *app);
+			}
+#endif
+			continue;
+		case NARGS:
+			f |= FARGS;
+			nargs = nargc;
+			eval(np->n_strp, EARGS);
+			if (xflag)
+				for (app = nargv+nargs; *app; )
+					nputs += puta(nputs, *app++);
+			continue;
+		case NASSG:
+			if (kflag || (f&FARGS)==0) {
+				f |= FASSG;
+				eval(np->n_strp, EWORD);
+				nenvp = addargl(nenvp, duplstr(strt, 0));
+				if (xflag)
+					nputs += puta(nputs, strt);
+			} else {
+				nargs = nargc;
+				eval(np->n_strp, EARGS);
+				if (xflag)
+					for (app = nargv+nargs; *app; )
+						nputs += puta(nputs, *app++);
+			}
+			continue;
+		case NCTRL:
+			if (nctlp != NULL) {
+				panic (3);
+				NOTREACHED;
+			}
+			f |= FARGS;
+			nctlp = np;
+			continue;
+		default:
+			panic (4);
+			NOTREACHED;
+		}
+	}
+	if (xflag && nputs)
+		prints ("\n");
+#ifdef VERBOSE
+	if (xflag) {
+		prints("\t<%o flag, %d put, %d arg, %o arv, %o env, %o iov>\n",
+			f, nputs, nargc-1, *(nargv+1), *nenvp, *niovp);
+	}
+#endif
+
+	nargv += 1;	/* Skip over "sh" */
+	nargc -= 1;
+
+	/* Last chance to quit */
+#ifdef VERBOSE
+	if (xflag) prints("errflag = %o\n", errflag);
+#endif
+	if (errflag || nflag)
+		return 0;
+
+	/* And away we go */
+	if (lastcmd != no_last_command)
+		sfree (lastcmd);
+	if (* nargv)
+		lastcmd = duplstr (* nargv, 1);
+	else
+		lastcmd = no_last_command;
+	switch (f) {
+	case	0:
+		return 0;
+	case	FARGS:
+		if (nctlp) {
+			command(nctlp->n_auxp);
+			return 0;
+		}
+	case	FARGS|	FIORS:
+	case	FARGS|		FASSG:
+	case	FARGS|	FIORS|	FASSG:
+		if (shell_function () || shell_builtin ())
+			return 0;
+		break;
+	case		FIORS:
+		break;
+	case			FASSG:
+	case		FIORS|	FASSG:
+		for (app = nenvp ; * app !=NULL; )
+			setsvar (* app ++);
+		if ((f & ~ FASSG) ==0) {
+			slret = 0;
+			return 0;
+		}
+		break;
+	default:
+		panic (5);
+		NOTREACHED;
+	}
+	if (nllflag || (f = clone ()) == 0) {
+		if (redirect (niovp, NULL) < 0) {
+			slret = 1;
+		} else if (nargc) {
+			dflttrp (ICMD);
+			nenvp = envlvar (nenvp);
+			flexec ();
+			slret = 1;
+		} else if (nctlp)
+			command (nctlp->n_auxp);
+		exit (slret);
+		NOTREACHED;
+	}
+	return f;
+}
+
+puta(n, p)
+char *p;
+{
+	if (n)
+		prints(" ");
+#ifdef VERBOSE
+	else
+		prints("<%d> ", getpid());
+#endif
+	prints("%s", p);
+	return (1);
+}
+
+/*
+ * Execute a pipe command.
+ * Fork, if necessary, a subshell to execute the pipe.
+ * Fork each segment off.
+ * Wait for last, save slret, wait for all, return slret from last.
+ */
+pipecoms(np)
+register NODE *np;
+{
+	register int f;
+	register int p1st = 0;
+	int pipev[2];
+
+	if ( ! nllflag && (f = clone()) != 0)
+		return (f);
+	while (np->n_type == NPIPE) {
+		if (f = pipeline(pipev)) {
+			/* Parent takes right hand side */
+			np = np->n_next;
+			if (p1st == 0)
+				p1st = f;
+			dup2(pipev[0], 0);
+			if (pipev[0] != 0)
+				close(pipev[0]);
+			close(pipev[1]);
+		} else {
+			/* Child takes left hand side */
+			np = np->n_auxp;
+			dup2(pipev[1], 1);
+			close(pipev[0]);
+			if (pipev[1] != 1)
+				close(pipev[1]);
+			exit(command(np));
+			NOTREACHED;
+		}
+	}
+	if (f = clone()) {
+		/* Parent waits out pipe line */
+		spipe = p1st;
+		close(0);
+		if (f = waitc(f))
+			waitc(p1st);
+		exit(f);
+		NOTREACHED;
+	} else {
+		/* Child takes the pipe tail */
+		exit(command(np));
+		NOTREACHED;
+	}
+}
+
+/*
+ * Skip a redirection arg, return pointer to following nonspace.
+ */
+char *
+skipredir(s) register char *s;
+{
+	if (*s >= '1' && *s <= '9')
+		++s;
+	if (*s == '>' || *s == '<')
+		++s;
+	if (*s == '>' || *s == '<')
+		++s;
+	if (*s == '&')
+		++s;
+	while (*s == ' ' || *s == '\t')
+		++s;
+	return s;
+}
+
+/* end of sh/exec1.c */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d7 1
+d18 1
+a18 1
+command(np)
+d38 3
+a40 2
+	con.c_bpp = savebuf();
+	sesp->s_con = &con;
+d42 1
+a42 1
+	switch (setjmp(con.c_envl)) {
+d51 1
+a51 1
+		panic(1);
+d55 1
+a55 1
+	for ( ; np != NULL; np=np->n_next) {
+d64 1
+a64 1
+		f = comscom(np->n_auxp);
+d66 1
+d73 1
+a73 1
+				eval(np->n_strp, EARGS);
+d76 3
+d81 1
+d84 1
+a84 1
+		if (*inlp == NULL || assnvar(innp, *inlp++) == NULL)
+d87 1
+d91 5
+a95 1
+		if (command(np->n_auxp))
+d98 1
+d102 5
+a106 1
+		if ( ! command(np->n_auxp))
+d109 1
+d111 1
+a111 1
+		command(np->n_auxp);
+d113 1
+d115 2
+a116 2
+		if (nllflag || (f=clone()) == 0) {
+			exit(command(np->n_auxp));
+d120 1
+d123 1
+a123 1
+		if (!command(np->n_auxp->n_auxp))
+d128 1
+d130 1
+a130 1
+		command(np->n_auxp);
+d132 1
+d134 1
+a134 1
+		eval(np->n_strp, EWORD);
+d137 1
+a137 1
+		cname = duplstr(strt, 0);
+d139 1
+d143 1
+d146 1
+a146 1
+		eval(np->n_strp, EPATT);
+d149 2
+a150 2
+		if (match(strt, cname)) {
+			command(cnode);
+d154 1
+d157 1
+a157 1
+		command(np->n_auxp);
+d159 1
+d162 1
+a162 1
+		if (command(np->n_auxp))
+d165 1
+d168 1
+a168 1
+		if ( ! command(np->n_auxp))
+d171 1
+d173 1
+a173 1
+		if ((f=clone()) == 0) {
+d177 3
+a179 3
+			dflttrp(IBACK);
+			redirect(iov, NULL);
+			exit(command(np->n_auxp));
+d183 1
+a183 1
+		prints("%d\n", f);
+d186 1
+d188 1
+a188 1
+		f = pipecoms(np);
+d190 1
+d192 1
+a192 1
+		def_shell_fn(np);
+d194 1
+d197 1
+a197 1
+			printe("return not inside shell function");
+d200 4
+a203 4
+		ret_done++;		/* to interrupt control flow */
+		if (np->n_strp[0] != '\0') {
+			eval(np->n_strp, EARGS);
+			slret = atoi(strt);
+d206 1
+d208 1
+a208 1
+		panic(2);
+d219 1
+a219 1
+		waitc(f);
+d221 4
+a224 2
+		assnvar("LASTERROR", lastcmd);
+	freebuf(con.c_bpp);
+d226 1
+a226 1
+		reset(RUABORT);
+d240 1
+a240 1
+comscom(np)
+d318 2
+a319 2
+			if (nctlp!=NULL) {
+				panic(3);
+d326 1
+a326 1
+			panic(4);
+d331 1
+a331 1
+		prints("\n");
+d347 1
+a347 1
+		return (0);
+d351 3
+a353 3
+		sfree(lastcmd);
+	if (*nargv)
+		lastcmd = duplstr(*nargv, 1);
+d358 1
+a358 1
+		return (0);
+d362 1
+a362 1
+			return (0);
+d368 1
+a368 1
+			return (0);
+d374 3
+a376 3
+		for (app = nenvp; *app!=NULL; )
+			setsvar(*app++);
+		if ((f&~FASSG)==0) {
+d378 1
+a378 1
+			return (0);
+d382 1
+a382 1
+		panic(5);
+d385 1
+a385 1
+	if (nllflag || (f=clone()) == 0) {
+d389 3
+a391 3
+			dflttrp(ICMD);
+			nenvp = envlvar(nenvp);
+			flexec();
+d394 2
+a395 2
+			command(nctlp->n_auxp);
+		exit(slret);
+d398 1
+a398 1
+	return (f);
+@

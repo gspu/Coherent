@@ -1,0 +1,237 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @ * @;
+
+
+1.2
+date     91.06.20.14.39.59;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.06.10.10.36.54;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version prov by hal
+@
+
+
+1.2
+log
+@update provided by hal
+@
+text
+@/* $Header: /usr/src/sys/i8086/src/RCS/krunch.c,v 1.1 88/03/24 17:39:33 src Exp $ */
+/*
+ *	The  information  contained herein  is a trade secret  of INETCO
+ *	Systems, and is confidential information.   It is provided under
+ *	a license agreement,  and may be copied or disclosed  only under
+ *	the terms of that agreement.   Any reproduction or disclosure of
+ *	this  material  without  the express  written  authorization  of
+ *	INETCO Systems or persuant to the license agreement is unlawful.
+ *
+ *	Copyright (c) 1987.
+ *	An unpublished work by INETCO Systems, Ltd.
+ *	All rights reserved.
+ */
+
+/*
+ * Coherent.
+ * Segment crunch.
+ *
+ * $Log:	/usr/src/sys/i8086/src/RCS/krunch.c,v $
+ * Revision 1.1	88/03/24  17:39:33	src
+ * Initial revision
+ * 
+ * 87/12/02	Allan Cornish	/usr/src/sys/i8086/src/krunch.c
+ * krunch() now locks/unlocks segment gate.
+ *
+ * 87/11/26	Allan Cornish	/usr/src/sys/i8086/src/krunch.c
+ * krunch() now called to merge unused memory by moving segments.
+ */
+#include <sys/coherent.h>
+#include <sys/i8086.h>
+#include <sys/proc.h>
+#include <sys/seg.h>
+
+/*
+ * Time interval in clock ticks between krunch attempts: default 2 seconds.
+ */
+int KRUNCH = 200;
+
+/**
+ *
+ * krunch( n )
+ * int n;
+ *
+ *	Input:	n = maximum number of segments to be moved.
+ *
+ *	Action:	Scan the segmentation list, looking for unused memory
+ *		immediately below unlocked application segments,
+ *		moving the segment down into the unused memory.
+ */
+krunch( n )
+int n;
+{
+	register SEG *sp;
+	paddr_t paddr;
+	saddr_t osel;
+	static TIM tim;
+	int s;
+
+	if ( depth != 0 ) {
+		printf("krunch(%d,depth=%d) ", n, depth );	/** DEBUG **/
+		return;
+	}
+
+	/*
+	 * Do not crunch segment list if swapper is active.
+	 */
+	if ( (KRUNCH == 0) || (sexflag != 0) )
+		return;
+
+	/*
+	 * Segment count of 0 indicates a request to schedule delayed krunch(1).
+	 */
+	if ( n <= 0 ) {
+		if ( tim.t_last != NULL )
+			timeout( &tim, KRUNCH, krunch, 1 );
+		return;
+	}
+
+	/*
+	 * Segmentation is locked - retry later.
+	 */
+	s = sphi();
+	if ( locked(seglink) ) {
+		timeout( &tim, KRUNCH, krunch, n );
+		spl(s);
+		return;
+	}
+	lock(seglink);
+	spl(s);
+
+#if EBUG > 1
+	printf("krunch(%d) ", n );
+#endif
+
+	for ( paddr = corebot, sp = &segmq;
+	      (sp = sp->s_forw) != &segmq ;
+	      paddr = sp->s_paddr + sp->s_size ) {
+
+		/*
+		 * No hole exists.
+		 */
+		if ( paddr == sp->s_paddr )
+			continue;
+
+#if EBUG > 1
+		printf("hole(p=%X,n=%X) seg(p=%X,n=%X,f=%x,u=%x,l=%x) ",
+			paddr,
+			sp->s_paddr - paddr,
+			sp->s_paddr,
+			sp->s_size,
+			sp->s_flags & (SFSYST|SFHIGH),
+			sp->s_urefc,
+			sp->s_lrefc );
+#endif
+
+		/*
+		 * Don't try to shuffle high segments into low memory.
+		 */
+		if ( sp->s_flags & SFHIGH )
+			break;
+
+		/*
+		 * System segment.
+		 */
+		if ( sp->s_flags & SFSYST )
+			continue;
+
+		/*
+		 * Segment may be in process of being swapped in/out.
+		 */
+		if ( (sp->s_flags & SFCORE) == 0 )
+			continue;
+
+		/*
+		 * Segment is locked for I/O.
+		 */
+		if ( sp->s_lrefc != sp->s_urefc )
+			continue;
+
+#if EBUG > 0
+		printf("move(dst=%X,src=%X,len=%X) ",
+			paddr, sp->s_paddr,sp->s_size );
+#endif
+		/*
+		 * Remember previous virtual address.
+		 */
+		osel = FP_SEL(sp->s_faddr);
+
+		/*
+		 * Shift segment into the hole.
+		 */
+		plrcopy( sp->s_paddr, paddr, sp->s_size );
+		sp->s_paddr = paddr;
+		vremap( sp );
+
+#if EBUG > 0
+		if ( FP_SEL(sp->s_faddr) != osel ) {
+			printf("krunch: osel=%x nsel=%x\n",
+				osel, FP_SEL(sp->s_faddr) );
+		}
+#endif
+
+		/*
+		 * Ensure user segmentation is updated.
+		 * We may have moved the current process.
+		 */
+		if ( (SELF->p_pid != 0) && ((ucs == osel) || (uds == osel)) )
+			segload();
+		if ( uasa == osel )
+			uasa = FP_SEL(sp->s_faddr);
+
+		/*
+		 * Crunch count reached.
+		 */
+		if ( --n <= 0 )
+			break;
+	}
+
+	/*
+	 * Cancel timer if all low memory holes eliminated.
+	 */
+	if ( (KRUNCH == 0) || (sp == &segmq) || (sp->s_flags & SFHIGH) )
+		timeout( &tim, 0, NULL, 0 );
+
+	/*
+	 * Attempt to crunch another segment in KRUNCH clock ticks.
+	 */
+	else
+		timeout( &tim, KRUNCH, krunch, 1 );
+
+	unlock(seglink);
+
+#if EBUG > 0
+	printf("\n");
+#endif
+}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d29 1
+a29 1
+#include <coherent.h>
+@

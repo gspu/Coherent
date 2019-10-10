@@ -1,0 +1,217 @@
+////////
+/
+/ I/O for Seagate ST01/ST02 SCSI Host Adapters.
+/
+/ $Log:	ssas.s,v $
+/ Revision 1.7  91/06/01  10:51:00  hal
+/ Add ffcopy().
+/ 
+/ Revision 1.6  91/06/01  10:32:51  hal
+/ Do handshaking both ways.  Now names are ss_getb()/ss_putb().
+/ 
+/ Revision 1.5	91/05/20  17:22:03	root
+/ Not using ss_put() any more.
+/ 
+/ Revision 1.4	91/05/20  16:21:35	root
+/ Call to ss_putc() now works.
+/ 
+/ Revision 1.3	91/05/20  10:23:13	root
+/ Drop 3rd arg.  Same code for Seagate & Future Domain.
+/ 
+/ Revision 1.2	91/05/17  00:24:17	root
+/ Code ss_put - use REQ handshake.
+/ 
+/ Revision 1.1	91/05/16  14:16:21	root
+/ Initial version - no code yet for ss_put().
+/ 
+/
+/	Since these functions are called from the midst of C code in
+/	the "ss" driver, they need to preserve the following registers:
+/		SI  DI  SP  BP    SS  DS  ES
+/	Additionally, surrounding C code is expected to leave the "D"
+/	CPU flag clear (string op's increment index registers).
+/
+////////
+
+////////
+/
+/	Export functions.
+/
+////////
+	.globl	ss_getb_
+	.globl	ss_putb_
+	.globl	ffcopy_
+
+////////
+/
+/ Constants
+/
+/	Relative to the RAM base address of the host adapter, offsets
+/	for Control/Status Register (CSR) and Data Port (DAT) differ
+/	between Seagate and Future Domain as follows:
+/			Seagate		Future Domain
+/		SS_CSR	0x1A00		0x1C00
+/		SS_DAT	0x1C00		0x1E00
+/	The difference between these (CSR_OFF) is 0x200 in either case.
+/
+////////
+
+	BSIZE	= 0x200		/ Disk block size in bytes
+	CSR_OFF	= 0x200
+
+	REQ_LIM = 500
+	RS_REQUEST = 0x10
+
+////////
+/
+/ ss_getb(ss_dat_fp, buf_fp)
+/ faddr_t ss_dat_fp, buf_fp;
+/
+/ Fetch input bytes from host adapter and store at buffer address.
+/
+/ Do REQ handshaking and return the number of bytes remaining to transfer.
+/ (So return value of 0 means no error.)
+/
+/ Here is the stack after initial "push bp":
+/
+/	10(bp)	FP_SEL(buf_fp)
+/	8(bp)	FP_OFF(buf_fp)
+/	6(bp)	FP_SEL(ss_dat_fp)
+/	4(bp)	FP_OFF(ss_dat_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+ss_getb_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si
+
+	lds	si, 4(bp)	/ ss_dat_fp to DS:SI
+	mov	bx, si		/ .. and to DS:BX
+	sub	bx, $CSR_OFF	/ ss_csr to DS:BX
+	les	di, 8(bp)	/ buf_fp to ES:DI
+	mov	cx, $BSIZE	/ rep count to CX
+
+G01:				/ start outer loop - reading bytes from SCSI
+	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+G02:				/ start inner loop - polling for REQ
+	movb	dl, (bx)
+	testb	dl, $RS_REQUEST
+	jne	G03		/ got REQ
+	dec	ax
+	jnz	G02		/ no REQ - look again
+	jmp	G04		/ no REQ - give up
+
+G03:				/ got REQ - ok to read a byte
+	movsb
+	loop	G01
+G04:				/ all done
+	mov	ax, cx		/ normal exit returns 0
+
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+
+////////
+/
+/ int ss_putb(ss_dat_fp, buf_fp)
+/ faddr_t ss_dat_fp, buf_fp;
+/
+/ Write output bytes to host adapter from buffer address.
+/
+/ Return the number of bytes remaining to be sent (should be 0).
+/
+/ Here is the stack after initial "push bp":
+/
+/	10(bp)	FP_SEL(buf_fp)
+/	8(bp)	FP_OFF(buf_fp)
+/	6(bp)	FP_SEL(ss_dat_fp)
+/	4(bp)	FP_OFF(ss_dat_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+ss_putb_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si 
+	lds	si, 8(bp)	/ buf_fp to DS:SI
+	les	di, 4(bp)	/ ss_dat_fp  to ES:DI
+	mov	bx, di		/ .. and to ES:BX
+	sub	bx, $CSR_OFF	/ ss_csr to ES:BX
+	mov	cx, $BSIZE	/ count to CX
+
+P01:				/ start outer loop - writing bytes to SCSI
+	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+P02:				/ start inner loop - polling for REQ
+	movb	dl, es:(bx)
+	testb	dl, $RS_REQUEST
+	jne	P03		/ got REQ
+	dec	ax
+	jnz	P02		/ no REQ - look again
+	jmp	P04		/ no REQ - give up
+
+P03:				/ got REQ - ok to write a byte
+	movsb
+	loop	P01
+P04:				/ all done - now restore registers
+	mov	ax, cx
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+
+////////
+/
+/ void ffcopy(from_fp, to_fp, count)
+/ faddr_t from_fp, to_fp;
+/ int count;
+/
+/ Copy count bytes from from_fp to to_fp.
+/
+/ Here is the stack after initial "push bp":
+/
+/	12(bp)	count
+/	10(bp)	FP_SEL(to_fp)
+/	8(bp)	FP_OFF(to_fp)
+/	6(bp)	FP_SEL(from_fp)
+/	4(bp)	FP_OFF(from_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+ffcopy_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si
+
+	lds	si, 4(bp)	/ from_fp  to DS:SI
+	les	di, 8(bp)	/ to_fp to ES:DI
+	mov	cx, 12(bp)	/ rep count to CX
+	rep
+	movsb
+
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret

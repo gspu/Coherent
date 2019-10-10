@@ -1,0 +1,159 @@
+# Generated from mkdev.sh on Wed Aug 10 15:42:51 1994 CDT
+# lp/mkdev - install line printer parallel ports.
+# Revised: Wed Mar  2 21:50:29 1994 CST
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+
+. $CONF_DIR/bin/conf_lib.sh
+
+# A constant - used by /etc/conf/bin/bports to indicate no device.
+
+NO_LP=NONE
+
+# Get printer port base addresses as seen by the BIOS.
+
+set `$CONF_DIR/bin/bports -l`
+LP1=$1
+LP2=$2
+LP3=$3
+
+echo "\nParallel printer configuration:"
+while : ; do
+	echo
+
+	# Detect if there are any valid parallel ports.
+
+	if [ $LP1 = $NO_LP -a $LP2 = $NO_LP -a $LP3 = $NO_LP ]; then
+		echo "No parallel ports were detected by the BIOS."
+		USE_PLL="n"
+	else
+		# Ask if parallel ports should be enabled.
+		echo "Your BIOS identifies the following parallel printer ports:"
+		echo "LPT1: $LP1	LPT2: $LP2	LPT3: $LP3"
+		USE_PLL="y"
+	fi
+
+	set_enable_status lp
+	USE_PLL=y
+
+#	read_input "Enable parallel port device driver" USE_PLL $USE_PLL \
+#		require_yes_or_no
+
+	LPDEV=
+
+	is_yes $USE_PLL && {
+		# Ask which, if any, should be the default.
+
+		echo "The default printer on COHERENT is /dev/lp."
+		echo "This device may be linked to any valid parallel or serial port.\n"
+
+		for i in 1 2 3 ; do
+			eval is_equal \$LP$i $NO_LP && continue
+
+			read_input "Do you want /dev/lp to refer to LPT$i" \
+				ANS "y" require_yes_or_no || continue 2
+
+			is_yes $ANS && {
+				LPDEV=/dev/lpt$i
+				RLPDEV=/dev/rlpt$i
+				break
+			}
+		done
+
+		if is_empty $LPDEV; then
+			echo "\n/dev/lp will not be linked to any parallel port."
+		else
+			echo "\n/dev/lp will be linked to $LPDEV"
+		fi
+	}
+
+	if is_yes $USE_PLL ; then
+		echo "Parallel ports will be enabled."
+	else
+		echo "Parallel ports will be disabled."
+	fi
+
+	read_input "Is this correct" ANS "y" require_yes_or_no
+	is_yes $ANS && break
+done
+
+# Enable/disable parallel port driver.
+
+if is_yes $USE_PLL; then
+	$CONF_DIR/bin/idenable -e lp
+else
+	LP1=$NO_LP
+	LP2=$NO_LP
+	LP3=$NO_LP
+	$CONF_DIR/bin/idenable -d lp
+fi
+
+
+# Make device nodes.
+
+for i in 1 2 3; do
+	eval is_equal \$LP$i $NO_LP || {
+		eval $CONF_DIR/bin/idtune -f LPT${i}_BASE_SPEC \$LP$i
+		/etc/mknod -f /dev/lpt$i c 3 $(($i - 1))
+		/etc/mknod -f /dev/rlpt$i c 3 $((128 + $i - 1))
+		/bin/chmog 222 sys sys /dev/lpt$i /dev/rlpt$i
+	}
+done
+
+
+# Link default printer device.
+
+is_empty $LPDEV || {
+	/bin/ln -f $LPDEV /dev/lp
+	/bin/ln -f $RLPDEV /dev/rlp
+}
+
+# Advanced configuration - tunable parameters.
+
+read_input "Perform parallel printer advanced configuration" \
+  ANS "n" require_yes_or_no
+is_yes $ANS && {
+
+	echo "
+The driver uses a hybrid busy-wait/timeout discipline to support printers
+efficiently that have varying buffer sizes in a multi-tasking environment.
+
+Parameter LPWAIT sets the time for which the processor waits for the
+printer to accept the next character.  If the printer is not ready
+within the LPWAIT period, the processor then resumes normal processing
+for the number of ticks set by parameter LPTIME.  Thus, setting LPWAIT
+to an extremely large number (e.g., 1000) and LPTIME to a very small
+number (e.g., 1) results in a fast printer, but leaves very few cpu
+cycles available for anything else.  Conversely, setting LPWAIT to a
+small number (e.g., 50) and LPTIME to a large number (e.g., 5) results
+in efficient multi-tasking but also results in a slow printer unless the
+printer itself contains a buffer (as is normal with all but the least
+expensive printers).  By default, LPWAIT is set to 400 and LPTIME to 4.
+
+We recommend that you set LPWAIT to no less than 50 and no more than 1000
+and LPTIME to no less than 1.
+"
+	tune LPWAIT_SPEC "LPWAIT setting"
+	tune LPTIME_SPEC "LPTIME setting"
+
+	echo "
+Parameter LPTEST determines whether the device driver checks
+to see if the printer is on-line before it uses the device.  If your
+printer does not support this signal, you must set LPTEST to zero.
+"
+	tune LPTEST_SPEC "LPTEST setting"
+
+	echo "
+Finally, some ports do not assert hardware control signal LP0 reliably.
+If port LPT1 has this problem, set LPT1_LP0_BUG to 1, otherwise set it to 0.
+Set LPT2_LP0_BUG and LPT3_LP0_BUG similarly for ports LPT2 and LPT3.
+"
+	tune LPT1_LP0_BUG "LPT1_LP0_BUG setting"
+	tune LPT2_LP0_BUG "LPT2_LP0_BUG setting"
+	tune LPT3_LP0_BUG "LPT3_LP0_BUG setting"
+
+}
+exit 0

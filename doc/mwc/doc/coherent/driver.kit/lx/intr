@@ -1,0 +1,72 @@
+.TH intr "" "" "Entry-Point Routine"
+.PC "Process an interrupt"
+\fBvoid \fIprefix\fBintr(\fIvector\^\fB)\fR
+\fBint \fIvector\^\fB;\fR
+.PP
+The
+.B intr
+routine is the interrupt handler for both block and character drivers.
+This entry point applies
+.I only
+to drivers that use the DDI/DKI interface to the kernel.
+.PP
+.I vector
+gives the number that \*(CO uses to associate a driver's interrupt handler
+with an interrupting device.
+This number is set in the file
+.BR sdevice .
+.PP
+The
+.B intr
+routine performs all tasks specific to the driver and its device.
+You should know the exact chip set that produces the interrupt for your
+device, the bit patterns of the device's control and status register,
+and how data are moved into and out of your computer.
+.PP
+If the driver called
+.B biowait()
+or
+.B SV_WAIT()
+to await the completion of an operation, the
+.B intr
+routine must call
+.B biodone()
+or
+.B SV_SIGNAL()
+to tell the process to resume.
+.SH "See Also"
+.B
+biodone(),
+entry-point routines,
+spl(),
+SV_SIGNAL()
+.R
+.SH Notes
+This entry-point is used only by the DDI/DKI interface.
+It is required only in drivers for hardware that generate interrupts.
+It is not used with software drivers.
+.PP
+The
+.B intr
+routine must never do the following:
+.IP \(bu 0.3i
+Call a function that sleeps.
+.IS \(bu
+Lower the level of interrupt priority below that at which the interrupt
+routine was entered.
+.IS \(bu
+Call any routine that requires user context.
+.IS \(bu
+Call
+.BR uiomove() ,
+.BR ureadc() ,
+or
+.B uwritec()
+when field
+.B uio_segflg
+of structure
+.B uio
+equals
+.BR UIO_USERSPACE ,
+which indicates that data are being transferred between the user and
+kernel spaces.

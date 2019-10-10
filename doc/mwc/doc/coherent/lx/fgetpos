@@ -1,0 +1,129 @@
+.TH fgetpos() "" "" "STDIO Function (libc)"
+.PC "Get value of file-position indicator"
+.B "#include <stdio.h>"
+\fBint\fR
+\fBfgetpos(\fIfp\^\fB, \fIposition\^\fB)\fR
+\fBFILE *\fIfp\^\fB; fpos_t *\fIposition\^\fB;\fR
+.PP
+.II "file-position indicator^get value"
+.B fgetpos()
+copies the value of the file-position indicator for the file stream
+pointed to by
+.I fp
+into the area pointed to by
+.IR position .
+.I position
+is of type
+.BR fpos_t ,
+which is defined in the header
+.BR stdio.h .
+.PP
+The function
+.B fsetpos()
+can use the information written into
+.I position
+to return the file-position indicator to where it was when
+.B fgetpos()
+was called.
+.PP
+.B fgetpos()
+returns zero if all went well.
+If an error occurred,
+it returns nonzero and sets
+.B errno
+to an appropriate value.
+.SH Example
+This example seeks to a random line in a very large file.
+.DM
+#include <math.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+.DE
+.DM
+void
+fatal(message)
+char *message;
+{
+	fprintf(stderr, "%s\en", message);
+	exit(1);
+}
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	int c;
+	long count;
+	FILE *ifp, *tmp;
+	fpos_t loc;
+.DE
+.DM
+	if (argc != 2)
+		fatal("usage: fscanf inputfile\en");
+	if ((ifp = fopen(argv[1], "r")) == NULL)
+		fatal("Cannot open %s\en", argv[1]);
+	if((tmp = tmpfile()) == NULL)
+		fatal("Cannot build index file");
+.DE
+.DM
+	/* seed random-number generator */
+	srand ((unsigned int)time(NULL));
+.DE
+.DM
+	for (count = 1;!feof(ifp); count++) {
+		/* for monster files */
+		if (fgetpos(ifp, &loc))
+			fatal ("fgetpos error");
+.DE
+.DM
+		if (fwrite(&loc, sizeof(loc), 1, tmp) != 1)
+			fatal("Write fail on index");
+		rand();
+		while('\en' != (c = fgetc(ifp)) && EOF != c)
+			;
+	}
+.DE
+.DM
+	count = rand() % count;
+	fseek(tmp, count * sizeof(loc), SEEK_SET);
+.DE
+.DM
+	if(fread(&loc, sizeof(loc), 1, tmp) != 1)
+		fatal("Read fail on index");
+.DE
+.DM
+	fsetpos(ifp, &loc);
+	while((c = fgetc(ifp)) != EOF) {
+		if(c =='@')
+			putchar('\en');
+		else
+			putchar(c);
+.DE
+.DM
+		if(c == '\en')
+			break;
+	}
+}
+.DE
+.SH "See Also"
+.Xr "fseek()," fseek
+.Xr "fsetpos()," fsetpos
+.Xr "ftell()," ftell
+.Xr "libc," libc
+.Xr "rewind()" rewind
+.br
+\*(AS, \(sc7.9.9.1
+.SH Notes
+The ANSI Standard introduced
+.B fgetpos()
+and
+.B fsetpos()
+to manipulate a file whose file-position indicator cannot be stored within a
+.BR long .
+Under \*(CO
+.B fgetpos()
+behaves the same as the function
+.BR ftell() .

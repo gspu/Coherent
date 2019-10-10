@@ -1,0 +1,450 @@
+tteerrmmiioo -- Device Driver
+
+General terminal interface
+
+COHERENT uses  two methods for controlling terminals:  ssggttttyy and tteerrmmiioo. To
+use ssggttttyy, simply include the statement #iinncclluuddee <ssggttttyy.hh> in your sources.
+To use tteerrmmiioo, include the statement #iinncclluuddee <tteerrmmiioo.hh>.
+
+The  rest  of  this article  discusses  the  tteerrmmiioo  method of  controlling
+terminals.
+
+When a  terminal file  is opened,  it normally causes  the process  to wait
+until  a connection  is established.  In  practice, users'  programs seldom
+open these files: they are opened  by the program ggeettttyy and become a user's
+standard  input, output,  and error  files.  The  very first  terminal file
+opened  by  the  process  group  leader  of a  terminal  file  not  already
+associated  with a  process  group becomes  the _c_o_n_t_r_o_l  _t_e_r_m_i_n_a_l for  that
+process group.  The control terminal  plays a special role in handling qquuiitt
+and  iinntteerrrruupptt  signals,  as  discussed  below.   The control  terminal  is
+inherited by a  child process during a call to  ffoorrkk(). A process can break
+this association by changing its process group using sseettppggrrpp().
+
+A terminal associated with one  of these files ordinarily operates in full-
+duplex mode.   Characters can be  typed at any  time, even while  output is
+occurring,  and  are  lost only  when  the  system's  input buffers  become
+completely  full, which  is  rare, or  when  the user  has accumulated  the
+maximum allowed number  of input characters that have not  yet been read by
+some program.   Currently, this  limit is  256 characters.  When  the input
+limit is  reached, the system throws away all  the saved characters without
+notice.
+
+Normally,  terminal  input is  processed  in  units of  lines.   A line  is
+delimited  by a  newline  character (ASCII  LF),  an end-of-file  character
+(ASCII  EOT),  or an  end-of-line  character.  This  means  that a  program
+attempting to read  will be suspended until an entire  line has been typed.
+Also, no matter how many characters are requested in the read call, at most
+one line is  returned.  It is not, however, necessary  to read a whole line
+at once;  any number of  characters may be  requested in a  read, even one,
+without losing information.
+
+During input, the system  normally processes eerraassee and kkiillll characters.  By
+default, the  backspace character erases  the last character  typed, except
+that it will  not erase beyond the beginning of  the line.  By default, the
+<ccttrrll-UU> kills  (deletes) the entire  input line, and  optionally outputs a
+newline  character.   Both  these  characters  operate on  a  keystroke-by-
+keystroke basis, independently of any backspacing or tabbing which may have
+been done.  Both the erase and  kill characters may be entered literally by
+preceding them with the escape character (\).  You can change the erase and
+kill characters.
+
+Certain characters  have special functions  on input.  These  functions and
+their default character values are summarized as follows:
+
+IINNTTRR      (<ccttrrll-CC>  or ASCII  ETX) generates an  _i_n_t_e_r_r_u_p_t signal  that is
+          sent  to  all processes  with  the  associated control  terminal.
+          Normally,  each   such  process  is  forced   to  terminate,  but
+          arrangements  may  be made  either  to ignore  the  signal or  to
+          receive a  trap to  an agreed-upon  location.  For details  and a
+          table of legal signals, see the Lexicon entry for ssiiggnnaall().
+
+QQUUIITT      (<ccttrrll-\> or ASCII ES) generates a _q_u_i_t signal.  Its treatment is
+          identical to  that of the interrupt signal  except that, unless a
+          receiving  process  has  made  other  arrangements, it  not  only
+          terminates  but dumps  a core  image file  (named ccoorree)  into the
+          current working directory.
+
+EERRAASSEE     (<bbaacckkssppaaccee>  or ASCII  BS) erases  the preceding  character.  It
+          does not  erase beyond  the start  of a line,  as delimited  by a
+          newline, EEOOFF, or EOL character.
+
+KKIILLLL      (<ccttrrll-UU> or ASCII NAK)  deletes the entire line, as delimited by
+          a newline, EEOOFF, or EOL character.
+
+EEOOFF       (<ccttrrll-DD> or ASCII EOT) generates an end-of-file character from a
+          terminal.  When  received, all the characters  waiting to be read
+          are  immediately passed  to  the program  without  waiting for  a
+          newline, and  the EEOOFF is  discarded.  Thus, if  no characters are
+          waiting, which is  to say the EEOOFF occurred at  the beginning of a
+          line, zero characters are  passed back; this is the standard end-
+          of-file indication.
+
+NNLL        (ASCII LF) is the normal line delimiter.  It cannot be changed or
+          escaped.
+
+EEOOLL       (ASCII LF)  is an additional line delimiter, like  NL.  It is not
+          normally used.
+
+SSTTOOPP      (<ccttrrll-SS> or  ASCII DC3)  can be used  to suspend output.   It is
+          useful  with CRT  terminals to  prevent output  from disappearing
+          before  it  can   be  read.   While  output  is  suspended,  SSTTOOPP
+          characters are ignored and not read.
+
+SSTTAARRTT     (<ccttrrll-QQ> or ASCII DC1) resumes output that has been suspended by
+          a  SSTTOOPP   character.   While  output  is   not  suspended,  SSTTAARRTT
+          characters are  ignored and not read.   The SSTTAARRTT/SSTTOOPP characters
+          cannot be changed or escaped.
+
+You can change  the character values for IINNTTRR, QQUUIITT,  EERRAASSEE, KKIILLLL, EEOOFF, and
+EEOOLL To suit your taste.  The EERRAASSEE, KKIILLLL, and EEOOFF character can be preceded
+by a `\' character, in which case the system ignores its special meaning.
+
+When the carrier signal from the  data-set drops, the system sends a _h_a_n_g_u_p
+signal to all processes that  have this terminal as their control terminal.
+Unless other arrangements have been made, this signal causes the process to
+terminate.  If  the hangup signal  is ignored, any  subsequent read returns
+EOF.   Thus, programs  that read  a terminal and  test for  end-of-file can
+terminate appropriately when hung up on.
+
+When  one or  more  characters are  written,  they are  transmitted to  the
+terminal  as soon  as previously written  characters have  finished typing.
+Input characters are  echoed by putting them into the  output queue as they
+arrive.  If  a process  produces characters more  rapidly than they  can be
+printed,  it is  suspended when  its output queue  exceeds a  preset limit.
+When the queue has drained down to that threshold, the program resumes.
+
+Several calls  to iiooccttll() apply  to terminal files.  The  primary calls use
+the following structure, defined in <tteerrmmiioo.hh>:
+
+#define NCC 8
+struct termio {
+        unsigned short c_iflag;    /* input modes */
+        unsigned short c_oflag;    /* output modes */
+        unsigned short c_cflag;    /* control modes */
+        unsigned short c_lflag;    /* local modes */
+        char           c_line;     /* line discipline */
+        unsigned char  c_cc[NCC];  /* control chars */
+};
+
+The special control characters are  defined by the array cc_cccc. The relative
+positions and initial values for each function are as follows:
+
+     0   INTR      ^C
+     1   QUIT      ^\
+     2   ERASE     \b
+     3   KILL      ^U
+     4   EOF       ^D
+     5   EOL       \n
+     6   reserved
+     7   reserved
+
+The field cc_iiffllaagg describes the basic terminal input control:
+
+BBRRKKIINNTT    Signal interrupt on break
+IIGGNNPPAARR    Ignore characters with parity errors
+IINNPPCCKK     Enable input parity check
+IISSTTRRIIPP    Strip character
+IICCRRNNLL     Map CR to NL on input
+IIXXOONN      Enable start/stop output control
+IIXXOOFFFF     Enable start/stop input control
+
+If IINNPPCCKK is set, input parity  checking is enabled.  If it is not set, then
+checking is  disabled.  This allows output  parity generation without input
+parity errors.
+
+If IISSTTRRIIPP is set, valid input  characters are stripped to seven bits before
+being processed; otherwise, all eight bits are processed.
+
+If  IIXXOONN is  set, SSTTAARRTT/SSTTOOPP  output control is  enabled.  A  received SSTTOOPP
+character suspends  output and a received  SSTTAARRTT character restarts output.
+All start/stop characters are ignored and not read.
+
+If IIXXOOFFFF is set, the  system transmits SSTTAARRTT/SSTTOOPP characters when the input
+queue is nearly empty or nearly full.
+
+The initial input control value is all bits clear.
+
+The field cc_ooffllaagg field specifies the system treatment of output:
+
+OOPPOOSSTT     Postprocess output.
+OOLLCCUUCC     Map lower case to upper on output.
+OONNLLCCRR     Map NL to CR-NL on output.
+
+If OOPPOOSSTT  is set, output characters are post-processed  as indicated by the
+remaining flags; otherwise, characters are transmitted without change.
+
+If OOLLCCUUCC  is set, a  lower-case alphabetic character is  transmitted as the
+corresponding  upper-case  character.  This  function  is  often used  with
+IIUUCCLLCC.
+
+If OONNLLCCRR  is set, the  NL character is  transmitted as the  CR-NL character
+pair.
+
+The initial output control value is all bits clear.
+
+The  field  cc_ccffllaagg describes  the  hardware control  of  the terminal,  as
+follows:
+
+     CCBBAAUUDD     Baud rate
+     BB00        Hang up
+     BB5500       50 baud
+     BB7755       75 baud
+     BB111100      110 baud
+     BB113344      134.5 baud
+     BB115500      150 baud
+     BB220000      200 baud
+     BB330000      300 baud
+     BB660000      600 baud
+     BB11220000     1200 baud
+     BB11880000     1800 baud
+     BB22440000     2400 baud
+     BB44880000     4800 baud
+     BB99660000     9600 baud
+     BB1199220000    19200 baud
+     BB3388440000    38400 baud
+     CCRREEAADD     Enable receiver
+     PPAARREENNBB    Parity enable
+     PPAARROODDDD    Odd parity, else even
+     HHUUPPCCLL     Hang up on last close
+     CCLLOOCCAALL    Local line, else dial-up
+
+The CCBBAAUUDD bits specify the baud rate.  The zero-baud rate, BB00, hangs up the
+connection.   If BB00  is specified,  the  data-terminal-ready signal  is not
+asserted.   Normally,  this  disconnects  the  line.   For  any  particular
+hardware, the system ignores impossible changes to the speed.
+
+If PPAARREENNBB is  set, parity generation and detection is  enabled and a parity
+bit is  added to  each character.   If parity is  enabled, the  PPAARROODDDD flag
+specifies odd parity if set; otherwise, even parity is used.
+
+If CCRREEAADD is set, the receiver is enabled.  Otherwise, no characters will be
+received.
+
+If HHUUPPCCLL is  set, COHERENT disconnects the line when  the last process with
+the line  open closes the  line or terminates; that  is, the data-terminal-
+ready signal is not asserted.
+
+If CCLLOOCCAALL  is set, the system  assumes that the line to  be a local, direct
+connection with no modem control.  Otherwise, it assumes modem control.
+
+The line  discipline uses the field cc_llffllaagg  to control terminal functions.
+The basic line discipline (zero) provides the following:
+
+     IISSIIGG      Enable signals
+     IICCAANNOONN    Canonical input (erase and kill processing)
+     XXCCAASSEE     Canonical upper/lower presentation
+     EECCHHOO      Enable echo
+     EECCHHOOEE     Echo erase character as BS-SP-BS
+     EECCHHOOKK     Echo NL after kill character
+     EECCHHOONNLL    Echo NL
+
+The following gives the meaning of each flag in detail:
+
+IISSIIGG If this  flag is set,  the system checks each  input character against
+     the special  control characters IINNTTRR  and QQUUIITT. If  an input character
+     matches  one of  these  control characters,  the  system executes  the
+     function associated with that character.  If it is not set is not set,
+     the system  performs no checking; thus,  these special input functions
+     are possible  only if  IISSIIGG is set.   You can disable  these functions
+     individually  by changing  the value  of the  control character  to an
+     unlikely or impossible value (e.g., 0377).
+
+IICCAANNOONN
+     If this  flag is set,  the system enables  canonical processing.  This
+     enables the erase and  kill-edit functions, and limits the assembly of
+     input characters into lines delimited by NL, EOF, and EOL.  The system
+     also interprets  the _v_m_i_n and _v_t_i_m_e locations  in the tteerrmmiioo structure
+     as cc_cccc[VVEEOOFF] and cc_cccc[VVEEOOLL], respectively.
+
+     When  the  IICCAANNOONN  bit   is  cleared,  you  must  set  cc_cccc[VVMMIINN]  and
+     cc_cccc[VVTTIIMMEE] to  appropriate _v_m_i_n and  _v_t_i_m_e values.  _v_m_i_n  is a number
+     from 0  to 255  that gives the  minimum number of  characters required
+     before any read operation completes.  _v_t_i_m_e  is a number from 0 to 255
+     that specifies how long, in tenths of a second, to wait for completion
+     of input.   The following describes how tteerrmmiioo  processes the _v_m_i_n and
+     _v_t_i_m_e values:
+
+     11. If _v_m_i_n  is greater  than zero and  _v_t_i_m_e equals zero,  block until
+        _v_m_i_n characters are received.
+
+     22. If both _v_m_i_n and _v_t_i_m_e are greater than zero, block until the first
+        character  is  received,  then  return  after _v_m_i_n  characters  are
+        received or _V_T_I_M_E]/10 seconds have elapsed since the last character
+        was received, whichever occurs first.
+
+     33. If _v_m_i_n  equals zero, return  after first character  is received or
+        after _v_t_i_m_e/10 seconds have passed, whichever occurs first.  It may
+        return a read count of zero  -- but will return one character if it
+        is available, even if _v_t_i_m_e is zero.
+
+     You can use the command ssttttyy  to reset the _v_m_i_n and _v_t_i_m_e values.  The
+     header file tteerrmmiioo.hh includes  the constants VVMMIINN and VVTTIIMMEE, which set
+     default values for _v_m_i_n and _v_t_i_m_e, respectively.
+
+XXCCAASSEE
+     If this  flag is set,  and if IICCAANNOONN  is set, an  upper-case letter is
+     accepted on input by preceding it  with a `\' character, and is output
+     preceded  by a  `\'  character.  In  this mode,  the following  escape
+     sequences are generated on output and accepted on input:
+
+         _F_o_r:    _U_s_e:
+
+         `   \'
+         |   \!
+         ~   \^
+         {   \(
+         }   \)
+         \   \\
+
+     For example, AA is input as \aa, \nn as \\nn, and \NN as \\\nn.
+
+EECCHHOO If this  flag is set, characters are echoed  as received.  When IICCAANNOONN
+     is set, the following echo functions are possible:
+
+     -> If EECCHHOO and  EECCHHOOEE are set, the erase character  is echoed as ASCII
+        BS SP BS, which clears the last character from the screen.
+
+     -> If EECCHHOOEE is set and EECCHHOO  is not set, the erase character is echoed
+        as ASCII SP BS.
+
+     -> If  EECCHHOOKK  is  set, the  NL  character  is  echoed  after the  kill
+        character to emphasize that the line will be deleted.  Note that an
+        escape character preceding  the erase or kill character removes any
+        special function.
+
+     -> If EECCHHOONNLL  is set, the NL  character is echoed even  if EECCHHOO is not
+        set.   This  is useful  for  terminals set  to  local echo  (``half
+        duplex'').
+
+     Unless escaped,  the EOF character is not echoed.   Because EOT is the
+     default  EOF character,  this prevents terminals  that respond  to EOT
+     from hanging up.
+
+The initial line-discipline control value is all bits clear.
+
+The primary calls to iiooccttll() have the following form:
+
+ioctl( fildes, command, arg )
+struct termio *arg;
+
+The following commands use this form:
+
+TTCCGGEETTAA    Get the parameters associated  with the terminal and store in the
+          tteerrmmiioo structure referenced by aarrgg.
+
+TTCCSSEETTAA    Set  the  parameters   associated  with  the  terminal  from  the
+          structure referenced by aarrgg. The change is immediate.
+
+TTCCSSEETTAAWW   Wait for  the output to drain before  setting the new parameters.
+          This  form should  be used when  changing parameters  that affect
+          output.
+
+TTCCSSEETTAAFF   Wait for the output to drain,  then flush the input queue and set
+          the new parameters.
+
+Additional calls to iiooccttll() have the following form:
+
+ioctl( fildes, command, arg )
+int arg;
+
+The following command uses this form:
+
+TTCCFFLLSSHH
+     Flush both the input and output queues.
+
+Note  that  header  <tteerrmmiioo.hh>  defines  other  constants for  purposes  of
+portability.  Features designated by these constants are unavailable in the
+current release of COHERENT 386.
+
+_E_x_a_m_p_l_e
+The  following example  gives some  functions that let  you perform  a non-
+blocking read of the keyboard -- that is, a
+
+    read(0, &c, sizeof(char));
+
+that returns  zero (failure) rather than  waiting for input if  there is no
+current typed character.
+
+To do so, you must do the following:
+
+-> Set up keyboard input appropriately with the ioctls TTCCGGEETTAA and TTCCSSEETTAA.
+
+-> Turn off IICCAANNOONN.
+
+-> Turn off the various versions of EECCHHOO.
+
+-> Use IISSIIGG to disable keyboard interrupts.
+
+-> Finally, set:
+
+       termiob.c_cc[VMIN] = 0;
+       termiob.c_cc[VTIME] = 0;
+
+   This lets rreeaadd() return after reading zero bytes in .0 seconds.
+
+   #include <termio.h>
+   #include <stdlib.h>
+
+   void
+   ttyinit()
+   {
+       struct  termio  termiob;
+
+       ioctl(0, TCGETA, &termiob); /* get tty characteristics */
+       termiob.c_cc[VMIN] = 0;
+       termiob.c_cc[VTIME] = 0; /* non-blocking read */
+       ioctl(0, TCSETA, &termiob); /* set new mode */
+   }
+
+   int
+   ttycheck()
+   {
+       static int done = 0;
+       char c;
+
+       if (done)
+           return 0;
+       if (read(0, &c, 1) != 0) {
+           if (c == 'a')
+               return 0;
+           else if (c != ' ') {
+               ++done;
+               return 0;
+           }
+
+           /* After <space>, pause until another character is typed */
+           while (read(0, &c, 1) == 0)
+               ;
+       }
+       return 1;
+   }
+
+   main()
+   {
+       ttyinit();
+
+       while (1) {
+           printf("Still checking ...\n");
+           if (!ttycheck())
+               exit(EXIT_SUCCESS);
+       }
+   }
+
+For  another example  of how  to manipulate the  tteerrmmiioo structure,  see the
+entry for iiooccttll().
+
+_F_i_l_e_s
+/ddeevv/ttttyy*
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, iiooccttll(), ssttttyy, tteerrmmiinnaall, tteerrmmiioo.hh
+POSIX Standard, section 7.1
+
+_N_o_t_e_s
+The version  of ssttttyy that  is supplied with COHERENT  386 provides complete
+access to  the System-V-style tteerrmmiioo structure.  This  lets you specify and
+view any combination of  the fields therein, including various delays.  How
+these fields  are processed,  however, depends  on the device  in question.
+The settings of tteerrmmiioo are processed by the kernel's in-line discipline and
+device-driver  modules.  In  COHERENT  4.0.1, none  of  these modules  pays
+attention to delay settings.

@@ -1,0 +1,93 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     92.12.18.14.46.54;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ *	Routines to handle the counting of links for each i-node
+ */
+
+#include "fsck.h"
+
+linkincr(inum)
+ino_t inum;
+{
+	if (inclinkctr(inum) == 0 )
+		fatal("Too many links in i-node, %d", inum);
+}
+
+/*
+ *	The following is the beginning of thinking of how to change
+ *	the number of bits used in the link count tables from 8-per
+ *	i-node to 2-per i-node, with additional tables for those
+ *	i-nodes with more than 2 links.  The changes would be to the
+ *	definition of i_lnks, the macro linkctr(), the function linkincr(),
+ *	and in init.c, the allocation of table space.
+ */
+
+#ifdef	NEWLINKSTUFFF
+
+char	*linkmap;	/* table of inodes with one link */
+
+#define testlink(in)	( linkmap[((unsigned)bn)>>(LOGNBPC-1)] & \
+			  3 << (((unsigned)bn)&(NBPC>>1)) )
+#define marklink(in)	( linkmap[((unsigned)bn)>>(LOGNBPC-1)] |= \
+			  1 << (((unsigned)bn)&(NBPC-2)) )
+#define unmarklink(in)	( linkmap[((unsigned)bn)>>(LOGNBPC-1)] ^= \
+			  1 << (((unsigned)bn)&(NBPC-2)) )
+
+linkcntr(inum)
+ino_t inum;
+{
+	index = ((unsigned) inum) >> (LOGNBPC-1) ;
+	distance = ((unsigned) inum) & ((NBPC>>1) - 1) ;
+	mask = 3 << distance;
+	answer = ( linkmap[index] & mask ) >> distance;
+
+	if ( answer < 3 )
+		return(answer);
+
+	hash = inum & 0xFF;
+	bucket = &linktable[hash];
+	bktinum = bucket->inumb;
+
+	if ( bktinum == inum ) {
+		answer = bucket->numlink;
+		if ( answer == 0xFF )
+			return( bigcntr(inum) );
+		else
+			return( answer + 3 );
+	}
+
+	if ( bktinum > inum )
+		fatal("internal linktable corruption.");
+
+	
+}
+
+linkincr(inum)
+ino_t inum;
+{
+}
+
+#endif
+@

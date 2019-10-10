@@ -1,0 +1,129 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.2; strict;
+comment  @@;
+
+
+1.2
+date     92.11.23.09.19.29;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.08.19.10.24.49;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.2
+log
+@*** empty log message ***
+@
+text
+@Changes to elvis for 386 COHERENT, from version 1.5 to date.
+Fri Jul  3 19:17:43 1992 CDT
+
+1.  Beep doesn't work if /etc/termcap for the terminal lacks a "vb" entry.
+Change is in tio.c/beep():
+--
+	else if (*o_errorbells)
+	{
+#if COHERENT
+		tputs("\007", 1, faddch);
+#else
+		ttywrite("\007", 1);
+#endif
+	}
+This fix appeared in the 1.6 release of elvis.
+--
+
+2.  If /etc/termcap for your terminal has kl=^H, then you can't backspace
+properly in input mode.  Change is in curses.c/starttcap():
+--
+	mayhave(&KL, "kl");		/* left */
+#if COHERENT
+	if (strcmp(KL, "\b")==0)
+		KL = 0;
+#endif
+	mayhave(&KR, "kr");		/* right */
+Something like this appeared in 1.6, but used KR instead of KL.  I changed
+it again.
+-- 
+
+3.  I may log in from the system console (which supports color changes)
+or from a monochrome terminal.  My .exrc has a color setting.  To avoid
+a cascade of "set color..." messages when logging in at the terminal,
+I changed curses.c/ansicolor():
+--
+	/* if not ANSI-ish, then fail */
+	if (strcmp(UP, "\033[A") && strcmp(UP, "\033OA"))
+	{
+#if COHERENT
+		return 1;
+#else
+		msg("Don't know how to set colors for this terminal");
+		return 0;
+#endif
+	}
+Changed again in 1.6.
+--
+
+4.  In a similar vein to #3, if my terminal doesn't have function keys
+but the console does, I don't want to flip through a batch of error
+messages when logging in on the console, so I changed cmd1.c/cmd_map():
+--
+			if (FKEY[key])
+				mapkey(FKEY[key], mapto, bang ? WHEN_VIINP|WHEN_VIREP : WHEN_VICMD, fnames[key]);
+#if !COHERENT
+			else
+				msg("This terminal has no %s key", fnames[key]);
+#endif
+Changed again in 1.6 - hws.
+
+Added in 1.6:
+
+5.  config.h - TMPDIR -> /usr/tmp like minix
+
+6.  vi.h no longer needs special case for COHERENT on fcntl.h
+
+7.  Added printf to ref to display name of file where the symbol is defined.
+
+8.  Changed parser in ctags.c - with "-v" on, it was recognizing
+    ^int	foo();$
+    as a variable declaration.
+
+9.  Regarding the shift-K command in elvis - if you set "kp" as in
+    coherent.rc, you will get COHERENT on-line help for such things
+    as printf.  Or you can set it to just help (for COHERENT command
+    help), or man (for the lengthier COHERENT manual entries), or to
+    ref for the elvis default.  In this case, it is helpful to set
+    TAGPATH if your sources are spread over several directories.
+
+10. Added coherent.rc file with colors for VGA coherent console, kp
+    setting so shift-K gives you COHERENT library help on the word
+    under the cursor.
+
+11. To allow work with preliminary X11, add code in curses.c to check
+    the environment for COLUMNS and LINES.
+
+12. Now that VMIN/VTIME are working, use the version of ttyread() in
+    unix.c that uses these.  This improves response time to ESC markedly!
+--
+-Hal Snyder, M.D.-      Mark Williams Company     (708)-291-6700 (voice)
+hal@@mwc.com                Technical Staff          (708)-291-6750 (fax)
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d83 6
+@

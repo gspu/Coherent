@@ -1,0 +1,252 @@
+.TH xinit "" "" "X Utility"
+.PC "Initiate the X Window System"
+\fBxinit [ [\fIclient\^\fB] \fIoptions\^\fB] [\-\^\-[\fIserver\^\fB] [\fIdisplay\^\fB] \fIoptions\^\fB]\fR
+.PP
+.B xinit
+launches the X Window System's server and a first client program.
+.\"It is used on systems that cannot start X directly from
+.\".B init
+.\"or in environments that use multiple window systems.
+When this first client exits,
+.B xinit
+terminates the X server and closes the X Windows session.
+.SH "xinit Scripts"
+.II xinitrc
+.B xinit
+executes the contents of a script, which invokes various X clients.
+By default,
+.B xinit
+executes the contents of script
+.BR $HOME/.xinitrc .
+If this file doesnot exit,
+.B xinit
+executes the script
+.BR /usr/X11/lib/xinit/xinitrc .
+The tutorial
+.IR "X Windows Clients" ,
+at the beginning of this manual, gives examples of how to create your own
+.B .xinitrc
+file and modify it to suit your tastes.
+.PP
+The programs that are invoked within
+.B $HOME/.xinitrc
+should be run in the background if they do not exit immediately,
+so that they do not prevent other programs from starting up.
+However, the last long-lived program that
+.B $HOME/.xinitrc
+launches (usually the window manager \fBtwm\fR) should be
+left in the foreground so that the script will not exit (which tells
+.B xinit
+that the user is done and it should exit).
+For example, the default file
+.B xinitrc
+contains the following commands:
+.DM
+	xsetroot -bitmap /usr/X11/include/X11/bitmaps/wide_weave
+	xclock -geometry 135x141+15+26 -fg blue -chime -update 1 &
+	xterm -ls -geometry 80x24+130+146 -cr red &
+	twm
+.DE
+.PP
+The command
+.B xsetroot
+tiles the background of the screen with a bit-mapped image.
+Commands
+.B xclock
+and
+.B xterm
+invoke those clients and display them on the screen; note that both
+are run in the background.
+Finally, the command
+.B twm
+invokes the window manager
+.B twm
+in the foreground.
+When
+.B twm
+exits,
+.B xinit
+shuts down the X server and returns you to the normal character-based
+\*(CO interface.
+.SH "Command-line Options"
+.II startx
+.B xinit
+itself normally is invoked through the script
+.BR startx .
+You can modify this script, if you wish, to set
+.BR xinit 's
+options.
+You can use command-line arguments to have
+.B xinit
+ignore the contents of its
+.B xinitrc
+files.
+.PP
+You can name an alternate client or server on
+.BR xinit 's
+command line.
+Give the desired client and its arguments as the first command-line
+arguments to
+.BR xinit .
+To specify a command line for a server, append two hyphens `\-\^\-' to
+.BR xinit 's
+command line (after any client and arguments),
+followed by the commands you wish to pass to the server.
+.PP
+The name of a client program
+and the name of a server program must each begin with a slash `/' or a period.
+If they do not,
+.B xinit
+treats them as arguments to be appended to their respective startup lines.
+This lets you add arguments (for example, foreground and background colors)
+without having to retype the whole command line.
+.PP
+If
+.BR xinit 's
+command line does not name a server, and the first argument following the
+pair of hyphens `\-\^\-' is a colon followed by a digit,
+.B xinit
+uses that number to identify the display.
+(X Windows for \*(CO at present supports only the default display, which
+is display number 0.)
+.B xinit
+appends all remaining arguments onto the server's command line.
+For a list of the options you can pass to the X server, see the Lexicon
+entry for
+.BR X .
+.PP
+The following gives examples of
+.BR xinit 's
+command-line arguments.
+The first example
+.DM
+	xinit \-\^\- /usr/bin/X11/Xqdss  :1
+.DE
+.PP
+launches the X server named
+.B Xqdss
+on display number one.
+.PP
+The next example
+.DM
+	xinit \-geometry=80x65+10+10 \-fn 8x13 \-j \-fg white \-bg navy
+.DE
+.PP
+launches the server named
+.BR X ,
+and invokes
+.B xterm
+with arguments to set its geometry, font, foreground and background
+colors, and with jump scrolling turned on.
+It ignores
+.BR $HOME/.xinitrc .
+.PP
+The command
+.DM
+	xinit \-e widgets \-\^\- ./Xsun \-l \-c
+.DE
+.PP
+uses the command
+.B "\.\/Xsun \-l \-c"
+to launch the server.
+It also launches
+.B xterm
+by default, and passes it the argument
+.BR "\-e widgets" .
+.PP
+Finally the command
+.DM
+	xinit /bin/rsh fasthost cpupig \-display ws:1 \-\^\-  :1 \-a 2 \-t 5
+.DE
+.PP
+launches the server named
+.B X
+on display 1 with the arguments
+.BR "\-a 2 \-t 5" .
+It then starts a remote shell to run the command
+.B cpupig
+on the machine
+.BR fasthost ,
+telling it to display back on the local workstation.
+.\".PP
+.\"Below is a sample
+.\".B .xinitrc
+.\"that starts a clock, several terminals,
+.\"and leaves the window manager running as the last application.
+.\"If the window manager has been configured properly,
+.\"the user can shut down X by selecting the menu item
+.\".BR Exit :
+.\".DM
+.\"	xrdb \-load $HOME/.Xresources
+.\"	xsetroot \-solid gray &
+.\"	xclock \-g 50x50\-0+0 \-bw 0 &
+.\"	xload \-g 50x50\-50+0 \-bw 0 &
+.\"	xterm \-g 80x24+0+0 &
+.\"	xterm \-g 80x24+0\-0 &
+.\"	twm
+.\".DE
+.\".PP
+.\"To create a common startup environment for whoever invokes X on your system,
+.\"simply create a default
+.\".B .xinitrc
+.\"that references a site-wide startup file:
+.\".DM
+.\"	#!/bin/sh
+.\"	\&. /usr/local/lib/site.xinitrc
+.\".DE
+.\".PP
+.\"Another approach is to write a script that invokes
+.\".B xinit
+.\"with a specific shell script.
+.\".II x11
+.\".II xstart
+.\".II startx
+.\"Such scripts are usually named
+.\".BR x11 ,
+.\".BR xstart ,
+.\"or
+.\"via the shell script
+.\".BR startx .
+.\"and are a convenient way to provide a simple interface for novice users.
+.\"This is a convenient way to provide a simple interface for a novice user.
+.\"For details on this script, read file
+.\".BR /usr/X11/bin/startx .
+.\"The following gives an example of such a script:
+.\".DM
+.\"	#!/bin/sh
+.\"	xinit /usr/local/lib/site.xinitrc \-\^\- /usr/bin/X11/X bc
+.\".DE
+.SH "Environment Variables"
+.B xinit
+reads the following environmental variables:
+.IP \fBDISPLAY\fR
+The name of the display to which clients should connect.
+.IP \fBXINITRC\fR
+Name the initialization file to execute.
+.\"By default,
+.\".B xinit
+.\"executes
+.\".BR $HOME/.xinitrc .
+.SH Files
+\fB$HOME/.xinitrc\fR \(em Client script
+.br
+\fB/usr/X11/lib/xinit/xinitrc\fR \(em Default client script
+.br
+\fBxterm\fR \(em Client to run if no client script exists
+.br
+\fB$HOME/.xserverrc\fR \(em Default server script
+.br
+\fBX\fR \(em Server to run if \fB.xserverrc\fR does not exist
+.SH "See Also"
+.B
+startx,
+X,
+xterm,
+X utilities
+.R
+.SH Notes
+Copyright \(co 1988, Massachusetts Institute of Technology.
+.PP
+.II "Scheifler, Bob"
+.B xinit
+was written by Bob Scheifler of the MIT Laboratory for Computer Science.

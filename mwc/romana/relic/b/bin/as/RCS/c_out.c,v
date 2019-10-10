@@ -1,0 +1,1877 @@
+head     1.10;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.10; strict;
+comment  @ * @;
+
+
+1.10
+date     93.03.17.07.49.34;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     93.03.16.09.46.59;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.03.08.13.08.34;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.03.01.08.45.57;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     93.02.24.08.52.11;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     93.02.04.11.52.15;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     93.01.18.14.37.01;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.11.23.10.20.49;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.10.29.08.21.13;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.09.11.12.53.03;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.10
+log
+@cef: debug output fix in conjunction with a coff.h fix for DT_PTR
+@
+text
+@/*
+ * coff format output handler.
+ */
+#include <asm.h>
+#include <coff.h>
+#include <utype.h>
+#include <symtab.h>
+
+#define WHERE 0x40A09C
+
+#define trace(n) printf("Trace %d\n", n);
+
+#define CMOD 2		/* clump every 2 bytes */
+#define LIMIT 10	/* bytes of data per line */
+#define STARTP 31	/* start source at. Must be n * 8 -1 */
+#define DATABUF 512	/* size of data buffer */
+#define RELBUF 128	/* entries in relocation buffer */
+#define LINEBUF 128	/* entries in line number buffer */
+#define MANSEG 3	/* Segments that must go out */
+#define ROUNDR 3	/* used to round segments */
+
+typedef struct seg seg;
+struct seg {		/* coff section header */
+	char		s_name[8];	/* section name */
+	long		s_paddr;	/* physical address, aliased s_nlib */
+	long		s_vaddr;	/* virtual address */
+	long		s_size;		/* section size */
+	long		s_scnptr;	/* file ptr to raw data for section */
+	long		s_relptr;	/* file ptr to relocation */
+	long		s_lnnoptr;	/* file ptr to line numbers */
+	unsigned short	s_nreloc;	/* number of relocation entries */
+	unsigned short	s_nlnno;	/* number of line number entries */
+	long		s_flags;	/* flags */
+
+	/* Extra data connected with this to allow running this segment */
+	long		data_seekad;	/* next data seek address */
+	long		relo_seekad;	/* next relocation seek address */
+	long		line_seekad;	/* next line seek address */
+	long		curadd;		/* current address this segment */
+	long		hiadd;		/* hi address this pass */
+	short		segSeq;		/* Segment sequence no */
+
+	char *bp;			/* data buffer pointer */
+	RELOC *relBp;			/* relocation buffer pointer */
+	LINENO *lineBp;			/* line number buffer pointer */
+	char buf[DATABUF];		/* data buffer */
+	RELOC relBuf[RELBUF];		/* relocation entry buffer */
+	LINENO lineBuf[LINEBUF];	/* line number entry buffer */
+};
+
+static long *tracker;	/* for debugging */
+
+static seg *segs, *segend;	/* segment bases */
+static seg *cseg;		/* current segment */
+
+static unsigned short ct, pos, sects, symbs, usects;
+static long datapos, relpos, linepos, sympos, debpos;
+static long strOff = 4;
+static long lastSeek;
+static FILE *ofp;		/* output file */
+
+static int coffDefCt;		/* count of .def in file */
+static int coffAuxCt;		/* aux records to be written */
+static int coffEfcnCt;		/* end of function records */
+static int txtAt;		/* DEBUG_RECS from last pass */
+#define DEBUG_RECS (coffDefCt + coffAuxCt - coffEfcnCt)
+#define USECTS (txtAt ? usects * 2 : usects)
+static char defSw;		/* in a .def statement */
+static char auxSw;
+static char efcnSw;
+
+struct xsym {	/* Symbol for debugging becomes SYMENT and maybe auxent */
+	int	symno;
+	int	value;
+	short	scnum;
+	short	type;
+	char	sclass;
+	char	numaux;
+	AUXENT	aux;	/* aux record data */
+	char	*name;	/* name if there is one */
+};
+
+static struct xsym *syms;		/* all the debug stuff */
+static struct xsym *symptr;		/* currently build debug stuff */
+
+union word {
+	unsigned char uc[2];
+	unsigned short us;
+};
+
+union full {
+	unsigned char uc[4];
+	unsigned long ul;
+};
+
+/*
+ * output spaces and tabs to a position, then output a character.
+ */
+static void
+outTo(to, s)
+{
+	int i;
+
+	if(!pos)
+		sTitle();
+
+	for (to += (' ' == s); (i = ((pos | 7) + 1)) <= to; pos = i)
+		putchar('\t');
+
+	for (; pos < to; pos++)
+		putchar(' ');
+
+	if (' ' != s)
+		putchar(s);
+}
+
+/*
+ * Do titles.
+ */
+sTitle()
+{
+	static short pageno;
+
+	if(pswitch && (++linect > nlpp)) {
+		if(pageno)
+			printf("\n\n\n\n\n");
+		printf(
+	"\n\nMark Williams 80386 Assembler\t%s\t%s\tPage %d\n\n",
+			dTime, title, ++pageno);
+		linect = 0;
+	}
+}
+
+/*
+ * output source line
+ */
+outLine(p, s)
+char *p, s;
+{
+	register char c;
+		
+	if ((2 != pass) ||
+	    !lswitch ||
+	    (!mlistsw && (NULL != macExp)) ||
+	    (NULL == p))
+		return;
+
+	outTo(STARTP, s);
+	for (; (c = *p++) && ('\n' != c); pos++) {
+		if (lineSize <= pos) {
+			putchar('\n');
+			pos = 0;
+			outTo(STARTP, '|');
+		}
+		if ('\t' == c)
+			pos |= 7;
+		putchar(c);
+	}
+	putchar('\n');
+	pos = ct = 0;
+}
+
+/*
+ * Write to obj file.
+ */
+static void
+owrite(buf, size)
+char *buf;
+{
+	if (1 != fwrite(buf, size, 1, ofp))
+		fatal("Write error on object file");	/**/
+	lastSeek += size;
+}
+
+/*
+ * Seek then Write to obj file.
+ */
+xwrite(add, buf, size)
+long add;
+char *buf;
+{
+	if (add != lastSeek) {
+		if (fseek(ofp, add, 0))
+			fatal("Seek error on object file");	/**/
+		lastSeek = add;
+	}
+	owrite(buf, size);
+}
+
+/*
+ * Write actual data.
+ */
+outData(s)
+register seg *s;
+{
+	register size;
+
+	if (size = s->bp - s->buf) {
+		if (s->s_flags != STYP_BSS) {
+			xwrite(s->data_seekad, s->buf, size);
+			s->data_seekad += size;
+		}
+		s->bp = s->buf;
+	}
+}
+
+/*
+ * Write relocation records.
+ */
+outRel(s)
+register seg *s;
+{
+	register size;
+
+	if (size = (char *)s->relBp - (char *)s->relBuf) {
+		xwrite(s->relo_seekad, (char *)s->relBuf, size);
+		s->relo_seekad += size;
+	}
+	s->relBp = s->relBuf;
+}
+
+/*
+ * Write Line records.
+ */
+outLineRec(s)
+register seg *s;
+{
+	register size;
+
+	if (size = (char *)s->lineBp - (char *)s->lineBuf) {
+		xwrite(s->line_seekad, (char *)s->lineBuf, size);
+		s->line_seekad += size;
+	}
+	s->lineBp = s->lineBuf;
+}
+
+/*
+ * put object data byte to buffer.
+ */
+binout(b, s)
+unsigned short b;
+register seg *s;
+{
+	if (s->bp == (s->buf + DATABUF))
+		outData(s);
+	*s->bp++ = b;
+}
+
+
+/*
+ * Limit data on line. This allows cuts at logical points.
+ */
+static void
+limiter(n)
+{
+	if (lswitch && (ct + n) > LIMIT) {
+		putchar('\n');
+		ct = 0;
+	}
+}
+
+/*
+ * list data
+ */
+outlst(b)
+unsigned short b;
+{
+	if (dot.sg == 3) {	/* BSS */
+		static int statem = -1;	/* only one err per line */
+
+		if (statement != statem) {
+			statem = statement;
+
+			yyerror("Data defined in .bss");
+			/* The \fB.bss\fR segment is uninitialized data.
+			 * You cannot place actual values there. */
+		}
+	}
+	binout(b, cseg);
+
+	if (!lswitch)
+		return;
+
+	if (!ct) {
+		sTitle();
+		pos = 4;
+		printf("%04lX", dot.loc + segs[dot.sg - 1].s_vaddr);
+	}
+
+	if (!(ct % CMOD)) {
+		pos++;
+		putchar(' ');
+	}
+	printf("%02X", b & 255);
+	pos += 2;
+	ct++;
+}
+
+/*
+ * output unrelocated byte
+ */
+outab(b)
+unsigned short b;
+{
+	if (2 == pass) {
+		limiter(1);
+		outlst(b);
+	}
+	dot.loc++;	/* update location ctr */
+}
+
+/*
+ * output unrelocated word.
+ */
+outaw(u)
+unsigned short u;
+{
+	if (2 == pass) {
+		union word w;
+
+		w.us = u;
+		limiter(2);
+		outlst(w.uc[0]);
+		outlst(w.uc[1]);
+	}
+	dot.loc += 2;
+}
+
+/*
+ * output unrelocated long.
+ */
+outal(ul)
+long ul;
+{
+	if (2 == pass) {
+		union full l;
+
+		l.ul = ul;
+		limiter(4);
+		outlst(l.uc[0]);
+		outlst(l.uc[1]);
+		outlst(l.uc[2]);
+		outlst(l.uc[3]);
+	}
+	dot.loc += 4;
+}
+
+/*
+ * output relocation.
+ */
+static long
+relOut(oper, sw)
+register expr *oper;
+unsigned sw;
+{
+	register RELOC *bp;
+	register sym *sp;
+	register long rv;
+
+	rv = oper->exp;
+	if (NULL == (sp = oper->ref) || (sp->type & S_XSYM))
+		return(rv);	/* absolute addr */
+
+	bp = cseg->relBp++;
+	bp->r_type   = sw;
+	bp->r_vaddr  = dot.loc + cseg->s_vaddr;
+
+	/*
+	 * Only use symbol references when forced
+	 * seems to be required by a bug in the
+	 * ESIX linker.
+	 */
+	if (!(sp->flag & (S_EXREF|S_COMMON))) {
+		int seg = segs[sp->sg - 1].segSeq - 1;
+
+		bp->r_symndx = txtAt ? (seg * 2) + txtAt : seg;
+	}
+	else {
+		bp->r_symndx = sp->num;
+		if (sp->flag & S_COMMON)
+			rv += sp->size;
+		rv -= sp->loc;
+	}
+
+	if (bp == (cseg->relBuf + (RELBUF - 1)))
+		outRel(cseg);
+
+	/* gimmic addr to make .data after .text */
+	if ((sp->sg > 1) && !(sp->flag & S_COMMON))
+		rv += segs[sp->sg - 1].s_vaddr;
+
+	return(rv);
+}
+		
+/*
+ * output relocated byte
+ */
+outrb(oper, sw)
+expr *oper;
+int sw;		/* 0 = Relative address, 1 = PC relative address */
+{
+	if (2 == pass) {
+		limiter(1);
+		if (sw)
+			outlst((unsigned short)(relOut(oper, R_PCRBYTE) -
+						(dot.loc + 1)));
+		else
+			outlst((unsigned short)relOut(oper, R_RELBYTE));
+	}
+	else if (NULL != oper->ref)
+		cseg->s_nreloc++;
+	dot.loc++;
+}
+
+/*
+ * output relocated word.
+ */
+outrw(oper, sw)
+expr *oper;
+int sw;		/* 0 = Relative address, 1 = PC relative address */
+{
+	union word w;
+
+	if (2 == pass) {
+		if (sw)
+			w.us = relOut(oper, R_PCRWORD) - (dot.loc + 2);
+		else
+			w.us = relOut(oper, R_DIR16);
+
+		limiter(2);
+		outlst(w.uc[0]);
+		outlst(w.uc[1]);
+	}
+	else if (NULL != oper->ref)
+		cseg->s_nreloc++;
+	dot.loc += 2;
+}
+
+/*
+ * output relocated long.
+ */
+outrl(oper, sw)
+expr *oper;
+int sw;		/* 0 = Relative address, 1 = PC relative address */
+{
+	union full l;
+
+	if (2 == pass) {
+		if (sw)
+			l.ul = relOut(oper, R_PCRLONG) - (dot.loc + 4);
+		else
+			l.ul = relOut(oper, R_DIR32);
+
+		limiter(4);
+		outlst(l.uc[0]);
+		outlst(l.uc[1]);
+		outlst(l.uc[2]);
+		outlst(l.uc[3]);
+	}
+	else if (NULL != oper->ref)
+		cseg->s_nreloc++;
+	dot.loc += 4;
+}
+
+/*
+ * Output symbol table string.
+ */
+outSymStr(sp)
+register sym *sp;
+{
+	register i;
+	register char *name;
+
+	name = SYMNAME(sp);
+	if ((i = strlen(name)) > SYMNMLEN)
+		owrite(name, i + 1);
+}
+
+static void showIt(sp)
+sym *sp;
+{
+	int i;
+	char *name;
+
+	i = strlen(name = SYMNAME(sp));
+	fprintf(stderr, "Trace %X, '%s' flag %d len %d num %d\n",
+		 sp, name, sp->flag, i, sp->num);
+}
+
+/*
+ * output symbol table entry.
+ */
+SYMENT *
+outSym(sp)
+register sym *sp;
+{
+	static SYMENT s;
+	int i;
+	register char *name;
+
+	clear(&s);
+
+	i = strlen(name = SYMNAME(sp));
+
+	if (i > SYMNMLEN) {
+		s.n_zeroes = 0;
+		s.n_offset = strOff;
+		strOff += i + 1;
+	}
+	else
+		strncpy(s._n._n_name, name, SYMNMLEN);
+
+	if (sp->sg < 0)
+		s.n_scnum = sp->sg;
+	else
+		s.n_scnum = segs[sp->sg - 1].segSeq;
+	s.n_value = sp->loc;
+	s.n_sclass = C_STAT;
+
+	if (sp->flag & S_EXDEF) {
+		s.n_sclass = C_EXT;
+		if (sp->flag & S_COMMON) { /* common */
+			s.n_value = (sp->size ? sp->size : 1);
+			s.n_scnum = 0;
+		}
+	}
+	if (sp->flag & S_EXREF) {
+		s.n_scnum  = 0;
+		s.n_value  = 0;
+		s.n_sclass = C_EXT;
+	}
+
+	/* gimmic addr to make .data after .text */
+	if (s.n_scnum > 1)
+		s.n_value += segs[sp->sg - 1].s_vaddr;
+
+	owrite((char *)&s, sizeof(s));
+	return (&s);
+}
+
+/*
+ * Go from pass 0 to pass 1 or 2
+ */
+newPass(fn)
+char *fn;
+{
+	register seg *s;
+	unsigned size;
+	long xaddr;
+	
+	if ((cseg->curadd = dot.loc) > cseg->hiadd)
+		cseg->hiadd = cseg->curadd;
+	cseg = segs;	/* return to .text */
+	defCt = macNo = dot.loc = 0;
+	if ((txtAt = DEBUG_RECS) && !pass) {
+		xpass = 1;	/* force another pass */
+		symptr = syms = alloc(coffDefCt * sizeof(*syms));
+	}
+	longMode = pass = dot.sg = 1;
+	if (indPass()) {	/* take an extra pass */
+		usects = 0;
+		for (s = segs; s < segend; s++) {
+			if (s->hiadd || usects < MANSEG)
+				usects++;
+			s->segSeq = usects;
+			s->bp = s->buf;
+			s->relBp = s->relBuf;
+			s->lineBp = s->lineBuf;
+			s->s_nlnno = s->s_nreloc = s->hiadd = s->curadd = 0;
+		}
+		symGlob(txtAt + USECTS); /* fix symbol table */
+		coffDefCt = coffAuxCt = coffEfcnCt = 0;
+		return;
+	}
+
+	pass   = 2;	/* last pass */
+	linect = nlpp;
+	usects = xaddr = datapos = relpos = linepos = 0;
+	ofp = xopen(fn, "wb");
+	
+	for (s = segs; s < segend; s++) {
+		if (s->hiadd || usects < MANSEG)
+			usects++;
+		s->s_paddr = s->s_vaddr = xaddr;
+		s->hiadd += ROUNDR;		/* Round up */
+		s->hiadd &= ~ROUNDR;
+		xaddr += s->s_size = s->hiadd;
+		s->data_seekad = datapos; /* temp value */
+		s->s_relptr = relpos;
+		s->s_lnnoptr = linepos;
+		if (s->s_flags != STYP_BSS) {
+			datapos += s->hiadd;
+			relpos  += s->s_nreloc * RELSZ;
+			linepos += s->s_nlnno  * LINESZ;
+		}
+	}
+	size =  sizeof(FILEHDR) + (usects * sizeof(SCNHDR));
+	debpos  = size + datapos + relpos + linepos;
+	sympos  = debpos + (txtAt * SYMESZ);
+	linepos = size + datapos + relpos;
+	relpos  = size + datapos;
+
+	if (fseek(ofp, lastSeek = sympos, 0))
+		fatal("Seek error on object file");	/**/
+
+	usects = 0;
+	for (s = segs; s < segend; s++) {
+		SYMENT sym;
+		AUXENT aux;
+
+		if (s->hiadd || usects < MANSEG)
+			usects++;
+		else
+			continue;
+
+		/* write symbol records for segments */
+		clear(&sym);
+		s->segSeq = usects;
+		sym.n_sclass = C_STAT;
+		sym.n_value = s->s_vaddr;
+		memcpy(sym._n._n_name, s->s_name, SYMNMLEN);
+		sym.n_scnum = usects;
+		sym.n_numaux = txtAt ? 1 : 0;
+		owrite((char *)&sym, sizeof(sym));
+
+		if (sym.n_numaux) {
+			aux.ae_scnlen = s->s_size;
+			aux.ae_nreloc = s->s_nreloc;
+			aux.ae_nlinno = s->s_nlnno;
+			owrite((char *)&aux, sizeof(aux));
+		}
+
+		if (s->hiadd && (s->s_flags != STYP_BSS))
+			s->s_scnptr = s->data_seekad += size;
+		else
+			s->s_scnptr = s->data_seekad = 0;
+
+		if (s->s_nreloc && (s->s_flags != STYP_BSS))
+			s->relo_seekad = s->s_relptr += relpos;
+		else
+			s->relo_seekad = s->s_relptr = 0;
+
+		if (s->s_nlnno && (s->s_flags != STYP_BSS))
+			s->line_seekad = s->s_lnnoptr += linepos;
+		else
+			s->line_seekad = s->s_lnnoptr = 0;
+		s->hiadd = s->curadd = 0;
+	}
+
+	sympos = ftell(ofp);	/* continue the symbol table from here */
+
+	/* fix the symbol table setting numbers */
+	symGlob(txtAt + USECTS);
+	coffDefCt = coffAuxCt = coffEfcnCt = 0;
+}
+
+/*
+ * write record header then segment headers.
+ */
+static void
+writeHeader()
+{
+	register seg *s;
+	FILEHDR head;
+	int i;
+	long loadd;
+
+	head.f_magic = C_386_MAGIC;
+	time(&head.f_timdat);
+	head.f_nsyms = symbs;
+	head.f_symptr = debpos;
+	head.f_opthdr = 0;
+	head.f_flags = 0;
+	head.f_nscns = usects;
+
+	xwrite(0L, (char *)&head, sizeof(head));
+	for (loadd = i = 0, s = segs; s < segend; s++) {
+		if (s->hiadd || i < MANSEG) {
+			i++;
+			owrite(s, sizeof(SCNHDR));
+		}
+	}
+}
+
+/*
+ * Finish any output.
+ */
+cleanUp()
+{
+	int pad;
+	register seg *s;
+
+	s = cseg;		/* close out current seg */
+	if(s->hiadd < (s->curadd = dot.loc))
+		s->hiadd = s->curadd;
+
+	if (coffDefCt)	/* Write debug symbols */
+		writeDebug();
+
+	fseek(ofp, sympos, 0);
+
+	symDump(outSym, txtAt);	/* write ordinary symbols */
+
+	symbs = (ftell(ofp) - debpos) / SYMESZ; /* figure sym ct from loc */
+
+	if (strOff > 4) {
+		owrite(&strOff, sizeof(strOff)); /* write length of tail */
+		writeDebugLong();   /* dump symbols that are too long */
+		symDump(outSymStr, txtAt);	
+	}
+
+	writeHeader();	/* now we know header data */
+
+	for (s = segs; s < segend; s++) {
+		if (s->s_flags == STYP_BSS)
+			continue;
+
+		/* go to end of segment */
+		if (s->curadd != s->hiadd)
+			doOrg(NULL, NULL);
+
+		/* pad with nop or zero */
+		pad = (s->s_flags == STYP_TEXT) ? NOP : 0;
+		for (; s->hiadd & ROUNDR; s->hiadd++)
+			binout(pad, s);
+		outData(s);
+		outRel(s);
+		outLineRec(s);
+	}
+}
+
+/*
+ * org command
+ */
+doOrg(label, oper)
+parm *label;
+data *oper;
+{
+	register seg *s;
+	long from, to;
+	char pad;
+
+	buildlab(label);
+
+	from = dot.loc;
+	s = cseg;
+	if (pass == 2)
+		outData(s);
+	s->curadd = dot.loc;		/* first make segment current */
+	if (dot.loc > s->hiadd)
+		s->hiadd = dot.loc;
+	
+	/* process org */
+	switch ((NULL == oper) ? 'n' : oper->type) {
+	case 'n':
+		to = s->hiadd;	/* org to hi spot in segment */
+		break;
+	case 'd':
+	case 's':
+		yyerror("Org to invalid value");
+		/* You may not \fB.org\fR to doubles or strings. */
+		return (1);
+	case 'y':
+		if (oper->d.y->sg != dot.sg) {
+			yyerror("Org to wrong segment");
+			/* You must \fB.org\fR to the current segment. */
+			return (1);
+		}
+		to = oper->d.y->loc;
+		break;
+	case 'l':
+		to = oper->d.l;	/* org where requested */
+	}
+
+	if ((pass != 2) || (s->s_flags == STYP_BSS)) { /* no disk work */
+		s->curadd = dot.loc = to;	/* make segment current again */
+		if (to > s->hiadd)
+			s->hiadd = dot.loc;
+		return (0);
+	}
+	if (to <= s->hiadd) {	/* no pad if we've been there */
+		s->curadd = dot.loc = to;
+		s->data_seekad += to - from;
+		return (0);
+	}
+	from = s->curadd = dot.loc = s->hiadd;	/* seek to the old end */
+	s->data_seekad += s->hiadd - from;
+
+	pad = (s->s_flags == STYP_TEXT) ? NOP : 0; /* pad out */
+	for (;from < to; from++)
+		binout(pad, s);
+	s->curadd = dot.loc = to;	/* make segment current again */
+	if (to > s->hiadd)
+		s->hiadd = dot.loc;
+	return (0);
+}
+
+/*
+ * Initialize segment information.
+ */
+segInit()
+{
+	int i;
+	register seg *s;
+
+	static char *segclass[] = {
+		".text", ".data", ".bss"
+	};
+	static long segflag[] = {
+		STYP_TEXT, STYP_DATA, STYP_BSS
+	};
+
+	cseg = segs = alloc(sizeof(*segs) * MANSEG);
+	segend = segs + MANSEG;
+
+	for (i = 0, s = segs; s < segend; s++, i++) {
+		strncpy(s->s_name, segclass[i], SYMNMLEN);
+		s->s_flags = segflag[i];
+		s->segSeq = ++sects;
+		s->bp = s->buf;
+		s->relBp = s->relBuf;
+		s->lineBp = s->lineBuf;
+	}
+}
+
+/*
+ * .ident and .version set stuff in the comment section.
+ */
+cmnt(op, p)
+opc *op;
+parm *p;
+{
+}
+
+/*
+ * coff debugging statements.
+ */
+coffFile(s)
+parm *s;
+{
+#ifdef NODEBUG
+	return;
+#else
+	coffDefCt++;
+	coffAuxCt++;
+	if (2 == pass) {
+		symptr->sclass = C_FILE;
+		symptr->scnum  = N_DEBUG;
+		symptr->numaux = 1;
+		if ('"' == s->str[0]) {
+			char *p;
+
+			if (NULL != (p = strchr(s->str + 1, '"')))
+				*p = 0;
+			strncpy(symptr->aux.ae_fname, s->str + 1, FILNMLEN);
+		}
+		else
+			strncpy(symptr->aux.ae_fname, s->str, FILNMLEN);
+		symptr->name = ".file";
+		symptr++;
+	}
+#endif
+}
+
+coffDef(s)
+parm *s;
+{
+#ifdef NODEBUG
+	return;
+#else
+	if (pass) {	/* initialize new symbol */
+		if (defSw)
+			yywarn("missing .endef");
+		symptr->scnum = N_ABS;
+		if (NULL != symptr->name)
+			free(symptr->name);
+		symptr->name  = scpy(s->str, 0);
+		symptr->symno = DEBUG_RECS;
+		defSw = 1;
+	}
+#endif
+}
+
+coffEndef()
+{
+#ifdef NODEBUG
+	return;
+#else
+	if ((1 == pass) && (symptr->scnum != N_DEBUG))
+		symReNumber(symptr->name, DEBUG_RECS);
+
+	if (2 == pass) {
+		register struct xsym *s;
+
+		switch (symptr->sclass) {
+		case C_BLOCK:
+			if (strcmp(symptr->name, ".eb"))
+				break;
+			for (s = symptr - 1; s != syms; s--)
+				if (C_BLOCK == s->sclass &&
+				    !strcmp(s->name, ".bb") &&
+				    !s->aux.ae_endndx) {
+					s->aux.ae_endndx = DEBUG_RECS + 2;
+					break;
+				}
+			if (s == syms)
+				yywarn(".eb does not connect to .bb");
+				/* A .eb statement does not connect to a
+				 * .bb statement */
+			break;
+
+		case C_EFCN:	/* end of function marker */
+			for (s = symptr - 1; s != syms; s--) {
+				if (!strcmp(symptr->name, s->name)) {
+					short type;
+
+					/* if this is a function at any level */
+					for (type = s->type & ~N_BTMASK;
+					     type && !ISFCN(type);
+					     type >>= N_TSHIFT)
+					 	;
+
+					if (type)
+						break;
+				}
+			}
+			if (s == syms)
+				yywarn(".type -1 does not connect");
+				/* A type of -1 C_EFCN does not connect to
+				 * a .def of a function */
+			else {
+				s->aux.ae_fsize = symptr->value - s->value;
+				s->aux.ae_endndx = DEBUG_RECS;
+			}
+		}
+		symptr->numaux = auxSw;
+		symptr++;
+		if (!defSw)
+			yywarn(".endef must follow .def"); /* */
+	}
+	coffDefCt++;			/* we need a spot to remember this */
+	coffEfcnCt += efcnSw;		/* C_EFCN don't write to table */
+	if (!efcnSw)			/* They don't have aux records */
+		coffAuxCt += auxSw;
+	auxSw = defSw = efcnSw = 0;
+#endif
+}
+
+/*
+ * .type command
+ */
+coffType(n)
+long n;
+{
+#ifdef NODEBUG
+	return;
+#else
+	if (ISFCN(n)) { /* function build a line record */
+		register LINENO *bp;
+
+		auxSw = 1;
+		if (2 != pass)
+			cseg->s_nlnno++;
+		else {
+			bp = cseg->lineBp++;
+			bp->l_lnno = 0;
+			bp->l_addr.l_symndx = DEBUG_RECS;
+		
+			if (bp == (cseg->lineBuf + (LINEBUF - 1)))
+				outLineRec(cseg);
+		}
+	}
+
+	if (2 == pass) {
+		if (!defSw)
+			yywarn(".type not in .endif");
+			/* Debug command .type must be in .endif */
+		symptr->type = n;
+	}
+#endif
+}
+
+coffVal(item)
+data *item;
+{
+#ifdef NODEBUG
+	return;
+#else
+	SYMENT *s;
+
+	if (2 != pass)
+		return;
+	if (!defSw)
+		yywarn(".val must follow .def"); /* */
+
+	if ('y' == item->type) {
+		sym *sp = item->d.y;
+
+		if (sp->flag & S_COMMON) {
+			symReNumber(symptr->name, DEBUG_RECS);
+			symptr->scnum = N_UNDEF;
+			symptr->value = sp->size;
+		}
+		else {
+			symptr->scnum = sp->sg;
+			symptr->value = sp->loc;
+		}
+	}
+	else
+	 	symptr->value = item->d.l;
+#endif
+}
+
+coffScl(n)
+long n;
+{
+#ifdef NODEBUG
+	return;
+#else
+	if (C_EFCN == n)
+		efcnSw = 1;
+	if (!pass)
+		return;
+	if (!defSw)
+		yywarn(".scl must follow .def"); /* */
+	if (ISTAG(n))
+		symptr->scnum = N_DEBUG;
+	symptr->sclass = n;
+#endif
+}
+
+coffSize(n)
+long n;
+{
+#ifdef NODEBUG
+	return;
+#else
+	auxSw = 1;
+	if (2 != pass)
+		return;
+	if (!defSw)
+		yywarn(".size must follow .def"); /* */
+	symptr->aux.ae_size = n;
+#endif
+}
+
+coffDim(n, d)
+long n;
+int d;
+{
+#ifdef NODEBUG
+	return;
+#else
+	auxSw = 1;
+	if (2 != pass)
+		return;
+	if (!defSw) {
+		yywarn(".dim must follow .def"); /* */
+		return;
+	}
+	if (DIMNUM <= d) {
+		yywarn(".dim statement too complex");
+		/* A .dim statement may contain no more than 4 dimensions. */
+		return;
+	}
+	symptr->aux.ae_dimen[d] = n;
+#endif
+}
+
+coffTag(p)
+parm *p;
+{
+#ifdef NODEBUG
+	return;
+#else
+	struct xsym *s;
+
+	auxSw = 1;
+	if (2 != pass)
+		return;
+	for (s = symptr - 1; s != syms; s--) {
+		if (ISTAG(s->sclass) && !strcmp(p->str, s->name)) {
+		    	if (C_EOS == symptr->sclass)
+				s->aux.ae_endndx = symptr->symno + 2;
+			symptr->aux.ae_tagndx = s->symno;
+			break;
+		}
+	}
+	if (s == syms)
+		yywarn(".tag does not connect");
+		/* This tag fails to connect to an earlier unconnected .def
+		 * of the same name and a proper n_sclass.
+		 */
+#endif
+}
+
+coffLn(n)
+long n;
+{
+#ifdef NODEBUG
+	return;
+#else
+	register LINENO *bp;
+
+	if (2 != pass)
+		cseg->s_nlnno++;
+	else {
+		bp = cseg->lineBp++;
+		bp->l_lnno = n;
+		bp->l_addr.l_paddr = dot.loc;
+		
+		if (bp == (cseg->lineBuf + (LINEBUF - 1)))
+			outLineRec(cseg);
+	}
+#endif
+}
+
+coffLine(n)
+long n;
+{
+#ifdef NODEBUG
+	return;
+#else
+	auxSw = 1;
+	if (2 != pass)
+		return;
+	if (!defSw)
+		yywarn(".line must follow .def"); /* */
+	symptr->aux.ae_lnno = n;	
+#endif
+}
+
+/*
+ * Write debug records.
+ */
+writeDebug()
+{
+	register struct xsym *s, *ends;
+	int ct = 0, act = 0;
+
+	fseek(ofp, lastSeek = debpos, 0);
+	for (ends = (s = syms) + coffDefCt; s != ends; s++) {
+		int i;
+		SYMENT sym;
+
+		if (C_EFCN == s->sclass)
+			continue;
+
+		sym.n_sclass = s->sclass;
+		sym.n_value  = s->value;
+		sym.n_scnum  = s->scnum;
+		sym.n_type   = s->type;
+		sym.n_numaux = s->numaux;
+
+		if ((i = strlen(s->name)) > SYMNMLEN) {
+			sym.n_offset = strOff;
+			sym.n_zeroes = 0;
+			strOff += i + 1;
+		}
+		else
+			strncpy(sym.n_name, s->name, SYMNMLEN);
+		
+		ct++;
+		owrite(&sym, SYMESZ);
+		if (sym.n_numaux) {
+			act++;
+			owrite(&(s->aux), AUXESZ);
+		}
+	}
+	
+}
+
+writeDebugLong()
+{
+	register struct xsym *s, *ends;
+
+	for (ends = (s = syms) + coffDefCt; s != ends; s++) {
+		int i;
+
+		if (C_EFCN == s->sclass)
+			continue;
+
+		if ((i = strlen(s->name)) > SYMNMLEN)
+			owrite(s->name, i + 1);
+	}
+}
+	
+/*
+ * .comm and .lcomm commands.
+ * Improve later.
+ */
+comm(op, p, n)
+opc *op;
+parm *p;
+long n;
+{
+	if (NULL == p) {
+		yyerror(".comm must have tag");
+		/* The format of \fB.comm\fR is \fB.comm name, size\fR. */
+		return;
+	}
+	if (op->code == 2) {
+		sym *s;
+
+		s = symLookUp(p->str, S_LOCAL, 0L, op->code + 1);
+		s->size = n;
+		s->flag = S_EXDEF|S_COMMON;
+	}
+}
+
+/*
+ * segment command.
+ */
+void
+segment(op, p, n)
+opc *op;
+parm *p;
+long n;
+{
+	register seg *s;
+	sym *rv;
+	static int previous = 0;
+	int thisSg;
+
+	/* Implement one level segment stack */
+	if (10000 != op->code) {
+		thisSg = op->code;
+		previous = dot.sg - 1;	/* save where we were */
+	}
+	else	/* .previous pops the stack */
+		thisSg = previous;
+
+	s = segs + thisSg;
+
+	if (NULL == p) {	/* segment change */
+		if ((cseg->curadd = dot.loc) > cseg->hiadd)
+			cseg->hiadd = cseg->curadd;
+
+		cseg = s;
+		dot.loc = s->curadd;
+		dot.sg = thisSg + 1;
+		return;
+	}
+
+	/* set up data */
+	rv = symLookUp(p->str, S_LOCAL, s->curadd, thisSg + 1);
+	rv->size = n;
+	s->curadd += n;
+	if (s->curadd > s->hiadd)
+		s->hiadd = s->curadd;
+	return;
+}
+
+/*
+ * Switch to a section by name.
+ * add it if required.
+ */
+void
+section(name)
+char *name;
+{
+	int motion, i;
+	char *oldsegs;
+	register seg *s;
+	static opc segOp = { 0, S_SEGMENT };
+
+	/* These are common segment names with their flags */
+	static char *segclass[] = {
+		".init", ".fini", ".rodata",
+		".comment", ".ctors", ".dtors"
+	};
+	static long segflag[] = {
+		STYP_TEXT, STYP_DATA, STYP_DATA,
+		STYP_INFO, STYP_DATA, STYP_DATA
+	};
+
+	/* Look for section in segment list */
+	for (segOp.code = 0; segOp.code < sects; segOp.code++) {
+		if (!strncmp(name, segs[segOp.code].s_name, 8)) {
+			segment(&segOp, NULL, 0L);
+			return;
+		}
+	}
+
+	/* realloc segment list with room for one more */
+	oldsegs = (char *)segs;
+	if (NULL == (segs = realloc(segs, sizeof(*segs) * ++sects)))
+		fatal("Out of memory"); /**/
+
+	/* adjust pointers to segment list */
+	motion = (char *)segs - oldsegs;
+#define adjust(ptr) ptr = (char *)(((char *)(ptr)) + motion)
+	adjust(cseg);
+	adjust(segend);
+	for (s = segs; s < segend; s++) {
+		adjust(s->bp);
+		adjust(s->relBp);
+		adjust(s->lineBp);
+	}
+#undef adjust
+	segend++;
+
+	/* build new entry on segment list */
+	memset(s, '\0', sizeof(*s));
+	strncpy(s->s_name, name, SYMNMLEN);
+	
+	s->s_flags = STYP_TEXT;		/* set default */
+	for (i = 0; i < 6; i++) {	/* look at common names */
+		if (!strcmp(name, segclass[i])) {
+			s->s_flags = segflag[i];
+			break;
+		}
+	}
+
+	s->segSeq = sects - 1;
+	s->bp = s->buf;
+	s->relBp = s->relBuf;
+	s->lineBp = s->lineBuf;
+
+	segment(&segOp, NULL, 0L);	/* switch to the new entry */
+}
+@
+
+
+1.9
+log
+@cef: fixed bug with a common with a name length of exactly 8 characters
+being turned into a global.
+.,
+@
+text
+@d621 1
+a621 1
+		strcpy(sym._n._n_name, s->s_name);
+d817 1
+a817 1
+		strcpy(s->s_name, segclass[i]);
+d912 1
+a912 1
+		case C_EFCN:
+d915 1
+a915 1
+					short type = s->type;
+d917 7
+a923 1
+					if (ISFCN(type))
+a924 6
+					type >>= N_TSHIFT;
+					if (ISFCN(type))
+						break;
+					type >>= N_TSHIFT;
+					if (ISFCN(type))
+						break;
+d1305 1
+a1305 1
+	strncpy(s->s_name, name, 8);
+@
+
+
+1.8
+log
+@cef: 2nd -g fix
+@
+text
+@d511 1
+a511 1
+		strcpy(s._n._n_name, name);
+d914 11
+a924 6
+				if (ISFCN(s->type) &&
+				    !strcmp(symptr->name, s->name)) {
+					s->aux.ae_fsize = symptr->value -
+							  s->value;
+					s->aux.ae_endndx = DEBUG_RECS;
+					break;
+d931 4
+d1161 1
+a1161 1
+			strcpy(sym.n_name, s->name);
+a1196 2
+	sym *s;
+
+d1203 2
+@
+
+
+1.7
+log
+@cef: fixed -a option
+@
+text
+@d554 5
+a559 2
+	defCt = macNo = dot.loc = 0;
+	txtAt     = DEBUG_RECS;
+a575 3
+	if (coffDefCt)
+		symptr = syms = alloc(coffDefCt * sizeof(*syms));
+
+d841 3
+d862 1
+d868 4
+a871 1
+	if (2 == pass) {	/* initialize new symbol */
+d875 2
+d881 1
+d886 6
+a894 3
+		if (symptr->scnum > 0)
+			symReNumber(symptr->name, DEBUG_RECS);
+
+d937 1
+d946 3
+d971 1
+d977 3
+d1002 1
+d1008 3
+d1013 1
+a1013 1
+	if (2 != pass)
+d1020 1
+d1026 3
+d1035 1
+d1042 3
+d1058 1
+d1064 3
+d1085 1
+d1091 3
+d1106 1
+d1112 3
+d1121 1
+@
+
+
+1.6
+log
+@cef: fixed bug with aligned .long and now puts errors to stderr
+@
+text
+@d65 1
+d67 1
+a67 1
+#define USECTS (DEBUG_RECS ? usects * 2 : usects)
+d376 1
+a376 1
+		bp->r_symndx = DEBUG_RECS ? (seg * 2) + DEBUG_RECS : seg;
+d556 1
+d568 1
+a568 1
+		symGlob(DEBUG_RECS + USECTS); /* fix symbol table */
+d599 1
+a599 1
+	sympos  = debpos + (DEBUG_RECS * SYMESZ);
+d623 1
+a623 1
+		sym.n_numaux = DEBUG_RECS ? 1 : 0;
+d653 1
+a653 2
+	symGlob(DEBUG_RECS + USECTS);
+
+d702 1
+a702 1
+	symDump(outSym, DEBUG_RECS);	/* write ordinary symbols */
+d709 1
+a709 1
+		symDump(outSymStr, DEBUG_RECS);	
+d867 1
+a867 1
+		symptr->scnum = N_DEBUG;
+d877 2
+d882 16
+a897 2
+		if (C_EFCN == symptr->sclass) {
+			register struct xsym *s;
+d899 1
+d947 1
+d967 11
+a977 2
+		symptr->scnum = item->d.y->sg;
+		symptr->value = item->d.y->loc;
+d992 2
+d1035 3
+a1037 3
+	for (s = symptr; s != syms; s--) {
+		if (!strcmp(p->str, s->name)) {
+		    	if (C_EOS == symptr->sclass && ISTAG(s->sclass))
+@
+
+
+1.5
+log
+@cef: final sources for g++ beta
+@
+text
+@d286 1
+a286 1
+		printf("%04lx", dot.loc + segs[dot.sg - 1].s_vaddr);
+d293 1
+a293 1
+	printf("%02x", b & 255);
+d485 1
+a485 1
+	fprintf(stderr, "Trace %x, '%s' flag %d len %d num %d\n",
+@
+
+
+1.4
+log
+@cef: new assembler for GNU compiler distribution
+@
+text
+@d1188 1
+a1188 1
+		STYP_TEXT, STYP_TEXT, STYP_DATA,
+@
+
+
+1.3
+log
+@cef: adding code to understand gcc output
+@
+text
+@d9 4
+d17 2
+a18 2
+#define RELBUF 16	/* entries in relocation buffer */
+
+d38 1
+a40 1
+	short		segNo;		/* file output number for this seg */
+d45 1
+d48 1
+d57 2
+a58 1
+static long datapos, relpos, sympos, strOff;
+d62 23
+a94 13
+struct symdef {
+	symdef	*next;
+	union {
+		SYMENT s;
+		AUXENT a;
+	} u;
+};
+static symdef *this;
+static long symct;
+
+#define SYM this->u.s
+#define AUX this->u.a
+
+d222 15
+d372 5
+a376 2
+	if (!(sp->flag & (S_EXREF|S_COMMON)))
+		bp->r_symndx = sp->sg - 1;
+d467 1
+a467 1
+outSymStr (sp)
+d478 11
+d493 1
+a493 1
+outSym(sp, writesw)
+d502 5
+a506 3
+	name = SYMNAME(sp);
+	if ((i = strlen(name)) > SYMNMLEN) {
+		s._n._n_n._n_offset = strOff;
+d536 1
+a536 2
+	if (writesw)
+		owrite((char *)&s, sizeof(s));
+a554 1
+
+d563 2
+a564 1
+			s->s_nreloc = s->hiadd = s->curadd = 0;
+d566 2
+a567 1
+		symGlob(usects); /* fix symbol table */
+d571 3
+d576 1
+a576 1
+	usects = xaddr = datapos = relpos = 0;
+d588 1
+d592 1
+d596 4
+a599 2
+	sympos = size + datapos + relpos;
+	relpos = size + datapos;
+d607 1
+d621 1
+d624 7
+d641 4
+d648 1
+a648 2
+	strOff = 4;			/* init long symbol length */
+	symbs = symGlob(usects);	/* write symbol table */
+d650 4
+a653 4
+	if (strOff > 4) {
+		owrite(&strOff, sizeof(strOff)); /* write length of tail */
+		symDump();		   /* dump symbols that are too long */
+	}
+d670 1
+a670 1
+	head.f_symptr = sympos;
+d672 1
+a672 1
+	head.f_flags = F_LNNO;
+d696 17
+a712 1
+	writeHeader();
+d727 1
+d820 2
+a821 1
+		s->relBp = s->relBuf;		
+d835 1
+a835 1
+ * coff statements after def.
+d837 2
+a838 2
+coffdef(s)
+sym *s;
+d840 18
+a857 7
+	if (NULL != this)
+		yywarn("Missing .endef");
+		/* The previous .def was not closed by a .endef */
+	this = alloc(sizeof(*this));
+	SYM.n_sclass = C_STAT;	/* defaults in case */
+	SYM.n_value  = s->loc;
+	
+d860 2
+a861 2
+static void
+checkthis()
+d863 8
+a870 3
+	if (NULL == this)
+		yyerror("A .def command must be in effect");
+		/* This command is only legal between a .def and a .endef */
+d873 1
+a873 1
+coffendef()
+d875 31
+a905 2
+	checkthis();
+	this = NULL;
+d908 30
+a937 1
+coffval(item)
+d942 5
+a946 1
+	checkthis();
+d948 2
+a949 3
+		s = outSym(item->d.y, 0);
+		SYM.n_value = s->n_value;
+		SYM.n_scnum = s->n_scnum;
+d951 2
+a952 5
+	else {
+		SYM.n_value = item->d.l;
+		SYM.n_scnum = 0;
+	}
+		
+d955 1
+a955 2
+coffset(op, n)
+opc *op;
+d958 30
+a987 8
+	checkthis();
+	switch(op->kind) {
+	case S_SCL:
+		SYM.n_sclass = n;
+		break;
+	case S_TYPE:
+		SYM.n_type   = n;
+		break;
+d989 6
+d997 1
+a997 2
+coffln(op, p, n)
+opc *op;
+d999 22
+d1023 12
+d1037 11
+d1049 55
+d1213 1
+d1233 1
+@
+
+
+1.2
+log
+@Update by cef for x87 suppt
+@
+text
+@d15 1
+d50 1
+a50 1
+static unsigned short ct, pos, sects, symbs;
+a355 9
+#if 0
+#define dv(v) printf(" " #v "= %x\n", v)
+	dv(sp->flag);
+	dv(sp->size);
+	dv(sp->loc);
+	dv(oper->exp);
+	dv(sw);
+	dv(rv);
+#endif
+d464 4
+a467 2
+	
+	s.n_scnum = sp->sg;
+d510 1
+d512 3
+d519 1
+a519 1
+		symGlob(3); /* fix symbol table */
+d525 1
+a525 1
+	xaddr = datapos = relpos = 0;
+d529 2
+d542 1
+a542 1
+	size =  sizeof(FILEHDR) + (sects * sizeof(SCNHDR));
+d549 1
+d553 5
+d560 1
+d564 1
+a564 1
+		sym.n_scnum = s->segSeq;
+d581 1
+a581 1
+	symbs = symGlob(3);		/* write symbol table */
+d597 1
+d606 2
+a607 2
+	head.f_nscns = sects;
+	
+d609 6
+a614 2
+	for (loadd = 0, s = segs; s < segend; s++)
+		owrite(s, sizeof(SCNHDR));
+d728 2
+a729 2
+	cseg = segs = alloc(sizeof(*segs) * 3);
+	segend = segs + 3;
+d731 1
+a731 2
+	for (i = 0; i < 3; i++) {
+		s = segs + i;
+d844 1
+a844 1
+sym *
+d852 2
+d855 7
+a861 1
+	s = segs + op->code;
+d863 2
+d871 2
+a872 2
+		dot.sg = op->code + 1;
+		return (NULL);
+d876 1
+a876 1
+	rv = symLookUp(p->str, S_LOCAL, s->curadd, op->code + 1);
+d881 1
+a881 1
+	return (rv);
+d883 67
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d222 1
+a222 1
+	if (lswitch && (ct + n) >= LIMIT) {
+a249 2
+	limiter(0);
+
+d271 2
+a272 1
+	if (2 == pass)
+d274 1
+a333 1
+#if 0
+a334 6
+	 * If this symbol is not for the symbol table
+	 * relocation record uses the segment symbols
+	 */
+	if (!sp->num)
+#else
+	/*
+a339 1
+#endif
+d355 9
+d375 1
+d512 1
+a512 1
+	pass = dot.sg = 1;
+@

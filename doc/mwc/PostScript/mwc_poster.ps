@@ -1,0 +1,236 @@
+%!PS-Adobe-1.0
+/state save def
+% lib/box.ps 10/25/93
+
+% Draw rectangular box.
+% linewidth linegray fillgray dx dy x y box -
+% Ignore setgray and linegray if fillgray is -1;
+% this is useful for filling a box with a different fill pattern.
+/box
+{
+	gsave
+		newpath			% linewidth linegray fillgray dx dy x y
+		moveto			% linewidth linegray fillgray dx dy
+		1 index 0 rlineto	% linewidth linegray fillgray dx dy
+		0 exch rlineto		% linewidth linegray fillgray dx
+		neg 0 rlineto		% linewidth linegray fillgray
+		closepath
+		dup -1 ne
+		{			% linewidth linegray fillgray
+			% use fillgray and linegray if fillgray is not -1
+			gsave
+				setgray	% linewidth linegray
+				fill
+			grestore
+			setgray		% linewidth
+		}
+		{			% linewidth linegray fillgray
+			% ignore fillgray and linegray if fillgray is -1
+			pop pop		% linewidth
+			fill
+		} ifelse
+		setlinewidth stroke	% -
+	grestore
+} bind def
+
+% end of lib/box.ps
+% mwc2.ps 11/24/93
+% Mark Williams logo with or without company name.
+
+% The MWC logo is uniquely determined by its width, height, and linewidth.
+% The required x and y coordinates are easily computed from these.
+% The computations put the origin at the lower left corner of the logo.
+% Without "Mark Williams Company" (tflag zero),
+% bounding box is roughly [0, 0] to [1, 1.03125].
+% With "Mark Williams Company" (tflag nonzero),
+% bounding box is roughly [0, -.0625] to [1, 2.53125].
+% [These are by measurement rather than by computation, may be flakey!]
+
+/mwcdict 15 dict def
+
+% Print a Mark Williams logo at [x y] with given width.
+% If tflag is nonzero, print "Mark Williams Company" to right of logo.
+% If cflag is nonzero, [x y] is the center of the logo;
+% if cflag is zero, [x y] is the lower left corner of the logo.
+% tflag cflag width x y mwclogo2 -
+/mwclogo2
+{
+	mwcdict begin
+
+	% Constants determining logo.
+	/width 1.000 def			% unit width
+	/height 1.045 def			% ratio height/width
+	/a .1338 def				% ratio linewidth/width
+	/p .31 def				% text pointsize
+	/textdx 1.12 def			% text x-location
+
+	% Derived constants.
+	/b width a 6 mul sub 5 div def		% space between M and W
+	/r a b add def				% radius of curves
+	/x1 a 2 div def				% first x coordinate
+	/x2 x1 r add def
+	/x3 x2 r add def
+	/x4 x3 r add def
+	/x5 x4 r add def
+	/x6 x5 r add def
+	/y1 a 3 mul 2 div b add def		% first y coordinate
+	/y2 height y1 sub def
+
+	gsave
+	translate				% to given [x y]
+	dup scale				% scale to desired width
+	0 ne { width 2 div neg height 2 div neg translate } if	% to lower left
+
+	a setlinewidth
+	1 setlinecap
+
+	% M
+	newpath
+	x1 y1 moveto
+	x1 y2 lineto
+	x2 y2 r 180 0 arcn
+	x3 y1 lineto
+	stroke
+	x3 y2 moveto
+	x4 y2 r 180 0 arcn
+	x5 y1 lineto
+	stroke
+
+	% W
+	x6 y2 moveto
+	x6 y1 lineto
+	x5 y1 r 0 180 arcn
+	x4 y2 lineto
+	stroke
+	x4 y1 moveto
+	x3 y1 r 0 180 arcn
+	x2 y2 lineto
+	stroke
+
+	% Mark Williams Company.
+	0 ne {
+		/Helvetica-Bold findfont p scalefont setfont
+		textdx p p add moveto (Mark) show
+		textdx p moveto (Williams) show
+		textdx 0 moveto (Company) show
+		
+	} if
+
+	grestore
+	end
+} bind def
+
+% end of mwc2.ps
+% lib/poster.ps 11/11/93
+% Multipage output: print a large poster.
+% Cf. PostScript Language Tutorial and Cookbook, pp. 183-185.
+% This routine is set up differently than the Cookbook example to facilitate
+% printing single-sheet test versions of proc before blowing it up.
+
+/inch { 72 mul } bind def
+
+/posterdict 17 dict def		% px py pdx pdy newdx newdy urx ury llx lly
+				% proc xscale yscale ncols nrows x y
+
+% Routine poster takes as arguments a procedure proc
+% and its bounding box parameters (llx, lly) and (urx, ury).
+% It blows up the image to size (newdx, newdy) and prints it
+% on separate 8 inch x 10.5 inch pages with .25 inch margins at each border.
+% lflag is boolean: false for portrait, true for landscape;
+% it should generally be false (even if proc prints in landscape)
+% unless you want the poster output to be some multiple of 10.5" x 8".
+% If the specified newdx is not a multiple of 8" (10.5" if landscape),
+% the scaled image will not go all the way to the right of the poster.
+% If the specified newdy is not a multiple of 10.5" (8" if landscape),
+% the scaled image will not go all the way to the top of the poster.
+% proc llx lly urx ury newdx newdy lflag poster -
+/poster
+{
+	posterdict begin
+
+	% Page format constants.
+	/px  8.00 inch def			% page width
+	/py 10.50 inch def			% page height
+	/pdx  .25 inch def			% page horizontal offset
+	/pdy  .25 inch def			% page vertical offset
+
+	% Landscape format if lflag.
+	{
+		/px 10.50 inch def		% page width
+		/py  8.00 inch def		% page height
+		90 rotate
+		0 -8.5 inch translate
+	} if
+
+	/newdy exch def
+	/newdx exch def
+	/ury exch def
+	/urx exch def
+	/lly exch def
+	/llx exch def
+	/proc exch def
+
+	/xscale newdx urx llx sub div def	% horizontal scale factor
+	/yscale newdy ury lly sub div def	% vertical scale factor
+	/ncols newdx px div ceiling def		% horizontal page count
+	/nrows newdy py div ceiling def		% vertical page count
+
+	0 1 ncols 1 sub {			% for each column of output pages
+		px mul /x exch def
+		0 1 nrows 1 sub {		% for each row of output pages
+			py mul /y exch def
+			gsave
+
+			% Define clipping box and stroke it.
+			newpath
+			pdx pdy moveto
+			px 0 rlineto
+			0 py rlineto
+			px neg 0 rlineto
+			closepath clip stroke
+
+			% Translate appropriately.
+			pdx pdy translate	% adjust for page margins
+			x neg y neg translate	% move to desired page position
+			xscale yscale scale	% scale image to desired size
+			llx neg lly neg translate	% ll to (0,0)
+
+			% Print a page.
+			% posterdict would overflow if proc defines any
+			% variables, hence it is popped and repushed here.
+			/proc load		% proc to stack
+			end			% remove posterdict for proc
+			exec			% execute proc
+			posterdict begin	% restore posterdict
+			showpage		% print one page
+
+			grestore
+		} for				% for each row
+	} for					% for each column
+	end					% end of posterdict
+} bind def
+
+% Example: suppose
+%	foo showpage
+% draws the desired image on a single 8.5" x 11" page,
+% not writing in a .25" margin at each border.
+% To print at scale 2::1 on four pages, replace the above with:
+%	/foo load .25 inch .25 inch 8.25 inch 10.75 inch 16 inch 21 inch false poster
+
+% end of lib/poster.ps
+/inch { 72 mul } bind def
+/mwcpage
+{
+	90 rotate
+	0 -8.5 inch translate
+	% linewidth linegray fillgray dx dy x y box -
+	.1 inch 0 1 10.4 inch 3.9 inch .3 inch .3 inch box
+	1 0 3.25 inch 1.375 inch .625 inch mwclogo2
+} bind def
+
+% 0 1 6 inch 4.25 inch 5.5 inch mwclogo2 showpage
+% mwcpage showpage
+/mwcpage load 4.25 inch .25 inch 8.25 inch 10.75 inch 16 inch 42 inch false poster
+
+state restore
+

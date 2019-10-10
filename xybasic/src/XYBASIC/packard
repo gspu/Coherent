@@ -1,0 +1,500 @@
+;PACKARD 1/23/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1979, 1980 by Mark Williams Company, Chicago
+;Custom version for Packard Instruments
+
+
+	if	packi
+
+;Packard Instruments XYBASIC stores the ASCII data from ONLINE or OFFLINE
+;instruments in the buffer PADAT.  The format of the PADAT entries is:
+;A completed data record consists of a FLAG byte of 0, followed by
+;	significant ASCII data fields, each terminated by <cr>.
+;An incomplete data record consists of a FLAG byte of 1, followed by data.
+;A data buffer overflow is indicated by a FLAG byte of 2.
+;A line of more than PACMX chars is indicated by a FLAG byte of 3.
+;A synch error is indicated by a FLAG byte of 4.
+
+;The field buffer PAFLD contains the number of fields per record in its
+;first byte, and an ordered list of significant record numbers in
+;successive bytes, terminated by 0.
+
+;The RAM locations used during data collection and analysis are:
+;PAONL	Online flag [0 OFFLINE, 255 ONLINE]
+;PADP0	Pointer to FLAG byte of current/next data record for INPUT @.
+;PADP1	Pointer to data byte of current/next data record for INPUT @.
+;PADP2	Pointer to next available location of currently incompleted record.
+;PADP3	Pointer to FLAG byte of currently incompleted record.
+
+;EQUates
+padct	equ	400		;length of data buffer
+pafct	equ	35		;length of FIELD buffer
+pacmx	equ	90		;max # chars in line
+paind	equ	7EH		;data port
+pains	equ	7FH		;status port
+
+;commands
+
+;FIELD <expr> [, <expr>] *
+;The FIELD command initializes the buffer PAFLD.
+field:	call	pinit		;reinitialize the data buffer
+	lxi	h,paign		;reset flags for PADAT
+	mov	m,a		;set IGNORE flag to 0
+	inx	h
+	mvi	m,pacmx		;set COUNT to PACMX
+	inx	h
+	mov	m,a		;set MODE flag to 0
+	inx	h
+	mvi	m,1		;set next field # to 1
+	lxi	h,pafld+1
+	shld	pafbp		;set PAFBP to first buffer location
+	dcx	h
+	lxi	d,1FFH		;1 to D, 255 to E
+	call	fiel0		;get field count and store
+	inr	a
+	mov	e,a		;count+1 to E
+fiel1:	inx	h		;point to next buffer loc
+	mvi	m,0		;store possible eof
+	push	h
+	call	gtcnd		;look for comma
+	pop	h
+	rc			;none, done
+	call	fiel0		;get next field value and store
+	inr	a
+	mov	d,a		;last value + 1 to D
+	jmp	fiel1		;and look for more values
+;FIEL0 gets a parameter for FIELD command and stores it in buffer.
+;A fatal FI error occurs if the parameter value is <0, >255, <(D) or >=(E).
+;Call:	D	most recent value + 1
+;	E	max value + 1
+;Retn:	A,M	value
+;	DE,HL	preserved
+fiel0:	call	gtexp		;value to BC
+	mov	a,b
+	ora	a
+	jnz	fierr		;fatal FI error if <0 or >255
+	mov	a,c		;fetch value
+	mov	m,a		;and store it
+	cmp	d
+	jc	fierr		;< last+1, fatal FI error
+	cmp	e
+	rc			;< max+1, ok
+fierr:	xra	a
+	sta	pafld		;reset FIELD buffer on FI errors
+	error	f, f, i		;and issue fatal FI error
+
+;INPUT @ <var list>
+;The INPUT @ command reads data from the data buffer.
+painp:	lda	pafld
+	ora	a
+	jz	fierr		;fatal FI error if no FIELD command executed
+	lhld	savtp
+	shld	txtp2
+	call	flip		;save TEXTP, reset TEXTP in case ^C typed
+pain0:	call	ctest		;look for console break char
+	lhld	padp1		;first char pointer to HL
+	mov	a,m		;fetch first char
+	cpi	1
+	jz	pain1		;data not ready, FLAG = 1
+	cpi	20H
+	jnc	pain2		;printable char, do the INPUT
+	call	painx		;else increment the first char pointer
+	call	pain5		;store new value and update FLAG pointer
+	jmp	pain0		;and retry
+;at PAIN1 data is not ready, so read chars if OFFLINE and retry
+pain1:	lda	paonl		;fetch ONLINE status
+	ora	a		;Zero set iff OFFLINE
+	jnz	pain0		;ONLINE, just retry until FLAG indicates ready
+	if	nonst
+	mvi	c,cntlq
+	call	pout		;XON to turn on reader
+	else
+	mvi	a,cntlq
+	call	writc
+	endif
+	lhld	padp1		;FLAG pointer to HL
+pai1a:	call	ctest		;look for console break char
+	call	pardr		;read char and store
+	mov	a,m		;fetch current FLAG
+	dcr	a		;Zero set iff FLAG is 1, i.e. not ready
+	jz	pai1a		;not ready, keep waiting
+	lda	pamod		;fetch mode
+	cpi	3
+	jnc	pai1a		;wait for <cr> before issuing XOFF
+	if	nonst
+	mvi	c,cntls
+	call	pout		;XOFF to turn off reader
+	else
+	mvi	a,cntls
+	call	writc
+	endif
+	jmp	pain0		;and retry
+;At PAIN2 the next data char is printable, so the INPUT is performed.
+;First the next field is moved to the input buffer.
+pain2:	xra	a
+	sta	cstkd		;clear cstack direct count
+	lxi	b,nlnad		;input buffer address to BC
+	push	b
+pain3:	mov	a,m		;fetch char from data buffer
+	stax	b		;and store in input buffer
+	inx	b		;increment input buffer pointer
+	push	psw
+	call	painx		;and data buffer pointer
+	pop	psw
+	cpi	cr
+	jnz	pain3		;continue until cr found
+	call	pain5		;update data buffer and FLAG pointers
+;Next the INPUT is performed.
+	pop	h
+	shld	textp		;input buffer address to TEXTP
+	call	flip		;restore TEXTP, save input buffer pointer
+	call	gtlhs		;find destination
+	if	strng
+	cpi	strst
+	jz	pain6		;string destination
+	endif
+	call	flip		;to parse input buffer
+	call	gtlit		;evaluate data item
+	jc	exerr		;error in data item
+	call	asigv		;assign value to destination
+	call	flip		;to parse text again
+;The <varlist> is checked for additional elements.
+pain4:	call	gtcnd		;look for comma
+	jnc	painp		;repeat if more variables follow
+;If ONLINE, DTR line pulled high if > 80H bytes remain free.
+	lda	paonl		;fetch ONLINE status
+	ora	a
+	rz			;done if OFFLINE
+	lhld	padp2		;last to HL
+	xchg
+	call	cplde		;-last to DE
+	lhld	padp0		;first to HL
+	dad	d		;first-last = space remaining
+	cnc	pas16
+	lxi	d,80H
+	call	cmdhu
+	rnc			;remaining <= 80H bytes, just return
+	if	not debug
+	mvi	a,37H
+	out	pains		;else pull DTR line high
+	endif
+	ret			;else done
+pain5:	shld	padp1		;update data buffer pointer
+	mov	a,m		;fetch next char
+	cpi	5		;check if flag follows
+	rnc			;no, leave FLAG pointer unchanged
+	shld	padp0		;else update FLAG pointer
+	ret			;and return
+;string destination, consider field as unquoted string
+	if	strng
+pain6:	mvi	c,0FFH		;string length to C
+	lxi	h,nlnad		;location to HL
+	mov	d,h
+	mov	e,l		;and to DE
+pain7:	mov	a,m		;fetch string char
+	inx	h
+	inr	c		;bump length
+	cpi	cr
+	jnz	pain7		;scan until cr
+	mvi	a,strst		;result type = string to A
+	call	asigv		;assign value to destination
+	jmp	pain4		;continue scanning as above
+	endif
+
+;OFFLINE | ONLINE
+onlin:	stc
+oflin:	sbb	a		;A gets 0 for OFFLINE, 255 for ONLINE
+	sta	paonl		;set PAONL accordingly
+	ret
+
+
+;functions
+
+;FLAG: --> <integer>
+;FLAG just returns current FLAG if ONLINE or FLAG <> 1.
+;If OFFLINE and FLAG=1, then looks to RDR for data.
+flag:	lhld	padp0		;FLAG pointer to HL
+	lda	paonl		;fetch ONLINE status
+	ora	a		;Zero set iff OFFLINE
+	mov	a,m		;fetch FLAG value
+	jnz	flag3		;ONLINE, take given FLAG value
+	cpi	1
+	jnz	flag3		;FLAG not not ready, take value given
+	if	nonst
+	mvi	c,cntlq
+	call	pout		;XON to turn on reader
+	else
+	mvi	a,cntlq
+	call	writc
+	endif
+flag1:	xchg			;save FLAG pointer
+	lxi	h,-521		;2MHz / (15*256) cycles = 1 sec
+	call	timer		;delay until char or 1 second elapses
+	xchg			;restore FLAG pointer
+	jnc	flag2		;timeout, take given FLAG
+	call	pardr		;char ready, read it and srore it
+	mov	a,m		;fetch possibly altered FLAG
+	dcr	a
+	jz	flag1		;not ready FLAG, look for more chars
+	lda	pamod		;fetch mode
+	cpi	3
+	jnc	flag1
+flag2:	if	nonst
+	mvi	c,cntls
+	call	pout		;XOFF to turn off reader
+	else
+	mvi	a,cntls
+	call	writc
+	endif
+	mov	a,m		;fetch flag
+flag3:	mov	c,a
+	mvi	b,0		;value to BC
+	cpi	2
+	cnc	painx		;increment pointer if value is 2, 3, or 4
+	shld	padp0		;and store new FLAG pointer
+	ret
+
+
+;routines
+
+;PINIT initializes PAFLD and PABUF, and is called from CLEAR and FIELD.
+;Retn:	A	0
+;	HL	PADAT+1
+pinit:	xra	a
+	sta	pafld		;clear FIELD buffer
+	lxi	h,padat
+	mvi	m,1		;set initial FLAG value to 1
+	shld	padp0		;set FLAG pointer
+	shld	padp1		;and first used char pointer
+	shld	padp3		;and current record FLAG pointer
+	inx	h
+	shld	padp2		;and next available pointer
+	if	not debug
+	mvi	a,37H
+	out	pains		;else pull DTR line high
+	xra	a
+	endif
+	ret
+
+;PAISR is the interrupt service routine.
+paisr:	push	psw
+	lda	paonl		;fetch ONLINE status
+	ora	a		;Zero set iff OFFLINE
+	in	paind		;read the data
+	cnz	pasto		;and store it if ONLINE
+	pop	psw
+	ei
+	ret
+
+;PAINX increments HL to next PABUF location.
+;Call:	HL	pointer into PABUF
+;Retn:	A,DE	Clobbered
+;	BC	Preserved
+;	HL	Pointer to next PABUF location
+painx:	inx	h		;point to next
+	lxi	d,padat+padct	;last buffer location + 1 to DE
+	call	cmdhu		;compare last to next
+	rnz			;return if not at end of buffer
+	lxi	h,padat		;else first buffer location is next
+	ret
+
+;PARDR reads a char for OFFLINE data collection and stores it in PADAT.
+pardr:	if	cpm		;prompt for char in CP/M version
+	push	h
+	call	prntm
+	db	'OFFLINE char?', cr, lf or 80H
+	pop	h
+	endif
+	call	readc		;read and fall through to PASTO to store
+
+;PASTO stores the char from A to the Packard data buffer PADAT, as desired.
+;The current data item state is indicated by several RAM values.
+;PAIGN	Ignore flag [0 normally, nonzero between ONLINE TAPEOFF and TAPEON]
+;PACNT	Count, 80 - chars in current line
+;PAMOD	Mode [0 waiting for field, 1 receiving significant field,
+;		2 receiving insignificant field, 3 receiving chars before cr,
+;		4 receiving ignored chars of bad line]
+;PAFNO	Field number of next/current field
+;PAFBP	Pointer to field number of next significant field (in PAFLD)
+;The parity bit is stripped from A, all other registers are preserved.
+pasto:	ani	7FH		;mask possible parity bit
+	rz			;ignore nulls
+	push4			;save registers
+	lxi	h,pop4
+	push	h		;push return to POP4 to allow RET
+	mov	b,a		;save char in B
+	lda	pafld
+	ora	a
+	rz			;ignore if FIELD = 0
+	lxi	h,paign		;address ignore flag
+	lda	paonl		;fetch online mode
+	ora	a
+	jz	past1		;ignore TAPEON/TAPEOFF flag if OFFLINE
+	mov	a,b		;refetch char
+	cpi	cntlt		;test for TAPEOFF, i.e. ^T
+	jz	past9		;TAPEOFF, set ignore flag
+	sui	cntlr		;test for TAPEON, i.e. ^R
+	jz	past9		;TAPEON, clear ignore flag
+	mov	a,m		;fetch ignore flag
+	ora	a
+	rnz			;ignoring (since previous TAPEOFF)
+past1:	inx	h		;address PACNT
+	mov	a,b		;refetch char
+	cpi	cr
+	jnz	past2
+	mvi	m,pacmx+1	;reset PACNT on <cr>
+past2:	dcr	m		;decrement PACNT
+	mvi	c,3		;possible error flag value = 3 to C
+	inx	h		;address PAMOD
+	mov	a,m		;fetch mode
+	jm	past4		;line too long
+	cpi	1
+	jz	pas12		;mode=1, receiving significant field
+	cpi	2
+	mov	a,b		;restore char to A
+	jz	pas10		;mode=2, receiving insignificant field
+	jnc	pas11		;mode=3 or 4, receiving chars after last
+;waiting for first char of field
+	call	patst		;test if field char
+	rc			;no, ignore and keep waiting
+;field char received, go from waiting to receiving state
+	mvi	m,2		;set mode to 2, assuming insignificant
+	xchg			;mode pointer to DE
+	lda	pafno		;fetch current field #
+	lhld	pafbp		;significant field pointer to HL
+	cmp	m		;check if significant
+	rnz			;insignificant, done
+	inx	h		;increment significant field pointer
+	shld	pafbp		;and store
+	xchg			;mode pointer to HL
+	dcr	m		;decrement mode to 1, significant
+	mov	a,b		;restore new char
+;PAST3 stores the char from A to PABUF, preserving BC.
+past3:	lhld	padp2		;address next available buffer location
+	mov	m,a		;store char
+	call	painx		;increment buffer loc
+	shld	padp2		;and store new next avail pointer
+	xchg
+	call	cplde		;-last to DE
+	lhld	padp0		;first used loc to HL
+	dad	d		;first-last = space remaining
+	cnc	pas16		;add PADCT if first > last
+	lxi	d,5
+	call	cmdhu		;check amount of free buffer space remaining
+	rc			;>5 bytes free, just return
+	mvi	e,2
+	call	cmdhu		;check if 0 or 1 byte remains
+	jnc	past5		;yes, out of space
+	lda	paonl		;fetch ONLINE status
+	ora	a
+	rz			;done if OFFLINE
+	if	not debug
+	mvi	a,35H
+	out	pains		;pull DTR (on bit 1) low
+	endif
+	ret
+;line too long, issue error unless issued already
+past4:	cpi	4		;check mode
+	rz			;done if error already
+	jmp	past6		;else issue error
+;buffer overflow has occurred, purge most recent info
+past5:	mvi	c,2		;error flag value to C
+past6:	lxi	h,pamod		;address PAMOD
+	mvi	m,4		;set mode to ignore remainder of line
+	inx	h
+	mvi	m,1		;set PAFNO to 1 for next field received
+	lhld	padp0
+	xchg			;first FLAG location to DE
+	lhld	padp3
+	call	cmdhu		;check if current is first
+	jz	past7		;yes
+	lxi	d,padat
+	call	cmdhu		;check if current is start of buffer
+	cz	pas16		;yes, point to end of buffer + 1
+	dcx	h		;point to location before current
+	mov	a,m		;and fetch its value
+	cpi	5		;check if it contains FLAG
+	cnc	painx		;not a flag, reincrement to current
+	shld	padp3		;and store current flag pointer
+past7:	mov	m,c		;error flag to current flag loc
+	call	painx
+past8:	mvi	m,1		;store new flag byte for next entry
+	call	painx
+	shld	padp2		;reset next avail pointer
+	ret
+past9:	mov	m,a
+	ret
+;receiving insignificant field
+pas10:	call	patst
+	rnc			;ignore if field char
+	jmp	pas13		;else continue as below
+;receiving chars after last significant field of record
+pas11:	cpi	cr
+	jz	pas14		;<cr>, done
+	mov	a,m		;refetch mode
+	cpi	4
+	rz			;ignore if error has ocurred
+	mov	a,b		;restore char to A
+	call	patst
+	rc			;ignore nonfield chars
+	mvi	c,4		;error code = 4 to C
+	jmp	past6		;and issue error
+;receiving significant field
+pas12:	mov	a,b		;restore char to A
+	call	patst
+	jnc	past3		;store another char of field
+	mvi	a,cr		;field is completed
+	call	past3		;so store a cr
+pas13:	lxi	h,pamod		;insignificant field entry point
+	mvi	m,0		;reset mode to 0 = waiting
+	inx	h		;address current field PAFNO
+	inr	m		;and increment
+	lda	pafld		;fetch max field
+	cmp	m		;compare to current
+	rnc			;max >= next, continue same record
+	mvi	m,1		;record is complete, so set next field to 1
+	dcx	h
+	mvi	m,3		;and set mode to 3 in case no <cr> yet
+	mov	a,b
+	cpi	cr		;check if <cr> terminates record
+	rnz			;no <cr>, may be more chars following
+pas14:	mvi	m,0		;end of record found
+	lxi	h,pafld+1
+	shld	pafbp		;reset significant field pointer
+	lhld	padp3
+	dcr	m		;check if 1
+	jnz	pas15		;error occurred during record, ignore record
+	lhld	padp2
+	shld	padp3		;reset current FLAG byte pointer
+	jmp	past8		;store new entry flag byte
+pas15:	inr	m		;restore correct error code
+	call	painx
+	shld	padp3		;reset current record flag pointer
+	jmp	past8		;and reset next avail pointer
+pas16:	lxi	d,padct
+	dad	d
+	ret
+
+
+;PATST determines whether char in A is a legal Packard numeric
+;field character, namely: + - . 0 1 2 3 4 5 6 7 8 9
+;Call:	A	Char
+;Retn:	ABCDEHL	Preseved
+;	Carry	Set iff not a legal numeric field char
+patst:	cpi	'9'+1
+	cmc
+	rc			;> '9', not a legal char
+	cpi	'0'
+	rnc			;'0' <= char <= '9', ok
+	cpi	'.'
+	rz
+	cpi	'-'
+	rz
+	cpi	'+'
+	rz
+	stc			;not a legal char
+	ret
+
+	endif			;end of PACKI conditional
+
+;end of PACKARD

@@ -1,0 +1,267 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.15.43.16;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@#include <stdio.h>
+#include <assert.h>
+#include "bc.h"
+
+
+/*
+ *	Newscalar takes the rvalue pointed to by lval and initializes
+ *	it to have a value of zero.
+ */
+
+newscalar(lval)
+register rvalue	*lval;
+{
+	minit(&lval->mantissa);
+	mcopy(mzero, &lval->mantissa);
+	lval->scale = 0;
+}
+
+/*
+ *	Newarray takes the array pointed to by alval and initializes it
+ *	to have one element, which will have the value of zero.
+ */
+
+newarray(alval)
+register array	*alval;
+{
+	alval->size = 1;
+	alval->avalue = (rvalue *)mpalc(sizeof (rvalue));
+	newscalar(alval->avalue);
+}
+
+/*
+ *	Arfree frees all space associated with the array pointed to by
+ *	`alv'.
+ */
+
+arfree(alv)
+register array	*alv;
+{
+	register rvalue	*rp;
+	register int	left;
+
+	for (rp = alv->avalue, left = alv->size; --left >= 0; ++rp)
+		mvfree(&rp->mantissa);
+	mpfree(alv->avalue);
+}
+
+/*
+ *	Pow10 returns a pointer to a mint which is 10 ^ `power'.
+ *	Note that this pointer is to a static region, and hence
+ *	should not be saved, but should be used immediately.
+ *	Since pow10 is frequently used for scaleing, it first
+ *	checks to see if the value being requested is the same
+ *	as last time, and if so, simply returns it.
+ */
+
+mint	*
+pow10(power)
+register int	power;
+{
+	static int	oldpow = -1;
+	static mint	oldres;
+
+	if (power != oldpow) {
+		if (power == 0)
+			return (mone);
+		spow(&ten, power, &oldres);
+		oldpow = power;
+	}
+	return (&oldres);
+}
+
+/*
+ *	Select returns the lvalue of the `indx'th item in the array
+ *	`arry'.
+ */
+
+rvalue	*
+select(arry, indx)
+register array	*arry;
+int		indx;
+{
+	register rvalue	*ptr;
+	register int	nsize;
+
+	if (indx < 0)
+		bcmerr("Negative subscript");
+	if (indx >= arry->size) {
+		nsize = indx + ABUMP - indx % ABUMP;
+	/*
+	 *	Should be:
+	 *	ptr = (rvalue *)realloc(arry->avalue,
+	 *		nsize * (sizeof (rvalue)));
+	 *	if (ptr == NULL)
+	 *		die("Out of space");
+	 *	But is:
+	 */
+		ptr = (rvalue *)mpalc(nsize * (sizeof (rvalue)));
+		copy((char *)arry->avalue, (char *)ptr,
+			arry->size * sizeof (rvalue));
+		mpfree(arry->avalue);
+	/*
+	 *	End of kludge.
+	 */
+		arry->avalue = ptr;
+		ptr += arry->size;
+		do {
+			newscalar(ptr++);
+		} while (++arry->size < nsize);
+	}
+	return (&arry->avalue[indx]);
+}
+
+/*
+ *	Shift sets the mint `b' to the mint `a' times 10 ^ `scnt'.
+ *	If `scnt' is negative, then a divide (with truncation) is
+ *	done.  If `scnt' is zero and `a' and `b' are the same, then
+ *	no action is taken.
+ */
+
+
+shift(a, scnt, b)
+register int	scnt;
+mint	*a, *b;
+{
+	mint	temp;
+
+	if (scnt > 0)
+		mult(a, pow10(scnt), b);
+	else if (scnt < 0) {
+		minit(&temp);
+		mdiv(a, pow10(-scnt), b, &temp);
+		mvfree(&temp);
+	} else if (a != b)
+		mcopy(a, b);
+}
+
+/*
+ *	Rescale adjusts the scale of the rvalue pointed to by `a'
+ *	to `newsc'.
+ */
+
+rescale(a, newsc)
+register rvalue	*a;
+register int	newsc;
+{
+	shift(a, newsc - a->scale, a);
+	a->scale = newsc;
+}
+
+/*
+ *	Rtoint returns an int equal to the rvalue `a'.  Any
+ *	fractional part is truncated.  If `a' is too large,
+ *	then rtoint exits via bcerr.
+ */
+
+int
+rtoint(a)
+rvalue	*a;
+{
+	register int	res;
+	mint	temp;
+
+	minit(&temp);
+	shift(&a->mantissa, - a->scale, &temp);
+	if (mcmp(mminint, &temp) > 0 || mcmp(&temp, mmaxint) > 0)
+		bcmerr("Too big for int");
+	res = mtoi(&temp);
+	mvfree(&temp);
+	return (res);
+}
+
+/*
+ *	Chkcall checks to make sure that a function is defined and has
+ *	the right number of arguments.  `fnc' is a pointer to the
+ *	dictionary entry for the function and `npars' is the number
+ *	of parameters with which it is called.
+ */
+
+chkcall(fnc, npars)
+register dicent	*fnc;
+register int	npars;
+{
+	if (fnc->globalt != FUNCTION)
+		bcmerr("'%s' not function", fnc->word);
+	if (fnc->globalv.fvalue.body == NULL)
+		bcmerr("Function '%s' not defined", fnc->word);
+	if (fnc->globalv.fvalue.nparams != npars)
+		bcmerr("Function '%s' needs %d arguments, got %d",
+			fnc->word, fnc->globalv.fvalue.nparams, npars);
+}
+
+/*
+ *	Pauto intializes the automatic variables needed by a bc function
+ *	as part of the CALL instruction.  It also checks to make sure that
+ *	there is room for them on the stack.  Pauto returns the value
+ *	for tos after the CALL is completed (which is a pointer to the
+ *	return state).  `fnc' is the function being called, tos is the
+ *	old tos and limit is the last available stack entry.
+ */
+
+stkent	*
+pauto(fnc, tos, limit)
+register func	*fnc;
+register stkent	*tos;
+stkent		*limit;
+{
+	register type	*tp;
+	int		left;
+
+	left = fnc->nautos;
+	if (tos + left >= limit)
+		bcmerr("Out of runtime stack");
+	++tos;
+	for (tp = &fnc->types[fnc->nparams]; --left >= 0; ++tp, ++tos)
+		switch (*tp) {
+		case SCALAR:
+			newscalar(&tos->rvalue);
+			break;
+		case ARRAY:
+			tos->alvalue = (array *)mpalc(sizeof (array));
+			newarray(tos->alvalue);
+			break;
+		default:
+			assert(FALSE);
+		}
+	return (tos);
+}
+
+/*
+ *	Newframe returns the new value for the frame pointer after
+ *	calling the function `fcn'.  `tos' is the top of the stack
+ *	after the CALL (note, this points to the saved state).
+ */
+
+stkent	*
+newframe(fcn, tos)
+register func	*fcn;
+stkent		*tos;
+{
+	return (tos - (fcn->nparams + fcn->nautos));
+}
+@

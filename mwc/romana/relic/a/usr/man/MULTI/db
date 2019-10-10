@@ -1,0 +1,330 @@
+
+
+db                           Command                           db
+
+
+
+
+Assembler-level symbolic debugger
+
+ddbb [-ccddeeffoorrtt] [_m_a_p_f_i_l_e] [_d_a_t_a_f_i_l_e]
+
+db is an assembly  language-level debugger.  It allows you to run
+object  files and  executable programs  under trace  control (see
+ppttrraaccee),  run programs  with embedded  breakpoints, and  dump and
+patch files in  a variety of forms.  You can  use it to debug as-
+sembly-language programs that have been assembled by aass, the Mark
+Williams assembler, as well as those that have been compiled with
+the Mark Williams C compiler.
+
+***** What is db? *****
+
+db is  a symbolic  debugger, which means  that it works  with the
+symbol tables  that the compiler builds into  the object files it
+generates.  Because  db is designed  to work on the  level of as-
+sembly language,  the user needs  a working knowledge  of the ap-
+propriate assembly language and microprocessor architecture.
+
+***** Invoking db *****
+
+To invoke db,  type its name, plus the options  you want (if any)
+and the name  of the files with which you  will be working.  map-
+file is an object file that supplies a symbol table.  datafile is
+the executable program to  be debugged.  If both names are given,
+the options default to -c.  If  only one name is given, it is the
+program; in  this case the options default to  -o.  If both names
+are omitted,  mapfile defaults to  l.out and program  defaults to
+core.  If possible, db accesses datafile with write permission.
+
+The following  options to  the db  command specify the  format of
+program:
+
+-cc  program is  a core  file produced  by a  user core  dump.  db
+   checks the  name of the command that  invoked the process that
+   produced the core, against  the name of the mapfile, if given.
+   Pure segments are read from the mapfile.
+
+-dd program is a system dump.  If only one file is mentioned, map-
+   file defaults to /coherent.
+
+-ee The next argument is an object file; db executes it as a child
+   process and passes it the rest of the command line.
+
+-ff Map program as a straight array of bytes (file).
+
+-oo program is an object file.  If mapfile is given, it is another
+   object file that provides the symbol table.
+
+-rr Read  file only, even though  you can write into  it.  This is
+   used to give a file additional protection.
+
+
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+db                           Command                           db
+
+
+
+-tt Perform  input and output  for db via  /dev/tty.  This permits
+   the debugging of processes whose standard input or output have
+   been redirected.
+
+***** Commands and Addresses *****
+
+db executes commands that you give it from the standard input.  A
+command usually  consists of an address, which  tells db where in
+the program to execute the command; and then the command name and
+its options, if any.
+
+An address  is represented by  an expression, which  can be built
+out of one or more of the following elements:
+
+*  The  `.', which represents  the current address.   When an ad-
+   dress is entered, the current address is set to that location.
+   The current address can be advanced by typing <return>.
+
+*  The  name of a register.  db recognizes  the register names r0
+   through r7, sp,  and pc for the PDP-11; r0  through r15 and pc
+   for the Z-8001 and Z-8002; and ax, ah, al, bx, bh, bl, cx, ch,
+   cl, dx, dh, dl, si, di, bp, sp, sp, pc, cs, ds, es, and ss for
+   the i8086.   Typing the name  of a register  displays its con-
+   tents.   The   usual  numeric  base  (octal   on  the  PDP-11,
+   hexadecimal on all other machines) is always used for register
+   display  and  stack  tracebacks,  regardless  of  the  current
+   default radix.
+
+*   The symbols  dd,  ii, and  uu,  which represent  location 0  in,
+   respectively, the  data space, the instruction  space, and the
+   u-area.
+
+*  The names of global symbols and symbolic addresses can be used
+   in place  of the addresses  where they occur.   This is useful
+   when setting a breakpoint at the beginning of a subroutine.
+
+*  An integer constant, which can be used in the same manner as a
+   global symbol.  The  default is decimal; a leading 0 indicates
+   octal and 0x indicates hexadecimal.
+
+*  The following binary operators can be used:
+       +   Addition
+       -   Subtraction
+       *   Multiplication
+       /   Integer division
+
+   All arithmetic is done in longs.
+
+*  The following unary operators can be used:
+       ~   Complementation
+       -   Negation
+       *   Indirection
+
+   All  operators  are  supported  with  their  normal  level  of
+   precedence.  Parentheses `()' can be used for binding.
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+db                           Command                           db
+
+
+
+
+
+Every symbol refers to  a segment: the data segment, the instruc-
+tion segment, or the u-area.  This segment, in turn, dictates the
+format in which db displays by  default what it finds at that ad-
+dress.  The format used by  an expression is that of its leftmost
+operand.  The  symbols dd, ii, and uu can  name specific segments in
+the absence of other symbols.
+
+***** Display Commands *****
+
+The following commands  merely display information about program.
+The symbol `.' represents the address, which defaults to the cur-
+rent display address if omitted.  count defaults to one.
+
+_a_d_d_r_e_s_s[,_c_o_u_n_t]?[_f_o_r_m_a_t]
+     Display the  format count  times, starting at  address.  The
+     format  string consists  of  one or  more  of the  following
+     characters:
+
+          ^    Reset display address to `.'
+          +    Increment display address
+          -    Decrement display address
+          bb    Byte
+          cc    cchhaarr; control and non-cchhaarrs escaped
+          CC    Like `c' except `\0' not displayed
+          dd    Decimal
+          ff    ffllooaatt
+          FF    ddoouubbllee
+          ii    Machine instruction, disassembled
+          ll    lloonngg
+          nn    Output `\n'
+          OO    octal
+          pp    Symbolic address
+          ss    String terminated by `\0', with escapes
+          SS    String terminated by `\0', no escapes
+          uu    uunnssiiggnneedd
+          WW    word
+          xx    Hexadecimal
+          YY    time (as in i-node etc.)
+
+The format  characters d,  o, u, and  x, which specify  a numeric
+base, can be followed by b,  l, or w, which specify a datum size,
+to describe  a single datum for display.  A  format item may also
+be preceded by a count that  specifies how many times the item is
+to be  applied.  Note that format defaults  to the previously set
+format for  the segment (initially  oo for data and  u-area, and i
+for instructions).   Except where otherwise  noted, db increments
+the display address by the size of the datum displayed after each
+format item.
+
+***** Execution Commands *****
+
+In the following  commands, address defaults to the address where
+execution  stopped, unless  otherwise specified;  count  and expr
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+db                           Command                           db
+
+
+
+default to  1.  commands is  an arbitrary string  of db commands,
+terminated by a newline.   A newline may be included by preceding
+it with a backslash `\'.
+
+[_a_d_d_r_e_s_s]=
+     Print address in  octal.  address defaults to `.'.  The com-
+     mand =  assigns values to  locations in the  traced process.
+     The size  of the assigned value is  determined from the last
+     display format used.   You can set and display the registers
+     of the  traced process, just  like any other  address in the
+     traced process.
+
+[_a_d_d_r_e_s_s[,_c_o_u_n_t]]=_v_a_l_u_e[,_v_a_l_u_e[,_v_a_l_u_e]...]
+     Patch the  contents starting at address  to the given value.
+     address defaults to `.'.  Up to ten values can be listed.
+
+?    Print verbose version of last error message.
+
+[_a_d_d_r_e_s_s] :aa
+     Print address symbolically.  address defaults to `.'.
+
+[_a_d_d_r_e_s_s]:bb[_c_o_m_m_a_n_d_s]
+     Set breakpoint at address; save commands to be executed when
+     breakpoint   is    encountered.    commands    defaults   to
+     .:aa\nnii+.?ii\nn:xx.
+
+:bbrr [_c_o_m_m_a_n_d_s]
+     Set breakpoint at return from current routine.  The defaults
+     are the same as for :bb, above.
+
+[_a_d_d_r_e_s_s] :cc
+     Continue execution from address.
+
+[_a_d_d_r_e_s_s] :dd[rr][ss]
+     Delete  breakpoint  at  address.   If  optional  r or  s  is
+     specified, delete return or single-step breakpoint.  address
+     defaults to `.'.
+
+[_a_d_d_r_e_s_s]:ee[_c_o_m_m_a_n_d_l_i_n_e]
+     Begin  traced  execution  of  the  object  file  at  address
+     (default,  entry  point).   The  commandline is  parsed  and
+     passed  to  the  traced  process.   argv[0]  must  be  typed
+     directly after :e if supplied.  For example, :e3 foo bar baz
+     sets  argv[0] to  3,  argv[1] to  foo, argv[2]  to bar,  and
+     argv[3] to baz.   Quotation marks, apostrophes, and redirec-
+     tion are parsed as  by sh, but special characters `?*[]' and
+     shell punctuation `(){}|;' are not.  For complete shell com-
+     mand line parsing use the -e option.
+
+:ff   Print  type of fault  which caused core dump  or stopped the
+     traced process.
+
+:mm   Display segmentation map.
+
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+db                           Command                           db
+
+
+
+[_e_x_p_r] :nn
+     Set default numeric display base  to expr: 88, 1100, and 1166 in-
+     dicate, respectively, octal, decimal, and hexadecimal.
+
+:pp   Display breakpoints.
+
+[_e_x_p_r] :qq
+     If expr is nonzero,  quit the current level of command input
+     (see :x).  expr defaults to 1.  End of file is equivalent to
+     :q.
+
+:rr   Display registers.
+
+[_a_d_d_r_e_s_s],[_c_o_u_n_t]:ss[cc][_c_o_m_m_a_n_d_s]
+     Single-step execution starting  at address, for count steps,
+     executing  commands  at  each  step.  commands  defaults  to
+     ii+.?ii.
+
+     After  a  single-step  command,  <rreettuurrnn> is  equivalent  to
+     .,11:ss[cc].   If  the  optional c  is  present,  db turns  off
+     single-stepping at  a subroutine call  and turns it  back on
+     upon return.
+
+[_d_e_p_t_h] :tt
+     Print  a call  traceback  to depth  levels.  If  depth is  0
+     (default), unwind the whole stack.
+
+[_e_x_p_r] :xx
+     If expr is nonzero, read and execute commands from the stan-
+     dard input up to end of file or :q.  expr defaults to 1.
+
+***** See Also *****
+
+commands, core, l.out.h, od, ptrace()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 5
+
+

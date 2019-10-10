@@ -1,0 +1,189 @@
+# Generated from mkdev.sh on Tue Jan 25 08:15:04 1994 CST
+# console/mkdev - get console configuration info.
+
+# Things to do:
+#
+#	Get user selections by running /etc/conf/bin/kbdselect.
+#
+#	Update the selected kb driver in sdevice.
+#	Update the table load command in /etc/drvld.all.
+#	Update the number of monochrome and color sessions in stune.
+#	Update /etc/ttys.
+#	Update device nodes.
+#	Update /etc/ttytype.
+
+. /usr/lib/shell_lib.sh
+COMMAND_NAME=$0
+source_path $0 "HOME_DIR="
+parent_of $HOME_DIR "CONF_DIR="
+
+
+# kbdselect needs TERM
+
+TERM=${TERM-ansipc}
+export TERM
+
+
+# Constants.
+
+KB_DATA=/tmp/_kbdata
+TMP_TTYS=/tmp/_ttys
+TMP_TTYTYPE=/tmp/_ttytype
+
+COLOR0_MINOR=64
+MONO0_MINOR=80
+
+
+# Initialization.
+
+TABLE=
+COLOR_COUNT=
+MONO_COUNT=
+KB_LANG=
+VIRTUAL=
+
+
+# Get user selections and write them to a file.
+
+$CONF_DIR/bin/kbdselect $KB_DATA
+. $KB_DATA
+
+
+# Now there should be definitions for DRIVER,
+# and if a loadable table keyboard driver was chosen, TABLE,
+# if nonloadable, KB_LANG,
+# if virtual consoles, MONO_COUNT and VGA_COUNT.
+
+# Update the driver in sdevice.
+
+$CONF_DIR/bin/idenable -f $DRIVER
+
+
+# Delete the old keyboard table load command, if any, from /etc/drvld.all.
+
+/bin/grep "^/conf/kbd" /etc/drvld.all > /dev/null && {
+	/bin/ed - +v /etc/drvld.all <<- _EOF
+	/^\/conf\/kbd/d
+	wq
+	_EOF
+}
+
+
+# Append the new keyboard table load command, if any, to /etc/drvld.all.
+
+is_empty $TABLE || {
+	/bin/echo "/conf/kbd/$TABLE" >> /etc/drvld.all
+}
+
+# Turn on or off Greek keyboard switch.  Only matters with vtnkb.
+
+case "$TABLE" in
+	greek*)
+		$CONF_DIR/bin/idtune -f VTGREEK_SPEC 1
+		/bin/echo "Greek keyboard enabled."
+		;;
+	*)
+		$CONF_DIR/bin/idtune -f VTGREEK_SPEC 0
+		;;
+esac
+
+# Update kb_lang in Space.c (for nonloadable French/German/U.S. drivers).
+
+is_empty $KB_LANG || {
+	$CONF_DIR/bin/cohtune console kb_lang "int kb_lang = $KB_LANG;"
+}
+
+
+# Update number of color sessions.
+
+is_empty $COLOR_COUNT || {
+	$CONF_DIR/bin/idtune -f VGA_COUNT $COLOR_COUNT
+}
+
+
+# Update number of monochrome sessions.
+
+is_empty $MONO_COUNT || {
+	$CONF_DIR/bin/idtune -f MONO_COUNT $MONO_COUNT
+}
+
+
+# Update /etc/ttys and /dev entries
+
+# Strip old console, mono, and color entries from /etc/ttys.
+
+/bin/egrep -v "console|mono|color" < /etc/ttys > $TMP_TTYS
+
+
+# Removing nodes will have to wait for node.d revision.
+# Doing /bin/rm -f /dev/console /dev/color* /dev/mono* is *not* a good idea.
+
+# Append mono lines to ttys file, and create device nodes.
+
+is_empty $MONO_COUNT || {
+	VIRTUAL=y
+	x=0
+	while val $(($x < $MONO_COUNT)) ; do
+		/bin/echo 1lPmono$x >> $TMP_TTYS
+		/etc/mknod -f /dev/mono$x c 2 $(($x + $MONO0_MINOR))
+		x=$(($x + 1))
+	done
+}
+
+
+# Append color lines to ttys file, and create device nodes.
+
+is_empty $COLOR_COUNT || {
+	VIRTUAL=y
+	x=0
+	while val $(($x < $COLOR_COUNT)) ; do
+		/bin/echo 1lPcolor$x >> $TMP_TTYS
+		/etc/mknod -f /dev/color$x c 2 $(($x + $COLOR0_MINOR))
+		x=$(($x + 1))
+	done
+}
+
+
+# Append console line to ttys file.  Enable if virtual consoles not in use.
+
+if is_empty $VIRTUAL ; then
+	/bin/echo "1lPconsole" >> $TMP_TTYS
+else
+	/bin/echo "0lPconsole" >> $TMP_TTYS
+fi
+
+/bin/cp $TMP_TTYS /etc/ttys
+
+
+# Update /etc/ttytype
+
+# Strip old mono and color entries from /etc/ttytype.
+
+/bin/egrep -v "mono|color" < /etc/ttytype > $TMP_TTYTYPE
+
+# Append mono lines to ttytype file.
+
+is_empty $MONO_COUNT || {
+	x=0
+	while val $(($x < $MONO_COUNT)) ; do
+		/bin/echo "ansipc-m	mono$x" >> $TMP_TTYTYPE
+		x=$(($x + 1))
+	done
+}
+
+
+# Append color lines to ttytype file.
+
+is_empty $COLOR_COUNT || {
+	x=0
+	while val $(($x < $COLOR_COUNT)) ; do
+		/bin/echo "ansipc	color$x" >> $TMP_TTYTYPE
+		x=$(($x + 1))
+	done
+}
+
+/bin/cp $TMP_TTYTYPE /etc/ttytype
+
+# Delete temporary files.
+
+/bin/rm -f $KB_DATA $TMP_TTYS $TMP_TTYTYPE

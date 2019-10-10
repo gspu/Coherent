@@ -1,0 +1,33 @@
+//////////
+/ i8086 C string library.
+/ streq()
+/ Not in ANSI draft standard.
+//////////
+
+//////////
+/ streq(String1, String2)
+/ char *String1, *String2;
+/
+/ Compare String1 and String2 for equality, return 1 or 0.
+//////////
+
+#include <larges.h>
+
+String1	=	LEFTARG
+String2	=	String1+DPL
+
+	Enter(streq_)
+	Lds	si, String2(bp)	/ String2 address to DS:SI
+	Les	di, String1(bp)	/ String1 address to ES:DI
+	mov	cx, $0		/ Result to CX
+	cld
+
+1:	lodsb			/ String2 character to AL
+	scasb			/ Compare to String1 character
+	jne	2f		/ Mismatch, return 0
+	orb	al, al
+	jne	1b		/ Not done yet
+	inc	cx		/ Matched, return 1
+
+2:	mov	ax, cx		/ Result to AX
+	Leave

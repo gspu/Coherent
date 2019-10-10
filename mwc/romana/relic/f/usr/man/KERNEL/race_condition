@@ -1,0 +1,41 @@
+rraaccee ccoonnddiittiioonn -- Definition
+
+
+The term  _r_a_c_e _c_o_n_d_i_t_i_o_n refers to  the condition that exists  when the the
+outcome of  a sequence of  instructions cannot be  guaranteed.  This occurs
+when program has two sections of  code that can run in any order and either
+share a  variable or  change the  state of the  machine: the  code executed
+first  wins  the  ``race''  and  so  controls  execution  of  the  program.
+Obviously, it  is desirable to avoid  this situation; you can  do so if you
+can force a certain ordering of the code sections.
+
+Race conditions most often happen in operating system related environments.
+If, as in  the case of a device driver,  your program has a main section of
+code that manipulates a few variables  and it also has an interrupt handler
+that does  the same, your  program must lock out  interrupts during certain
+critical times to guarantee that the variables will not be compromised.
+
+Consider, for example, the following pseudo-code:
+
+    set interrupt priority to keep out the gremlins
+    while (work is not yet completed)
+        v_sleep( &some_variable_in_the_kernel_data_area )
+    restore interrupt mask
+
+If an interrupt  were to occur between the wwhhiillee  statement and the call to
+vv_sslleeeepp(), the driver would never wake  up because the event it was waiting
+for (sleeping  on) will  have already  occurred.  To avoid  this situation,
+your  code must  this block  of  code with  calls to  the kernel  functions
+sspphhii()/ssppll().  This will  ensure that interrupts  cannot occur  until after
+vv_sslleeeepp() has  been called.  The system will  re-enable interrupts when the
+driver calls  vv_sslleeeepp(), but  it is guaranteed  to have the  same interrupt
+level (mask) when it awakens,  thus preserving the lockout of the interrupt
+handler.
+
+In most  cases, drivers lock out interrupts  when manipulating the internal
+linked lists associated with tasks to be performed or buffers in use.  This
+keeps the interrupt  handler from using stale data or,  worse yet, a linked
+list that isn't correctly linked.
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss

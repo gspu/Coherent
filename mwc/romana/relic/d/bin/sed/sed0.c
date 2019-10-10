@@ -1,0 +1,26 @@
+/*
+ * A stream editor.
+ */
+#include <stdio.h>
+#include "sed.h"
+
+FILE	*ifp;				/* Input file pointer */
+BRC	brcl[1+NBRC];			/* For remembering \( \) */
+COM	*comp;				/* Pointer to command list */
+COM	**compp;			/* Ptr to add next element */
+ECL	*eclp;				/* Argument list pointer */
+FIL	*filp;				/* Pointer to file list */
+LAB	*labp;				/* Label list */
+QCL	*qcbp;				/* For stacking braces */
+int	pattlen;			/* Length of pattern */
+int	holdlen;			/* Length of hold buffer */
+int	dolflag;			/* Last line in file */
+int	addnone;			/* Number was not found */
+int	nflag;				/* Don't copy to output */
+int	sflag;				/* Case insensitive */
+int	nerr;				/* Number of errors */
+int	lno;				/* Current line number */
+char	linebuf[LHPSIZE];		/* Line buffer */
+char	holdbuf[LHPSIZE];		/* Hold buffer */
+char	pattbuf[LHPSIZE];		/* Pattern buffer */
+char	*ncp;				/* Pointer in input */

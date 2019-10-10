@@ -1,0 +1,384 @@
+;RAM 05/20/81
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980, 1981 by Mark Williams Company, Chicago
+;RAM storage for non-ROM versions
+
+	if	not rom
+$-macro				;suppress DZ macro expansion on printouts
+
+patch:	dz	30		;patch area
+
+	if	asm80
+	dseg			;relocatable data segment
+	endif
+
+ramorg:				;first RAM storage location
+
+;first the version-dependent RAM locations
+
+	if	nonst and not camac
+iobyt:	dz	1		;I/O byte in first RAM location
+cstat:	jmp	jmpta+60	;console status impure code
+	if	not compl
+headr:	db	stbyt,tybyt, '         XYB'
+	endif
+	endif
+
+	if	cpm		;impure code section for console & LST i/o
+cstat:	jmp	0		;console status
+conin:	jmp	0		;console in
+cnout:	jmp	0		;console out
+lout:	jmp	0		;list out
+	if	amd
+pout:	jmp	0		;punch out
+rdrin:	jmp	0		;reader in
+headr:	db	stbyt, tybyt, '        XYB'	;serial SAVE/LOAD header
+	endif
+sptr:	dz	2		;dump buffer pointer
+	if	sdisk
+	if	bendx
+bfilp:	dz	1
+bfblk:	dz	9		;Bendix SDISK file block
+	else			;CP/M SDISK
+files:	db	3
+filep:	dz	2
+filet:	dz	2
+	endif
+	endif
+	if	debug
+amode:	dz	1		;1 if dumping to disk, 0 otherwise
+	endif
+	endif			;end of CPM conditional
+
+	if	isis2
+fname:	dz	16		;file name
+
+opblk:	dw	aft		;open parameter block
+	dw	fname		;file name address
+	dz	2		;access mode
+	dz	2		;no line editing
+	dw	estat		;error status
+
+wrblk:	dz	2		;write parameter block aft
+	dz	2		;address of buffer
+	dz	2		;count
+	dw	estat		;error status
+
+rdblk:	dz	2		;read parameter block aft
+	dz	2		;address
+	dz	2		;count
+	dw	temp		;actual
+	dw	estat		;error status
+
+clblk:				;close parameter block
+aft:	dz	2		;aft
+exblk:	dw	estat		;exit parameter block
+
+estat:	dz	2		;error status
+	dw	estat		;error status addr for error param block
+temp2:	dz	1		;one-byte buffer for ASCII save and load chars
+	endif			;end of ISIS2 conditional
+
+;RAM locations which must have nonzero values in ROM version
+	if	not compl
+dmodc:	jmp	init		;^C branch point, changed to JMP DMOD0
+	endif
+rport:	in	0		;impure code for port reading
+	ret
+wport:	out	0		;impure code for port writing
+	ret
+	if	romsq
+sourc:	dw	srcad		;source text starting address in ROMSQ version
+	endif
+	if	float and (not f9511) and (not fpbcd)
+;IMPURE MULTIPLY SUBROUTINE
+MULX4:	ADI	0		;ADD OPERAND 3RD FRACTION
+	MOV	E,A		;4TH PARTIAL PRODUCT
+	MOV	A,D		;3RD PARTIAL PRODUCT
+	ACI	0		;ADD OPERAND 2ND FRACTION
+	MOV	D,A		;3RD PARTIAL PRODUCT
+	MOV	A,C		;2ND PARTIAL PRODUCT
+	ACI	0		;ADD OPERAND 1ST FRACTION
+	RET			;TO ROM CODE
+;IMPURE DIVIDE SUBROUTINE
+DIVX5:	SUI	0		;SUBTRACT DIVISOR 4TH FRACTION
+	MOV	A,L		;REMAINDER 3RD FRACTION
+	SBI	0		;SUBTRACT DIVISOR 3RD FRACTION
+	MOV	L,A		;REMAINDER 3RD FRACTION
+	MOV	A,H		;REMAINDER 2ND FRACTION
+	SBI	0		;SUBTRACT DIVISOR 2ND FRACTION
+	MOV	H,A		;REMAINDER 2ND FRACTION
+	MOV	A,E		;REMAINDER 1ST FRACTION
+	SBI	0		;SUBTRACT DIVISOR 1ST FRACTION
+	MOV	E,A		;REMAINDER 1ST FRACTION
+	MVI	A,0		;REMAINDER 4TH FRACTION
+	RET 			;TO ROM CODE
+DIVX6:	ADI	0		;ADD DIVISOR 3RD FRACTION
+	MOV	L,A		;REMAINDER 3RD FRACTION
+	MOV	A,H		;REMAINDER 2ND FRACTION
+	ACI	0		;ADD DIVISOR 2ND FRACTION
+	MOV	H,A		;REMAINDER 2ND FRACTION
+	MOV	A,E		;REMAINDER 1ST FRACTION
+	ACI	0		;ADD DIVISOR 1ST FRACTION
+	MOV	E,A		;REMAINDER 1ST FRACTION
+	MVI	A,0		;REMAINDER 4TH FRACTION
+	RET			;TO ROM CODE
+	endif
+
+	if	camac		;impure routines for CAMAC command execution
+;CSETC changes the IN or OUT ports according to the desired crate
+camwr:	mov	a,m		;write data
+	out	0
+	inx	h
+	mov	a,m
+	out	1
+	inx	h
+	mov	a,m
+	out	2
+	ret
+camfn:	mov	a,m		;perform function
+	out	3
+	inx	h
+	mov	a,m
+	out	4
+	inx	h
+	mov	a,m
+	out	5
+	ret
+camrd:	in	6		;read data
+	mov	m,a
+	inx	h
+	in	7
+	mov	m,a
+	inx	h
+	in	8
+	mov	m,a
+	ret
+timex:	db	255 and -120, 255 and -60, 255 and -24
+	else			;NOT CAMAC
+	if	realt		;SBC 80/20 version uses real time clock
+timex:	db	255 and -20, 255 and -60, 255 and -60, 255 and -24
+	else			;valiues for software real time clock
+timex:	dw	timem		;TIME count for minutes, complemented
+	dw	timen		;TIME count for seconds, complemented
+	db	timeh		;TIME count for hundredths
+	endif
+	endif
+
+colum:	dz	1		;current column position on printline
+width:	db	255		;terminal width -- NB must follow COLUM
+
+;locations which must be zeroed in ROM version
+lnnum:	dz	2		;line number (address) of current line
+	if	not compl
+	if	editc
+errln:	dz	2		;line number (address) of most recent error
+	endif
+trap:	dz	1		;trap mode -- 0 trapon, m1 trapoff
+trace:	dz	1		;trace mode -- 0 traceoff, m1 traceon
+inlhs:	dz	1		;m1 if getting LHS -- NB must follow TRACE
+vtrac:	dz	1		;minus iff tracing -- NB must follow INLHS
+	endif
+	if	camac
+cmdat:	dz	3		;data D1, D2, D3 for read or write
+cmcra:	dz	1		;crate C -- must follow D3
+cmslo:	dz	1		;slot N -- must follow C
+	dz	1		;subaddress A -- must follow N
+cmfnc:	dz	1		;fn code F -- must follow A
+scrte:	dz	1		;serial driver crate -- must follow F
+sdrvr:	dz	1		;serial driver slot -- must follow serial crate
+camqr:	dz	1		;Q response
+camxr:	dz	3		;X, O, I responses -- must follow CAMQR
+	if	c3908
+cmblk:	dz	7		;BKSET data
+	endif
+cvcnt:	dz	2		;camvar component count
+cvloc:	dz	2		;camvar value location
+xnabl:	dz	1		;X response check enable
+imode:	dz	1		;interrupt mode, 0 if EI, 255 if DI
+fmode:	dz	1
+	endif
+	if	not wild
+lmode:	dz	1		;LST mode
+	endif
+	if	packi
+paonl:	dz	1		;ONLINE
+	endif
+omode:	dz	1		;output suppress mode
+	if	not wild
+inttc:	dz	1		;number of entries currently in interrupt table
+intad:	dz	inttl		;interrupt table
+randx:	dz	2		;pseudorandom number generator seed
+nulls:	dz	1		;number of nulls printed after crlf
+	endif			;end of NOT WILD conditional
+gchar:	dz	1		;last console char read for GET
+	if	strng		;string ram
+stemp:	dz	1		;number of string temporaries in use
+
+;locations which may come up randomly in ROM version
+	dz	2*stmax		;string temporaries, 2 bytes each
+strt:	dz	2		;top of string space address
+strpt:	dz	2
+strp2:	dz	2		;string space pointers
+gcmin:	dz	2
+gclst:	dz	2
+gcloc:	dz	2		;garbage collection temp storage
+	endif			;end of string ram
+	if	editc and (not compl)
+	if	strng
+rnnew	equ	gcmin
+rninc	equ	gclst
+rnold	equ	gcloc		;RENUM and garbage collection share temps
+	else
+rnnew:	dz	2
+rninc:	dz	2
+rnold:	dz	2
+	endif
+	endif
+	if	camac and nonst and (not rtpak)	;Northstar DOS RAM
+dunit:	dz	1		;disk unit
+fname:	dz	9		;file name
+drbuf:	dz	256		;buffer
+nxtad:	dz	2
+nxtbl:	dz	2
+lstbl:	dz	2
+lstfl:	dz	2
+	endif
+	if	packi
+paign:	dz	1		;IGNORE byte
+pacnt:	dz	1		;count of chars in current line
+pamod:	dz	1		;MODE byte -- 0 waiting, 1 storing, 2 insignif
+pafno:	dz	1		;current/next field #
+pafbp:	dz	2		;field buffer pointer
+pafld:	dz	pafct		;FIELD data buffer
+padat:	dz	padct		;data buffer
+padp0:	dz	2		;FLAG of next record pointer
+padp1:	dz	2		;first data pointer
+padp2:	dz	2		;last+1 data pointer
+padp3:	dz	2		;FLAG of most recent record pointer
+	endif
+	if	float
+argad:	dz	2		;address of arg for amb op retry
+	if	f9511
+fptmp:	dz	3		;temporaries for 9511 FIN and FOUT
+	else			;NOT F9511
+	if	fpbcd		;BCD floating point RAM
+FACC 	DZ 	6  		;FLOATING POINT ACCUMULATOR
+ACALT 	DZ 	6  		;ALTERNATE ACCUMULATOR
+HOLD1 	DZ 	6  		;FLOATING POINT MULTIPLY BUFFERS
+HOLD2 	DZ 	6
+HOLD3 	DZ 	6
+HOLD4 	DZ 	6
+FTEMP	DZ 	6  		;FLOATING POINT WORK AREAS
+FTMP1 	DZ 	6
+FTMP2 	DZ 	6
+FTMP3 	DZ 	6
+FTMP4 	DZ 	6
+EXP1 	DZ 	1 		;EXPONENT WORK AREAS
+EXP2 	DZ 	1  
+EXP3 	DZ 	1
+EXP4 	DZ 	1
+SIGN 	DZ 	1 		;SIGN WORK AREAS
+SIGN1 	DZ 	1
+FLEN 	DZ 	1 		;LENGTH OF SUBTRACT FIELD
+RSLT 	DZ 	2 		;ADDRESS STORAGE
+	else
+;RAM LOCATIONS USED BY THE BINARY FLOATING POINT SYSTEM
+PREX:	dz	1		;PREVIOUS EXPONENT
+ACCE:	dz	1		;ACC EXPONENT
+ACCS:	dz	1		;ACC SIGN
+ACC1:	dz	1		;ACC 1ST FRACTION
+ACC2:	dz	1		;ACC 2ND FRACTION
+ACC3:	dz	1		;ACC 3RD FRACTION
+SFLAG:	dz	1		;SUBTRACTION FLAG
+ADRL:	dz	2		;ADDR OF CHARACTER STRING WORD ADDRESS
+TMP1:	dz	1		;TEMPORARY STORAGE
+TMP2:	dz	1		;    "        "
+TMP3:	dz	1		;    "        "
+VALE:	dz	4		;VALUE EXPONENT
+TMP4:	dz	1		;TEMPORARY STORAGE
+;and then the XMATH RAM
+SIG:	dz	1		;SIG INDEX FROM CALLER
+FPTXN:	dz	8		;RUNNING POWER AND POWER MULTIPLIER
+FPSUM:	dz	4		;RUNNING TERM SUM
+VECT:	dz	2		;ADDRESS OF CURRENT TERM
+FINSN:	dz	1		;B7 = INPUT SIGN B6-B0 = 0
+FINFP:	dz	4		;FRACTIONAL PART
+FPTXX:	dz	4
+FPTF:	dz	4
+FPTP:	dz	4
+FPTX:	dz	4		;TEMP STORAGE
+FPTN:	dz	1		;N
+FPSGN:	dz	1		;INPUT SIGN
+FPTZ0:	dz	4		;INITIAL POWER OF Z
+FPTZ1:	dz	4		;TERM POWER MULTIPLIER (Z1=Z)
+FLNZI:	dz	4		;INITIAL POWER
+FLNZ2:	dz	4		;POWER TERM MULTIPLIER
+FLNK:	dz	1		;K,J
+FLNF:	dz	4		;F,G,X,G(Z) -- NB must follow FLNK
+FSCFX:	dz	1		;0AFH FOR SIN, 0 FOR COS
+FSCSG:	dz	1		;0 IF INPUT +, 80H IF -
+FSCZ:	dz	4		;Z
+FSCZ2:	dz	4		;Z^2
+FTMPA:	dz	4		;TEMP STORAGE
+FTMPB:	dz	4		; ----"-----
+	if	not camac	;no ATN in CAMAC versions
+FATZX:	dz	4		;Z,X
+FATXM:	dz	4		;INITIAL POWER OF X
+FATX2:	dz	4		;TERM POWER MULIPLIER
+FATSG:	dz	1		;INPUT SIGN
+FATK:	dz	1		;K
+	endif			;end of NOT CAMAC conditional
+	endif			;end of NOT FPBCD conditional
+	endif			;end of NOT F9511 conditional
+	endif			;end of FLOAT conditional
+
+;stack space
+	if	asm80
+	stkln	stakl
+	else
+	dz	stakl
+stack:	ds	0
+	endif
+
+varty:	dz	1		;type of last var name scanned
+	if	strng or float	;default variable type buffer
+tybuf:	dz	26
+	endif
+temp:	dz	2		;all-purpose temp storage
+txtp2:	dz	2		;secondary textp for READ, INPUT
+savtp:	dz	2		;textp save
+lhsty:	dz	1		;lhs variable type
+lhsad:	dz	2		;lhs variable address
+cstkp:	dz	2		;control stack pointer
+estkp:	dz	2		;expression stack pointer
+symta:	dz	2		;starting address of symbol table
+bufad:	dz	maxnl+maxnl	;buffer for number-string conversion, var names
+	db	':'		;colon precedes tokenized input buffer
+tlnad:	if	editc		;tokenization buffer seperate in EDITC version
+	db	cr
+	dz	nlmax+2		;NLMAX chars + space + cr  + eof
+	endif
+nlnad:	db	cr		;first byte of input buffer
+	if	(sdisk or (camac and nonst)) and (not rtpak)
+	dz	255		;input buffer is used by LINPUT too
+	else
+	dz	nlmax+2		;NLMAX chars + space + cr + eof
+	endif
+	if	not compl
+lnlen:	dz	1		;length of current input line
+cstkd:	dz	1		;control stack direct count
+tracl:	dz	1		;line traced -- 0 no, m1 yes
+	endif
+textp:	dz	2		;current text line pointer
+rdptr:	dz	2		;READ text pointer
+eofad:	dz	2		;ending address of user source text
+memt:	dz	2		;top of memory address
+	db	cr		;cr precedes source text
+srcad:	dz	1		;source text
+
+$*macro				;resume macro expansion hex printing
+	endif			;end of NOT ROM conditional
+
+;end of RAM
+	page

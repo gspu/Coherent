@@ -1,0 +1,65 @@
+.TH itimeout() "" "" "DDI/DKI Kernel Routine"
+.PC "Execute a function after a given length of time"
+.B "#include <sys/types.h>"
+\fBtoid_t itimeout(\fIfunction\^\fB, \fIargument\^\fB, \fIticks\^\fB, \fIpriority\^\fB)\fR
+\fBvoid (* \fIfunction\^\fB)(); \fBvoid *\fIargument\^\fB;
+\fBlong \fIticks\^\fB; pl_t \fIpriority\^\fB;\fR
+.PP
+The DDI/DKI function
+.B itimeout()
+schedules a function to be executed after a given amount of time has passed.
+If something goes wrong and it could not schedule the function,
+.B itimeout()
+returns zero.
+Otherwise, it returns an identifier other than zero.
+You can pass this value to the function
+.B untimeout()
+to cancel this request, should you wish.
+.PP
+.I function
+points to the function to execute.
+It must neither sleep nor reference the process's context.
+.I ticks
+gives the number of clock ticks to wait before executing the function.
+.I argument
+points to an argument to pass to
+.IR function .
+Finally,
+.I priority
+gives the function's interrupt priority.
+The value supplied must be at least
+.BR pltimeout ,
+i.e.,
+.B plbase
+is not valid.
+.PP
+The kernel may not execute
+.I function
+exactly after
+.I ticks
+clock ticks have passed; however, it will wait at least
+.IR ticks -1
+ticks before it executes
+.IR function .
+.SH "See Also"
+.B
+DDI/DKI kernel routines,
+LOCK_ALLOC(),
+untimeout()
+.R
+.SH Notes
+.B itimeout()
+has base or interrupt level.
+It does not sleep.
+.PP
+A driver can hold a driver-defined basic lock, read/write lock, or sleep lock
+across a call to this function.
+.PP
+Before you de-initialize or deallocate a data structure,
+first cancel every function that
+.B itimeout()
+has scheduled to access that structure.
+.PP
+When the time comes to execute a scheduled function,
+the kernel will run it only if the processor is at base level.
+If the processor is not at base level, execution of the function is deferred.

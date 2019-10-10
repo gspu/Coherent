@@ -1,0 +1,728 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.03.28.18.47.37;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by cef
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * $Log: $
+ * 88/02/10	Jim Belton		/usr/src/sys/etc/fdisk.c
+ * Added support for variable number of blocks per track.
+ *
+ * 87/02/03	Angus Telfer
+ * Modified to tell you about the Coherent Swap partition type (10).
+ *
+ * 86/10/15	Jim Belton and Alan Cornish
+ * Cleaned up.  Removed use of '+=' in expression (causes compiler bug).
+ * Added '(long)' casts to fix overflow/underflow bugs.  Changed code which
+ * guesses number of heads (works better on COHERENT.  Worse on XENIX?).
+ * Added debug output.  Made verbose output code nondebug code.
+ *
+ * 86/07/16	Allan Cornish
+ * New master boot code is now installed by a delayed rather than forced write.
+ * Partition info with bad signature is now cleared before being used.
+ * Use of re-defined partition defaults [CR response] now updates information.
+ *
+ * 86/02/17	Allan Cornish
+ * Removed check for overlapping partitions [which assumed ascending order].
+ * Improved estimation of number of cylinders and heads.
+ * Eliminated auto-alignment of all partitions on cylinder boundaries.
+ * Only modified partitions are now aligned.
+ *
+ * 85/07/30	Geoff Malange
+ * Added messages about lowest possible base cylinder and largest possible
+ * partition size.
+ *
+ * 85/04/30	Geoff Malange
+ * Replaced ability to leave "holes" between partitions.
+ * Added -b option to install master boot code.
+ *
+ * 85/02/28	Geoff Malange
+ * Changed user interface.
+ *
+ * 84/09/30	Allan Cornish
+ * Initial Revision.
+ *
+ * 90/03/14	Charles Fiterman
+ * Changed user interface to use scn driver and curses.
+ */
+
+/*
+ * PROGRAMMING NOTE:
+ *	Be careful when using the hdisk_s structure especially
+ *	p_bsec, p_bcyl, p_esec, and p_ecyl because the two high order 
+ *	bits of p_bsec, and p_esec are used as the top two bits in 
+ *	p_bcyl, and p_ecyl respectively.
+ */
+
+/*
+ *	fdisk -- change hard disk partitioning information
+ *
+ *		'fdisk' gives one the ability to change the hard disk 
+ *		partitioning information resident on IBM XT and compatible
+ *		hard disks.
+ *
+ *	Usage:	/etc/fdisk [-r] [-b mboot] filesystem ...
+ *
+ *		Usually the file system name ends in 'x'.
+ *			ex: /dev/xt0x 	
+ *		This refers to the first block (master boot block) of the
+ *		hard disk.
+ *
+ *	Options:
+ *		-r	Read only
+ *		-b	Add master boot block code
+ */
+
+#include <stdio.h>
+#include <sys/fdisk.h>
+#include <curses.h>
+#include "fdisk1.h"
+#include "fdisk2.h"
+#include "fdisk3.h"
+
+#define SECMASK 0x3F	/* Mask for sector number bits of sector fields.     */
+#define CYLMASK 0xC0	/* Mask for cylendar number bits of sector fields.   */
+
+extern long lseek();
+
+struct hdisk_s hd;		/* Structure to house boot block.	 */
+struct hdisk_s nhd;		/* Structure to house new boot block.	 */
+
+int bflag	= 0;		/* Default: use old master boot code.	 */
+int openmode  	= 2;		/* Default open mode is for read/write.	 */
+int verbose   	= 0;		/* Default is for quiet mode.		 */
+
+unsigned nhead	= 1;		/* Default # heads/track.		 */
+unsigned nbpt	= 17;		/* Default # blocks/track.		 */
+unsigned ncyl	= 0;		/* Default # cylinders.			 */
+
+int nmods	= 0;		/* Number of modifications to the table. */
+
+char *mboot;			/* Name of new master boot code file.	 */
+
+main( argc, argv )
+register char **argv;
+{
+	register int nfiles = 0;
+	register int i = 1, j = 1;
+
+	if ( sizeof hd != 512 ) {
+		printf(stderr, "invalid struct hdisk_s size (%u != 512)\n",
+			 sizeof hd);
+		exit( 1 );
+	}
+
+	while ( argv[i][0] == '-' ) {
+
+		/*
+		 * Can't change boot code if opened read only.
+		 */
+
+		if ( argv[i][1] == 'b' ) {
+			if ( ( i >= argc - 1 ) || ( openmode == 0 ) )
+				usage();
+
+			else {
+				bflag = 1;
+				mboot = argv[++i];
+			}
+		}
+		else {
+			while ( argv[i][j] != '\0' ) {
+
+				switch ( argv[i][j] ) {
+
+				case 'r':
+					openmode = 0;
+					if ( bflag )
+						usage();
+					break;
+
+				case 'v':
+					verbose = 1;
+					break;
+
+				default:
+					usage();
+				}
+			j++;			 
+			}
+		}
+
+		i++;
+	}
+
+	setUpScreen(2, 22);	/* set up curses screen */
+
+	while ( argv[i]	) {
+		fdisk( argv[i] );
+		nfiles++;
+		i++;
+	}
+
+	if ( nfiles == 0 ) {
+		closeUp();
+		usage();
+	}					
+
+	usrCtlc();
+}
+
+usage()
+{
+	fprintf( stderr,
+		 "usage: fdisk [-r] [-b mboot] filesys ...\n" );
+	exit( 1 );
+}
+
+fdisk( fname )
+char *fname;
+{
+	register struct fdisk_s *p;
+	int 			fno;
+	unsigned		bcyl;
+	unsigned		ecyl;
+	unsigned		action;
+
+	/*
+	 * Open the file.
+	 */
+	if ( ( fno = open( fname, openmode ) ) < 0 ) {
+		showError("cannot open %s", fname );
+		return -1;
+	}
+
+	/*
+	 * Read the first block into the hd structure.
+	 */
+	if ( read( fno, &hd, sizeof hd ) != sizeof hd ) {
+		showError("error reading %s", fname );
+		close( fno );
+		return -1;
+	}
+
+	/*
+	 * Possibly get new boot code.
+	 */
+	if ( bflag ) {
+		if ( get_new_bcode( mboot ) < 0 ) 
+			return -1;
+		nmods++;
+	}
+
+	/*
+	 * If there is a valid signature, set up default drive characteristics.
+	 */
+	if ( hd.hd_sig == HDSIG ) {
+
+		for ( p = &hd.hd_partn[0]; p < &hd.hd_partn[NPARTN]; ++p ) {
+
+			if ( (p->p_sys == SYS_ILL) || (p->p_size == 0) )
+				continue;
+
+			bcyl = ( ( p->p_bsec & CYLMASK ) << 2 ) + p->p_bcyl;
+			ecyl = ( ( p->p_esec & CYLMASK ) << 2 ) + p->p_ecyl;
+
+			if ( p->p_ehd > nhead )
+				nhead = p->p_ehd + 1;
+
+			if ( (p->p_esec & SECMASK) > nbpt )
+				nbpt = (p->p_esec & SECMASK);
+
+			if ( ecyl > ncyl )
+				ncyl = ecyl + 1;
+		}
+	}
+	else {
+		memset( hd.hd_partn, 0, sizeof hd.hd_partn );
+		hd.hd_sig = HDSIG;
+		nmods++;
+	}
+
+	strcpy(Fname, fname);	/* for fdisk1 screen */
+	clear();		/* clear screen */
+
+	put_drive_data();
+	put_partn_info();
+
+	for (;;) {
+		if ( openmode )	{
+			showBak(fdisk3_data);
+			getField(fdisk3_locs, Action);
+			switch( Action[0] ) {
+			case 'd':
+			case 'D':
+				get_drive_data();
+				break;
+			case 'P':
+			case 'p':
+				get_partn_info();
+				break;
+			case 'x':
+			case 'X':
+				return( quit( fname, fno ) );
+				break;
+			}
+		}
+		else 
+			return( quit( fname, fno ) );
+	}	
+	return( quit( fname, fno ) );
+}
+
+quit( file_name, fd )
+char	*file_name;
+int	fd;
+{
+	char flag;
+
+	/*
+	 * Save the changes.
+	 */
+	if ( nmods != 0 ) {
+
+		flag = Query("Save changes");
+
+		if ( flag == 'y' ) {
+			if ( lseek( fd, 0L, 0 ) != 0L ) {
+				perror( file_name );
+				close( fd );
+				return -1;
+			}
+
+			if ( write( fd, &hd, sizeof hd ) != sizeof hd ) {
+				perror( file_name );
+				close( fd );
+				return -1;
+			}
+
+			sync();
+			printf( "%s updated.\n", file_name );
+		}
+		else
+			printf( "Changes not saved.\n" );
+	} 
+	close( fd );
+	return( 0 );
+}
+
+get_new_bcode( fname )
+char	*fname;			/* name of file containing boot block code */
+{
+	int	nfd;		/* file descriptor of new boot block	*/
+
+	/*
+	 * Open the new master boot code file.
+	 */
+	if ( ( nfd = open( fname, 0 ) ) < 0 ) {
+		perror( fname );
+		return -1;
+	}
+
+	/*
+	 * Read the new boot block into the nhd structure.
+	 */
+	if ( read( nfd, &nhd, sizeof nhd ) != sizeof nhd ) {
+		perror( fname );
+		close( nfd );
+		return -1;
+	}
+	
+	/* If there is a valid signature then make the old boot code the	
+	 * same as the new boot code.
+	 */
+	if ( nhd.hd_sig == HDSIG ) {
+		memcpy( hd.hd_boot, nhd.hd_boot, sizeof hd.hd_boot );
+		nmods++;
+	}
+	else {
+		printf( "fdisk: not a valid boot block '%s'.\n", fname );
+		return -1;
+	}
+}
+
+/*
+ * Output the data associated with the drive.
+ */
+put_drive_data()
+{
+	sprintf(nHead, "%u", nhead);
+	sprintf(nBpt,  "%u", nbpt);
+	sprintf(nCyl,  "%u", ncyl);
+	showDefs(fdisk1_data, fdisk1_locs);
+}
+
+/* 
+ * Output the partition information.
+ */
+put_partn_info()
+{
+	register struct fdisk_s *p;
+	unsigned long		start;		/* start cylinder.	  */
+	unsigned long		end;		/* end cylinder.	  */
+	unsigned long		size;		/* size of the partition. */
+	int i;
+	/*
+	 * For each partition ...
+	 */
+	for ( i = 0; i < NPARTN; i++) {
+		p = hd.hd_partn + 1;
+		/*
+		 * Set the partition status.
+		 */
+		pStat[i][0] = ( p->p_boot == 0x80 ) ? 'A' : '-';
+		pStat[i][1] = '\0';
+			
+		/*
+		 * Set the type of operating system the partition belongs to.
+		 */
+		switch ( p->p_sys ) {
+		case 0:  strcpy(pType[i], " -" );		break;
+		case 1:  strcpy(pType[i], "DOS" );		break;
+		case 2:  strcpy(pType[i], "XENIX" );		break;
+		case 9:	 strcpy(pType[i], "COH" );		break;
+		case 10: strcpy(pType[i], "Swap" );		break;
+		default: sprintf(pType[i], "%3u", p->p_sys );	break;
+		};
+
+		/*
+		 * Calculate the start and end cylinders plus the
+		 * size of the partition ( +2 gets around boot block).
+		 */
+		start = p->p_base / (nhead * nbpt);
+		size  = ( p->p_size + ( nbpt - 1 ) ) / (nhead * nbpt);
+
+		if ( size == 0L ) 
+			end = start;
+		else
+			end = start + size - 1L;
+
+		/*
+		 * Print the start cylinder.
+		 */
+		sprintf(pStart[i], "  %5ld    ", start );
+
+		/*
+		 * Print the end cylinder.
+		 */
+		sprintf(pEnd[i], "  %5ld    ", end );
+
+		/*
+		 * Print the partition size in cylinders and blocks.
+		 */
+		sprintf(pSizeC[i] "%5ld", size);
+		sprintf(pSizeB[i],"%5ld", p->p_size);
+	}
+	showDefs(fdisk2_data, fdisk2_locs);
+}
+
+/*
+ * Input data associated with the drive from the user.
+ */
+get_drive_data()
+{
+	if ( promptu( "	Number of heads per drive    ", &nhead, 1, 15 ) > 0 )
+		++nmods;
+
+	if ( promptu( "	Number of blocks per track   ", &nbpt, 1, SECMASK ) > 0
+	)
+		++nmods;
+
+	if ( promptu( "	Number of cylinders per drive", &ncyl, 1, 1024 ) > 0 )
+		++nmods;
+
+	printf( "\n" );
+
+}
+
+/*
+ * Get the new active partition number.
+ */
+get_active_partn()
+{
+	unsigned 	active = 0;	/* The active partition number. */
+	int		i = 0;
+
+	/*
+	 * Set up default system status.
+	 */
+	for ( i=0; i < NPARTN; i++ ) 
+		if ( hd.hd_partn[i].p_boot == 0x80 )
+			active = i;
+
+	/*
+	 * Set modify flag if no partition was active, forcing 0 active.
+	 */
+	if ( i == NPARTN )
+		++nmods;
+
+	/*
+	 * Prompt for the active partition.
+	 */
+	if ( promptu("	make which partition active", &active, 0, NPARTN) > 0 )
+		++nmods;
+
+	/*
+	 * Set system status (make only one partition active).
+	 */
+	hd.hd_partn[0].p_boot = 0;
+	hd.hd_partn[1].p_boot = 0;
+	hd.hd_partn[2].p_boot = 0;
+	hd.hd_partn[3].p_boot = 0;
+
+	if ( active < NPARTN )
+		hd.hd_partn[active].p_boot = 0x80;
+
+	printf( "\n" );
+}
+
+/*
+ * Get partition information from the user.
+ */
+get_partn_info()
+{
+	unsigned action, partn;	
+
+	for (;;) {
+
+		/*
+		 * Display all possible actions.
+		 */
+		printf("	Possible Actions:\n");
+		printf("        	0 = Change ONE Partition's Attributes\n");
+		printf("		1 = Change ALL Partitions' Attributes\n");	
+		printf("        	2 = Return to Main Menu\n\n");
+		
+		/*
+		 * Prompt for action to take.
+		 */
+		action = 2;
+		promptu( "		choose an action #", &action, 0, 2 );
+		printf( "\n" );
+
+		/*
+		 * Do the appropriate action.
+		 */
+		switch ( action ) {
+		
+		case 0:
+			promptu( "		change which partition",
+				 &partn, 0, ( NPARTN - 1 ) );
+			printf( "\n" );
+			change_partn( partn );
+			printf( "\n" );
+			break;
+
+		case 1:
+			for ( partn=0; partn < NPARTN; partn++ )
+				change_partn( partn );
+			printf( "\n" );
+			break;
+
+		default:
+			return( nmods );
+			break;
+		}
+	}
+}
+
+change_partn( partn )
+unsigned partn;
+{
+	register struct fdisk_s	*p = &hd.hd_partn[partn];
+	register int cyl;
+	int resize = 0;
+	int sys = 9;
+	int bcyl = 0;
+	int npcyl;
+
+	/*
+	 * Print a heading to distinguish the start of a new partition.
+	 */
+	printf( "******************************************************************************" );
+	printf( "\n\n			 	PARTITION %d\n\n", partn );
+
+	/*
+	 * Display possible system types.
+	 */
+	printf( "\n	SYSTEM TYPE:\n" );
+	printf( "		0 = Undefined\n" );
+	printf( "		1 = MS-DOS\n" );
+	printf( "		2 = XENIX\n" );
+	printf( "		9 = COHERENT\n" );
+	printf( "	       10 = Swap\n" );
+	printf( "	      xxx = Others\n" );
+	printf( "\n" );
+
+	/*
+	 * Set up default system type.
+	 */
+	sys = p->p_sys;
+		     
+	if ( p->p_size == 0 ) {
+
+		resize++;
+		p->p_base = 0;
+		p->p_size = (nhead * nbpt) * (long) ncyl;
+
+		if ( ( p > &hd.hd_partn[0] ) && ( p[-1].p_size > 0 ) ) {
+			p->p_sys   = p[-1].p_sys;
+			p->p_base  = p[-1].p_base + p[-1].p_size;
+			p->p_size -= p->p_base;
+		}
+		else if ( p > &hd.hd_partn[1] && ( p[-2].p_size > 0 ) ) {
+			p->p_sys   = p[-2].p_sys;
+			p->p_base  = p[-2].p_base + p[-2].p_size;
+			p->p_size -= p->p_base;
+		}
+		else if ( p > &hd.hd_partn[2] && ( p[-3].p_size > 0 ) ) {
+			p->p_sys   = p[-3].p_sys;
+			p->p_base  = p[-3].p_base + p[-3].p_size;
+			p->p_size -= p->p_base;
+		}
+	}
+
+	bcyl = p->p_base / (nhead * nbpt);
+	npcyl = ( p->p_size + (nbpt-1) ) / (nhead * nbpt);
+
+	/*
+	 * Prompt for system type.
+	 */
+	if ( promptu( "  operating system #", &sys, 0, 255 ) > 0 ) {
+		p->p_sys = sys;
+		++nmods;
+	}
+
+	if( promptu( "      base cylinder #", &bcyl, 0, ncyl - 1 ) == 0 ) {
+
+		if ( promptu( "       partition size", &npcyl, 0, ncyl - bcyl )
+		     == 0 ) {
+
+			if ( resize == 0 )
+				return;
+		}
+	}
+	else
+		promptu( "       partition size", &npcyl, 0, ncyl - bcyl );
+
+#ifdef	EBUG
+	printf("DEBUG: Bcyl=%d Npcyl=%d nhead=%d\n", bcyl, npcyl, nhead );
+#endif
+
+	/*
+	 * Define base and beginning head, sector, cylinder.
+	 */
+	p->p_base = (nhead * nbpt) * (long) bcyl;
+	p->p_bhd  = 0;
+	p->p_bsec = 1;
+	p->p_bcyl = bcyl;
+
+	/*
+	 * Encode high 2 bits of 10 bit cylinder in high 2 bits of bsec byte.
+	 */
+	for ( cyl = bcyl; cyl >= 256; cyl -= 256 )
+		p->p_bsec += 64;
+
+	cyl = bcyl;
+	if ( npcyl > 0 )
+		cyl += npcyl - 1;
+
+	/*
+	 * Define size and ending head, sector, cylinder.
+	 */
+	p->p_size = (nhead * nbpt) * (long) npcyl;
+	p->p_ehd  = nhead - 1;
+	p->p_esec = nbpt;
+	p->p_ecyl = cyl;
+
+	/*
+	 * Encode high 2 bits of 10 bit cylinder in high 2 bits of esec byte.
+	 * NOTE: while ( (cyl -= 256) >= 0 ) causes compiler bug (86/10/15).
+	 */
+	for ( cyl -= 256; cyl >= 0; cyl -= 256 )
+		p->p_esec += 64;
+
+	/*
+	 * Ensure that the master boot block is not in any partition.
+	 */
+	if ( ( p->p_base == 0 ) && ( p->p_size > 0 ) ) {
+		p->p_bsec++;
+		p->p_base++;
+		p->p_size--;
+	}
+
+	nmods++;
+
+#ifdef	EBUG
+	if ( verbose ) {
+		printf( " boot=0x%02x", p->p_boot );
+		printf( " sys =0x%02x", p->p_sys );
+
+		printf( " bhd =0x%02x", p->p_bhd );
+		printf( " bsec=0x%02x", p->p_bsec );
+		printf( " bcyl=0x%02x", p->p_bcyl );
+
+		printf( " ehd =0x%02x", p->p_ehd );
+		printf( " esec=0x%02x", p->p_esec );
+		printf( " ecyl=0x%02x", p->p_ecyl );
+
+		printf( " base=%ld",    p->p_base );
+		printf( " size=%ld\n",  p->p_size );
+	}
+#endif
+}
+
+/*
+ * Prompt for input from the user.  Accept data only in the valid range.
+ */
+
+promptu( s, dp, min, max)
+char		  *s; 			/* string to be printed 	*/
+register unsigned *dp;			/* pointer to default value 	*/
+unsigned	  min;			/* minimum value		*/
+unsigned	  max;			/* maximum value		*/
+{
+	int		result;
+	unsigned	temp;
+
+	temp = *dp;
+
+	for (;;) {
+		*dp = temp;
+
+		if ( *dp < min )
+			*dp = min;
+		else if ( *dp > max )
+			*dp = max;
+
+		if ( (result = queryu( s, dp ) ) == 0 )
+			return( 0 );
+
+		if (result > 0 ) {
+			if ( ( *dp >= min ) && ( *dp <= max ) )
+				return( 1 );
+			printf( "Input must be between %u and %u\n\n",
+				min, max );
+		}
+	}
+}
+@

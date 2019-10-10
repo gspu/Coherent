@@ -1,0 +1,106 @@
+.TH execve() "" "" "System Call (libc)"
+.PC "Execute a load module"
+.B "#include <unistd.h>"
+\fBexecve(\fIfile, argv, env\^\fB)\fR
+\fBchar *\fIfile, \fB*\fIargv\^\fB[], *\fIenv\^\fB[];\fR
+.PP
+The function
+.B execve()
+executes a program.
+It specifies arguments as a single, NULL-terminated array of parameters, called
+.IR argv .
+The argument
+.I env
+is the address of an array of pointers to strings that define
+.IR file 's
+environment.
+This allows
+.B execve()
+to pass a new environment to the program being executed.
+For more information on program execution, see
+.BR execution .
+.SH Example
+The following example demonstrates
+.BR execve() ,
+as well as
+.BR tmpnam() ,
+.BR getenv() ,
+and
+.BR path() .
+It finds all lines with more than
+.B LIMIT
+characters and calls \*(ME to edit them.
+.DM
+#include <stdio.h>
+#include <path.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <unistd.h>
+.DE
+.DM
+#define LIMIT 70
+.DE
+.DM
+extern **environ, *tempnam();
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	/*                me     -e   tmp   file */
+	char *cmda[5] = { NULL, "-e", NULL, NULL, NULL };
+	FILE *ifp, *tmp;
+	char line[256];
+	int  ct, len;
+.DE
+.DM
+	if ((NULL == (cmda[3] = argv[1])) ||
+	    (NULL == (ifp = fopen(argv[1], "r")))) {
+		fprintf(stderr, "Cannot open %s\en", argv[1]);
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	if ((cmda[0] = path(getenv("PATH"), "me", X_OK)) == NULL) {
+		fprintf(stderr, "Cannot locate me\en");
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	if (NULL == (tmp = fopen((cmda[2] = tempnam(NULL, "lng")), "w"))) {
+		fprintf(stderr, "Cannot open tmpfile\en");
+		exit(EXIT_FAILURE);
+	}
+.DE
+.DM
+	for (ct = 1; NULL != fgets(line, sizeof(line), ifp); ct++)
+		if (((len = strlen(line)) > LIMIT) ||
+		    ('\en' != line[len -1]))
+			fprintf(tmp, "%d: %d characters long\en", ct, len);
+.DE
+.DM
+	fclose(tmp);
+	fclose(ifp);
+.DE
+.DM
+	if (execve(cmda[0], cmda, environ) < 0) {
+		fprintf(stderr, "cannot execute me\en");
+		exit(EXIT_FAILURE);
+	}
+}
+.DE
+.SH "See Also"
+.Xr "environ," environ
+.Xr "execution," execution
+.Xr "libc," libc
+.Xr "unistd.h" unistd.h
+.br
+\*(PX Standard, \(sc3.1.2
+.SH Diagnostics
+.B execve()
+does not return if successful.
+It returns \-1 for errors, such as
+.I file
+being nonexistent,
+not accessible with execute permission, having a bad format,
+or too large to fit in memory.

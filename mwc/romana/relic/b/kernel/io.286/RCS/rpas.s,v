@@ -1,0 +1,151 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @/@;
+
+
+1.1
+date     92.07.17.15.24.39;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@////////
+/
+/ Ram Pipe Device Driver Assembler Support
+/
+/	urcopy( up, np, n )	-- copy user data to pipe
+/	rucopy( np, up, n )	-- copy pipe data to user
+/
+////////
+
+	.globl	urcopy_
+	.globl	rucopy_
+
+////////
+/
+/ Offsets of fields within the ram pipe structure
+/
+////////
+
+	Q_SIZE	= 0
+	Q_MASK	= 2
+	Q_IX	= 4
+	Q_ISEG	= 6
+	Q_OX	= 8
+	Q_OSEG	= 10
+	Q_IGATE	= 12
+	Q_OGATE	= 14
+
+////////
+/
+/ Urcopy ( up, rp, cnt )
+/ char * up;
+/ struct ring * rp;
+/ unsigned cnt;
+/
+/	Input:	up  = pointer to user data to copy.
+/		rp  = pointer to ring structure to copy data to.
+/		cnt = number of data bytes to copy.
+/
+/	Action:	Copy CNT bytes from UP to RP->Q_IX.
+/
+/	Return:	Number of bytes transferred.
+/
+////////
+
+urcopy_:				/ urcopy ( up, rp, cnt )
+	push	si			/ register char *up;		/* SI */
+	push	di			/ register struct ring *rp;	/* BX */
+	push	bp			/ unsigned cnt;
+	mov	bp, sp			/ {
+	pushf				/	register char *cp;	/* DI */
+	push	ds			/	register unsigned ret;	/* AX */
+	push	es			/	register unsigned n;	/* CX */
+					/	register unsigned m;	/* DX */
+	mov	si, 8(bp)		/
+	mov	bx, 10(bp)		/
+	mov	cx, 12(bp)		/	n  = cnt;
+	mov	dx, Q_MASK(bx)		/	m  = rp->q_mask;
+	les	di, Q_IX(bx)		/	cp = rp->q_ix;
+	mov	ds, uds_		/
+					/
+	cld				/
+0:	movsb				/	do {	*cp++ = *up++;
+	and	di, dx			/		wrap(cp);
+	loop	0b			/	} while (--n != 0);
+					/
+	pop	es			/
+	pop	ds			/
+	mov	ax, 12(bp)		/	ret = cnt;
+	cli				/	s   = sphi();
+	mov	Q_IX(bx), di		/	rp->q_ix = cp;
+	add	Q_SIZE(bx), ax		/	rp->q_size += ret;
+	popf				/	spl( s );
+	pop	bp			/
+	pop	di			/	return ret;
+	pop	si			/
+	ret				/ }
+
+////////
+/
+/ Rucopy ( rp, up, cnt )
+/ struct ring * rp;
+/ char * up;
+/ unsigned cnt;
+/
+/	Input:	rp  = pointer to ring structure to copy data from.
+/		up  = pointer to user data.
+/		cnt = number of data bytes to copy.
+/
+/	Action:	Copy CNT bytes from RP->Q_OX to UP.
+/
+/	Return:	None.
+/
+////////
+
+rucopy_:				/ rucopy ( rp, up, cnt )
+	push	si			/ register struct ring *rp;	/* BX */
+	push	di			/ register char * up;		/* DI */
+	push	bp			/ unsigned cnt;
+	mov	bp, sp			/ {
+	pushf				/	register char *cp;	/* SI */
+	push	ds			/	register unsigned ret;	/* AX */
+	push	es			/	register unsigned n;	/* CX */
+					/	register unsigned m;	/* DX */
+	mov	bx, 8(bp)		/
+	mov	di, 10(bp)		/
+	mov	cx, 12(bp)		/
+	mov	dx, Q_MASK(bx)		/	m = rp->q_mask;
+	mov	es, uds_		/
+	lds	si, Q_OX(bx)		/	cp = rp->q_ox;
+					/
+	cld				/
+0:	movsb				/	do {	*up++ = *cp++;
+	and	si, dx			/		wrap(cp);
+	loop	0b			/	} while (--cnt != 0);
+					/
+	pop	es			/
+	pop	ds			/
+	mov	ax, 12(bp)		/	ret = cnt;
+	cli				/	s   = sphi();
+	mov	Q_OX(bx), si		/	rp->q_ox = cp;
+	sub	Q_SIZE(bx), ax		/	rp->q_size -= ret;
+	popf				/	spl( s );
+	pop	bp			/
+	pop	di			/	return ret;
+	pop	si			/
+	ret				/ }
+@

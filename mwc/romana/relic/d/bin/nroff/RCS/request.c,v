@@ -1,0 +1,286 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5;
+comment  @ * @;
+
+
+1.5
+date     93.04.05.08.32.30;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.05.29.15.25.33;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.04.16.17.52.39;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.19.20.52.14;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.16.56.31;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.5
+log
+@Steve various fixes and fwtable changes.
+@
+text
+@/*
+ * request.c
+ * Nroff/Troff.
+ * Request handler.
+ */
+
+#include <ctype.h>
+#include "roff.h"
+
+/*
+ * This is called when the user gives a request.
+ * It collects the arguments and dispatches the request.
+ * Store the request line into miscbuf[],
+ * and also set up an arg list to pass to the request.
+ */
+request()
+{
+	REG *rp;
+	int inqflag, argc, i;
+	register int c;
+	char *argp[ARGSIZE], *abuf, *abufend, name[2], *mpend;
+	register char *ap, *mp;
+
+	if (isascii(c = getf(0)) && isspace(c)) {
+		while (c != '\n')
+			c = getf(0);
+		return;
+	}
+	oldbracelevel = bracelevel;
+	argc = 0;
+	for (i = 0; i < ARGSIZE; i++)
+		argp[i] = "";
+	ap = abuf = nalloc(ABFSIZE);
+	abufend = &abuf[ABFSIZE-1];
+	mp = miscbuf;
+	mpend = &mp[MSCSIZE-1];
+	while (c != '\n') {
+		if (argc < ARGSIZE)
+			argp[argc++] = ap;
+		inqflag = 0;
+		while ((c != '\n') && (inqflag || !isascii(c) || !isspace(c))) {
+			if (c == '"' && escflag == 0)
+				inqflag ^= 1;
+			else {
+				if (ap >= abufend)
+					break;
+				if (c != EEND)
+					*ap++ = c;
+			}
+			if (mp >= mpend)
+				break;
+			*mp++ = c;
+			c = getf(0);
+		}
+		while (c != '\n' && isascii(c) && isspace(c)) {
+			if (ap >= abufend || mp >= mpend) {
+				printe("arguments too long");
+				nfree(abuf);
+				while (c != '\n')
+					c = getf(0);
+				return;
+			}
+			*mp++ = c;
+			c = getf(0);
+		}
+		*ap++ = '\0';
+	}
+	*mp++ = '\0';
+#if	(DDEBUG != 0)
+	{
+		char **dap;
+		dap = &argp[1];
+		printd(DBGREQX, "request %s", *dap++);
+		while (*dap != NULL)
+			printd(DBGREQX, " %s", *dap++);
+		printd(DBGREQX, "\n");
+	}
+#endif
+	argname(argp[0], name);
+	if (dflag)
+		fprintf(stderr, "%s\n", miscbuf);
+	if ((rp = findreg(name, RTEXT)) == NULL)
+		printe("request '%s' not found", argp[0]);
+	else {
+		if (rp->t_reg.r_macd.r_div.m_type == MREQS)
+			(*rp->t_reg.r_macd.r_div.m_func)(argc, argp);
+		else {
+			if (adstreg(rp) != 0) {
+				strp->x1.s_argc = argc;
+				for (i = 0; i < ARGSIZE; i++)
+					strp->x1.s_argp[i] = argp[i];
+				strp->x1.s_abuf = abuf;
+			}
+			return;
+		}
+	}
+	nfree(abuf);
+}
+
+/*
+ * Store the next argument from line 'lp' in argument buffer 'ap'.
+ * 'n' is the length of the buffer.
+ * Skip trailing spaces and return the new line pointer.
+ */
+char *
+nextarg(lp, ap, n) register char *lp, *ap; int n;
+{
+	register char *apend;
+
+	apend = (ap == NULL) ? ap : &ap[n-1];
+	while (!isascii(*lp) || !isspace(*lp)) {
+		if (*lp == '\0')
+			break;
+		if (ap < apend)
+			*ap++ = *lp;
+		lp++;
+	}
+	if (ap != NULL)
+		*ap = '\0';
+	while (isascii(*lp) && isspace(*lp))
+		lp++;
+	return lp;
+}
+
+/* end of request.c */
+@
+
+
+1.4
+log
+@mods prov by stevesf
+@
+text
+@d34 1
+a34 1
+	abufend = &abuf[ABFSIZE];
+@
+
+
+1.3
+log
+@steve updated
+@
+text
+@d11 4
+a14 2
+ * This is called when the user gives a request.  It collects the
+ * arguments and dispatches the request.
+d29 1
+d47 2
+a48 1
+				*ap++ = c;
+d101 3
+a103 4
+ * Store the next argument from the given line 'lp' in the given
+ * argument buffer, 'ap'.  'n' is the length of the buffer.
+ * Trailing space characters are skipped over and the new line
+ * pointer is returned.
+d105 2
+a106 3
+char	*
+nextarg(lp, ap, n)
+register char *lp, *ap;
+d110 1
+a110 1
+	apend = ap==NULL ? ap : &ap[n-1];
+d122 1
+a122 1
+	return (lp);
+@
+
+
+1.2
+log
+@update prov by stevesf for ver 311
+@
+text
+@d22 1
+a22 1
+	if (isascii(c=getf(0)) && isspace(c)) {
+d28 1
+a28 1
+	for (i=0; i<ARGSIZE; i++)
+d38 2
+a39 2
+		while ((c!='\n') && (inqflag || !isascii(c) || !isspace(c))) {
+			if (c=='"' && escflag==0)
+d51 2
+a52 2
+		while (c!='\n' && isascii(c) && isspace(c)) {
+			if (ap>=abufend || mp>=mpend) {
+d78 1
+a78 1
+	if ((rp=findreg(name, RTEXT)) == NULL)
+d86 1
+a86 1
+				for (i=0; i<ARGSIZE; i++)
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+d6 1
+a6 1
+#include <stdio.h>
+a8 3
+#include "reg.h"
+#include "str.h"
+#include "codebug.h"
+d29 1
+a29 1
+		argp[i] = null;
+d53 1
+a53 1
+				printe("Arguments too long");
+d76 1
+a76 1
+	if (d00flag)
+d79 1
+a79 1
+		printe("Request `%s' not found", argp[0]);
+d81 2
+a82 2
+		if (rp->r_macd.m_type == MREQS)
+			(*rp->r_macd.m_func)(argc, argp);
+d85 1
+a85 1
+				strp->s_argc = argc;
+d87 2
+a88 2
+					strp->s_argp[i] = argp[i];
+				strp->s_abuf = abuf;
+d97 2
+a98 2
+ * Store the next argument from the given line `lp' in the given
+ * argument buffer, `ap'.  `n' is the length of the buffer.
+d122 2
+@

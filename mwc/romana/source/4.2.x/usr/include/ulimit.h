@@ -1,0 +1,45 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__ULIMIT_H__
+#define	__ULIMIT_H__
+
+/*
+ * Constants for the ulimit(2) system call. Note that this header is not part
+ * of either the iBCS2 or SVR4 ABI specifications; however, the names of the
+ * constants are taken from the SVR4 Programmer's Reference Manual, where this
+ * header is described, and the numeric values taken from the SVR3
+ * Programmer's Reference, which gives numeric codes for the operations.
+ */
+
+#include <common/ccompat.h>
+
+enum {
+	UL_GETFSIZE	= 1,	/*
+				 * Get the regular file size limit of the
+				 * process in 512-byte blocks.
+				 */
+	UL_SETFSIZE,		/*
+				 * Set the regular file size limit of the
+				 * process in 512-byte blocks.
+				 */
+	UL_GMEMLIM,		/*
+				 * Get the maximum possible brk () value.
+				 */
+	UL_GDESLIM		/*
+				 * Get the current value of the maximum
+				 * number of open file per process.
+				 */
+};
+
+__EXTERN_C_BEGIN__
+
+long		ulimit		__PROTO ((int _cmd, ...));
+
+__EXTERN_C_END__
+
+#endif	/* ! defined (__ULIMIT_H__) */

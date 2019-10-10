@@ -1,0 +1,132 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3; strict;
+comment  @ * @;
+
+
+1.3
+date     93.01.04.16.46.08;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.07.28.09.48.03;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.07.28.09.39.11;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@steve 7/17/92
+Modified for addition of execlep(), execvep(); cosmetic fixes.
+@
+
+
+1.3
+log
+@steve 1/5/94
+Changed DEFSHELL ("sh") to SHELL ("/bin/sh") to fix bug reported by vlad.
+@
+text
+@/*
+ * libc/sys/execvpe.c
+ * Sys exec with an array of arguments and environment,
+ * searching directories specified in PATH.
+ */
+
+#include <errno.h>
+#include <path.h>
+#include <string.h>
+
+#define	NULL	((char *)0)
+#define	SHELL	"/bin/sh"	/* not DEFSHELL, which is just "sh" */
+
+extern	char	*getenv();
+
+
+/* execvpe(name, argv, env) */
+int
+execvpe(name, argv, env) char *name; char *argv[]; char **env;
+{
+	register char *p1, *p2, *sp;
+	char fname[MAXPATH];
+	int isabs;
+
+	if ((sp = getenv("PATH")) == NULL)		/* find PATH */
+		sp = DEFPATH;				/* or take default */
+	isabs = (strchr(name, PATHSEP) != NULL);	/* iff name is absolute */
+	for (;;) {
+		if (isabs)
+			strcpy(fname, name);		/* use given name */
+		else {
+			for (p2 = fname; *sp != '\0' && *sp != LISTSEP; )
+				*p2++ = *sp++;		/* copy pathname component */
+			if (p2 != fname)
+				*p2++ = PATHSEP;	/* append PATHSEP if nonempty */
+			for (p1 = name; *p1 != '\0'; )
+				*p2++ = *p1++;		/* append name */
+			*p2 = '\0';			/* and NUL-terminate */
+		}
+		execve(fname, argv, env);		/* go for it */
+		if (isabs && errno != ENOEXEC)
+			break;				/* failed */
+		if (errno == ENOEXEC) {			/* try again with sh */
+			p1 = argv[-1];
+			p2 = argv[0];
+			argv[-1] = SHELL;
+			argv[0] = fname;
+			execve(argv[-1], argv-1, env);
+			argv[-1] = p1;
+			argv[0] = p2;
+			break;				/* failed */
+		}
+		if (*sp == '\0')
+			break;				/* end of PATH, failed */
+		if (*sp == LISTSEP)
+			sp++;
+	}
+	return -1;					/* failed */
+}
+
+/* end of libc/sys/execvpe.c */
+@
+
+
+1.2
+log
+@steve 7/28/92
+Renamed execvep() and execlep() to execvpe() and execlpe(),
+for consistency with Borland names.
+@
+text
+@d12 1
+d46 1
+a46 1
+			argv[-1] = DEFSHELL;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+a2 1
+ * libc/sys/execvep.c
+d16 1
+a16 1
+/* execvep(name, argv, env) */
+d18 1
+a18 1
+execvep(name, argv, env) char *name; char *argv[]; char **env;
+d60 1
+a60 1
+/* end of libc/sys/execvep.c */
+@

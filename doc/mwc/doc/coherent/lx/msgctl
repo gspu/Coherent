@@ -1,0 +1,142 @@
+.TH msgctl() "" "" "General Function (libc)"
+.PC "Message control operations"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/msg.h>"
+\fBint msgctl(\fIid, command, buffer\^\fB)\fR
+\fBint \fIid\^\fB; int \fIcommand\^\fB; struct msqid_ds *\fIbuffer\^\fB;\fR
+.PP
+.II "interprocess communication^messages"
+.II "message passing^msgctl()"
+The function
+.B msgctl()
+controls the \*(CO's system's messaging facility.
+This facility permits processes to pass messages from one another.
+.PP
+Each message queue is controlled by a structure of type
+.BR msqid_ds ,
+which is defined in header file
+.BR <sys/msg.h> .
+This structure points to the first and last messages in the queue,
+gives the size of the queue and the number of messages in the queue,
+and names who can manipulate it and how.
+The messages themselves consist of a linked list of structures of type
+.BR msg ,
+which is also defined in
+.BR msg.h .
+When the function
+.B msgget()
+creates a message queue, it assigns to that queue an identification
+number and returns that number to the calling process.
+For details on this process, see the Lexicon entry for
+.BR msgget() .
+.PP
+.I id
+identifies the message queue to be manipulated.
+This value must have been returned by a call to
+.BR msgget() .
+.PP
+.I command
+names the operation that you want
+.B msgctl()
+to perform.
+.B msgctl()
+recognizes the following
+.IR command s:
+.IP \fBIPC_STAT\fR 1.0i
+Copy the message-queue structure identified by
+.I id
+into the structure pointed to by
+.IR buffer .
+This command lets you gather information about a message queue
+without actually manipulating the queue.
+.IP \fBIPC_SET\fR
+This command sets permissions for this queue.
+It does so by copying fields
+.BR msg_perm.uid ,
+.BR msg_perm.gid ,
+.B msg_perm.mode
+(low nine bits only), and
+.B msg_qbytes
+from the message-queue structure point to by
+.I buffer
+to structure identified by
+.IR id .
+Only the superuser
+.B root
+and the user who owns the process that created structure
+.I id
+can execute this
+.IR command .
+Note that only the superuser can raise the value of field
+.BR msg_qbytes ,
+which gives the size of space occupied by the queue, in bytes.
+.IP \fBIPC_RMID\fR
+Remove the structure identified by
+.IR id ,
+and destroy its queue.
+Only the superuser
+.B root
+and the user who owns the process that created structure
+.I id
+do this.
+.PP
+If any of the following conditions occur,
+.B msgctl()
+returns \-1 and sets
+.B error
+to the value in parentheses:
+.IP \(bu 0.3i
+.I id
+is not a valid message-queue identifier (\fBEINVAL\fR).
+.IP \(bu
+.I command
+is not a valid command (\fBEINVAL\fR).
+.IP \(bu
+.I command
+equals
+.BR IPC_STAT ,
+but the owner of the
+calling process lacks permission to execute this command (\fBEACCES\fR).
+.IP \(bu
+.I command
+equals
+.B IPC_RMID
+or
+.BR IPC_SET ,
+but the owner of the
+calling process lacks permission to execute the command (\fBEPERM\fR).
+.IP \(bu
+A process owned by someone other than the superuser
+.B root
+attempted to increase field
+.B msg_qbytes
+(\fBEPERM\fR).
+.IP \(bu
+.I buffer
+points to an illegal address (\fBEFAULT\fR).
+.PP
+If all went well,
+.B msgctl()
+returns zero.
+.SH Example
+For an example of this function, see the Lexicon entry for
+.BR msgget() .
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/msg.h
+.R
+.SH "See Also"
+.Xr "libc," libc
+.Xr "msgget()," msgget
+.Xr "msgrcv()," msgrcv
+.Xr "msgsnd()" msgsnd
+.SH Notes
+For information on other methods of interprocess communication, see the
+Lexicon entries for
+.BR semctl() ,
+.BR shmctl() ,
+and
+.BR libsocket .

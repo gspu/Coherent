@@ -1,0 +1,126 @@
+.TH write "" "" "Entry-Point Routine"
+.PC "Write data to a device"
+.sp \n(pDu
+Internal-Kernel Interface:
+.B "#include <sys/types.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/uio.h>"
+.B "#include <sys/cred.h>"
+\fBint \fIprefix\fBwrite(\fIdevice\^\fB, \fIuioptr\^\fB, \fIcredptr\fB, \fIprivate\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; IO *\fIioptr\^\fB; cred_t *\fIcredptr\^\fB; void *\fIprivate\fR
+.sp \n(pdu
+DDI/DKI or \*(ST:
+.B "#include <sys/cred.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/types.h>"
+.B "#include <sys/uio.h>"
+\fBint \fIprefix\fBwrite(\fIdevice\^\fB, \fIuioptr\^\fB, \fIcredentials\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; uio_t *\fIuioptr\^\fB; cred_t *\fIcredentials\^\fB;\fR
+.PP
+The
+.B write
+routine copies data from the user's data area to the device.
+A user's application can invoke it via the function call
+.BR write() .
+.SH "Internal-Kernel Interface"
+Under the internal-kernel inteface to a driver, the address of the
+.B write
+routine is kept in field
+.B c_write
+of the driver's
+.B CON
+structure.
+It is customary to name the
+.B write
+routine with the word
+.B write
+prefixed by a unique identifier for your driver; but this is not required.
+.PP
+.I device
+is a
+.B dev_t
+that identifies the device to be written.
+.PP
+.I ioptr
+points to the
+.B IO
+structure that manages communication with
+.IR device .
+.PP
+Finally,
+.I private
+points to a data element that is private to your driver.
+Note that many drivers do not use this argument.
+.SH "DDI/DKI or STREAMS"
+The rest of this article describes how to invoke this function under
+the DDI/DKI interface.
+To invoke it, call function \fIprefix\fBwrite()\fR, where
+.I prefix
+is the unique prefix for this driver.
+.I device
+identifies the device to which the data are to be written.
+.I uioptr
+points to the
+.B uio
+structure that holds the information about the data to be copied.
+.I credentials
+points to the user's credential structure, which the driver should examine
+to see if the user has permission to write to
+.IR device .
+The
+.B write
+routine returns zero if it succeeded in copying the data, or an appropriate
+error number should something have gone wrong.
+.PP
+An application calls the
+.B write
+routine via the system call
+.BR write() .
+.PP
+Function
+.B uiomove()
+lets you use the
+.B uio
+structure to copy data.
+Block drivers that provide a character interface can call
+.B physiock()
+to perform data transfer via the driver's
+.B strategy
+routine.
+.PP
+The
+.B write
+operation should appear to the user to run synchronously.
+At very least, it should not return until the caller's buffer
+is no longer needed.
+A driver that is scrupulous about returning errors should not return until
+it has committed the data to
+.IR device .
+Drivers that are less fastidious about errors can return once they have
+entrusted the data to a local staging buffer; the data can be committed to
+the device asynchronously, but should an error occur
+driver will not be able to notify the user that his request failed.
+.SH "See Also"
+.B
+CON,
+drv_priv(),
+entry-point routines,
+errno,
+physiock(),
+read,
+strategy,
+uio,
+uiomove(),
+uwritec(),
+.R
+.br
+COHERENT Lexicon:
+.B
+write()
+.R
+.SH Notes
+This entry point is optional.
+.PP
+The
+.B write
+routine has user context and can sleep.

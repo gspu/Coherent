@@ -1,0 +1,552 @@
+/*
+ * The routines in this file make up
+ * a writer for the Coherent style l.out object
+ * file. During code assembly all the bits get
+ * written to a temporary file. At the very end the
+ * bits get copied back to the final object file.
+ * This uses the newest compiler base (the one
+ * that does "readonly" and has the segment names
+ * rearranged).
+ */
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#include "INC$LIB:canon.h"
+#include "INC$LIB:lout.h"
+#else
+#include "cc2.h"
+#include "canon.h"
+#include "l.out.h"
+#endif
+
+#define	NTXT	256			/* Text buffer size */
+#define	NREL	256			/* Relocation buffer size */
+
+/*
+ * Scratch file.
+ */
+#define	TTYPE	07			/* Type */
+#define	TTYPE	07			/* Type */
+#define	TPCR	010			/* PC rel flag, ored in */
+#define	TSYM	020			/* Symbol based flag, ored in */
+#define	T8087	0340			/* 8087 flags */
+
+#define	TEND	00			/* End marker */
+#define	TENTER	01			/* Enter new area */
+#define	TBYTE	02			/* Byte data */
+#define	TWORD	03			/* Word data */
+#define	TCODE	04			/* Code segment base */
+#define	TDATA	05			/* Data segment base */
+#define	TBASE	06			/* External segment base */
+
+#define	TWT	0040			/* M:_WT  */
+#define	TWST	0100			/* M:_WST */
+#define	TWES	0140			/* M:_WES */
+#define	TWCS	0200			/* M:_WCS */
+#define	TWSS	0240			/* M:_WSS */
+#define	TWDS	0300			/* M:_WDS */
+
+struct	ldheader ldh;			/* Header buffer */
+long	crseek;				/* Current relocation seek address */
+ADDRESS	txtla;				/* Load address */
+char	txt[NTXT];			/* Text buffer */
+char	rel[NREL];			/* Relocation buffer */
+char	*txtp;				/* Text pointer */
+char	*relp;				/* Relocation pointer */
+
+/*
+ * Convert a C compiler segment into
+ * an "l.out" segment. This is no longer a
+ * one to one mapping.
+ */
+char	segindex[] = {
+	L_SHRI,				/* SCODE */
+	L_SHRI,				/* SLINK */
+	L_SHRD,				/* SPURE */
+	0,				/* SSTRN (Patched) */
+	L_PRVD,				/* SDATA */
+	L_BSSD				/* SBSS  */
+};
+
+/*
+ * Output a segment switch.
+ */
+outseg(s)
+{
+	bput(TENTER);
+	bput(s);
+}
+
+/*
+ * Output an absolute byte.
+ */
+outab(b)
+{
+	bput(TBYTE);
+	bput(b);
+	++dot;
+}
+
+/*
+ * Output an absolute word.
+ */
+outaw(w)
+{
+	bput(TWORD);
+	iput(w);
+	dot += 2;
+}
+
+/*
+ * Output a full byte.
+ */
+outxb(sp, b, pcrf)
+register SYM	*sp;
+{
+	register int	opcode;
+
+	opcode = TBYTE;
+	if (sp != NULL)
+		opcode |= TSYM;
+	if (pcrf)
+		opcode |= TPCR;
+	bput(opcode);
+	bput(b);
+	if (sp != NULL)
+		pput(sp);
+	++dot;
+}
+
+/*
+ * Output a full word.
+ */
+outxw(sp, w, pcrf)
+register SYM	*sp;
+{
+	register int	opcode;
+
+	opcode = TWORD;
+	if (sp != NULL)
+		opcode |= TSYM;
+	if (pcrf)
+		opcode |= TPCR;
+	bput(opcode);
+	iput(w);
+	if (sp != NULL)
+		pput(sp);
+	dot += 2;
+}
+
+/*
+ * Output a 1 word object containing
+ * the base address of the current code
+ * segment.
+ */
+outcb()
+{
+	bput(TCODE);
+	dot += 2;
+}
+
+/*
+ * Output a 1 word object containing
+ * the base address of the current data
+ * segment.
+ */
+outdb()
+{
+	bput(TDATA);
+	dot += 2;
+}
+
+/*
+ * Output a 1 word object containing
+ * the base address of the external symbol
+ * pointed to by `sp'.
+ */
+outsb(sp)
+SYM	*sp;
+{
+	bput(TBASE);
+	pput(sp);
+	dot += 2;
+}
+
+/*
+ * Copy a dlabel record from ifp to nowhere.
+ */
+outdlab(i, n)
+int i;		/* Indentation */
+register int n;	/* Class initially */
+{
+	/* Get line number */
+	iget();
+
+	/* Get value */
+	if (n < DC_AUTO)
+		;
+	else if (n < DC_MOS)
+		iget();
+	else {
+		bget();		/* Width */
+		bget();		/* Offset */
+		iget();		/* Value */
+	}
+
+	/* Get name */
+	sget(id, NCSYMB);
+
+	/* Get type */
+	for (;;) {
+		n = bget();
+		if (n < DC_SEX) {
+			if (n < DX_MEMBS)
+				iget();
+			if (n == DX_MEMBS) {
+				++i;
+				n = iget();
+				for ( ; n > 0; n-=1) {
+					outdlab(i, bget());
+				}
+				--i;
+				break;
+			} else if (n == DX_NAME) {
+				iget();
+				sget(id, NCSYMB);
+				break;
+			} else if (n < DT_STRUCT)
+				break;
+		} else
+			cbotch("unrecognized type byte: %d", n);
+	}
+
+	/* Done */
+}
+
+/*
+ * Forget a debug line record.
+ */
+outdlin(op)
+{
+}
+
+/*
+ * Forget a debug relocation record.
+ */
+outdloc(n)
+{
+}
+
+/*
+ * Initialize the code writer.
+ */
+outinit()
+{
+	txtp = &txt[0];
+	relp = &rel[0];
+}
+
+/*
+ * Finish up.
+ */
+outdone()
+{
+	if (notvariant(VASM))
+		bput(TEND);
+}
+
+/*
+ * Copy back.
+ * Figure out the sizes and final values
+ * of everything. Copy the code from the scratch
+ * file back to the output file.
+ */
+copycode()
+{
+	register SYM	*sp;
+	register SEG	*segp;
+	register int	op;
+	register int	data;
+	register ADDRESS mseek;
+	register long	dseek;
+	register int	nd;
+	register int	nr;
+	register int	index;
+	register ADDRESS segsize;
+	register ADDRESS auxsize;
+	register ADDRESS reldot;
+	register int	refnum;
+	register int	i;
+	register int	rop;
+	struct	 ldsym	lds;
+
+	/*
+	 * Make sure that the "segindex"
+	 * table is set up correctly for the string
+	 * mapping, based on the ROM flags.
+	 */
+	if (isvariant(VROM))
+		segindex[SSTRN] = L_SHRD;
+	else
+		segindex[SSTRN] = L_PRVD;
+	/*
+	 * Sweep through the segment table and
+	 * assign the memory and disc seek addresses to each
+	 * entry. Two sections (SLINK and SSTRN) are done in
+	 * a magic way, because they live in another segment.
+	 */
+	mseek = 0;
+	index = 0;
+	dseek = sizeof(ldh);
+	for (segp=&seg[SCODE]; segp<=&seg[SBSS]; ++segp) {
+		if (segp!=&seg[SLINK] && segp!=&seg[SSTRN]) {
+			segp->s_mseek = mseek;
+			segsize = rup(segp->s_dot);
+			mseek += segsize;
+			if (segp != &seg[SBSS]) {
+				segp->s_dseek = dseek;
+				dseek += segsize;
+			}
+			if (segp == &seg[SCODE]) {
+				seg[SLINK].s_mseek = mseek;
+				auxsize = rup(seg[SLINK].s_dot);
+				mseek += auxsize;
+				seg[SLINK].s_dseek = dseek;
+				dseek += auxsize;
+				segsize += auxsize;
+			}
+			if (isvariant(VROM) && segp==&seg[SPURE]
+			||  notvariant(VROM) && segp==&seg[SDATA]) {
+				seg[SSTRN].s_mseek = mseek;
+				auxsize = rup(seg[SSTRN].s_dot);
+				mseek += auxsize;
+				seg[SSTRN].s_dseek = dseek;
+				dseek += auxsize;
+				segsize += auxsize;
+			}
+			ldh.l_ssize[segindex[index]] = segsize;
+		}
+		++index;
+	}
+	/*
+	 * Seek to the start of the symbol table and
+	 * write out all of the global symbols. All symbols get
+	 * relocated to their final values here. Reference numbers
+	 * are assigned to every symbol.
+	 */
+	fseek(ofp, dseek, 0);
+	ldh.l_ssize[L_SYM] = 0;
+	refnum = 0;
+	for (i=0; i<NSHASH; ++i) {
+		sp = hash2[i];
+		while (sp != NULL) {
+			if ((sp->s_flag&S_DEF) != 0)
+				sp->s_value += seg[sp->s_seg].s_mseek;
+			if ((sp->s_flag&S_GBL)!=0 || (sp->s_flag&S_DEF)==0) {
+				sp->s_ref = refnum++;
+				ldscopy(lds.ls_id, sp->s_id);
+				lds.ls_type = L_REF;
+				if ((sp->s_flag&S_DEF) != 0)
+					lds.ls_type = segindex[sp->s_seg];
+				lds.ls_type |= L_GLOBAL;
+				lds.ls_addr = sp->s_value;
+				canint(lds.ls_type);
+				canvaddr(lds.ls_addr);
+				owrite((char *) &lds, sizeof(lds));
+				ldh.l_ssize[L_SYM] += sizeof(lds);
+			}
+			sp = sp->s_fp;
+		}
+	}
+	/*
+ 	 * Copy out code.
+	 */
+	crseek = ftell(ofp);
+	ldh.l_ssize[L_REL] = 0;
+	for (segp=&seg[SCODE]; segp<=&seg[SBSS]; ++segp)
+		segp->s_dot = 0;
+	dotseg = SCODE;
+	dot = 0;
+	while ((op = bget()) != TEND) {
+		if (op==TCODE || op==TDATA || op==TBASE)
+			cbotch("large item");
+		if ((op&T8087) != 0)
+			cbotch("8087 item");
+		if (op == TENTER) {
+			notenuf();
+			seg[dotseg].s_dot = dot;
+			dotseg = bget();
+			dot = seg[dotseg].s_dot;
+			continue;
+		}
+		if ((op&TTYPE) == TBYTE) {
+			nd = 1;
+			data = bget();
+		} else {
+			nd = 2;
+			data = iget();
+		}
+		if ((op&TPCR) != 0)
+			data -= dot+nd;
+		/*
+		 * Absolute.
+		 */
+		if ((op&(TSYM|TPCR)) == 0) {
+			enuf(nd, 0);
+			*txtp++ = data;
+			if (nd != 1)
+				*txtp++ = data>>8;
+			dot += nd;
+			continue;
+		}
+		/*
+		 * Not symbol based.
+		 * Must be absolute and PC rel.
+		 */
+		reldot = dot + seg[dotseg].s_mseek;
+		if ((op&TSYM) == 0) {
+			enuf(nd, 3);
+			rop = LR_BYTE|L_ABS|LR_PCR;
+			*txtp++ = data;
+			if (nd != 1) {
+				rop = LR_WORD|L_ABS|LR_PCR;
+				*txtp++ = data>>8;
+			}
+			*relp++ = rop;
+			*relp++ = reldot;
+			*relp++ = reldot>>8;
+			dot += nd;
+			continue;
+		}
+		/*
+		 * Symbol based.
+		 * Might be PC rel.
+	 	 */
+		nr = 5;
+		sp = pget();
+		if ((sp->s_flag&S_DEF) != 0) {
+			nr = 3;
+			data += sp->s_value;
+		}
+		enuf(nd, nr);
+		rop = LR_BYTE;
+		*txtp++ = data;
+		if (nd != 1) {
+			rop = LR_WORD;
+			*txtp++ = data>>8;
+		}
+		if ((op&TPCR) != 0)
+			rop |= LR_PCR;
+		if (nr == 3)
+			rop |= segindex[sp->s_seg];
+		else
+			rop |= L_SYM;
+		*relp++ = rop;
+		*relp++ = reldot;
+		*relp++ = reldot>>8;
+		if (nr == 5) {
+			*relp++ = sp->s_ref;
+			*relp++ = sp->s_ref>>8;
+		}
+		dot += nd;
+	}
+	/*
+	 * Flush buffers.
+	 * Write out the l.out header, since we
+	 * now know the size of the relocation section.
+	 */
+	notenuf();
+	ldh.l_magic = L_MAGIC;
+	canint(ldh.l_magic);
+	ldh.l_flag = 0;
+	canint(ldh.l_flag);
+	ldh.l_machine = M_8086;
+	canint(ldh.l_machine);
+	ldh.l_entry = 0;
+	canvaddr(ldh.l_entry);
+	for (i=L_SHRI; i<=L_REL; ++i)
+		cansize(ldh.l_ssize[i]);
+	fseek(ofp, (long)0, 0);
+	owrite((char *) &ldh, sizeof(ldh));
+}
+
+/*
+ * Copy a NUL terminated name into
+ * a loader symbol. Pad the symbol out with
+ * 0 bytes.
+ */
+ldscopy(p1, p2)
+register char	*p1;
+register char	*p2;
+{
+	register int	n;
+
+	n = NCPLN;
+	while (*p2!=0 && n!=0) {
+		*p1++ = *p2++;
+		--n;
+	}
+	while (n != 0) {
+		*p1++ = 0;
+		--n;
+	}
+}
+
+/*
+ * This routine checks to see if
+ * there is enough room in the text and relocation
+ * buffers to hold `nt' bytes of text and `nr' bytes of
+ * relocation.
+ */
+enuf(nt, nr)
+{
+	if (txtp+nt>&txt[NTXT] || relp+nr>&rel[NREL])
+		notenuf();
+	if (txtp == txt)
+		txtla = dot;
+}
+
+/*
+ * Flush the text and relocation buffers. Look
+ * at the segment table to figure out the exact location
+ * of the data in the file, and compute the correct seek
+ * address in the image by adding the base address of
+ * the text record "txtla" to that base.
+ */
+notenuf()
+{
+	register int	n;
+
+	if ((n=txtp-txt) != 0) {
+		fseek(ofp, txtla+seg[dotseg].s_dseek, 0);
+		owrite(txt, n);
+		if ((n=relp-rel) != 0) {
+			fseek(ofp, crseek, 0);
+			owrite(rel, n);
+			crseek += n;
+			ldh.l_ssize[L_REL] += n;
+			relp = rel;
+		}
+	}
+	txtp = txt;
+}
+
+/*
+ * Write a block of bytes to the output file,
+ * looking at the return status and checking for any
+ * write errors.
+ */
+owrite(p, n)
+char	*p;
+{
+	if (fwrite(p, sizeof(char), n, ofp) != n)
+		cfatal("output write error");
+}
+
+/*
+ * Round up a size to the next
+ * even boundry.
+ */
+rup(a)
+{
+	return ((a+01)&~01);
+}

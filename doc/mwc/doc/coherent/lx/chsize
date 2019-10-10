@@ -1,0 +1,96 @@
+.TH chsize() "" "" "System Call (libc)"
+.PC "Change the size of a file"
+\fBint chsize(\fIfd\^\fB, \fIsize\^\fB);\fR
+\fBint \fIfd\^\fB; long \fIsize\^\fB;\fR
+.PP
+.II "file^change size"
+.II "file^truncate"
+.II "file^enlarge"
+.II "truncate a file"
+.II "enlarge a file"
+The \*(CO system call
+.B chsize()
+changes the size of the file associated with the file descriptor
+.I fd
+to be exactly
+.I size
+bytes long.
+If
+.I size
+is larger than the file's initial size, then
+.B chsize()
+pads the file with the appropriate number of extra bytes.
+If
+.I size
+is smaller than the initial size, then
+.I chsize()
+frees all allocated disk blocks between
+.I size
+and the initial size.
+The maximum file size as set by
+.B ulimit()
+is in force for calls to
+.BR chsize() .
+.PP
+With a successful call,
+.B chsize()
+returns 0; otherwise, it returns \-1 and sets
+.B errno
+to an appropriate value.
+.SH "See Also"
+.Xr "libc," libc
+.Xr "open()," open
+.Xr "ulimit()" ulimit
+.SH Notes
+When you use
+.B chsize()
+to shorten a file,
+\*(CO frees all disk blocks beyond the new end-of-file mark.
+However, it does not zero out the bytes beyond the new
+end-of-file in the last allocated disk block.
+If you wish to obliterate a file, simply using
+.B chsize()
+to reset its size to zero will
+.I not
+do the trick.
+.PP
+When you use
+.B chsize()
+to lengthen a file, the new bytes beyond the
+initial size are simply those bytes that were in the final disk block
+beyond the original end-of-file marker.
+All additional bytes beyond that point are zeroes.
+The file system will not actually allocate new
+disk blocks to accomodate the new file size,
+but rather will create one or more sparse blocks.
+.PP
+.II block^sparse
+.II file^sparse
+.II "sparse block"
+.II "sparse file"
+The term
+.I "sparse block"
+refers to the fact that
+in the \*(CO file system, a disk block that would be all zeroes
+need not take up a physical disk block.
+Rather, \*(CO marks the i-node to indicate that the block
+is all zeroes, but does not allocate a physical block.
+This saves space on the disk.
+.PP
+A
+.IR "sparse file" ,
+is a file that contains one or more sparse blocks.
+The file system handles sparse files correctly; however, the command
+.B fsck
+may return the error message
+.DM
+	Possible File Size Error
+.DE
+.PP
+for them.
+.PP
+If you lengthen a file with
+.BR chsize() ,
+you may create a sparse file, which may in turn cause
+.B fsck
+to complain.

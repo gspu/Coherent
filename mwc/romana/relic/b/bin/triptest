@@ -1,0 +1,99 @@
+# A collection of both regular and pathological input for "test"
+# In order to test out things like -p and -K we need to be root, so those
+# things are not tested yet. We are more interested in the range of valid
+# expressions that "test" can parse.
+
+if [ $1 ]
+then	TEST=$1
+else	TEST=/bin/test
+fi
+
+STRING_BINARIES='= != < >'
+ARITH_BINARIES="-eq -ne -lt -gt -le -ge"
+NS_FILE_BINARIES="-ef -nt -ot"
+
+STRING_UNARIES="-z -n !"
+FILE_UNARIES="-r -w -x -t -b -c -d -p -f -g -u -s"
+NS_FILE_UNARIES="-K -L"
+
+LPAREN="\("
+RPAREN="\)"
+
+ALL_OPS="$STRING_BINARIES $ARITH_BINARIES $NS_FILE_BINARIES $STRING_UNARIES\
+	$FILE_UNARIES $NS_FILE_UNARIES $LPAREN $RPAREN"
+
+OLD_FILE=`which test`
+NEW_FILE=/tmp/newfile
+
+>$NEW_FILE			# create the new file
+
+xtest () {
+	$TEST "$@"; A=$?
+	if [ $# -gt 0 ]; then
+		$TEST ! \( "$@" \); B="negated as $?"
+	else	B=
+	fi
+	echo test "$@" "-->" $A $B
+}
+
+echo Testing pathological cases
+
+xtest \( "" \)			# => ( -n "" )
+xtest \( -a \) = \)		# => -n ")" -a ( ")" = ")" )
+xtest \( = \)			# 0 => ( -n "!=" )
+				# 1 => "(" != ")"
+xtest \( -a = -o \)		# 1 => ( "-a" = "-o" )
+				# 0 => -n "(" -a -n "=" -o -n ")"
+
+echo Testing simple predicates
+
+xtest
+xtest ""
+xtest "a"
+xtest "!"
+
+echo Testing file comparisons
+
+for l in $OLD_FILE $NEW_FILE; do
+	for r in $OLD_FILE $NEW_FILE; do
+		for op in $NS_FILE_BINARIES; do
+			xtest $l $op $r
+		done
+	done
+done
+
+echo Testing precedence and associativity
+
+xtest ! "" -o "a"		# good 0 => ( ! "" ) -o "a"
+				#  bad 1 => ! ( "" -o "a" )
+xtest "" -o ! ""
+
+xtest ! "" -a "a"		# good 0 => ( ! "" ) -a "a"
+				#  bad 1 => ! ("" -a "a")
+xtest "a" -a ! ""
+
+xtest "" -a "" -o "a"		# good 0 => ( "" -a "" ) -o "a"
+				#  bad 1 => "" -a ( "" -o "a" )
+xtest "a" -o "" -a ""
+
+echo Testing simple arithmetic
+
+for l in 1 2; do
+	for r in 1 2; do
+		for op in $ARITH_BINARIES; do
+			xtest $l $op $r
+		done
+	done
+done
+
+echo Testing simple string operations.
+
+TEST_OPS="$STRING_BINARIES $STRING_UNARIES $LPAREN $RPAREN"
+
+for l in $TEST_OPS; do
+	for r in $TEST_OPS; do
+		for op in $STRING_BINARIES; do
+			xtest $l $op $r
+		done
+	done
+done

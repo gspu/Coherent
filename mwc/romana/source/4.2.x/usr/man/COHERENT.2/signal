@@ -1,0 +1,129 @@
+ssiiggnnaall() -- System Call (libc)
+
+Specify action to take upon receipt of a given signal
+#iinncclluuddee <ssiiggnnaall.hh>
+iinntt (*ssiiggnnaall(_s_i_g_t_y_p_e, _f_u_n_c_t_i_o_n))()
+iinntt _s_i_g_t_y_p_e, (*_f_u_n_c_t_i_o_n)();
+
+A process  can receive a  _s_i_g_n_a_l, or interrupt, from  a hardware exception,
+terminal  input, or  a kkiillll()  call  made by  another process.   A hardware
+exception  might be  caused  by an  illegal  instruction or  a bad  machine
+address.   The terminal  interrupt character  (described  in detail  in the
+Lexicon entry  ttttyy) generates a process  interrupt (and in one  case a core
+dump file for debugging purposes).
+
+ssiiggnnaall()  tells the  signal handler  what  to do  when the  current process
+receives  signal _s_i_g_t_y_p_e.  _s_i_g_t_y_p_e  is the  signal to  process, as  defined
+below.  _f_u_n_c_t_i_o_n points to the routine to execute when _s_i_g_t_y_p_e is received.
+This can  be a function  of your own  creation; or you  can use one  of the
+following macros, which expand into pointers to system-defined functions:
+
+SSIIGG_DDFFLL
+     This  is the  default action.   The process terminates  just as  if it
+     called the function eexxiitt(). In addition, the system writes a core file
+     in the  current working directory if _s_i_g_t_y_p_e is  any of the following:
+     SSIIGGQQUUIITT,  SSIIGGSSYYSS, SSIIGGTTRRAAPP,  or SSIIGGSSEEGGVV. For  more information  on core
+     files, see the Lexicon entry ccoorree.
+
+SSIIGG_IIGGNN
+     Ignore _s_i_g_t_y_p_e. The system discards all signals of this type.
+
+ssiiggnnaall() returns  a pointer to  the previous action.   If _s_i_g_t_y_p_e is  not a
+recognized signal, ssiiggnnaall() returns (iinntt (*)())-11.
+
+With the exception of SSIIGGKKIILLLL and  SSIIGGTTRRAAPP, caught signals are reset to the
+default  action SSIIGG_DDFFLL.  To catch  a  signal again,  the routine  to which
+_f_u_n_c_t_i_o_n points must reissue the call to ssiiggnnaall().
+
+The following list names the  signals that ssiiggnnaall() can process, as defined
+in the  header file ssiiggnnaall.hh. Note  that the signal SSIIGGKKIILLLL,  which kills a
+process, can be neither caught  nor ignored.  Signals marked by an asterisk
+produce a core dump if the action is SSIIGG_DDFFLL:
+
+SSIIGGHHUUPP.........Hangup SSIIGGIINNTTInterrupt SSIIGGQQUUIITT* Quit SSIIGGIILLLL* Illegal
+instruction SSIIGGTTRRAAPP*Trace trap SSIIGGIIOOTT IOT instruction SSIIGGAABBRRTT* To be replaced
+by SIGIOT SSIIGGEEMMTTEmulator trap SSIIGGFFPPEE* Floating-point exception SSIIGGKKIILLLL Kill
+SSIIGGBBUUSS.........Bus error SSIIGGSSEEGGVV*Segmentation violation SSIIGGSSYYSS* Bad argument
+to system call SSIIGGPPIIPPEEWrite to pipe with no readers SSIIGGAALLRRMM Alarm    SSIIGGTTEERRMM
+Software termination signal SSIIGGUUSSRR11User-defined signal SSIIGGUUSSRR22 User-defined
+signal SSIIGGCCLLDD..Death of a child SSIIGGCCHHLLDDDeath of a child SSIIGGPPWWRR Restart
+SSIIGGWWIINNCCHH.......Window change SSIIGGPPOOLLLLPolled event in stream
+
+A signal may be caught during  a system call that has not yet returned.  In
+this case,  the system call  appears to fail,  with eerrrrnnoo set  to EEIINNTTRR. If
+desired, such  an interrupted  system call  may be reissued.   System calls
+which may  be interrupted in this  way include ppaauussee(), rreeaadd()  on a device
+such as a terminal, wwrriittee() on a pipe, and wwaaiitt().
+
+_E_x_a_m_p_l_e
+The following program demonstrates ssiiggnnaall(), kkiillll(), ggeettppiidd(), and ffoorrkk().
+
+#include <signal.h>
+
+int got_it; /* Each side gets its own copy of all data at the fork */
+int errset;
+
+/*
+ * Control comes here on SIGTRAP.  Do no I/O in signal function.
+ * Reset the signal if you ever want another.
+ */
+
+void
+sig_ser()
+{
+    got_it = 1; /* tell the child we got it */
+
+    if (0 > signal(SIGTRAP, sig_ser))/* reset the signal */
+        errset = 1;
+}
+
+main()
+{
+    int count;
+    int child, parent;
+
+    parent = getpid();  /* Both sides will get a copy */
+
+    if (signal(SIGTRAP, sig_ser) < 0) {/* sets for both sides */
+        perror("signal set failed");
+        exit(0);
+    }
+
+    if (child = fork()) {   /* parent gets the child's id */
+        for (count = 0; count < 3; count++) {
+            kill(child, SIGTRAP);   /* signal the child */
+
+            while(!got_it)      /* wait for signal */
+                sleep(1);
+            if (errset)
+                perror("parent: signal reset failed");
+
+            printf("parent got signal %d\n", count);
+            got_it = errset = 0;
+        }
+        exit(0);
+    }
+
+    for (count = 0; count < 3; count++) {
+        while(!got_it)          /* wait for signal */
+            sleep(1);
+        if (errset)
+            perror("child: signal reset failed");
+        printf("child got signal %d\n", count);/* show we got it */
+
+        kill(parent, SIGTRAP);      /* signal the parent */
+        got_it = errset = 0;
+    }
+    exit(0);
+}
+
+_S_e_e _A_l_s_o
+kkiillll, kkiillll(), lliibbcc, ppttrraaccee(), sshh, ssiiggaaccttiioonn(), ssiiggnnaammee, ssiiggsseett()
+ANSI Standard, section 7.7.1.1
+
+_N_o_t_e_s
+The function ssiiggnnaall() predates the ssiiggsseett() and ssiiggaaccttiioonn() sets of signal-
+handling functions.   _N_e_v_e_r combine  ssiiggnnaall() with  any of the  ssiiggsseett() or
+ssiiggaaccttiioonn() families of functions: use one or the other, but not both.  For
+a description  of how ssiiggnnaall()  differs from ssiiggsseett()  and ssiiggaaccttiioonn(), see
+their Lexicon entries.

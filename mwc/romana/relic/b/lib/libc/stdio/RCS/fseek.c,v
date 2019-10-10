@@ -1,0 +1,129 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.02.10.16.57.59;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.23.21.31.51;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.23.21.31.16;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*
+ * libc/stdio/fseek.c
+ * ANSI-compliant C standard i/o library.
+ * fseek()
+ * ANSI 4.9.9.2.
+ * Seek to offset from whence in stream.
+ */
+
+#include <stdio.h>
+
+int
+fseek(stream, offset, whence) register FILE *stream; long offset; int whence;
+{
+	register _FILE2 *f2p;
+
+	f2p = stream->_f2p;
+
+	/* Adjust offset for ungotten character if necessary. */
+	if ((whence == SEEK_CUR) && (stream->_ff2 & _FUNGOT))
+		offset--;
+
+	/* Ensure buffer is clean. */
+	if (_fpseek(stream)==EOF)
+		return EOF;
+
+	/* Perform the seek. */
+	if ((offset=lseek(fileno(stream), offset, whence)) == -1L)
+		return EOF;
+
+	/* Reset buffer pointers if necessary. */
+	if (f2p->_bp != NULL)
+		f2p->_dp = stream->_cp = f2p->_bp + (unsigned)offset%(unsigned)(f2p->_ep - f2p->_bp);
+
+	/* If the file was opened for append, force seek to end on write. */
+	if ((stream->_ff2 & _FAPPND) && (offset != 0L || whence == SEEK_SET))
+		f2p->_pt = &_fputa;
+
+	/* Clear EOF flag. */
+	stream->_ff1 &= ~_FEOF;
+
+	return 0;
+}
+
+/* end of libc/stdio/fseek.c */
+@
+
+
+1.2
+log
+@steve 4/23/90
+Integrate MSDOS source changes into COHERENT libc source:
+adjust returned seek pointer for ungot character, clear FEOF.
+@
+text
+@d2 5
+a6 2
+ * Standard I/O Library
+ * Seek; first ensure buffer is clean; afterwards put ptrs at right place.
+d12 1
+a12 4
+fseek(fp, offset, origin)
+register FILE	*fp;
+long	offset;
+int	origin;
+d14 1
+a14 1
+	long	lseek();
+d16 4
+a19 1
+	if ((origin == SEEK_CUR) && (fp->_ff & _FUNGOT))
+d21 21
+a41 8
+	if (_fpseek(fp)==EOF)
+		return (EOF);
+	if ((offset=lseek(fileno(fp), offset, origin)) == -1L)
+		return (EOF);
+	if (fp->_bp!=NULL)
+		fp->_dp = fp->_cp = fp->_bp + (unsigned)offset%BUFSIZ;
+	fp->_ff &= ~_FEOF;
+	return (0);
+d43 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d3 1
+a3 1
+ * Seek; first ensure buffer is clean; afterwards put ptrs at right place
+d16 2
+d24 1
+@

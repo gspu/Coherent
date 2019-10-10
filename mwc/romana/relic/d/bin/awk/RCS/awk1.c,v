@@ -1,0 +1,703 @@
+head     1.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.5;
+comment  @ * @;
+
+
+1.5
+date     92.07.14.12.18.16;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.03.20.10.54.41;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     92.02.12.14.26.31;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.26.18.18.41;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.15.41.06;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver. prov by stevesf.
+@
+
+
+1.5
+log
+@cef: when awk inverted character sets as in [^a-z] it inverted the zero bit
+when awk had comment to end of line it ate the end of line
+awk treated lead spaces incorrectly with whitespace rules.
+@
+text
+@/*
+ * AWK
+ * Main routine.
+ * Lexical analysis of input.
+ * Program input routines.
+ * Error message routines.
+ */
+
+#include "awk.h"
+#include "y.tab.h"
+
+CHAR	*readclass();
+NODE	*instring();
+NODE	*innumber();
+
+/*
+ * Main routine of AWK.
+ */
+main(argc, argv)
+int argc;
+CHAR *argv[];
+{
+	register int i;
+	register CHAR *ap;
+	register FILE *fp;
+	register CHAR *prog = NULL;
+	register CHAR *progfile;
+	NODE *yyparse();
+
+	awkinit();
+	while (argc>1 && *argv[1]=='-') {
+		if (argv[1][1] == '\0')
+			break;		/* - is stdin */
+		switch (argv[1][1]) {
+		case 'F':
+			sassign(FSp, &argv[1][2]);
+			break;
+
+		case 'f':
+			if (argc < 2)
+				usage();
+			if ((pfp = fopen(argv[2], "r")) == NULL)
+				awkerr("Cannot open %s", argv[2]);
+			setbuf(pfp, inbuf);
+			progfile = argv[2];
+			argv++;
+			argc--;
+			break;
+
+		case 'y':
+			yflag++;
+			break;
+
+		default:
+			usage();
+		}
+		argv++;
+		argc--;
+	}
+	if (argc>1 && pfp==NULL) {
+		prog = argv[1];
+		argv++;
+		argc--;
+	}
+	if (pfp==NULL && prog==NULL)
+		usage();
+	while (argc>1 && parameter(argv[1])) {
+		argv++;
+		argc--;
+	}
+	pgetinit(prog);
+	if (pfp != NULL) {
+		lineno = 1;
+		sassign(FILENAMEp, progfile);
+	}
+	yyparse();
+	if (pfp != NULL)
+		fclose(pfp);
+	fsmapinit(FS);
+	runflag = 1;
+	beginflag = 1;
+	if (setjmp(nextenv) == 0)
+		awk(codep, NULL, SNULL);
+	beginflag = 0;
+	if (argc > 1) {
+		for (i=1; i<argc; i++) {
+			ap = argv[i];
+			if (ap[0]=='-' && ap[1]=='\0')
+				fp = stdin;
+			else if ((fp = fopen(ap, "r")) == NULL) {
+				fprintf(stderr, "awk: cannot open %s\n", ap);
+				exit(1);
+			}
+			awk(codep, fp, ap);
+		}
+	} else
+		awk(codep, stdin, SNULL);
+	awkexit(0);
+}
+
+/*
+ * Read a parameter from the command line.
+ * Return non-zero if the string is a parameter.
+ * We have to fudge a bit to make sure `yylex'
+ * is properly reset.
+ */
+parameter(s)
+CHAR *s;
+{
+	register CHAR *cp;
+	register int c;
+	NODE *left, *right;
+
+	cp = s;
+	if (!isalpha(*cp))
+		return (0);
+	for (; (c = *cp)!='='; cp++) {
+		if (c == '\0')
+			return (0);
+		if (isspace(c)) {
+			*cp = '\0';
+			continue;
+		}
+		if (!(isalpha(c) || isdigit(c)))
+			return (0);
+	}
+	*cp++ = '\0';
+	left = lookup(s);
+	while (isspace(c = *cp++))
+		;
+	pgetinit(cp);
+	if (c == '"')
+		right = instring(c);
+	else if (isdigit(c) || c=='.')
+		right = innumber(c);
+	else
+		awkerr("non-constant assignment to parameter `%s'", s);
+	xassign(left, right);
+	return (1);
+}
+
+/*
+ * Leave awk and run the
+ * cleanup (`END') phase.
+ */
+awkexit(s)
+int s;
+{
+	register OFILE *ofp;
+
+	beginflag = 0;
+	endflag = 1;
+	exitflag = 1;
+	if (setjmp(nextenv) == 0)
+		awk(codep, NULL, SNULL);
+	for (ofp = files; ofp < endof(files); ofp++)
+		if (ofp->of_fp != NULL) {
+			if (ofp->of_flag & OFPIPE)
+				pclose(ofp->of_fp); else
+				fclose(ofp->of_fp);
+		}
+	exit(s);
+}
+
+/*
+ * Lexical analyser.
+ * This must have flags to
+ * determine when certain
+ * types of characters are
+ * special (e.g. reading regular
+ * expressions)
+ * Delete multiple newlines.
+ */
+yylex()
+{
+	static int nlf = 1;
+	static int prev, next;
+	register CHAR *cp;
+	register int c;
+	register int t;
+	register NODE *np;
+
+	if (lexre)
+		return (relex());
+again:
+	if (next) {
+		t = next;
+		next = 0;
+	} else if ((t = c = pgetc()) == EOF)
+		;
+	else if (!isascii(c))
+		awkerr("%o is an illegal character", c);
+	else if (isdigit(c) || c=='.') {
+		yylval.u_node = innumber(c);
+		t = NUMBER_;
+	} else if (isalpha(c)) {
+		cp = wordbuf;
+		do {
+			*cp++ = c;
+			c = pgetc();
+		} while (isalpha(c) || isdigit(c));
+		pungetc(c);
+		*cp = '\0';
+		np = lookup(wordbuf);
+		if (np->t_op == AKEYW)
+			t = np->t_INT;
+		else if (np->t_op == AFUNC) {
+			t = FUNCTION_;
+			yylval.u_node = np;
+		} else {
+			t = ID_;
+			yylval.u_node = np;
+		}
+	} else switch (c) {
+
+	case '"':
+		yylval.u_node = instring(c);
+		t = STRING_;
+		break;
+
+	case '#':
+		while ((c = pgetc())!=EOF && c!='\n')
+			;
+		pungetc(c);
+		goto again;
+
+	case '{':
+		brlevel++;
+		break;
+
+	case '}':
+		if (--brlevel < 0) {
+			awkerr("Unbalanced braces");
+			brlevel = 0;
+		}
+		next = '}';
+		t = ';';
+		break;
+
+	case '!':
+		if (checkop('~'))
+			t = NMATCH_;
+		else if (checkop('='))
+			t = NE_;
+		break;
+
+	case '|':
+		if (checkop('|'))
+			t = OROR_;
+		break;
+
+	case '&':
+		if (checkop('&'))
+			t = ANDAND_;
+		break;
+
+	case '+':
+		if (checkop('='))
+			t = ASADD_;
+		else if (checkop('+'))
+			t = INC_;
+		break;
+
+	case '-':
+		if (checkop('='))
+			t = ASSUB_;
+		else if (checkop('-'))
+			t = DEC_;
+		break;
+
+	case '*':
+		if (checkop('='))
+			t = ASMUL_;
+		break;
+
+	case '/':
+		if (checkop('='))
+			t = ASDIV_;
+		break;
+
+	case '%':
+		if (checkop('='))
+			t = ASDIV_;
+		break;
+
+	case '>':
+		if (checkop('='))
+			t = GE_;
+		else if (checkop('>'))
+			t = FAPPEND_;
+		else if (outflag)
+			t = FOUT_;
+		break;
+
+	case '<':
+		if (checkop('='))
+			t = LE_;
+		break;
+
+	case '=':
+		if (checkop('='))
+			t = EQ_;
+		break;
+
+	case '\n':
+		if (nlf || nlskip)
+			goto again;
+		if (brlevel)
+			t = ';';
+		break;
+
+	case ' ':
+	case '\t':
+		goto again;
+	}
+	nlf = nlskip = 0;
+	if (t==ELSE_ && prev!=';' && prev!='\n' && prev!='}') {
+		next = t;
+		t = ';';
+	} else if (t == '\n')
+		nlf++;
+	if (t==';') {
+		outflag = 0;
+		if (prev == ';')
+			goto again;
+	}
+	return (prev = t);
+}
+
+/*
+ * Part of lexical analyser
+ * for reading regular expressions.
+ */
+relex()
+{
+	register int c;
+	register int n, max;
+
+	switch (c = pgetc()) {
+	case '?':
+		return (REZOCL_);
+
+	case '*':
+		return (RECLOS_);
+
+	case '+':
+		return (RENECL_);
+
+	case '^':
+		return (REBOL_);
+
+	case '$':
+		return (REEOL_);
+
+	case '.':
+		return (REANY_);
+
+	case '|':
+		return (REOR_);
+
+	case '(':
+	case ')':
+	case '/':
+		return (c);
+
+	case '[':
+		yylval.u_charp = readclass();
+		return (RECLASS_);
+
+	case EOF:
+	case '\n':
+		awkerr("Non-terminated regular expression");
+
+	case '\\':
+		c = pgetc();
+		if (c>='0' && c<='7') {
+			n = 0;
+			max = 3;
+			do {
+				n = (n<<3) + c - '0';
+				if ((c=pgetc())<'0' || c>'7')
+					break;
+			} while (--max);
+			pungetc(c);
+			c = n;
+		}
+	default:
+		yylval.u_char = c;
+		return (RECHAR_);
+	}
+}
+
+/*
+ * Check for dual-character operators.
+ * such as `+=' and return 1 if so.
+ * This looks for a match on the next
+ * character `nc'.
+ */
+checkop(nc)
+int nc;
+{
+	register int c;
+
+	if ((c = pgetc()) == nc)
+		return (1);
+	pungetc(c);
+	return (0);
+}
+
+/*
+ * Read in a character class from
+ * a regular expression (called from relex).
+ */
+CHAR *
+readclass()
+{
+	register CHAR *cc;
+	register c, i, pc;
+	int comp;
+
+	cc = xalloc(NCLASS);
+	for (i=0; i<NCLASS; i++)
+		cc[i] = 0;
+	if ((c = pgetc()) != '^') {
+		comp = 0;
+		pungetc(c);
+	} else
+		comp = 1;
+	pc = EOF;
+	while ((c = pgetc()) != ']') {
+		if (c==EOF || c=='\n')
+			awkerr("Non-terminated character class");
+		if (c=='-' && pc!=EOF) {
+			if ((c = pgetc()) == ']')
+				break;
+			for (i=pc; i<=c; i++)
+				cc[i/NBPC] |= 1<<(i%NBPC);
+			pc = EOF;
+		} else {
+			cc[c/NBPC] |= 1<<(c%NBPC);
+			pc = c;
+		}
+	}
+	if (comp) {
+		cc[0] ^= 1;
+		for (i=0; i<NCLASS; i++)
+			cc[i] ^= -1;
+	}
+	return (cc);
+}
+
+/*
+ * Return a string read from
+ * the program file.
+ * The string is to be terminated
+ * with `ec'.
+ */
+NODE *
+instring(ec)
+register int ec;
+{
+	register CHAR *cp;
+	register int c;
+	register int octal, nc;
+
+	cp = wordbuf;
+	while ((c = pgetc()) != ec) {
+		if (c=='\n' || c==EOF)
+			awkerr("%s in string", c==EOF ? "EOF" : "Newline");
+		if (c == '\\') {
+			switch (c = pgetc()) {
+			case 'r':
+				c = '\r';
+				break;
+
+			case 'n':
+				c = '\n';
+				break;
+
+			case 'b':
+				c = '\b';
+				break;
+
+			case 't':
+				c = '\t';
+				break;
+
+			default:
+				if (c>='0' && c<='7') {
+					octal = 0;
+					nc = 3;
+					for (;;) {
+						octal = octal*8 + c - '0';
+						if (--nc <= 0)
+							break;
+						c = pgetc();
+						if (c==ec || c<'0' || c>'7') {
+							pungetc(c);
+							break;
+						}
+					}
+					c = octal;
+				}
+			}
+		}
+		if (cp < &wordbuf[NWORD-1])
+			*cp++ = c;
+		else {
+			awkerr("Character string too long");
+			break;
+		}
+	}
+	*cp = '\0';
+	cp = xalloc(strlen(wordbuf)+sizeof(CHAR));
+	strcpy(cp, wordbuf);
+	return (snode(cp, T_ALLOC));
+}
+
+/*
+ * Read a number from the
+ * program file.
+ */
+NODE *
+innumber(c)
+register int c;
+{
+	register CHAR *np;
+	register int floatflag = 0;
+
+	np = wordbuf;
+	for (;;) {
+		if (c == '.')
+			floatflag++;
+		*np++ = c;
+		c = pgetc();
+		if (c=='e' || c=='E') {
+			floatflag++;
+			*np++ = c;
+			if ((c = pgetc())=='-' || c=='+') {
+				*np++ = c;
+				c = pgetc();
+			}
+			do {
+				*np++ = c;
+				c = pgetc();
+			} while (c>='0' && c<='9');
+			break;
+		}
+		if (c!='.' && !(c>='0' && c<='9'))
+			break;
+	}
+	pungetc(c);
+	*np = '\0';
+	return (floatflag ? fnode(stof(wordbuf)) : inode(stoi(wordbuf)));
+}
+@
+
+
+1.4
+log
+@cef fix: did not accept names with underscores.
+@
+text
+@d115 1
+a115 1
+	if (!(('_' == c) || isalpha(c)))
+d124 1
+a124 1
+		if (!(isalnum(c) || ('_' == c)))
+d196 1
+a196 1
+	} else if (isalpha(c) || ('_' == c)) {
+d201 1
+a201 1
+		} while (isalnum(c) || ('_' == c));
+d224 1
+d444 2
+a445 1
+	if (comp)
+d448 1
+@
+
+
+1.3
+log
+@update by cef
+@
+text
+@d115 1
+a115 1
+	if (!isalpha(*cp))
+d124 1
+a124 1
+		if (!(isalpha(c) || isdigit(c)))
+d196 1
+a196 1
+	} else if (isalpha(c)) {
+d201 1
+a201 1
+		} while (isalpha(c) || isdigit(c));
+@
+
+
+1.2
+log
+@prov by cef...modified for line continuation
+@
+text
+@a11 2
+YYSTYPE	yylval;
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d14 1
+a14 1
+char	*readclass();
+d23 1
+a23 1
+char *argv[];
+d26 1
+a26 1
+	register char *ap;
+d28 2
+a29 2
+	register char *prog = NULL;
+	register char *progfile;
+d110 1
+a110 1
+char *s;
+d112 1
+a112 1
+	register char *cp;
+d180 1
+a180 1
+	register char *cp;
+d415 1
+a415 1
+char *
+d418 1
+a418 1
+	register char *cc;
+d461 1
+a461 1
+	register char *cp;
+d513 1
+a513 1
+	cp = xalloc(strlen(wordbuf)+sizeof(char));
+d526 1
+a526 1
+	register char *np;
+@

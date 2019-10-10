@@ -1,0 +1,126 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3;
+comment  @ * @;
+
+
+1.3
+date     93.02.10.16.58.03;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     90.04.23.23.09.36;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     90.04.23.23.09.18;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Initial MWC RCS revision.
+@
+
+
+1.3
+log
+@*** empty log message ***
+@
+text
+@/*
+ * libc/stdio/fwrite.c
+ * ANSI-compliant C standard i/o library.
+ * fwrite()
+ * ANSI 4.9.8.2.
+ * Write nmemb items of given size from ptr to stream.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+
+size_t
+fwrite(ptr, size, nmemb, stream) const Void *ptr; size_t size, nmemb; register FILE *stream;
+{
+	register size_t nb, n;
+	register unsigned char *p;
+
+	n = nb = size * nmemb;
+
+	/* Throw away ungotten character if present. */
+	if (stream->_ff2 & _FUNGOT)
+		(*stream->_f2p->_gt)(stream);
+
+	/* If unbuffered, write() will work, otherwise use putc(). */
+	/* putc() sets _FERR as required, write() does not. */
+	if (stream->_mode == _MODE_FBUF || stream->_mode == _MODE_LBUF) {
+		for (p = ptr; nb && putc(*p++, stream) != EOF; nb--)
+			;
+		if (nb)
+			return (n - nb) / size;
+	} else if ((nb = write(fileno(stream), ptr, nb)) != n) {
+		stream->_ff1 |= _FERR;
+		return nb / size;
+	}
+	return nmemb;
+}
+
+/* end of libc/stdio/fwrite.c */
+@
+
+
+1.2
+log
+@steve 4/23/90
+Integrated MSDOS source change into COHERENT stdio source:
+change parameters size, nitems from int to unsigned int.
+@
+text
+@d2 5
+a6 2
+ * Standard I/O Library
+ * Write nitems of size to file fp
+d10 1
+d12 2
+a13 5
+int
+fwrite(bp, size, nitems, fp)
+register unsigned char	*bp;
+unsigned int	size, nitems;
+register FILE	*fp;
+d15 2
+a16 1
+	register unsigned int	nb = size*nitems;
+d18 10
+a27 4
+	if (fp->_ff&_FUNGOT)
+		(*fp->_gt)(fp);
+	if (fp->_bp!=NULL || !(fp->_ff&_FSTBUF)) {
+		for (; nb && putc(*bp++, fp)!=EOF; nb--)
+d30 6
+a35 8
+			return (0);
+		else
+			return (nitems);
+	} else if (write(fileno(fp), bp, nb) != nb) {
+		fp->_ff |= _FERR;
+		return (0);
+	} else
+		return (nitems);
+d37 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d11 1
+a11 1
+int	size, nitems;
+@

@@ -1,0 +1,265 @@
+head     1.2;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.2
+date     91.12.06.18.01.59;  author piggy;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.11.06.15.26.43;  author piggy;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Simulates certain system calls, like open() and read().
+@
+
+
+1.2
+log
+@Everything (including int and void functions) is now declared in tboot.h.
+Include files are sought in their final homes (<sys/*>).
+@
+text
+@/* sys.c -- Simulate kernel calls for file i/o.
+ */
+
+#include <sys/types.h>
+#include <sys/fd.h>
+#include <sys/param.h>
+#include <errno.h>
+#include "tboot.h"
+
+int errno;
+/* Table of file descriptors.  */
+static FD u_filep[NUFILE];
+static struct inode ip_table[NUFILE];
+static inited = (1==2);
+
+/* Open a file.
+ * Takes a file name, file; and a way of opening it, type as follows:
+ * 	0	Read only
+ *	1	Write
+ *	2	Read and write
+ * Only read is implimented.
+ *
+ * Returns a file descriptor, or -1 if the open failed.
+ */
+int
+open(file, type)
+	char *file;
+	int type;
+{
+	int i;			/* Generic loop counter.  */
+	ino_t temp_ino;		/* Place to hold inode until it can be used.  */
+	int fd;			/* Return value for open.  */
+
+	fd = -1;		/* -1 means nothing found yet.  */
+
+	/* If no file has been opened before, initialize u_filep.  */
+	if (!inited) {
+		int i;
+		for (i = 0; i < NUFILE; ++i) {
+/* Unused.  */		u_filep[i].f_flag	= (char) 0;
+			u_filep[i].f_refc	= (short) 0;
+			u_filep[i].f_seek	= (fsize_t) 0;
+			u_filep[i].f_ip	= &(ip_table[i]);
+			ip_table[i].i_ino	= (ino_t) 0;
+		}
+		inited = (1==1);
+	}
+
+	switch (type) {
+	case 0:
+		/* Look up the inode of the requested file.  */
+		if ((ino_t) 0 == (temp_ino = namei(file))) {
+			errno = ENOENT;
+			fd = -1;
+			return(fd);
+		}
+	
+		/* Now look for a free file descriptor.  */
+		for (i = 0; (-1 == fd) && (i < NUFILE); ++i) {
+			/* Reference count of 0 means free.  */
+			if (0 == u_filep[i].f_refc) {
+				++u_filep[i].f_refc;
+				fd = i;
+			}
+		}
+	
+		/* Did we find a free file descriptor?  */
+		if ( NUFILE == i) {
+			errno = EMFILE;	/* Too many open files.  */
+			fd = -1;
+			return(fd);
+		}
+	
+		/* Fetch the inode.  */
+		if (1 != iopen(u_filep[fd].f_ip, temp_ino)) {
+			/* At the moment, iopen() ALWAYS returns 1.  */
+			errno = EIO; /* I/O error */
+			fd = -1;
+			return(fd);
+		}
+		
+		/* Seek to the beginning of the file.  */
+		u_filep[fd].f_seek = (fsize_t) 0;
+
+		break;
+	case 1:
+		/* Open for write is unimplimented.  */
+		errno = EACCES; /* Permission denied.  */
+		fd = -1;
+		return(fd);
+	case 2:
+		/* Open for read/write is unimplimented. */
+		errno = EACCES; /* Permission denied.  */
+		fd = -1;
+		return(fd);
+	}
+
+	return(fd);
+} /* open() */
+
+
+/* Read from a file.
+ * Takes a file descriptor, a buffer, and a length to read.
+ *
+ * Returns the number of characters read, or -1 if an error occurs.
+ */
+int
+read(fd, buffer, n)
+	int fd;
+	char *buffer;
+	int n;
+{
+	register FD *local_fd;	/* Points to our FD structure.  */
+	uint16 to_read;
+
+	/* Validate the file descriptor we were passed.  */
+	if ((fd < 0) || (fd >= NUFILE) || (0 == u_filep[fd].f_refc)) {
+		errno = EBADF;	/* Bad file descriptor.  */
+		return(-1);
+	}
+
+	/* Convert from fd to a pointer to an FD.  */
+	local_fd = &u_filep[fd];
+
+	/* Adjust the amount to be read considering EOF.  */
+	to_read = (uint16) LESSER(
+		(fsize_t) n,
+		(1 + local_fd->f_ip->i_size - local_fd->f_seek)
+	);
+
+	/* to_read will be 0 on EOF.  */
+	if (to_read > 0) {
+		/* Read in the requested data.
+		 * iread() generates no error status.
+		 */
+		iread(local_fd->f_ip, buffer, local_fd->f_seek, to_read);
+
+		/* Adjust the current seek position.  */
+		local_fd->f_seek += to_read;
+	}
+
+	return(to_read);
+} /* read() */
+
+
+/* Close a file.
+ * Takes a file descriptor.
+ */
+int
+close(fd)
+	int fd;
+{
+	register FD *local_fd;	/* Points to our FD structure.  */
+
+	/* Validate the file descriptor we were passed.  */
+	if ((fd < 0) || (fd >= NUFILE) || (0 == u_filep[fd].f_refc)) {
+		errno = EBADF;	/* Bad file descriptor.  */
+		return(-1);
+	}
+
+	/* Convert from fd to a pointer to an FD.  */
+	local_fd = &u_filep[fd];
+
+	/* Decrease the reference count for this file descriptor.  */
+	--local_fd->f_refc;
+
+/* Do something like the following if we ever want to multiply open one file.
+ * There should be matching changes in open().
+ */
+#if 0
+	--local_fd->f_ip->i_refc;
+	/* Restore the default ip entry.  */
+	local_fd->f_ip = &ip_table[fd];
+#endif
+	return(0);
+} /* close() */
+
+
+/* Set a read/write position.
+ * Changes the seek position for file descriptor fd.
+ * where and  how describe the  new seek position.   where gives the
+ * number of  bytes that you wish  to move the seek  position; it is
+ * measured from the beginning of the  file if how is zero, from the
+ * current seek position if how is  one, or from the end of the file
+ * if how is  two.  A successful call to lseek  returns the new seek
+ * position; a failure returns (int32) -1.
+ */
+long
+lseek(fd, where, how)
+	int fd;
+	long where;
+	int how;
+{
+	register FD *local_fd;	/* Points to our FD structure.  */
+
+	/* Validate the file descriptor we were passed.  */
+	if ((fd < 0) || (fd >= NUFILE) || (0 == u_filep[fd].f_refc)) {
+		errno = EBADF;	/* Bad file descriptor.  */
+		return((int32) -1);
+	}
+
+	/* Convert from fd to a pointer to an FD.  */
+	local_fd = &u_filep[fd];
+
+	switch (how) {
+	case 0:	/* From begginning of file.  */
+		local_fd->f_seek = where;
+		break;
+	case 1: /* From current seek position.  */
+		local_fd->f_seek += where;
+		break;
+	case 2: /* From end of file.  */
+		local_fd->f_seek = local_fd->f_ip->i_size - where;
+		break;
+	default:	/* Illegal how.  */
+		errno = EINVAL;
+		return((int32) -1);
+	}
+
+	/* Round up to lower bound.  */
+	if (local_fd->f_seek < 0) {
+		local_fd->f_seek = 0;
+	}
+
+	return(local_fd->f_seek);
+} /* lseek() */
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

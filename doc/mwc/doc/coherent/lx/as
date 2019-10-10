@@ -1,0 +1,1674 @@
+.TH "as" "" "" Command
+.PC "i80386 assembler"
+\fBas [\-o \fIoutfile\^\fB] [\-bfglnpwxX] \fIinfile\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-D\fIname\fB=\fIstring\fR
+Initialize string variable \fIname\fR to \fIstring\fR.
+.IC \fB\-E\fIname\fB=\fIvalue\fR
+Initialize numeric variable \fIname\fR to \fIvalue\fR.
+.IC \fB\-a\fR
+Set alignment for data objects
+.IC \fB\-b\fR
+Reverse bracket sense; that is, use \fB()\fR for expressions
+and \fB[]\fR for code.
+.IC \fB\-f\fR
+Reverse order of operands from \*(UN assembler form
+to that of Intel documentation or 80286 version of \fBas\fR.
+.IC \fB\-g\fR
+Make undefined symbols
+.BR .globl .
+.IC \fB\-l\fR
+Generate output listing.
+.IC \fB\-n\fR
+Turn off the insertion of \fBnop\fRs to correct 80386 errors.
+.IC "\fB\-o \fIoutfile\fR
+Name the file into which the relocatable object is written
+.IC \fB\-p\fR
+Don't use `%' on register names; e.g., use \fBax\fR, not \fB%ax\fR.
+.IC \fB\-Q\fR
+Quiet:
+Suppress all error messages, no matter how awful an error they indicate
+.IC \fB\-w\fR
+Disable warning messages.
+.IC \fB\-x\fR
+Remove all non-global symbols from the common symbol output.
+.IC \fB\-X\fR
+Remove all non-global symbols starting with \fB.L\fR
+from the common symbol output.
+.Pp
+Options and file names can be interspersed on the command line.
+.Pp
+\fBas\fR assembles files written in the 80286
+dialect of \fBas\fR or \*(UN-style assembly language.
+It generates relocatable object modules that can be linked with objects
+compiled by the \*(CO C compiler.
+It also contains a number of features not available with the 80286
+dialect of \fBas\fR, including macro assembly.
+.HE
+The 80386 version of
+.BR as ,
+the \*(CO assembler, assembles programs written in any of several
+different dialects of assembly language into object modules in COFF
+format, which can be linked with objects written by the \*(CO C compiler.
+This version of
+.B as
+contains numerous features not available with the \*(CO 286 assembler:
+.IP \(bu 0.3i
+It serves as a flexible base for writing programs in native 80386
+assembly language.
+.IP \(bu
+It assembles programs written in older flavors of \*(CO assembly language.
+.IP \(bu
+It assembles programs written in \*(UN assembly language.
+.IP \(bu
+Unlike the old \*(CO assembler and the \*(UN assembler, 80386
+.B as
+comes with full macro faculities.
+.IP \(bu
+It is also designed to detect many of the common errors made by
+assembly-language programmers.
+.PP
+The \*(CO system also includes the command
+.BR asfix ,
+which updates files written in the \*(CO 286 assembler.
+.B asfix
+changes local and character symbols to the new format.
+.SH "Invoking the Assembler"
+.B as
+permits file names and options to be interspersed upon the command line.
+It recognizes the following command-line options:
+.IP \fB\-D\fIname\fB=\fIstring\fR
+Initialize string variable \fIname\fR to \fIstring\fR.
+For example, the option
+.DM
+	-Dname=some_string
+.DE
+.sp \n(pDu
+is equivalent to:
+.DM
+	name	.define	some_string
+.DE
+.IP \fB\-E\fIname\fB=\fIvalue\fR
+Initialize variable \fIname\fR to \fIvalue\fR.
+For example, the option
+.DM
+	-Ename=17
+.DE
+.sp \n(pDu
+is equivalent to:
+.DM
+	name	.equ	17
+.DE
+.IP \fB\-a\fR
+Set alignment for data objects.
+For example, when this option is used the express
+.DM
+	.long 5
+.DE
+.sp \n(pDu
+is automatically aligned to a four-byte boundary, but is left unaligned
+without it.
+.IP \fB\-b\fR
+Reverse bracket sense; that is, use () for expressions and [] for code.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	movl	$[2 * 5], (%eax)	/ without -b
+	movl	$(2 * 5), [%eax]	/ with -b
+.DE
+.IP \fB\-f\fR
+Reverse the order of the operands, from \*(UN-assembler form
+to that of the Intel documentation or the 80286 version of \fBas\fR.
+.IP \fB\-g\fR
+Make undefined symbols
+.BR .globl .
+.IP \fB\-l\fR
+Generate an output listing.
+.IP \fB\-n\fR
+This option turns off the
+.B as
+mechanism for handling bugs in the 80386 chip.
+.B as
+tries to cope with known 80386 bugs by
+changing code at appropriate points in its output.
+If these changes create problems with your code, you can turn off the
+.B as
+bug-handler mechanism by using the \fB\-n\fR option to
+.BR as .
+.IP "\fB\-o \fIoutfile\fB.o\fR"
+Write the output into
+\fIoutfile\fB.o\fR.
+Note that the suffix
+.B .o
+must appear in the output file's name,
+or the assembler will exit with an error message.
+The default output file is \fIinfile\fB.o\fR.
+.IP \fB\-p\fR
+Don't use `%' on register names; e.g., use \fBax\fR, not \fB%ax\fR.
+.IP \fB\-Q\fR
+Quiet:
+Suppress all error messages, no matter how awful an error they indicate.
+.IP \fB\-w\fR
+Disable warning messages.
+.IP \fB\-x\fR
+Remove all non-global symbols from the common symbol output.
+.IP \fB\-X\fR
+Remove all non-global symbols starting with \fB.L\fR
+from the common symbol output.
+.PP
+.II ASHEAD
+.II ASTAIL
+.B as
+reads the environmental variables
+.B ASHEAD
+and
+.B ASTAIL
+and appends them to, respectively, the beginning and the end of its
+command line.
+By setting these variables, you can ensure that \fBas\fR always executes
+with the switches that you want.
+For example, to ensure that \fBas\fR always executes with the \fB\-g\fR
+switch set, insert the following into your \fB.profile\fR:
+.DM
+	export ASHEAD=-g
+.DE
+.SH Lexography
+A symbol consists of from one to 256 characters.
+The assembler defines a \fIcharacter\fR as being an alphabetic character,
+question mark, period, percent sign, or underscore.
+.BR Xyz ,
+.BR .20 ,
+and
+.B hi_there
+are legal symbols; whereas
+.B 85i
+is not.
+.PP
+Like C, the \fBas\fR assembly language is case sensitive.
+.PP
+Local symbols begin with a question mark.
+These are recognizable (or \fIvisible\fR) only between nonlocal symbols.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+/	?loop invisible here
+abc	mov	$10, %cx
+?loop	add	$1, %bx	/ ?loop visible here
+	jcxz	xyz
+	jmp	?loop
+xyz:
+/	?loop invisible here
+.DE
+.PP
+An octal number is defined just as in the C language:
+it consists of an initial
+.B 0
+plus two other numerals between 0 and 7.
+For example,
+.B 077
+is a legal octal number.
+.PP
+A hexadecimal number consists of an initial
+.B 0x
+or
+.B 0X
+plus two other numerals:
+0 through 9, a through f, or A through F.
+For example,
+.B 0x0F
+and
+.B 0Xa3
+are legal hexadecimal numbers.
+.PP
+A binary number consists of an intial
+.B 0b
+or
+.B 0B
+followed by an indefinite number 0's and 1's.
+For example,
+.B 0b01001010
+is a legal binary number.
+.PP
+A decimal number begins with a numeral other than 0,
+followed by an indefinite number of numerals between 0 and 9.
+For example,
+.B 109
+is a legal decimal number.
+.PP
+A floating-point number begins is a string of numerals, 0 through 9,
+with a period or
+.B e
+within or at the end of it.
+It is like a C floating-point number, except that it cannot begin with
+a period because a symbol may begin with a period.
+For example,
+.BR 123.456 ,
+.BR 123456. ,
+and
+.B 17e26
+are legal floating-point numbers, but
+.B .123456
+is not.
+.PP
+A character constant is enclosed between apostrophes, as in C.
+.B as
+recognizes the same escape sequences as C.
+See the Lexicon article \fBC language\fR for a table of these constants.
+.PP
+String constants are enclosed between quotation marks, as in the C language,
+and use the same escape sequences as C.
+See the Lexicon article \fBC language\fR for a table of these sequences.
+.SH "Pseudo-Opcodes"
+.B as
+recognizes a rich set of pseudo-opcodes.
+These are not true assembly-language opcodes, but are interpreted by the
+assembler; they are designed to help make your life easier.
+The following briefly summarizes the pseudo-opcodes.
+.LB
+\fB.16\fR	16-bit mode
+\fB.2byte\fR	Make unaligned short variables
+\fB.32\fR	32-bit mode
+\fB.4byte\fR	Make unaligned long variables
+\fB.align\fR	Increment location counter to two- or four-byte aligned spot
+\fB.alignoff\fR	Turn alignment off
+\fB.alignon\fR	Turn alignment on
+\fB.blkb\fR	Set tag in \fB.data\fR
+\fB.bracketnorm\fR	Normal bracket sense \(em see \fB\-b\fR option
+\fB.brcketrev\fR	Reverse bracket sense \(em see \fB\-b\fR option
+\fB.bss\fR	Set tag in \fB.bss\fR
+\fB.bssd\fR	Set tag in \fB.bss\fR
+\fB.byte\fR	Make byte variables
+\fB.comm\fR	Set label as common
+\fB.data\fR	Change segment to \fB.data\fR
+\fB.def\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.define\fR	Define string constant
+\fB.dim\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.double\fR	Make double variables
+\fB.eject\fR	Force a page break
+\fB.else\fR	Connected to \fB.if\fR
+\fB.endef\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.endi\fR	End \fB.if\fR
+\fB.endm\fR	End \fB.macro\fR definition
+\fB.endw\fR	End \fB.while\fR
+\fB.equ\fR	Define numeric constant
+\fB.errataoff\fR	Turn off chip errata fixes
+\fB.errataon\fR	Turn on chip errata fixes
+\fB.even\fR	Increment location counter to byte-aligned spot
+\fB.fail\fR	Print error message
+\fB.file\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.float\fR	Make \fBfloat\fR variables
+\fB.globl\fR	Declare names as visible to linker
+\fB.ident\fR	\fB.ident\fR string
+\fB.if\fR	Compile-time conditional
+\fB.include\fR	Include a file
+\fB.intelorder\fR	Intel operand order \(em see \fB\-f\fR option
+\fB.lcomm\fR	Set name up as common
+\fB.line\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.list\fR	Turn on listing (assumes \fB\-l\fR option)
+\fB.llen\fR	Set print line length
+\fB.ln\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.long\fR	Make long variables
+\fB.macro\fR	Define a macro name
+\fB.mexit\fR	Exit current macro expansion
+\fB.mlist\fR	Toggle listing of macro expansion
+\fB.nolist\fR	Turn off listing (assumes \fB\-l\fR option)
+\fB.nopage\fR	Turn off page breaks and titles
+\fB.number\fR	Convert a string to a number.
+\fB.org\fR	Change location counter
+\fB.page\fR	Turn on page breaks and titles
+\fB.plen\fR	Set page length
+.\"\fB.previous\fR	Go to section before previous \fB.section\fR command
+\fB.prvd\fR	Change segment to \fB.data\fR
+\fB.prvi\fR	Change segment to \fB.text\fR
+\fB.scl\fR	Reserved to set auxiliary symbol entries in a later release
+.\"\fB.section\fR	Go to named section
+\fB.set\fR	Makes name equal to expr
+\fB.shift\fR	Shift macro parameters
+\fB.shrd\fR	Change segment to \fB.data\fR
+\fB.shri\fR	Change segment to \fB.text\fR
+\fB.size\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.string\fR	Convert a floating-point expression to a string
+\fB.strn\fR	Change segment to \fB.data\fR
+\fB.tag\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.text\fR	Change segment to \fB.text\fR
+\fB.ttl\fR	Set page titles
+\fB.type\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.undef\fR	Free string, numeric constant, or opcode
+\fB.unixorder\fR	Return normal order of operands; undoes \fB.intelorder\fR
+\fB.val\fR	Reserved to set auxiliary symbol entries in a later release
+\fB.value\fR	Make short variables
+\fB.version\fR	Comment string
+\fB.warn\fR	Print a warning message
+\fB.warnoff\fR	Turn off warning messages
+\fB.warnon\fR		Turn on warning messages
+\fB.while\fR	Compile-time loop control
+\fB.word\fR	Make short variables
+\fB.zero\fR		Create zero-filled memory
+.PP
+Each pseudo-opcode is described in the following sections.
+.SH "Input Format"
+An assembly-language program consists of a series of lines with the following
+format:
+.DM
+[#][label]	[opcode]	[operands]	[/ comment]
+.DE
+.PP
+The optional `#' at the beginning of the line tells
+.B as
+not to replace any
+.B \&.define
+symbols within the line.
+(These are described below.)
+Normally, the assembler replaces all
+.B \&.define
+symbols in a line before it parses that line.
+Without this option, a series of
+.BR \&.define s
+could lead to awkward results.
+.PP
+For example, the code
+.DM
+#%ecx	.define	xx
+#xx	.define	(%ecx)
+	mov	$3, %ecx
+.DE
+.PP
+results in:
+.DM
+	mov	$3, (%ecx)
+.DE
+.PP
+Like the C compiler,
+.B as
+will not go into an infinite loop if two \fB.define\fR statements
+mirror each other.
+.PP
+A comment begins with a slash `/' and may include the entire line.
+Blank lines are also legal.
+.PP
+Extra operands are not assumed to be comments.
+This is to tighten up error checking for the convenience
+of new and part-time assembly-language programmers.
+.SH "Expression Format"
+The
+.B as
+macro assembler has mostly the same operators and precedence as the C
+preprocessor.
+The exceptions are
+.BR ?: ,
+.BR && ,
+.BR || ,
+.BR : ,
+and `,' (which are missing), `/' (which is spelled \fB.div\fR),
+and `%' (which is spelled \fB.rem\fR).
+.PP
+In addition, the macro assembler includes the following directives:
+.BR .defined ,
+.BR .sizeof ,
+.BR .segment ,
+.BR .parmct ,
+.BR .location ,
+.BR .string ,
+.BR .number ,
+and
+.BR .float .
+.PP
+Expression bracketing is normally done by \fB[]\fR, because \fB()\fR
+is used by the operand format.
+This may be reversed by the \fB\-b\fR option, described above.
+.PP
+The unary operators have the following priority:
+.DS
+.ta 1.75i
+\fB.float .number .string\fR	Conversion
+\fB.defined .sizeof\fR
+\fB.location .segment\fR	Inquiry
+\fB-\fR	Negation
+\fB!\fR	Logical negation
+.DE
+.PP
+The binary operators have the following priority:
+.DS
+.ta 1.75i
+\fB[]\fR
+\fB* .div .rem\fR	Multiply, divide, remainder
+\fB+ -\fR	Add, subtract.
+\fB>> <<\fR	Left shift , right shift
+\fB< > <= >= == !=\fR	Comparison
+\fB&\fR	AND
+\fB^\fR	Exclusive OR
+\fB|\fR	OR
+\fB#\fR	Repeat
+.DE
+.PP
+Most binary operators should be familiar to C programmers; the exception is
+the \fB#\fR, which repeats an instruction \fIN\fR times.
+For example, the expression
+.DM
+	.byte	5 # 3
+.DE
+.PP
+produces five copies of byte 3, whereas the expression
+.DM
+	.long	7 # 4
+.DE
+.PP
+produces seven copies of the long `4'.
+Note that this operator has the lowest precedence of all binary operators.
+.PP
+You can use an expression wherever you can use a number.
+This includes address displacements, constants, and
+.B \&.if
+and
+.B \&.while
+statements.
+Integers are internally 32 bits, floats are internally C doubles.
+.PP
+Like C, comparison operators return one for true and zero for false.
+.PP
+In addition,
+.B as
+provides string operators.
+Like C, the first element of a string is indexed as zero.
+Unlike C, however,
+attempts to access past the end of a string gives all zeroes.
+The following summarizes the
+.B as
+suite of string operators:
+.IP "\fIstring \fB+ \fIstring\fR"
+Concatenate two strings. 
+For example, \fB"12" + "34"\fR yields \fB"1234"\fR.
+.IP "\fIstring \fB[ \fIexpr1\fB, \fIexpr2 \fB]\fR"
+Address a substring from \fIexpr1\fR to \fIexpr2\fR.
+For example, \fB"1234567"[1,3]\fR yields \fB"234"\fR; and
+\fB"123"[1,10]\fR yields \fB"23"\fR.
+.IP "\fIstring \fB[ \fIexpr \fB]\fR"
+Address a substring from \fIexpr\fR to the end of the string.
+For example \fB"1234567"[5]\fR yields \fB"67"\fR.
+.IP "\fB\&.string \fIexpr\fR"
+Convert a numeric expression to a string.
+For example, \fB.string 123\fR gives \fB"123"\fR.
+.IP "\fB\&.string \fIfloat\fR"
+Convert a floating-point expression to a string.
+For example, \fB.string 0.5 * 3\fR gives \fB"1.5"\fR
+.IP "\fB\&.float \fIstring\fR"
+Convert a string to a floating-point number.
+.IP "\fB\&.float \fIexpr\fR"
+Convert a numeric expression to a floating-point number.
+.IP "\fB\&.number \fIstring\fR"
+Convert a string to a number.
+.IP "\fB\&.number \fIfloat\fR"
+Convert a floating-point number to a number.
+.IP "\fB\&.string ( \fIexpr \fB)\fR"
+Return character at position \fIexpr\fR as a number.
+For example, \fB"123"(1)\fR gives two.
+.IP "\fIstring1 \fB@ \fIstring2\fR"
+Return the position at which \fIstring2\fR begins within \fIstring1\fR.
+For example, \fB"12345" @ "23"\fR returns one; and
+\fB"123" @ "jj"\fR gives \-1 (because ``jj'' does not appear within ``123'').
+.PP
+The unary operator
+.B :
+creates a label equal to the current location.
+It is generally not needed.
+For example, the expression
+.DM
+	connected	.long 5
+.DE
+.PP
+builds an aligned \fBlong\fR, initializes it to five,
+and gives it the label
+.BR connected .
+However, the expression
+.DM
+	unconnected:	.long 5
+.DE
+.PP
+builds the label
+.B unconnected
+at the current location, then builds an aligned \fBlong\fR
+with a value of five.
+Note that the label \fBconnected\fR will be on the five,
+whereas the label \fBunconnected\fR may be somewhere
+else if there was alignment.
+For example, the expression
+.DM
+		.align	4
+	lab1: lab2: lab3: .long 5
+.DE
+.PP
+puts
+.BR lab1 ,
+.BR lab2 ,
+and
+.B lab3
+on the
+.B long
+because it is already aligned.
+.SH "Macros and Conditional Compilation"
+The \fBas\fR directive \fB.macro\fR lets you declare a macro that you can
+use through a program.
+The directive \fB.endm\fR marks the end of a macro declaration.
+.PP
+A macro has the following form:
+.DS
+\fIname\fB	.macro	\fIparams\fR
+	\fIbody of macro\fR
+	\fB\&.endm\fR
+.DE
+.PP
+The following example creates and uses the macro \fBstore\fR:
+.DM
+.ta 0.5i 1.0i 2.5i
+store	.macro	xy,xz	/ declare "store" with two parms: xy and xz
+	movl	xy,%ecx
+	movl	%ecx,(%eax)
+	movl	xz,%ecx
+	movl	%ecx,4(%eax)
+	.endm		/ end of macro
+.sp \n(pDu
+	store	5,10	/ moves 5 and 10 to where %eax points.
+.DE
+.PP
+Macros can contain \fB.if\fR statements, and can even define other macros.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+def	.macro	.name, to	/ macro for defining other macros
+name	.macro
+	movl	from, to
+	.endm
+	.endm
+.sp \n(pDu
+	def	frog, %eax, %ebx	/ define the macro frog
+	frog		/ movel	%eax, %ebx
+.DE
+.PP
+.B as
+increments a count every time you expand any macro, and
+associates that number with the macro.
+When the keyword
+.B \&.macno
+is used within a macro,
+.B as
+translates it into that number.
+Thus, \fB.macno\fR is a unique number within each macro expansion.
+This allows the generation of unique labels internal to macros.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+stradd	.macro	str
+	.data
+L\e.macno	.byte str, 0	/ create a data item
+	.text 
+	movl	L\e.macno, %eax	/ put its address into %eax
+	.endm
+.DE
+.PP
+.B L\e.macno
+becomes something like L51.
+Note that a `\e' before any defined symbol
+or macro name vanishes in the expansion pass.
+.PP
+To permit macros with indefinite parameter counts, the assembler offers
+the reserved word \fB.parmct\fR and the command \fB.shift\fR.
+The former holds the number of parameters passed to a macro, and the
+latter shifts the parameters one position to the left.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+kall	.macro	fun, parm
+	.while .parmct > 1	/ while more than one parm remains
+	push parm
+	.shift		/ parm 3 becomes parm 2, parm 4 parm 3 etc
+	call fun
+	.endm
+.DE
+.PP
+The operators \fB.if\fR, \fB.else\fR, and \fB.endi\fR allow a program
+to implement compile-time decisions.
+These may be inside or outside of macros.
+When a macro exits, the assembler automatically closes 
+all \fB.if\fR statments that had been started within it.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+defy	.macro
+	.if .defined y	/ if y has been defined true
+	.mexit		/ exits closing any if statements
+	.else
+y	.equ 1	/ define y as 1
+/ For UNIX compatibility
+/	.set	y, 1
+/ produces the same result
+	.endm
+.DE
+.PP
+When used with a label,
+the operator \fB.defined\fR
+is true if that label had been defined in this pass.
+If the label is defined later,
+\fB\&.defined\fR can still be used with it, but causes a
+phase error, as occurs in some assemblers.
+.PP
+The operator \fB.fail\fR
+permits the flagging of errors.
+For example:
+.DM
+	.if ! .defined y
+	.fail	y is not defined
+	.endi
+.DE
+.PP
+The operator \fB.include\fR permits the inclusion of files.
+For example:
+.DM
+	.include	somefile.h
+.DE
+.SH "Undefining Symbols or Opcodes"
+.B as
+Some software (e.g., the GNU C compiler) requires that
+opcodes be recognized on column one and that opcodes be replacable by macros.
+The command
+.B .undef
+un-defines
+all macros and opcodes.
+Once you have un-defined an identifier, you can re-use it to name a macro
+or other data item.
+For example, to use
+.B mov
+(which names an opcode)
+to name a macro, do the following:
+.DM
+	.undef	mov
+mov	.macro	foo, bar
+	movl	foo, bar
+	.endm
+.DE
+.SH "Data-Definition Operators"
+The following describes the data-definition operators that
+.B as
+supports.
+.IP "\fB\&.byte \fIexpr\fR"
+Define \fIexpr\fR as an array of single bytes.
+.I expr
+can take any number of forms, as shown by the following examples:
+.DM
+.ta 0.5i 1.0i 2.5i
+	.byte	5, 2	/ defines 2 bytes 0x05 and 0x02
+	.byte	"Hello World", 0	/ a zero-terminated Hello World
+	.byte	10 # 1	/ 10 repetitions of 0x01
+.DE
+.IP "\fB\&.word \fIexpr\fR"
+Define \fIexpr\fR as a word, that is, as a two-byte integer.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	.word	.sizeof xx	/ a short the size of xx
+	.word	50 * 50	/ a short of 100
+/ For UNIX compatability
+/	.value	50 * 10
+/ produces the same result.
+.DE
+.IP "\fB\&.long	\fIexpr\fR"
+Define \fIexpr\fR as a long (four-byte) integer.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	.long	10	/ a long of 10
+.DE
+.IP "\fB\&.comm \fIname\fB, \fIlength\fR"
+Define a common variable named
+.IR name ,
+that is
+.I length
+bytes long.
+(See the entry for \fB.lcomm\fR, below, for a discussion of what segment
+the variable is stored.)
+If
+.I name
+is linked with another module that also declares
+.I name
+but sets it to another length, the linker creates one such
+variable and gives it the greater length of the two.
+.sp \n(pDu
+The linker deduces the alignment of a common variable from its length:
+if the length of a common is divisible by four,
+it is aligned on a four-byte boundary;
+if it is divisible by two, it is aligned on a two-byte boundary.
+Otherwise, it is assumed to be unaligned.
+The linker supports only three classes of alignment:
+four-byte, two-byte, and unaligned.
+.sp \n(pDu
+A common variable is aligned according to its most strongly aligned
+contributor.
+For example, if one module contributes a common variable named
+.B xyz
+whose length is four bytes, and another
+contributes an
+.B xyz
+whose length is five bytes, the resulting
+.B xyz
+is given a length of eight bytes
+to satisfy the length requirement (at least five) and the alignment
+requirement (four-byte boundary).
+.sp \n(pDu
+After the first linker pass, all common variables are placed at the end of
+the
+.B .bss
+segment:
+first the four-byte-aligned variables, then the two-byte-aligned,
+then the unaligned.
+.sp \n(pDu
+By default,
+.B as
+does not align its data objects.
+The command-line option
+.B \-a
+instructs
+.B as
+to align all data objects automatically.
+.IP "\fB\&.lcomm \fIlabel\fB, \fIlength\fR"
+Same as
+.BR comm ,
+described above.
+.sp \n(pDu
+Please note that
+on a COFF-based system, it is not
+possible to put common data into the \fB.data\fR section, even though the
+\*(UN assembler documentation claims that \fB.comm\fR does this.
+Both \fB.comm\fR and \fB.lcomm\fR place data into the \fB.bss\fR.
+.sp \n(pDu
+The problem is that COFF format
+for common variables
+leaves no place for information about alignment or segment.
+This creates two problems.
+First, the lack of information about alignment forces COFF to adopt
+the complex strategy of deducing alignment from length.
+Second, the lack of information about segment compels COFF to store
+all common variables in one segment, \fB.bss\fR being chosen.
+.IP "\fB\&.float \fIexpr\fR"
+Define \fIexpr\fR as a single-precision floating-point number.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	.float	1.5	/ a float of 1.5
+.DE
+.IP "\fB\&.double \fIexpr\fR"
+Define \fIexpr\fR as a double-precision floating-point number.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	.double 3.0 * 0.5	/ a double of 1.5
+.DE
+.SH "Resetting the Location Counter"
+The instructions \fB.org\fR and \fB.align\fR
+reset the location counter.
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	.org	.+5	/ Location counter to here plus 5
+	.org		/ Location counter to top of current section
+	.align	2	/ Up to nearest two-byte boundary
+.DE
+.PP
+The pseudo-opcodes
+.B .alignon
+and
+.B .alignoff
+respectively turn aligning on and off.
+.PP
+As noted above, the command-line option
+.B \-a
+instructs
+.B as
+to align all data objects automatically.
+.PP
+The instructions \fB.text\fR, \fB.data\fR, and \fB.bss\fR
+reset the location counter to the corresponding sections.
+Instructions are placed in the \fB.text\fR section,
+initialized data in the \fB.data\fR section, and the \fB.bss\fR is
+reserved for unitialized data.
+Placing information into the \fB.bss\fR results in an error.
+.SH "Dynamic Linking"
+.II "Binary Compatibility Standard"
+The Intel Binary Compatibility Standard dictates the way that
+.B as
+computes addresses,
+to permit dynamic linking of objects.
+.PP
+In object files, all
+.B .data
+addresses must follow all
+.B .text
+addresses, and all
+.B .bss
+address must follow all
+.B .data
+addresses.
+This allows dynamic linking of object files, in which
+the object file is mapped, not read in pieces.
+.PP
+In the \fBas\fR assembly language,
+.B .data
+and
+.B .text
+addresses are started from 0 for
+each module.
+At the end of assembly, during the output phase,
+.B as
+fixes these addresses to make
+.B .data
+follow
+.BR .text ,
+and so on.
+.PP
+For example, if you have a conditional like
+.DM
+	.if	some_data_address > 0x300
+.DE
+.PP
+.B as
+calculates the address for the
+.B .if
+statement from the beginning of its segment; and the
+address is only corrected in the final output.
+Such statements may appear to be working incorrectly.
+.SH "Listing Commands"
+.B as
+prints a listing if you use its \fB\-l\fR option.
+The following commands modify the form of this listing.
+.IP "\fB\&.ttl \fIstring\fR"
+Print \fIstring\fR as the title to the command page.
+For example:
+.DM
+	.ttl	This is a page title
+.DE
+.sp \n(pDu
+If you do not use this command, the assembler uses the file name
+for the title.
+The first \fB.ttl\fR encountered in the assembly pass 0 is used
+to set the first title.
+Subsequent \fB.ttl\fR commands reset the title before printing.
+.IP \fB\&.nopage\fR
+Turn off page breaks and titles.
+.IP \fB\&.page\fR
+Turn on page breaks and titles.
+.IP \fB\&.eject\fR
+Force a page break.
+.IP \fB\&.nolist\fR
+Turn off the listing.
+.IP \fB\&.list\fR
+Turn the listing back on.
+.IP "\fB\&.mlist off\fR"
+Turn off the listing of macro expansions.
+.IP "\fB\&.mlist on\fR"
+Turn on the listing of macro expansions.
+.SH "Addressing Modes"
+.B as
+recognizes two modes of addressing:
+.I "16-bit mode"
+and
+.IR "32-bit mode" .
+In 16-bit mode, the address type and operand mode default to 16 bits;
+in 32-bit mode they default to 32 bits.
+For example:
+.DM
+.ta 0.5i 1.0i 2.0i
+	.16
+	movw	%ax, (%si)	# Is generated without escapes.
+	movl	%eax, (%esi)	# Has two escapes, address and operand
+	.32
+	movw	%ax, (%si)	# Has two escapes, address and operand
+	movl	%eax, (%esi)	# Is generated without escapes.
+.DE
+.PP
+In 16-bit mode, the 16-bit addressing forms in table 17-2 of the
+\fIIntel 386 Programmer's Manual\fR are generated where they fit;
+otherwise,
+an address escape is built and the 32-bit forms in tables 17-3 and
+17-4 are used.
+In 32 bit mode, this is reversed.
+.PP
+.B as
+uses the following grammar in its addressing modes:
+.IP "\fBEight-bit registers\fR"
+.DM
+	r8  : %al | %cl | %dl | %bl | %ah | %ch | %dh | %bh;
+.DE
+.IP "\fB16-bit registers\fR
+.DM
+	r16 : %ax | %cx | %dx | %bx | %sp | %bp | %si | %di;
+.DE
+.IP "\fB32-bit registers\fR"
+.DM
+	r32 : %eax | %ecx | %edx | %ebx | %esp | %ebp | %esi | %edi;
+.DE
+.IP "\fBSegment registers\fR"
+.DM	
+	sreg : %es | %cs | %ss | %ds | %fs | %gs;
+.DE
+.IP "\fBControl registers\fR"
+.DM
+	ctlreg : %cr0 | %cr2 | %cr3;
+.DE
+.IP "\fBDebug registers\fR"
+.DM
+	dbreg : %dr0 | %dr1 | %dr2 | %dr3 | %dr6 | %dr7;
+.DE
+.IP "\fBTest registers\fR"
+.DM
+	testreg : %tr6 | %tr7;
+.DE
+.IP "\fBm16\fR"
+These addresses can have a segment prefix:
+.DM
+	m16 : m16b | sreg ':' m16b;
+.DE
+.IP "\fBm32\fR\fR
+These addresses can have a segment prefix:
+.DM
+	m32 : m32b | sreg ':' m32b;
+.DE
+.IP \fB\fBrm16\fR"
+These addresses can have a segment prefix or may be \fBr16\fR:
+.DM
+	rm16 : rm16b | sreg ':' rm16b;
+.DE
+.IP \fBrm32\fR"
+These addresses can have a segment prefix or may be \fBr32\fR:
+.DM
+	rm32 : r32 | rm32b | sreg ':' rm32b;
+.DE
+.IP "\fBrm8\fR"
+These addresses can be \fBrm32\fR, \fBrm16\fR, or \fBr8\fR:
+.DM
+	rm8  : r8 | rm16b | sreg ':' rm16b | rm32b | sreg ':' rm32b;
+.DE
+.IP \fBrm16b\fR
+.DM
+	displacement | (vx, vy) | displacement(vx, vy) |
+		displacement(vw) | (vz);
+	vx : %bx | %si;
+	vy : %si | %di;
+	vz : %si | %di | %bx;
+.DE
+.IP \fBrm32b\fR
+.DM
+	(va) | displacement(vb) | (, vb, scale) | (vb, scale)
+	     | displacement(vb, scale) | (vb, vb, scale)
+	     | displacement(vb, vb, scale);
+	va : %eax | %ecx | %edx | %ebx | %esi | %edi;
+	vb : %eax | %ecx | %edx | %ebx | %ebp | %esi | %edi;
+	vb : %eax | %ecx | %edx | %ebx | %ebp | %esp | %esi | %edi;
+	scale : 0 | 1 | 2 | 4 | 8;
+.DE
+.IP \fBmem32\fR
+A 32-bit memory address.
+.IP \fBmem16\fR
+A 16-bit memory address.
+.IP \fBreli\fR
+Expand to eight-, 16-, or 32-bit relative addresses.
+.IP \fBrel8\fR
+Eight-bit relative addresses.
+.IP \fBrel16\fR
+Sixteen- or 32-bit relative addresses.
+.SH "Using as To Create Debug Information"
+Some \*(UN languages, such as
+.B gcc
+and
+.BR gc++ ,
+produce assembly language rather than object code.
+The following documents how to use
+.B as
+with such compilers.
+Note that error checking is minimal, and that
+bad debug information can corrupt the generated COFF output.
+This section must be read with a listing of the header file
+.B coff.h
+for reference; or see the Lexicon article
+.BR coff.h .
+.PP
+The compiler starts with type and line information in a format much like that
+of the desired COFF output files.
+It must break this down into lines to ship through the assembler,
+and the assembler then must rebuild the information into
+COFF format for output.
+.IP "\fB\&.file \fIfilename\fR"
+This connects the object file to the original source file.
+If used, this should be the first statement in the file.
+It produces a
+.B SYMENT
+of \fIn_sclass = C_FILE\fR and an
+.B AUXENT
+with \fIae_fname = filename\fR.
+.IP "\fB\&.def \fIsymbolName\fR"
+This instruction initializes
+.B SYMENT
+with \fIn_name = symbolName\fR.
+If there is a symbol
+by that name on the assembler's internal symbol table, it is marked to
+prevent output to the symbol table.
+Any
+.B RELOC
+references point to this table entry, so its
+.I n_value
+must be correct.
+Because we assume that code of this kind is result of a compiler,
+we assume it is correct.
+The following commands up to and including
+.B .endef
+refer to this
+.BR SYMENT .
+.IP "\fB\&.type \fInumber\fR"
+This sets this
+.BR SYMENT 's
+.I n_type with
+.IR number .
+If
+.I number
+indicates a function,
+.BR DT_FCN ,
+a
+.B LINENO
+record is built pointing at this
+.BR SYMENT .
+.IP "\fB\&.val [\fIsymbol\^\fB] [\fInumber\^\fB]\fR"
+This sets this
+.BR SYMENT 's
+.IR n_value .
+If it is a
+.IR symbol ,
+it sets
+.I n_scnum
+to the symbol's section number.
+.IP "\fB\&.scl \fInumber\fR"
+This sets this
+.BR SYMENT 's
+.I n_sclass
+to
+.IR number .
+.IP "\fB\&.dim \fInumber \fB[, \fInumber \fB[, \fInumber \fB[, \fInumber\^\fB]]]\fR"
+This sets up to four entries in an
+.BR AUXENT 's
+.IR ae_dimen .
+It describes
+multidimensioned arrays to COFF.
+This command supports only four dimensions because
+the COFF specifications are reliable only though four dimensions.
+.IP "\fB.size \fIn\fR"
+This sets this
+.B AUXENT
+.I ae_size
+to
+.IR n .
+.IP "\fB\&.tag \fIname\fR"
+This scans backwards on the
+.BR SYMENT s
+for a matching
+.IR n_name .
+It points this
+.I ae_tagndx
+to that name's symbol number and that
+.I ae_endndx
+to the next symbol
+.IR number .
+.sp \n(pDu
+A good example is a
+.BR struct :
+It would start with a
+.B SYMENT
+of type
+.BR T_STRUCT ,
+then then have
+.BR SYMENT s
+for its members.
+At the end, there would be a
+.B C_EOS
+(end of structure) with a tag that gets us back to the
+symbol's name.
+.B \&.tag
+connects the forward and backward pointers.
+.IP "\fB\&.line \fIn\fR"
+This sets the
+.BR AUXENT 's
+.I ae_lnno
+to
+.IR n .
+.IP \fB\&.endef\fR
+This marks the end of a
+.B SYMENT
+started by
+.BR \&.def .
+If the \fIn_sclass \fB== C_EFCN\fR
+(end of function), it builds the functions
+.I ae_fsize
+and
+.I ae_endndx
+and does not output this
+.BR SYMENT .
+If any
+.B AUXENT
+fields were set, an
+.B AUXENT
+record follows this
+.BR SYMENT .
+.IP "\fB\&.ln \fInumber\fR"
+This builds a
+.B LINENO
+record with \fBl_lnno = \fIn\fR and \fBl_addr.l_paddr =\fR the current location.
+.SH Instructions
+In matching instructions,
+.B as
+first looks up the name of the instruction.
+A number of actual instructions will match that name.
+For example,
+.B btsw
+matches 0xab and 0x0fab /5, and
+.B bts
+matches anything that matches
+.B btsw
+and
+.BR btsl .
+.PP
+.B as
+attempts to match operands to the instruction until
+a form is found that will accept all the operands.
+If no form matches all the operands,
+.B as
+prints the error message
+.DM
+	Illegal combination of opcode and operands
+.DE
+.PP
+The assembler at that point cannot say which
+operand is wrong because of the nature of the 80386 instruction set.
+.PP
+If you see a great number of these messages,
+.BR as 's
+command-line option
+.B \-f
+may be in the wrong sense:
+although the opcode is valid and the operands are valid, there is no form
+of this opcode that takes these operands in this order.
+.PP
+.B as
+first attempts to match opcodes that do not require
+an operand-mode escape:
+that is, in 80386 mode it attempts to match
+long-mode instructions first, then short-mode instructions.
+.SH "Register Usage"
+The \*(CO C compiler uses the following
+save/restore sequence for a function, to set the frame pointer
+when the function contains no automatic variables:
+.DM
+	push	%ebp
+	movl	%ebp, %esp
+.DE
+.PP
+If
+.I n
+bytes of autos are required, then it uses the following sequence:
+.DM
+	enter	$n, $0
+.DE
+.PP
+It then executes the code
+.DM
+	push	%esi
+	push	%edi
+	push	%ebx
+.DE
+.PP
+to preserve register variables \fIas required:\fR
+they are not saved/restored
+if the function does not touch them.
+(This is why they are saved after the frame adjust, not before).
+To restore register variables, it executes
+.DM
+	pop	%ebx
+	pop	%edi
+	pop	%esi
+.DE
+.PP
+as required, followed by
+.DM
+	leave
+	ret
+.DE
+.PP
+Routines written in assembly language must preserve registers
+.BR ebp ,
+.BR esi ,
+.BR edi ,
+and
+.BR ebx ;
+they may overwrite
+.BR eax ,
+.BR ecx ,
+and
+.BR edx .
+.SH "Absolute Symbols"
+.B as
+can create what COFF calls ``absolute symbols.''
+For example
+.DM
+	.globl	x
+x	.equ	10
+x	.equ	x * x	/ The last value of x in the module
+.DE
+.PP
+leaves on the symbol table an absolute symbol for
+.B x
+of 100.
+For internal reason, the
+.B .globl
+must preceed any
+.BR .equ .
+.SH Opcodes
+The following gives a table of the
+opcodes recognized by
+.BR as .
+Note that the opcode is sometimes followed by a slash and a number, or a
+letter.
+For example,
+.DM
+	D0 /4	salb	con1, rm8
+.DE
+.PP
+means opcode is 0xD0 place 4 in the register/opcode field of the
+.B modr/m
+byte.
+.DM
+	58 +r	popl	r32
+.DE
+.PP
+means add the register number to 0x58.
+.sp \n(pDu
+.nf
+.ta 1.0i 2.0i 3.0i
+\fIOpcode	Instruction	Operands	Description\fR
+.sp \n(pDu
+.so \*(DI/text/opcodes.as
+.fi
+.SH "Using C to Prototype Assembly Language"
+The \*(CO C compiler includes a switch,
+.BR \-S ,
+that translates C code into \*(CO assembly language.
+The assembly language it produces cannot be directly assembled, but you can
+examine it to see just what the compiler does under given circumstances;
+and you can use it to prototype a routine in assembly language.
+.PP
+Suppose, for example, that
+you wish to write a function that takes two parameters:
+an integer, which gives a port number to read from;
+and an address where the data should go.
+Start by writing a C function with the correct calling
+sequence.
+For example, the following function is in a file called \fBproto.c\fR:
+.DM
+readstuff(addr, port)
+register char *addr;
+int port;
+{
+	register int dx = port;
+	char *foo = addr;
+}
+.DE
+.PP
+Compile it with the following command line:
+.DM
+	cc -S proto.c
+.DE
+.PP
+This produces file
+.BR proto.s ,
+which contains the following:
+.DM
+/	module name foo
+	.alignoff
+.sp \n(pDu
+	.text
+	.globl readstuff
+readstuff:
+	push	%ebp
+	movl	%ebp, %esp
+	push	%esi
+	push	%edi
+	push	%ebx
+	movl	%ebx, 8(%ebp)
+	movl	%esi, 12(%ebp)
+	movl	%edi, %ebx
+	pop	%ebx
+	pop	%edi
+	pop	%esi
+	leave
+	ret
+	.align	4
+.DE
+.PP
+This is your prototype.
+You can easily modify it into what you want; for example:
+.DM
+/	This will only work if you install it as a driver.
+/	As the operating system will protect itself if
+/	Ordinary users try to access ports. Ask about our
+/	Device driver kits.
+.DE
+.DM
+.ta 0.5i 1.25i 3.0i
+	.text
+	.globl readstuff
+readstuff:
+	push	%ebp
+	movl	%ebp, %esp
+	push	%edi	/ Save the edi for the caller
+	movl	%edx, 8(%ebp)	/ Get the port number
+	movl	%edi, 12(%ebp)	/ Get the user address
+.DE
+.DM
+	insb		/ Read port (%dx) to %es:%edi
+.DE
+.DM
+	pop	%edi	/ See 386 calling conventions
+	leave
+	ret
+.DE
+.SH Example
+The following example echoes strings onto your screen.
+.DM
+/ sstatic void foo(i) { printf("Parm is %d\en", i); }
+.sp \n(pDu
+	.text
+\&.L2:	.byte	"Parm is %d\n", 0
+.DE
+.DM
+foo:
+	push	%ebp		/ set up stack frame
+	movl	%ebp, %esp
+	push	8(%ebp)		/ push parms from right to left
+	push	$.L2
+	call	printf
+	leave			/ %esp <- %ebp; pop %ebp
+	ret
+.DE
+.DM
+/ main() { foo(5); }
+.sp \n(pDu
+	.globl main
+main:
+	push	%ebp
+	movl	%ebp, %esp
+	push	$5
+	call	foo
+	leave
+	ret
+.DE
+.SH "See Also"
+.Xr asfix, asfix
+.Xr "calling conventions," calling_c
+.Xr cc, cc
+.Xr cdmp, cdmp
+.Xr commands commands
+.br
+Intel Corporation: \fI386 DX Programmer's Reference Manual.\fR
+Santa Clara, CA:
+Intel Corporation, 1990.
+\fIHighly recommended.\fR
+.SH "Diagnostics"
+The following gives the error messages returned by
+.BR as .
+The messages are in alphabetical order.
+Each message is marked as to its degree of severity:
+A
+.I fatal
+message usually indicates a condition that caused
+the assembler to terminate execution.
+Often, they indicate internal problems in the assembler.
+An
+.I error
+message points to a condition in the source code
+that the assembler cannot resolve.
+This almost always occurs when the program does something illegal.
+A
+.I warning
+message points out code that is compilable, but
+may produce trouble when the program is executed.
+.IP "\fR\&.align must be 1, 2 or 4\fR \fI(error)\fR"
+\fB\&.align\fR must work after the link.
+These are the only values for which this can be true.
+.IP "\fRAmbiguous operand length, \fIn\fR bytes selected\fR \fI(warning)\fR"
+The assembler cannot tell the operand length by
+looking at the opcode and the operands.
+You may want to do something like change
+\fBmov\fR to \fBmovl\fR.
+.IP "\fRArithmetic between addresses on different segments\fR \fI(error)\fR"
+You may only add or subtract addresses if they
+are in the same segment.
+.IP "\fRBad scale\fR \fI(error)\fR"
+Address scale must be 0, 1, 2, 4, or 8.
+.IP "\fR16 bit addressing mode used in 32 bit code\fR \fI(warning)\fR"
+You probably don't want to do this.
+For example, you may want to say \fB(%esi)\fR, not
+\fB(%si)\fR.
+.IP "\fR32 bit addressing mode used in 16 bit code\fR \fI(warning)\fR"
+You probably don't want to do this.
+For example, you may want to say \fB(%si)\fR, not
+\fB(%esi)\fR.
+.IP "\fRCannot fopen(\fIstring\fR, \fIstring\fR)\fR \fI(fatal)\fR"
+.IS "\fRCannot insert \e0 in string\fR \fI\fI(error)\fR\fR"
+NUL (\e0) terminates strings.
+Instead of
+.DM
+	.byte	"hello\en\e0"
+.DE
+use:
+.DM
+	.byte	"hello\en", 0
+.DE
+.IP "\fRCharacter constant \fIn\fR long\fR \fI(error)\fR"
+Character constants must be one byte long.
+.IP "\fR\&.comm must have tag\fR \fI(error)\fR"
+The format of \fB.comm\fR is \fB.comm name, size\fR.
+.IP "\fRCommand option \'\fIc\fR\' missing its argument\fR \fI(fatal)\fR"
+.IS "\fRData defined in .bss\fR \fI(error)\fR"
+The \fB.bss\fR segment is uninitialized data.
+You cannot place actual values there.
+.IP "\fR\&.define must have a label\fR \fI(error)\fR"
+.IS "\fRDuplicate symbol \'\fIstring\fR\'\fR \fI(error)\fR"
+\fIsymbol\fR is defined on two different lines.
+.IP "\fR\&.else detected logic type \fIn\fR\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fREnd of line after backslash reading parm\fR \fI(error)\fR"
+Macro parmeters may not be broken up with backslash.
+.IP "\fREnd of line after backslash\fR \fI(error)\fR"
+.IS "\fREnd of line detected in character constant\fR \fI(error)\fR"
+.IS "\fREnd of line detected in string\fR \fI(error)\fR"
+.IS "\fREnd of macro building .while\fR \fI(error)\fR"
+A \fB.macro\fR ended while reading in a
+\fB.while\fR loop.
+.IP "\fR\&.endi detected logic type \fIn\fR\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fRError in binary number\fR \fI(error)\fR"
+.IS "\fRError in octal number\fR \fI(error)\fR"
+.IS "\fRFound \fIn\fR parms expected \fIn\fR\fR \fI(error)\fR"
+.IS "\fRIllegal combination of opcode and operands\fR \fI(error)\fR"
+Although the opcode is valid and the operands are valid,
+there is no form of this opcode which takes this combination
+of operands in this order.
+.IP "\fRIllegal use of local symbol\fR \fI(error)\fR"
+.IS "\fRIllegal use of of predefined symbol \fIstring\fR.\fR \fI(error)\fR"
+.IS "\fRImproper instruction following lock\fR \fI(warning)\fR"
+Only a few instructions
+are valid after a lock instruction.
+See your machine documentation for details.
+.IP "\fRImproper instruction following rep\fR \fI(warning)\fR"
+Only a few instructions
+are valid after a rep instruction.
+See your machine documentation for details.
+.IP "\fRIndirect mode on invalid instruction\fR \fI(error)\fR"
+Indirection is only allowed on call and jump near
+instructions.
+.IP "\fRInternal error relative branch logic\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fRInvalid .mlist option must be on or off\fR \fI(error)\fR"
+.IS "\fRInvalid character \'\fIc\fR\' \fIstring\fR at position \fIn\fR\fR \fI(error)\fR"
+.IS "\fRInvalid character 0x\fI0xn\fR \fIstring\fR at position \fIn\fR\fR \fI(error)\fR"
+.IS "\fRInvalid data type, must be symbol\fR \fI(error)\fR"
+.IS "\fRInvalid floating point register number\fR \fI(error)\fR"
+.IS "\fRInvalid opcode: \'\fIstring\fR\'\fR \fI(error)\fR"
+The string in the opcode position is
+not one of our opcodes or one of
+your macros.
+.IP "\fRInvalid operand type\fR \fI(error)\fR"
+.IS "\fR\fIstring\fR is an improper register in this context\fR \fI(error)\fR"
+.IS "\fRLabel ignored\fR \fI(error)\fR"
+This statement cannot take a label.
+.IP "\fRLabel on invalid operator\fR \fI(error)\fR"
+.IS "\fRLabel required\fR \fI(error)\fR"
+.IS "\fRLength \fIn\fR string range exceeded\fR \fI(error)\fR"
+Strings may not exceed 32 kilobytes.
+.IP "\fRLogic error in macro def \'\fIstring\fR\' \fIn\fR\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fRLogic error in umark\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fRMacro definition must have a label\fR \fI(error)\fR"
+.IS "\fR\&.mexit not in macro\fR \fI(error)\fR"
+.IS "\fRMissing .endi\fR \fI(error)\fR"
+Input ended leaving \fB.if\fR open.
+.IP "\fRMissing .endm\fR \fI(error)\fR"
+Input ended leaving \fB.macro\fR open.
+.IP "\fRMissing .endw\fR \fI(error)\fR"
+Input ended leaving \fB.while\fR open.
+.IP "\fRMixed 386/286 addressing modes\fR \fI(error)\fR"
+No opcode allows mixed 286 and 386 addressing modes.
+.IP "\fRMixed 386/286 data modes\fR \fI(error)\fR"
+No 386 opcode allows mixed 286 and 386 data modes.
+.IP "\fRMixed length addressing registers\fR \fI(error)\fR"
+Addressing registers must both be the same length.
+.IP "\fRmore than one file to process\fR \fI(fatal)\fR"
+The assembler will only process one file
+at a time.
+.IP "\fRName required\fR \fI(error)\fR"
+The format of \fBset\fR is
+\fB.set name, value\fR
+.IP "\fRno work\fR \fI(fatal)\fR"
+There were no files listed on the command line.
+.IP "\fRNULL address in relative branch\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fROctal number \fIn\fR truncated to char\fR \fI(error)\fR"
+An octal number in a string was too big.
+.IP "\fROptype \fIn\fR in lex\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fROrg to invalid value\fR \fI(error)\fR"
+You may not \fB.org\fR to doubles or strings.
+.IP "\fROrg to wrong segment\fR \fI(error)\fR"
+You must \fB.org\fR to the current segment.
+.IP "\fROut of space\fR \fI(fatal)\fR"
+A call to \fBmalloc()\fR failed.
+The typical large consumers of RAM are macros
+and \fB.defines\fR; symbols consume less.
+Can you break your assembly into smaller pieces?
+Could you be in some sort of endless recursion or loop?
+.IP "\fRParm \fIn\fR not found\fR \fI(error)\fR"
+An attempt to \fB.shift\fR too far has been made.
+.IP "\fR\&.parmct not in macro\fR \fI(error)\fR"
+\fB.parmct\fR returns the number of
+parameters in the current macro.
+.IP "\fRPhase error \'\fIstring\fR\'\fR \fI(error)\fR"
+A symbol is defined one way in one phase of the assembly
+and another way in the next phase.
+.IP "\fRRedefinition of \'\fIstring\fR\'\fR \fI(error)\fR"
+An assembler internal symbol is being redefined.
+.IP "\fRSeek error on object file\fR \fI(fatal)\fR"
+.IS "\fRSeek error on object file\fR \fI(fatal)\fR"
+.IS "\fR\&.shift not in macro\fR \fI(error)\fR"
+\fB.shift\fR shifts macro parameters.
+It has no meaning outside a macro.
+.IP "\fRString must be on .byte\fR \fI(error)\fR"
+For example:
+.DM
+	.byte "This is how we place a string", 0
+.DE
+.IP "\fRSymbol may not be double\fR \fI(error)\fR"
+You may not convert a symbol to
+a floating-point value.
+.IP "\fRSymbol may not be float\fR \fI(error)\fR"
+You may not convert a symbol to
+a floating-point value.
+.IP "\fRSyntax error\fR \fI(error)\fR"
+The syntax of this statement makes no sense to the parser.
+This can be a variety of problems.
+.IP "\fRTable error kind \fI0xn\fR detected\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fRThis code may not work the same way on all chips\fR \fI(warning)\fR"
+Some chips may not execute this code as expected.
+.IP "\fRToo many operands\fR \fI(error)\fR"
+No 386 opcode has more than three operands.
+.IP "\fRUndefined symbol \'\fIstring\fR\'\fR \fI(error)\fR"
+A symbol was used without defining it or using
+a \fB-g\fR option.
+You must define local symbols.
+.IP "\fRUnexpected .else statement\fR \fI(error)\fR"
+.IS "\fRUnexpected .endi statement\fR \fI(error)\fR"
+.IS "\fRUnexpected .endm ignored\fR \fI(error)\fR"
+.IS "\fRUnexpected .endw\fR \fI(error)\fR"
+.IS "\fRUnexpected return from parser\fR \fI(fatal)\fR"
+Logic error in assembler.
+Please report this problem to Mark Williams technical support.
+.IP "\fRUnknown command option \fIc\fR\fR \fI(fatal)\fR"
+.IS "\fRUnlikely output file \'\fIstring\fR\'\fR \fI(fatal)\fR"
+Output file-names should have \fB.o\fR suffixes.
+Because this is generally a typographical error,
+\fBas\fR aborts to
+avoid overwriting an important file.
+.IP "\fRUnmatched \'\fIc\fR\'\fR \fI(error)\fR"
+A delimeter, [, (, ), or ] is unmatched in this command.
+.IP "\fRUnmatched bracket in parmeter\fR \fI(error)\fR"
+Line ended leaving an open bracket or parenthesis.
+.IP "\fRWrite error on object file\fR \fI(fatal)\fR"
+.B as
+could not write the object module.
+This error can have any of several causes; the most common is that
+you lack permission to write into the current directory, or you lack
+permission to overwrite an existing file of the same name.
+.SH Notes
+We have designed
+.B as
+to ease porting of programs written in other dialects of
+\*(UN 386 assembly language,
+as well as to be a powerful tool for development of new programs.
+We think you will find the features and documentation of our
+assembler considerably more complete than are available anywhere else.
+However, we have chosen
+.I not
+to duplicate behavior of other assemblers that leads to
+inefficient or incorrect output,
+or that generates code without warning when given questionable input.
+We have also chosen to support operator precedence
+rather than perpetuating antiquated left-to-right evaluation schemes seen
+elsewhere.
+.I "Caveat utilitor."
+.PP
+In the course of writing this assembler, we have discovered that the
+\*(UN implementation of
+.BR fdiv ,
+.BR fdivr ,
+.BR fsub ,
+and
+.B fsubr
+differs from that described in the Intel documents.
+The \*(CO assembler conforms to the \*(UN standard by default.
+You should be very careful with the order of operands to these instructions.
+Once again,
+.IR "caveat utilitor" .

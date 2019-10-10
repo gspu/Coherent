@@ -1,0 +1,665 @@
+.TH ioctl() "" "" "System Call (libc)"
+.PC "Device-dependent control"
+\fB#include <unistd.h>\fR
+\fB#include <\fIheader\^\fB.h>\fR
+\fBioctl(\fIfd\fB, \fIcommand\fB, \fIarg\^\fB)\fR
+\fBint \fIfd\fB, \fIcommand\^\fB; char *\fIarg\^\fB;\fR
+.PP
+.B ioctl()
+lets you interact directly with a device driver.
+You can use it to set or retrieve parameters for devices
+(line printers, communications lines, terminals),
+and non-standard spacing operations for tape drives.
+.PP
+.B ioctl()
+acts upon the block-special file or character-special file
+associated with the file descriptor
+.IR fd .
+.I command
+points to the specific request.
+.PP
+.I header
+names the header file that defines symbolic commands for the device
+you wish to manipulate.
+Using the symbolic command definitions from the header files
+promotes device independence within each device type.
+A complete list of symbolic commands appears below.
+.PP
+.I arg
+passes a buffer of information
+(defined by structures in the appropriate header files) to the driver.
+For any
+.I command
+not needing additional information, this argument should be NULL.
+.PP
+Some
+.B ioctl()
+requests work on all files, and are not passed to any driver.
+.PP
+.B ioctl()
+returns \-1 on errors, such as a bad file descriptor.
+Because the call is device dependent,
+almost any other error could be returned.
+.SH Commands
+The following gives the commands that can be used with
+.BR ioctl() ,
+as extracted from \*(CO's header files.
+Please note the following caveats:
+.IP \(bu 0.3i
+New drivers are being added continually to \*(CO,
+both by Mark Williams Company and by users and third-party vendors.
+You should regard the following list as being tentative at best.
+.IP \(bu
+Because the commands and arguments with with
+.B ioctl()
+are unique to \*(CO's suite of device drivers,
+.B ioctl()
+is one of the least portable of all system calls.
+If you want your code to run on multiple operating systems, you
+should use
+.B ioctl()
+judiciously.
+.IP \fB<sys/cdrom.h>\fR
+.II "CD-ROM"
+Header file used to manipulate a CD-ROM device.
+Unless otherwise noted,
+.I arg
+is ignored:
+.RS
+.IP \fBCDROMPAUSE\fR 1.5i
+Pause playing an audio CD.
+.IS \fBCDROMRESUME\fR
+Resume playing an audio CD.
+.IS \fBCDROMPLAYMSF\fR
+Play an audio CD at a given minute-second frame (MSF) address.
+.I arg
+points to an array of six bytes that give the MSF address.
+.IS \fBCDROMPLAYTRKIND\fR
+Play a track on an audio CD.
+.I arg
+points to an array of four bytes that give, respectively, the start
+track, the start index, the end track, and the end index of the track
+to be played.
+.IS \fBCDROMREADTOCHDR\fR
+Read the CD's table-of-contents header.
+.I arg
+points to a structure of type
+.B cdrom_tochdr
+into which the header is written.
+.IS \fBCDROMREADTOCENTRY\fR
+Read an entry from the table-of-contents header.
+.I arg
+points to a structure of type
+.B cdrom_tocentry
+into which the entry is written.
+.IS \fBCDROMSTOP\fR
+Spin down the CD-ROM drive's motor.
+.IS \fBCDROMSTART\fR
+Turn on the CD-ROM drive's motor.
+.IS \fBCDROMEJECT\fR
+Eject the CD-ROM.
+Note that this does not work on every variety of CD-ROM drive.
+.IS \fBCDROMVOLCTRL\fR
+Control the volume on an audio CD.
+.I arg
+points to an array of four bytes that, respectively, set the the volume on
+channels zero through three.
+.IS \fBCDROMSUBCHNL\fR
+Read data about a sub-channel.
+.I arg
+points to a structure of type
+.B cdrom_subchnl
+into which the information about the sub-channel is written.
+.IS \fBCDROMREADMODE1\fR
+Read type-1 data.
+.I arg
+points to a structure into which the data are written.
+.IS \fBCDROMREADMODE2\fR
+Read type-2 data.
+.I arg
+points to a structure into which the data are written.
+.RE
+.IP "\fB<sys/fdioctl.h>\fR"
+This header file is used with the floppy-disk drive:
+.RS
+.IP \fBFDFORMAT\fR 1.5i
+Format a track on a floppy disk.
+.I arg
+points to a two-byte array that identifies, respectively,
+the cylinder and head to format.
+.RE
+.IP \fB<sys/hdioctl.h>\fR
+This header file is used with AT-style hard-disk drives (i.e., IDE, ESDI,
+MFM, or RLL disks).
+.I arg
+gives the address in user memory where drive attributes reside, or to which
+they should be written:
+.RS
+.IP \fBHDGETA\fR 1.5i
+Get drive attributes.
+.IS \fBHDSETA\fR
+Set drive attributes.
+.IS \fBHDGETIDEINFO\fR
+Get the attributes of an IDE drive.
+.I arg
+should point to a copy of the structure
+.BR ide_info ;
+this call to
+.B ioctl()
+initializes the structure with the requested information.
+.RE
+.\".IP \fBsys/lpioctl.h\fR
+.\"This header file works with the line printer (parallel) device.
+.\".RS
+.\".IP \fBLPRAW\fR 1.5i
+.\"Set raw mode.
+.\"The port does not interpret special characters.
+.\".IS \fBLPPLEN\fR
+.\"Set page length (non-raw).
+.\"The default is 66 lines.
+.\".IS \fBLPLLEN\fR
+.\"Set line length (non-raw).
+.\"The default is 132 characters.
+.\".RE
+.IP \fB<sys/null.h>\fR
+This header file defines
+.BR ioctl s
+that examine system memory:
+.RS
+.IP \fBNLFREE\fR 1.5i
+.II "free memory, read"
+.II "system^free memory, read"
+.II /dev/freemem
+Read the amounts of memory on your system that are available and free.
+.I arg
+gives the address of an object of type
+.BR FREEMEM ,
+which is defined in header file
+.BR <null.h> .
+This type is an array of two
+.BR long s:
+the first receives the amount of available memory, and the second the
+amount of free memory.
+For an example of a program that uses this
+.BR ioctl() ,
+see the Lexicon entry for
+.BR freemem .
+.IS \fBNLIDLE\fR 1.5i
+.II "idle time, read"
+.II "system^idle time, read"
+.II /dev/idle
+Read the system's idle time.
+.I arg
+points to an array of two
+.BR long s.
+The first
+.B long
+receives system's idle ticks; the second,
+the number of ticks since system startup.
+From reading these values repeatedly, you can compute the changes in system
+idle time and time since startup, and so see what the system's load is.
+For an example of how to this call to
+.BR ioctl() ,
+see the Lexicon entry for
+.BR idle .
+.RE
+.IP \fB<sys/sdioctl.h>\fR
+The commands defined in this header file are passed to the driver
+.BR aha ,
+which manipulates Adaptec SCSI disks.
+None does anything.
+.IP \fB<sgtty.h>\fR
+The following commands are used with the
+.B sgtty
+method of controlling terminal devices.
+They are documented in more detail in the Lexicon entry for
+.BR sgtty .
+.I arg
+points to a structure of type
+.BR sgttyb ,
+which is defined in that header file:
+.RS
+.IP \fBTIOCHPCL\fR 1.5i
+Hang up on last close.
+.IS \fBTIOCGETP\fR
+Get modes (old \fBgtty\fR).
+.IS \fBTIOCSETP\fR
+Set modes (old \fBstty\fR).
+.IS \fBTIOCSETN\fR
+Set modes without delay or flush.
+.IS \fBTIOCEXCL\fR
+Set exclusive use.
+.IS \fBTIOCNXCL\fR
+Set non-exclusive use.
+.IS \fBTIOCFLUSH\fR
+Flush I/O queues.
+.IS \fBTIOCSETC\fR
+Set characters.
+.IS \fBTIOCGETC\fR
+Get characters.
+.RE
+.IP \fB<stropts.h>\fR
+\*(ST commands.
+.I arg
+points to a \*(ST control block that will be used to generate an
+.B M_IOCTL
+message.
+.RS
+.IP \fBI_NREAD\fR 1.5i
+Get message length, count.
+.IS \fBI_PUSH\fR
+Push named module.
+.IS \fBI_POP\fR
+Pop topmost module.
+.IS \fBI_LOOK\fR
+Get name of the topmost module.
+.IS \fBI_FLUSH\fR
+Flush read/write side.
+.IS \fBI_SRDOPT\fR
+Set stream head read mode.
+.IS \fBI_GRDOPT\fR
+Get stream head read mode.
+.IS \fBI_STR\fR
+Send
+.B ioctl()
+message downstream.
+.IS \fBI_SETSIG\fR
+Register for signal
+.BR SIGPOLL .
+.IS \fBI_GETSIG\fR
+Return registered event mask.
+.IS \fBI_FIND\fR
+Locate named module on stream.
+.IS \fBI_LINK\fR
+Link two streams.
+.IS \fBI_UNLINK\fR
+Unlink two streams.
+.IS \fBI_RECVFD\fR
+Receive file descriptor from pipe.
+.IS \fBI_PEEK\fR
+Examine stream head data.
+.IS \fBI_SENDFD\fR
+Send file descriptor to pipe.
+.RE
+.IP
+The following
+commands are not covered by iBCS2:
+.RS
+.IP \fBI_SWROPT\fR 1.5i
+Set stream write mode.
+.IS \fBI_GWROPT\fR
+Get stream write mode.
+.IS \fBI_LIST\fR
+Get name of all modules/drivers.
+.IS \fBI_PLINK\fR
+Create persistent link.
+.IS \fBI_PUNLINK\fR
+Undo persistent link.
+.IS \fBI_FLUSHBAND\fR
+Flush priority band.
+.IS \fBI_CKBAND\fR
+Check for existence of priority band.
+.IS \fBI_GETBAND\fR
+Get band of first message.
+.IS \fBI_ATMARK\fR
+Check whether current message is marked.
+.IS \fBI_SETCLTIME\fR
+Set drain timeout for stream.
+.IS \fBI_GETCLTIME\fR
+Get the current close timeout.
+.IS \fBI_CANPUT\fR
+Check if band is writeable.
+.RE
+.IP \fB<sys/tape.h>\fR
+Header file for interfacing with magnetic-tape devices.
+.I arg
+points to an area in user space that holds additional information for the
+tape device.
+A tape driver may recognize any of the following
+.B ioctl()
+commands:
+.RS
+.IP \fBT_ERASE\fR 1.5i
+Erase tape.
+.\".IS \fBT_FORMAT\fR
+.\"Format tape.
+.\"Floppy tape only.
+.IS \fBT_LOAD\fR
+Load.
+Not used.
+.IS \fBT_RDSTAT\fR
+Read status.
+.IS \fBT_RST\fR
+Reset.
+.IS \fBT_RETENSION\fR
+Retension tape.
+.IS \fBT_RWD\fR
+Rewind tape.
+.IS \fBT_SBB\fR
+Space block backward \(em move backward by
+.I arg
+blocks.
+Not used.
+.IS \fBT_SBF\fR
+Space Block Forward \(em move forward by
+.I arg
+blocks.
+Not used.
+.IS \fBT_SBREC\fR
+Not used.
+.IS \fBT_SFB\fR
+Space Filemark Backward \(em move backwards by
+.I arg
+files.
+.IS \fBT_SFF\fR
+Space Filemark Forward \(em move forward by
+.I arg
+files.
+.IS \fBT_SFREC\fR
+Not used.
+.IS \fBT_TINIT\fR
+Not used.
+.IS \fBT_UNLOAD\fR
+Unload.
+Not used.
+.IS \fBT_WRFILEM\fR
+Write file marks.
+Not used.
+.RE
+.IP \fB<termio.h>\fR
+The following commands are used with the
+.B termio
+method of controlling a terminal.
+They are documented in more detail in the Lexicon entry for
+.BR termio .
+.I arg
+points to a structure of type
+.BR sgttyb ,
+which is described above.
+.RS
+.IP \fBTCGETA\fR 1.5i
+Get terminal parameters.
+.IS \fBTCSETA\fR
+Set terminal parameters.
+.IS \fBTCSETAW\fR
+Wait for drain, set parameters.
+.IS \fBTCSETAF\fR
+Wait for drain, flush input, set parms.
+.IS \fBTCSBRK\fR
+Send 0.25-second break.
+.RE
+.IP
+The following commands also take arguments when called via
+.BR ioctl() :
+.RS
+.IP \fBTCXONC\fR 1.5i
+Start/stop control:
+An argument of zero suspends output; an argument of one restarts suspended
+output.
+.IP \fBTCFLSH\fR
+Flush queues:
+An argument of zero flushes the input queue;
+an argument of one flushes the output queue;
+and an argument of two flushes both queues.
+.RE
+.IP \fB<sys/vtkd.h>\fR
+This header file defines commands used with the keyboard driver.
+.I arg
+points to a structure of type
+.BR sgttyb ,
+which is defined in header file
+.BR sgtty.h .
+.RS
+.IP \fBKDMAPDISP\fR 1.5i
+Map the display into user space.
+.IS \fBKDSKBMODE\fR
+Toggle the scan code \fBxlate\fR.
+.IS \fBKDMEMDISP\fR
+Dump a byte of virtual or physical memory.
+.IS \fBKDGKBSTATE\fR
+Get the keyboard's shift state.
+.IS \fBKIOCINFO\fR
+Determine the workstation of the virtual terminal.
+.IS \fBKIOCSOUND\fR
+Start sound generation.
+.IS \fBKDGETLED\fR
+Get the state of the keyboard's LEDs.
+.IS \fBKDSETLED\fR
+Set the state of the LEDs.
+.RE
+.IP
+The following four
+.B ioctl()
+commands allow user programs to perform I/O
+instructions directly, rather than going through the system-call
+interface and having the kernel perform the I/O.
+The most common need for these functions is in window managers
+and similar applications, where
+the usual kernel interface would be unacceptably slow.
+.IP
+Normally, any user program that attempts to execute I/O instructions
+directly to hardware will get an immediate
+.B SIGSEGV
+and be terminated.
+Use of the commands below allow user-level programs to perform I/O
+without being terminated.
+The I/O operations are available through functions
+.BR inb() ,
+.BR outb() ,
+etc., which are present in the kernel-support library
+.B /etc/conf/lib/k386.a
+and are documented in the manual to the \*(CO Device Driver Kit.
+.IP
+Access to any of these functions may be restricted to the superuser on
+some systems:
+.RS
+.IP \fBKDENABIO\fR 1.5i
+Allow the user process permission to perform input/output
+operations to all available I/O addresses.
+The third argument to
+.B ioctl()
+is ignored.
+.IS \fBKDDISABIO\fR
+Prohibit user processes from performing input/output
+operations to all available I/O addresses.
+The third argument to
+.B ioctl()
+is ignored.
+It is normal for direct I/O to ports to be disallowed at user level.
+The main reason for this call is to undo the
+effect of preceding
+.B KDENABIO
+or
+.B KDADDIO
+calls.
+.IS \fBKDADDIO\fR
+Allow user-level I/O to a port.
+The third argument to
+.B ioctl()
+is an
+.B "unsigned short"
+that gives the single address value of the port.
+.IS \fBKDDELIO\fR
+Disallow user-level I/O to a port.
+The third argument to
+.B ioctl()
+is an
+.B "unsigned short"
+that gives the single address value of the port.
+.IP
+It is normal for direct I/O to ports to be disallowed at user level.
+The main reason for this call is to undo the effect of preceding
+.B KDADDIO
+calls.
+.RE
+.SH Example
+.II "Munk, Udo"
+.II "signal()^example"
+.II "termio^example"
+The following program, by Udo Munk, demonstrates how to use
+.B ioctl()
+to read a mouse plugged into a serial port.
+It takes one argument, the name of the port you wish to check.
+.DM
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <termio.h>
+.DE
+.DM
+char *mouse;
+int mouse_fd;
+struct termio old_tty, new_tty;
+.DE
+.DM
+/* do the right thing by signals */
+sig_handler()
+{
+	ioctl(mouse_fd, TCSETAF, &old_tty);
+	exit(EXIT_SUCCESS);
+}
+.DE
+.DM
+/* cry and die */
+void fatal(message)
+char *message;
+{
+	fprintf (stderr, "%s\en", message);
+	exit(EXIT_FAILURE);
+}
+.DE
+.DM
+/* run the whole shebang */
+main(argc, argv)
+int argc; char **argv;
+{
+	struct pollfd fds[1];
+.DE
+.DM
+	if (argc != 2)
+		fatal ("Usage: findmouse /dev/com[1-4]pl");
+.DE
+.DM
+	if (strncmp(argv[1], "/dev/com1pl", 11) &&
+			strncmp(argv[1], "/dev/com2pl", 11) &&
+			strncmp(argv[1], "/dev/com3pl", 11) &&
+			strncmp(argv[1], "/dev/com4pl", 11))
+		fatal ("Usage: findmouse /dev/com[1-4]pl");
+.DE
+.DM
+	mouse = argv[1];
+.DE
+.DM
+	signal(SIGINT, sig_handler);
+	signal(SIGQUIT, sig_handler);
+	signal(SIGHUP, sig_handler);
+.DE
+.DM
+	fprintf(stdout, "Trying to open %s ...\en", mouse);
+	if ((mouse_fd = open(mouse, O_RDONLY)) < 0)
+		fatal ("Cannot open this device.");
+	fprintf(stdout, "Success.\en");
+.DE
+.DM
+	fprintf(stdout, "Trying to read line mode of %s ...\en", mouse);
+	if (ioctl(mouse_fd, TCGETA, &old_tty) < 0)
+		fatal ("Cannot read this device'ss line mode.");
+	fprintf(stdout, "Success.\en");
+.DE
+.DM
+	new_tty = old_tty;
+	new_tty.c_cflag &= ~(CBAUD | HUPCL);
+	new_tty.c_cflag |= CLOCAL | B1200;
+	new_tty.c_iflag = IGNBRK;
+	new_tty.c_oflag = new_tty.c_lflag = 0;
+.DE
+.DM
+	/*
+	 * VMIN = 0, VTIME = 0 has the same effect as setting O_NDELAY on the
+	 * input line.
+	 */
+	new_tty.c_cc[VMIN] = 0;
+	new_tty.c_cc[VTIME] = 0;
+.DE
+.DM
+	/* Set up to poll the input line. */
+	fds->fd = mouse_fd;
+	fds->events = POLLIN;
+.DE
+.DM
+	fprintf(stdout, "Trying to set new line mode for %s ...\en", mouse);
+	if (ioctl(mouse_fd, TCSETAF, &new_tty) < 0)
+		fatal ("Cannot set new tty line mode");
+	fprintf(stdout, "Success.\en");
+.DE
+.DM
+	fprintf(stdout, "\enI'm reading from %s. To exit, type <ctrl-C>.\en",
+		mouse);
+	fprintf(stdout,
+		"If you see stuff on the screen when you move the mouse,\en");
+	fprintf(stdout,
+		"then you have found the mouse port.\en");
+	fprintf(stdout, "\enNow wiggle your mouse:\en");
+.DE
+.DM
+	for (;;) {
+		size_t read_count;
+		unsigned char mousebuf [128];
+.DE
+.DM
+		/* Block waiting for mouse input. */
+		if (poll (fds, 1, -1) < 0)
+			break;
+.DE
+.DM
+		/* Drain input in large chunks until it becomes time to block. */
+		while ((read_count = read (mouse_fd, mousebuf,
+				sizeof (mousebuf))) != 0) {
+			unsigned char * scan = mousebuf;
+.DE
+.DM
+			do
+				printf ("%02x ", * scan ++);
+			while (-- read_count != 0);
+.DE
+.DM
+			fflush (stdout);
+		}
+	}
+}
+.DE
+.SH "See Also"
+.Xr "device drivers," device_dr
+.Xr "exec," exec
+.Xr "getty," getty
+.Xr "header files," header_fi
+.Xr "libc," libc
+.Xr "open()," open
+.Xr "read()," read.s
+.Xr "sgtty," sgtty
+.Xr "stty()," stty.s
+.Xr "termio" termio
+.SH Notes
+The type of the
+.I arg
+to
+.B ioctl()
+is declared as
+.B "char *"
+mainly to improve portability.
+In most cases, the actual argument type will be something like
+.BR "struct sgttyb *" ,
+depending on the device and command.
+The actual argument should be cast
+to type
+.B "char *"
+to ensure cross-machine portability.
+.PP
+Under \*(CO 286, the main header file for
+.B ioctl()
+is
+.BR <sgtty.h> .
+This header file is also included with \*(CO 386 for compatibility with
+older applications.

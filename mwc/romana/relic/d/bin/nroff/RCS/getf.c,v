@@ -1,0 +1,1171 @@
+head     1.6;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.6;
+comment  @ * @;
+
+
+1.6
+date     93.04.05.08.31.37;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.09.11.07.37.18;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.05.29.15.23.04;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.04.16.17.48.19;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.19.20.11.59;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.16.51.27;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+1.6
+log
+@Steve various fixes and fwtable changes.
+@
+text
+@/*
+ * getf.c
+ * Nroff/Troff.
+ * Input handling.
+ */
+
+#include <ctype.h>
+#include "roff.h"
+
+#define	ok_name(name) ((name[0]>0 && name[0]<128) && (name[1]>=0 && name[1]<128))
+
+/*
+ * Get a character handling escapes.
+ * Flag bit 0: 0 means die if EOF seen, 1 means return EOF.
+ * Flag bit 1: 2 means copy mode.
+ * If character is escaped but not recognized as a special escape sequence,
+ * set escflag and return character unchanged.
+ */
+getf(flags) int flags;
+{
+	register REG *rp;
+	register int c, n;
+	SPECIAL *sp;
+	char charbuf[CBFSIZE], name[2];
+
+	escflag = 0;
+	for (;;) {
+		if ((c = getl(flags&1)) == esc) {
+			if ((c = getl(flags&1)) == EOF)
+				return c;
+			if (c >= ASCSIZE || esctab[c] == ENUL) {
+				escflag = 1;
+				return c;
+			}
+			c = esctab[c] & 0377;
+		}
+		switch (c) {
+		case EIGN:
+			continue;
+		case ECOM:
+			while ((c=getl(0)) != '\n')
+				;
+			return c;
+		case EARG:
+			c = getf(0);
+			if (!isdigit(c)) {
+				printe("bad argument reference");
+				break;
+			}
+			if (strp->x1.s_argp[c-='0'])
+				adscore(strp->x1.s_argp[c]);
+			continue;
+		case ESTR:
+			if ((c=getf(0)) != '(') {
+				name[0] = c;
+				name[1] = '\0';
+			} else {
+				name[0] = getf(0);
+				name[1] = getf(0);
+			}
+			if (!ok_name(name)) {
+				printe("illegal string name");
+				break;
+			} else if ((rp=findreg(name, RTEXT)))
+				adstreg(rp);
+			continue;
+		case ECHR:
+			name[0] = getf(0);
+			name[1] = getf(0);
+			if (!ok_name(name)) {
+				printe("illegal special character name");
+				break;
+			} else if ((sp = spc_find(name)) != NULL)
+				adscore(sp->spc_val);
+			continue;
+		case ENUM:
+			n = 0;
+			if ((c=getf(0)) == '+') {
+				n = 1;
+				c = getf(0);
+			} else if (c == '-') {
+				n = -1;
+				c = getf(0);
+			}
+			if (c != '(') {
+				name[0] = c;
+				name[1] = '\0';
+			} else {
+				name[0] = getf(0);
+				name[1] = getf(0);
+			}
+			if (!ok_name(name)) {
+				printe("illegal register name");
+				break;
+			} else if ((rp=findreg(name, RNUMR)) == NULL)
+				spcnreg(name);
+			else {
+				rp->n_reg.r_nval += n*rp->n_reg.r_incr;
+				adsnval(rp->n_reg.r_nval, rp->n_reg.r_form);
+			}
+			continue;
+		case EWID:
+			if (flags&2)		/* Copy mode */
+				return c;
+			if (scandel(charbuf, CBFSIZE) == 0)
+				adsnval(0, '1');
+			else
+				adsnval(getwidth(charbuf), '1');
+			continue;
+		case EBEG:
+			if (flags&2)
+				return c;
+			++bracelevel;
+			return c;
+		case EEND:
+			if (flags&2)
+				return c;
+			if (bracelevel == 0)
+				printe("\\} without matching \\{");
+			else
+				--bracelevel;
+			return c;
+		case EHEX:
+			n = hexdigit(getf(0)) * 0x10;
+			n += hexdigit(getf(0));
+			return n;
+		default:
+			return c;
+		}
+	}
+}
+
+/*
+ * Get width of string by processing into temporary environment.
+ */
+int
+getwidth(cp) char *cp;
+{
+	int n;
+
+	envsave(ENVWIDTH);
+	setline();
+	ccc = ind = tif = fill = 0;
+	adscore(cp);
+	strp->x1.s_eoff = 1;
+	process();
+	wordbreak(DNULL);
+	n = nlinsiz;
+	envload(ENVWIDTH);
+	return n;
+}
+
+/*
+ * Like scandel(), except the delimiter is optional.
+ * Accepts digits with optional sign without delimiter.
+ * Currently called only for pointsize changes, e.g. "\s10" or "\s+1".
+ */
+scanoptdel(cp, n) register char *cp; int n;
+{
+	register int c, retval;
+	static char buf[2];
+
+	c = getf(0);
+	if (c != '-' && c != '+' && !isdigit(c)) {
+		buf[0] = c;
+		adscore(buf);			/* push back c */
+		return scandel(cp, n);		/* and use scandel() */
+	}
+	retval = 1;
+	do {
+		if (--n == 0) {
+			printe("delimiter argument too large");
+			retval = 0;
+		} else
+			*cp++ = c;
+		c = getf(0);
+	} while (isdigit(c));
+	buf[0] = c;
+	adscore(buf);				/* push back nondigit */
+	return retval;
+}
+
+/*
+ * Given a buffer pointer, 'bp', and the size of the buffer, 'n',
+ * get an argument surrounded by delimiters and store it in the buffer.
+ */
+scandel(cp, n) register char *cp; int n;
+{
+	int retval;
+	register int c;
+	register int endc;
+
+	retval = 1;
+	endc = getf(0);
+	while ((c=getf(0)) != endc) {
+		if (c == '\n') {
+			printe("syntax error");
+			return 0;
+		}
+		if (--n == 0) {
+			printe("delimiter argument too large");
+			retval = 0;
+		} else if (n > 0)
+			*cp++ = c;
+	}
+	*cp++ = '\0';
+	return retval;
+}
+
+/*
+ * Get a character from the current input source.
+ * If EOF is seen: return EOF if eofflag, die if !eofflag.
+ */
+getl(eofflag) int eofflag;
+{
+	register STR *sp;
+	int n;
+	register int c;
+	register char *cp;
+
+	sp = strp;
+	if (sp != NULL)
+		sp->x1.s_clnc = sp->x1.s_nlnc;
+	for (;;) {
+		if (sp == NULL) {
+			if (eofflag == 0)
+				panic("unexpected end of file");
+			return EOF;
+		}
+		switch (sp->x1.s_type) {
+		case SSINP:
+			if ((c=getc(stdin)) == EOF)
+				break;
+			if (c == '\0')
+				break;
+			if (c == '\n') {
+				if ((c=getc(stdin)) == '\n')
+					c = '\0';
+				ungetc(c, stdin);
+				c = '\n';
+			}
+			goto ret;
+		case SFILE:
+			if ((c=getc(sp->x2.s_fp)) == EOF) {
+				fclose(sp->x2.s_fp);
+				nfree(sp->x2.s_fname);
+				break;
+			}
+			goto ret;
+		case SCORE:
+			if ((c = *sp->x3.s_cp++) == '\0') {
+				if (sp->x3.s_srel)
+					nfree(sp->x3.s_srel);
+				break;
+			}
+			goto ret;
+		case SCTEX:
+			if (sp->x4.s_disk  &&  sp->x4.s_sp >= sp->x4.s_bufend) {
+				nread((long)sp->x4.s_seek,
+					(char *)sp->x4.s_bufp);
+				sp->x4.s_seek += DBFSIZE;
+				sp->x4.s_sp = sp->x4.s_bufp;
+			}
+			if ((c = *sp->x4.s_sp++) == '\0') {
+				if (strnext())
+					continue;
+				nfree(sp->x4.s_bufp);
+				break;
+			}
+			goto ret;
+		case SCDIV:
+			if (sp->x4.s_n-- == 0) {
+				if (strnext())
+					continue;
+				nfree(sp->x4.s_bufp);
+				break;
+			}
+			n = sizeof (CODE);
+			cp = (char *) &codeval;
+			while (n--)
+				*cp++ = geth();
+			return ECOD;
+		}
+		if (sp->x4.s_abuf)
+			nfree(sp->x4.s_abuf);
+		n = sp->x4.s_eoff;
+		strp = strp->x4.s_next;
+		nfree((char *)sp);
+		sp = strp;
+		if (n) {
+			if (eofflag == 0)
+				panic("incomplete macro in trap");
+			return EOF;
+		}
+	}
+ret:
+	if ((c&=0377) == '\n')
+		sp->x4.s_nlnc++;
+	return c;
+}
+
+/*
+ * In a chained macro, set up input stack to point to next element in chain.
+ */
+strnext()
+{
+	register STR *sp;
+	register MAC *mp;
+
+	sp = strp;
+	if ((mp=sp->x4.s_macp) == NULL)
+		return 0;
+	sp->x4.s_macp = mp->t_div.m_next;
+	switch (mp->t_div.m_type) {
+	case MTEXT:
+		sp->x1.s_type = SCTEX;
+		break;
+	case MDIVN:
+		sp->x4.s_type = SCDIV;
+		if ((sp->x4.s_n=mp->t_div.m_size) == 0)
+			return strnext();
+		break;
+	}
+	if (mp->t_div.m_core) {
+		sp->x4.s_disk = 0;
+		sp->x4.s_sp = mp->t_div.m_core;
+	} else {
+		sp->x4.s_disk = 1;
+		sp->x4.s_seek = mp->t_div.m_seek/DBFSIZE * DBFSIZE;
+		sp->x4.s_sp = &(sp->x4.s_bufp[mp->t_div.m_seek%DBFSIZE]);
+		nread((long)sp->x4.s_seek,(char *)sp->x4.s_bufp);
+		sp->x4.s_seek += DBFSIZE;
+	}
+	return 1;
+}
+
+/*
+ * Get a single character assuming the stack has been set up
+ * for chained I/O.
+ */
+geth()
+{
+	if (strp->x4.s_disk  &&  strp->x4.s_sp >= strp->x4.s_bufend) {
+		nread((long)strp->x4.s_seek,(char *)strp->x4.s_bufp);
+		strp->x4.s_seek += DBFSIZE;
+		strp->x4.s_sp = strp->x4.s_bufp;
+	}
+	return (*strp->x4.s_sp++);
+}
+
+/*
+ * Push down input stack and add the given file on top.
+ */
+adsfile(file)
+char *file;
+{
+	register STR *sp;
+	register FILE *fp;
+
+	if ((fp = fopen(file, "r")) == NULL) {
+		printe("cannot open file \"%s\"", file);
+		return 0;
+	}
+	sp = allstr(SFILE);
+	sp->x2.s_fname = duplstr(file);
+	sp->x2.s_fp = fp;
+	return 1;
+}
+
+/*
+ * Push down input stack and add the given FILE.
+ */
+adsunit(fp) FILE *fp;
+{
+	register STR *sp;
+
+	sp = allstr(SFILE);
+	sp->x2.s_fname = duplstr("<stdin>");
+	sp->x2.s_fp = fp;
+}
+
+/*
+ * Push down input stack and add the given register.
+ */
+adstreg(rp)
+register REG *rp;
+{
+	register STR *sp;
+
+	if (rp->t_reg.r_macd.t_div.m_type == MREQS)
+		return 1;	/* return had been random, 1 is guess by cef */
+	sp = allstr(0);
+	sp->x4.s_bufp = nalloc(DBFSIZE);
+	sp->x4.s_bufend = &sp->x4.s_bufp[DBFSIZE];
+	sp->x4.s_macp = &rp->t_reg.r_macd;
+	if (strnext() == 0) {
+		strp = strp->x4.s_next;
+		nfree(sp->x4.s_bufp);
+		nfree((char *)sp);
+		return 0;
+	}
+	return 1;
+}
+
+/*
+ * Given the name of a special number register, expand it and
+ * add it onto the input stack.
+ */
+spcnreg(name)
+char name[2];
+{
+	register STR *sp;
+	register int n;
+	register char *cp;
+
+	n = 0;
+	if (name[0] == '.') {
+		switch (name[1]) {
+		case '$':
+			if ((n=strp->x1.s_argc) > 0)
+				--n;
+			break;
+		case 'A':	n = A_reg;			break;
+		case 'F':			/* Filename, not in V7. */
+			for (sp=strp; sp; sp=sp->x1.s_next) {
+				if (sp->x1.s_type == SFILE) {
+					adscore(sp->x2.s_fname);
+					return;
+				}
+			}
+			return;
+		case 'H':	n = unit(SMHRES, SDHRES);	break;
+		/* case 'L': TO_DO */
+		/* case 'P': TO_DO */
+		case 'T':	n = T_reg;			break;
+		case 'V':	n = unit(SMVRES, SDVRES);	break;
+		case 'a':	n = a_reg;			break;
+		case 'c':
+			n = 0;
+			for (sp=strp; sp; sp=sp->x1.s_next) {
+				if (sp->x1.s_type == SFILE) {
+					n = sp->x1.s_clnc;
+					break;
+				}
+			}
+			break;
+		case 'd':	n = cdivp->d_rpos;		break;
+		case 'f':	n = 0;				break;
+		case 'h':	n = cdivp->d_maxh;		break;
+		case 'i':	n = ind;			break;
+		/* case 'j': TO_DO */
+		/* case 'k': TO_DO */
+		case 'l':	n = lln;			break;
+		case 'n':	n = n_reg;			break;
+		case 'o':	n = pof;			break;
+		case 'p':	n = pgl;			break;
+		case 's':	n = unit(psz*SDPOIN, SMPOIN);	break;
+		case 't':
+			n = cdivp->d_ctpp ? cdivp->d_ctpp->t_apos : pgl;
+			if (n > pgl)
+				n = pgl;
+			n -= cdivp->d_rpos;
+			break;
+		case 'u':	n = fill;			break;
+		case 'v':	n = vls;			break;
+		case 'w':	n = 0;				break;
+		case 'x':	n = 0;				break;
+		case 'y':	n = 0;				break;
+		case 'z':
+			cp = nalloc(3);
+			cp[0] = cdivp->d_name[0];
+			cp[1] = cdivp->d_name[1];
+			cp[2] = '\0';
+			adscore(cp);
+			strp->x3.s_srel = cp;
+			return;
+		}
+	}
+	adsnval(n, '1');
+}
+
+/*
+ * Given a value and a format, expand out the value to the
+ * particular format and add it onto the top of the stack.
+ */
+adsnval(val, f) int val, f;
+{
+	register ROM *op;
+	int w;
+	register int n;
+	char charbuf[CBFSIZE], *str, *cp2;
+	register char *cp1;
+
+	n = val;
+	if (n <= 0) {
+		if ((n = -n) <= 0) {
+			n = 0;
+			if (!isdigit(f))
+				f = '0';
+		}
+	}
+	cp1 = charbuf;
+	switch (f) {
+	case 'a':
+	case 'A':
+		while (n) {
+			n--;
+			*cp1++ = 'a' + n%26;
+			n /= 26;
+		}
+		break;
+	case 'i':
+	case 'I':
+		for (cp2="ivxlcdm"; *cp2!='m'; cp2+=2) {
+			op = &romtab[n%10];
+			n /= 10;
+			while (op != &romtab[0]) {
+				*cp1++ = cp2[op->o_digit];
+				op = &romtab[op->o_state];
+			}
+		}
+		if (cp1+n >= &charbuf[CBFSIZE]) {
+			*cp1++ = '*';
+			break;
+		}
+		while (n--)
+			*cp1++ = 'm';
+		break;
+	default:
+		w = f - '0';
+		while (n) {
+			--w;
+			*cp1++ = n%10 + '0';
+			n /= 10;
+		}
+		while (w-- > 0)
+			*cp1++ = '0';
+		if (val < 0)
+			*cp1++ = '-';
+	}
+	cp2 = str = nalloc(cp1-charbuf + 1);
+	if (isupper(f)) {
+		while (cp1 > charbuf)
+			if (islower(*--cp1))
+				*cp2++ = toupper(*cp1);
+			else    *cp2++ = *cp1;
+	} else {
+		while (cp1 > charbuf)
+			*cp2++ = *--cp1;
+	}
+	*cp2 = '\0';
+	adscore(str);
+	strp->x3.s_srel = str;
+}
+
+/*
+ * Divert input to the given string.
+ */
+adscore(cp) char *cp;
+{
+	register STR *sp;
+
+	sp = allstr(SCORE);
+	sp->x3.s_cp = cp;
+	sp->x3.s_srel = NULL;
+}
+
+/*
+ * Allocate an entry and add it to the input stack.
+ */
+STR *
+allstr(type)
+{
+	register STR *sp;
+	register int i;
+
+	sp = (STR *) nalloc(sizeof *sp);
+	sp->x1.s_next = strp;
+	strp = sp;
+	sp->x1.s_type = type;
+	sp->x1.s_eoff = 0;
+	sp->x1.s_clnc = 1;
+	sp->x1.s_nlnc = 1;
+	sp->x1.s_argc = 0;
+	for (i = 0; i < ARGSIZE; i++)
+		sp->x1.s_argp[i] = "";
+	sp->x1.s_abuf = NULL;
+	return sp;
+}
+
+hexdigit(c) register int c;
+{
+	if (isdigit(c))
+		return c - '0';
+	else if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	else if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	printe("illegal hex digit");
+	return 0;
+}
+
+		
+/* end of getf.c */
+@
+
+
+1.5
+log
+@provided by stevesf
+@
+text
+@d10 2
+d61 4
+a64 1
+			if ((rp=findreg(name, RTEXT)))
+d70 4
+a73 1
+			if ((sp = spc_find(name)) != NULL)
+d92 4
+a95 1
+			if ((rp=findreg(name, RNUMR)) == NULL)
+d154 30
+d185 1
+a185 1
+ * get an argument surrounded by delimeters and store it in the buffer.
+d187 1
+a187 2
+scandel(cp, n)
+register char *cp;
+d189 1
+a189 1
+	int r;
+d193 1
+a193 1
+	r = 1;
+d202 1
+a202 1
+			r = 0;
+d207 1
+a207 1
+	return r;
+d246 1
+d360 1
+a360 1
+	if ((fp=fopen(file, "r")) == NULL) {
+d365 1
+d378 1
+d424 8
+@
+
+
+1.4
+log
+@mods prov by stevesf
+@
+text
+@d17 1
+a17 1
+getf(flags)
+d174 1
+a174 1
+getl(eofflag)
+@
+
+
+1.3
+log
+@steve updated
+@
+text
+@d21 1
+d62 6
+d102 2
+a103 5
+			if (ifeflag != 0) {
+				++ifeflag;	/* skip nested \{ \} */
+				continue;
+			}
+			return c;		/* return \{ in true condition */
+d107 5
+a111 5
+			if (ifeflag == 0)
+				continue;	/* ignore \} in true condition */
+			else if (--ifeflag == 0)
+				return c;	/* closing \} of false condition */
+			continue;		/* keep scanning in false */
+d320 1
+a320 1
+		printe("cannot open %s", file);
+@
+
+
+1.2
+log
+@update prov by stevesf for ver 311
+@
+text
+@d86 2
+a87 2
+				return (c);
+			if (scandel(charbuf, CBFSIZE) == 0) {
+d89 1
+a89 1
+			} else {
+d91 7
+d99 1
+a99 1
+			continue;
+d101 2
+d104 4
+a107 2
+				continue;
+			return c;
+d122 1
+a122 2
+getwidth(cp)
+char	*cp;
+d124 1
+a124 2
+	ENV	savenv;
+	int	n;
+d126 1
+a126 1
+	savenv = env;		/* gigantic block copy */
+d128 1
+a128 3
+	ind = 0;
+	tif = 0;
+	fil = 0;
+a129 1
+	ccc = 0;
+d134 2
+a135 2
+	env = savenv;
+	return (n);
+d140 1
+a140 2
+ * get an argument surrounded by delimeters and store it in the
+ * buffer.
+d154 1
+a154 1
+			return (0);
+d163 1
+a163 1
+	return (r);
+d184 1
+a184 1
+			return (EOF);
+d237 1
+a237 1
+			return (ECOD);
+d248 1
+a248 1
+			return (EOF);
+d258 1
+a258 2
+ * In a chained macro, set up input stack to point to next
+ * element in chain.
+d267 1
+a267 1
+		return (0);
+d276 1
+a276 1
+			return (strnext());
+d289 1
+a289 1
+	return (1);
+a319 2
+	sp->x2.s_next = strp;
+	strp = sp;
+d321 1
+a321 1
+	return (1);
+d325 1
+a325 1
+ * Push down input stack and add the given unit.
+d327 1
+a327 2
+adsunit(u)
+FILE *u;
+d332 1
+a332 3
+	sp->x2.s_next = strp;
+	strp = sp;
+	sp->x2.s_fp = u;
+d344 1
+a344 1
+		return(1); /* return had been random, 1 is guess work by cef */
+a345 2
+	sp->x4.s_next = strp;
+	strp = sp;
+d353 1
+a353 1
+		return (0);
+d355 1
+a355 1
+	return (1);
+d376 7
+a382 15
+		case 'A':
+			n = A_reg;
+			break;
+		case 'H':
+			n = unit(SMHRES, SDHRES);
+			break;
+		case 'T':
+			n = T_reg;
+			break;
+		case 'V':
+			n = unit(SMVRES, SDVRES);
+			break;
+		case 'a':
+			n = a_reg;
+			break;
+d392 11
+a402 27
+		case 'd':
+			n = cdivp->d_rpos;
+			break;
+		case 'f':
+			n = 0;
+			break;
+		case 'h':
+			n = cdivp->d_maxh;
+			break;
+		case 'i':
+			n = ind;
+			break;
+		case 'l':
+			n = lln;
+			break;
+		case 'n':
+			n = n_reg;
+			break;
+		case 'o':
+			n = pof;
+			break;
+		case 'p':
+			n = pgl;
+			break;
+		case 's':
+			n = unit(psz*SDPOIN, SMPOIN);
+			break;
+d409 5
+a413 15
+		case 'u':
+			n = fil;
+			break;
+		case 'v':
+			n = vls;
+			break;
+		case 'w':
+			n = 0;
+			break;
+		case 'x':
+			n = 0;
+			break;
+		case 'y':
+			n = 0;
+			break;
+d431 1
+a431 6
+adsnval(val, f)
+#ifdef	GEMDOS
+int	f;
+#else
+char f;
+#endif
+d504 1
+a504 2
+adscore(cp)
+char *cp;
+a508 2
+	sp->x3.s_next = strp;
+	strp = sp;
+d514 1
+a514 1
+ * Allocate an entry to add to the input stack.
+d523 11
+a533 9
+	sp->x4.s_type = type;
+	sp->x4.s_eoff = 0;
+	sp->x4.s_clnc = 1;
+	sp->x4.s_nlnc = 1;
+	sp->x4.s_argc = 0;
+	for (i=0; i<ARGSIZE; i++)
+		sp->x4.s_argp[i] = "";
+	sp->x4.s_abuf = NULL;
+	return (sp);
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d2 1
+d6 1
+a6 1
+#include <stdio.h>
+a8 6
+#include "code.h"
+#include "env.h"
+#include "esc.h"
+#include "div.h"
+#include "reg.h"
+#include "str.h"
+d12 4
+d25 4
+a28 4
+		if ((c=getl(flags&1)) == esc) {
+			if ((c=getl(flags&1)) == EOF)
+				return (c);
+			if (esctab[c] == 0) {
+d30 1
+a30 1
+				return (c);
+d40 1
+a40 1
+			return (c);
+d44 1
+a44 1
+				printe("Bad argument reference");
+d47 2
+a48 2
+			if (strp->s_argp[c-='0'])
+				adscore(strp->s_argp[c]);
+d80 2
+a81 2
+				rp->r_nval += n*rp->r_incr;
+				adsnval(rp->r_nval, rp->r_form);
+d96 5
+a100 1
+			return (c);
+d102 1
+a102 1
+			return (c);
+d124 1
+a124 1
+	strp->s_eoff = 1;
+d133 1
+a133 1
+ * Given a buffer pointer, `bp', and the size of the buffer, `n',
+d148 1
+a148 1
+			printe("Syntax error");
+d152 1
+a152 1
+			printe("Delimiter argument too large");
+d163 1
+d174 1
+a174 1
+		sp->s_clnc = sp->s_nlnc;
+d178 1
+a178 1
+				panic("Unexpected end of file");
+d181 1
+a181 1
+		switch (sp->s_type) {
+d195 2
+a196 2
+			if ((c=getc(sp->s_fp)) == EOF) {
+				fclose(sp->s_fp);
+d201 3
+a203 3
+			if ((c=*sp->s_cp++) == '\0') {
+				if (sp->s_srel)
+					nfree(sp->s_srel);
+d208 5
+a212 4
+			if (sp->s_disk  &&  sp->s_sp >= sp->s_bufend) {
+				nread((long)sp->s_seek,(char *)sp->s_bufp);
+				sp->s_seek += DBFSIZE;
+				sp->s_sp = sp->s_bufp;
+d214 1
+a214 1
+			if ((c=*sp->s_sp++) == '\0') {
+d217 1
+a217 1
+				nfree(sp->s_bufp);
+d222 1
+a222 1
+			if (sp->s_n-- == 0) {
+d225 1
+a225 1
+				nfree(sp->s_bufp);
+d234 5
+a238 5
+		if (sp->s_abuf)
+			nfree(sp->s_abuf);
+		n = sp->s_eoff;
+		strp = strp->s_next;
+		nfree(sp);
+d242 1
+a242 1
+				panic("Incomplete macro in trap");
+d248 2
+a249 2
+		sp->s_nlnc++;
+	return (c);
+d262 1
+a262 1
+	if ((mp=sp->s_macp) == NULL)
+d264 2
+a265 2
+	sp->s_macp = mp->m_next;
+	switch (mp->m_type) {
+d267 1
+a267 1
+		sp->s_type = SCTEX;
+d270 2
+a271 2
+		sp->s_type = SCDIV;
+		if ((sp->s_n=mp->m_size) == 0)
+d275 3
+a277 3
+	if (mp->m_core) {
+		sp->s_disk = 0;
+		sp->s_sp = mp->m_core;
+d279 5
+a283 5
+		sp->s_disk = 1;
+		sp->s_seek = mp->m_seek/DBFSIZE * DBFSIZE;
+		sp->s_sp = &(sp->s_bufp[mp->m_seek%DBFSIZE]);
+		nread((long)sp->s_seek,(char *)sp->s_bufp);
+		sp->s_seek += DBFSIZE;
+d294 4
+a297 4
+	if (strp->s_disk  &&  strp->s_sp >= strp->s_bufend) {
+		nread((long)strp->s_seek,(char *)strp->s_bufp);
+		strp->s_seek += DBFSIZE;
+		strp->s_sp = strp->s_bufp;
+d299 1
+a299 1
+	return (*strp->s_sp++);
+d312 2
+a313 2
+		printe("Cannot open %s", file);
+		return (0);
+d316 1
+a316 1
+	sp->s_next = strp;
+d318 1
+a318 1
+	sp->s_fp = fp;
+d331 1
+a331 1
+	sp->s_next = strp;
+d333 1
+a333 1
+	sp->s_fp = u;
+d344 2
+a345 2
+	if (rp->r_macd.m_type == MREQS)
+		return;
+d347 1
+a347 1
+	sp->s_next = strp;
+d349 3
+a351 3
+	sp->s_bufp = nalloc(DBFSIZE);
+	sp->s_bufend = &sp->s_bufp[DBFSIZE];
+	sp->s_macp = &rp->r_macd;
+d353 3
+a355 3
+		strp = strp->s_next;
+		nfree(sp->s_bufp);
+		nfree(sp);
+d376 1
+a376 1
+			if ((n=strp->s_argc) > 0)
+d380 1
+a380 1
+			n = antflag;
+d386 1
+a386 1
+			n = tntflag;
+d392 1
+a392 1
+			n = arorval;
+d396 3
+a398 3
+			for (sp=strp; sp; sp=sp->s_next) {
+				if (sp->s_type == SFILE) {
+					n = sp->s_clnc;
+d419 1
+a419 1
+			n = nrorval;
+d457 1
+a457 1
+			strp->s_srel = cp;
+d483 1
+a483 1
+		if ((n=-n) <= 0) {
+d540 1
+a540 1
+	strp->s_srel = str;
+d552 1
+a552 1
+	sp->s_next = strp;
+d554 2
+a555 2
+	sp->s_cp = cp;
+	sp->s_srel = NULL;
+d561 1
+a561 1
+char	*
+d568 5
+a572 5
+	sp->s_type = type;
+	sp->s_eoff = 0;
+	sp->s_clnc = 1;
+	sp->s_nlnc = 1;
+	sp->s_argc = 0;
+d574 2
+a575 2
+		sp->s_argp[i] = null;
+	sp->s_abuf = NULL;
+d578 15
+@

@@ -1,0 +1,143 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.29.19.13.52;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * The unassembler; this routine converts
+ * the internal form of a machine instruction into
+ * an intermediate form printable by cc3.  The output can
+ * be made to look a lot like any assembler format by rewriting cc3.
+ * This is the new VAX base, including
+ * all edits up to revision 48.
+ */
+#ifdef   vax
+#include "INC$LIB:cc2.h"
+#else
+#include "cc2.h"
+#endif
+
+unassemble(ip1)
+register INS	*ip1;
+{
+	register INS	*ip2;
+	register int	rel;
+	register int	i, lab;
+	register int	nlf;
+	register int	opflag;
+
+	switch (ip1->i_type) {
+
+	case LLLINK:
+		genone(ZWORD, A_LID|A_DIR, ip1->i_labno);
+		break;
+
+	case ENTER:
+		genseg(ip1->i_seg);
+		break;
+
+	case ALIGN:
+		bput(ALIGN); bput(0);
+		break;
+
+	case BLOCK:
+		bput(BLOCK); zput(ip1->i_len);
+		break;
+
+	case LLABEL:
+		bput(LLABEL); iput(ip1->i_labno);
+		break;
+
+	case JUMP:
+		if ((rel=ip1->i_rel) == ZJMP) {
+			genone(ZJMP, A_LID|A_DIR, ip1->i_labno);
+			break;
+		}
+		if (ip1->i_long != 0) {
+			nlf = 0;
+			ip2 = ip1->i_fp;
+			if (ip2!=NULL && ip2!=&ins && ip2->i_type==LLABEL)
+				lab = ip2->i_labno;
+			else {
+				lab = newlab();
+				++nlf;
+			}
+			genone(revrel(rel), A_LID|A_DIR, lab);
+			genone(ZJMP, A_LID|A_DIR, ip1->i_labno);
+			if (nlf != 0)
+				bput(LLABEL), iput(lab);
+			break;
+		}
+		genone(rel, A_LID|A_DIR, ip1->i_labno);
+		break;
+
+	case LINE:
+		bput(LINE), iput(ip1->i_line);
+		break;
+
+	case CODE:
+		if (isvariant(VEMU87)) {
+			/*
+			 * Under the VEMU87 emulation option, the assembler
+			 * precedes 8087 opcodes with emulator calls.
+			 */
+			i = opinfo[ip1->i_op].op_style;
+			if (is8087op(i))
+				genone(ZCALL, A_GID|A_DIR, "emu87");
+		}
+		bput(CODE); bput(ip1->i_op);
+		opflag = opinfo[ip1->i_op].op_flag;
+		for (i=0; i<ip1->i_naddr; ++i)
+			genfield(&ip1->i_af[i], opflag);
+		break;
+	}
+}
+
+static	short	revtab[] = {
+	ZJBE,
+	ZJB,
+	ZJAE,
+	ZJA,
+	-1,
+	ZJNE,
+	ZJLE,
+	ZJL,
+	ZJGE,
+	ZJG,
+	-1,
+	ZJE,
+	ZJO,
+	ZJS,
+	ZJNO,
+	ZJPO,
+	ZJPE,
+	ZJNS
+};
+
+revrel(rel)
+register rel;
+{
+	if (rel<ZJA || rel>ZJS || (rel=revtab[rel-ZJA])<0)
+		cbotch("bad rev");
+	return (rel);
+}
+@

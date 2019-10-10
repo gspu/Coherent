@@ -1,0 +1,168 @@
+.TH paths "" "" "System Administration"
+.PC "Routing data base for mail"
+.B /usr/lib/mail/paths
+.PP
+File
+.B /usr/lib/mail/paths
+holds the data base that the command
+.B smail
+uses to route mail.
+.PP
+Each line gives routing information to a host, and has the following format:
+.DM
+	host	route	[cost]
+.DE
+.PP
+.I host
+names a remote host.
+The
+.I route
+field details the route by which mail can travel from your system to
+.IR host .
+Note that it includes the \fBprintf()\fR-style format string ``%s''.
+This field uses the bang-path format for describing a route.
+For example, if you access site
+.B foo
+via site
+.BR bar ,
+then route field for site
+.B bar
+reads:
+.DM
+	bar	foo!bar!%s
+.DE
+.PP
+.B smail
+uses the optional field
+.I cost
+to decide whether to queue mail that is spooled for other systems,
+or to invoke the command
+.B uucico
+to deliver the mail immediately.
+If the
+.I cost
+is at or below
+.BR smail 's
+``queueing threshold'', then
+.B smail
+attempts to deliver it immediately.
+This speeds mail delivery between hosts that enjoy an inexpensive \*(UU link,
+such as a serial line;
+and batches mail that must be sent over expensive media, such as
+long-distance telephone.
+If the
+.I cost
+field is absent,
+.B smail
+gives this host a cost value above that of its queueing threshold.
+.PP
+Note that the value in the
+.I costs
+field does not override the connection times set in the \*(UU file
+.BR sys .
+Thus, this field is useful only for systems that you can call any time,
+or that you call frequently.
+.SH Example
+The following gives a sample
+.B paths
+file for a \*(CO system named
+.BR lepanto :
+.DM
+.ta 0.5i 1.75i 3.0i
+	friend	friend!%s	300
+	hubsys	hubsys!%s	95
+	lepanto	%s	0
+	lepanto.ampr.org	%s	0
+	widget	hubsys!widget!%s	95
+.DE
+.PP
+As this file shows,
+.B lepanto
+is linked to systems
+.B hubsys
+and
+.BR friend .
+The cost of 95 associated with
+.B hubsys
+is low, and is appropriate to a low-cost link, such as a hard-wired link.
+On the other hand, the cost of 300 associated with
+.B friend
+is high, which indicates that the connection with
+.B friend
+is expensive, such as a long-distance telephone connection.
+If cost is 100 or greater,
+mail will be queued for later delivery.
+A cost below 100 tells
+.B smail
+to attempt immediate delivery.
+.PP
+In this example, machine
+.B lepanto
+is registered in the domain
+.BR ampr.org .
+``ampr'' is an abbreviation for ``Amateur Packet Radio,'' which indicates that
+.B lepanto
+is a packet-radio node.
+Note that machine name
+.B lepanto
+appears in both conventional form (``lepanto'') and domain form
+(``lepanto.ampr.org''); this is done to make it easier for
+.B smail
+to resolve addresses.
+.\".PP
+.\"To avoid having to maintain a huge data base, the owner of
+.\".B lepanto
+.\"uses
+.\".B hubsys
+.\"as a ``smart host''.
+.\".II "smart host"
+.\"The
+.\".B smart-host
+.\"designation in the
+.\".B paths
+.\"data base tells
+.\".B smail
+.\"to forward any mail that it doesn't know how to deliver onto site
+.\".BR hubsys .
+.PP
+.B lepanto
+can use
+.B hubsys
+to forward mail to
+.BR widget .
+Thus, when
+.B smail
+receives mail for system
+.BR widget ,
+it will transmit it to
+.B hubsys
+for forwarding.
+Note that
+.BR hubsys 's
+administrator must have given
+.B lepanto
+permission to use it as a mail relay, or this will not work.
+.SH "See Also"
+.Xr "Administering COHERENT," administe
+.Xr "mail [overview]," mail.o
+.Xr "smail" smail
+.SH Notes
+Please note that the mail-routing program
+.B smail
+does not actually read
+.B /usr/lib/mail/paths
+when it processes mail; rather, it reads a DBM-style data base that is
+built from this file.
+The DBM data base can be read much faster than an ordinary text file,
+thus improving the speed with which
+.B smail
+handles mail.
+Thus, when you edit
+.BR paths ,
+you must invoke the command
+.B mkpaths
+to ``cook'' its contents into DBM format, so
+.B smail
+see the changes you have made.
+For information on DBM-style data bases, see the Lexicon entry for
+.BR libgdbm .

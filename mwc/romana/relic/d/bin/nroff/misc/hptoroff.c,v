@@ -1,0 +1,153 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.48.57;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* (-lgl
+ * 	The information contained herein is a trade secret of Mark Williams
+ * 	Company, and  is confidential information.  It is provided  under a
+ * 	license agreement,  and may be  copied or disclosed  only under the
+ * 	terms of  that agreement.  Any  reproduction or disclosure  of this
+ * 	material without the express written authorization of Mark Williams
+ * 	Company or persuant to the license agreement is unlawful.
+ * 
+ * 	troff-nroff Version 002
+ * 	Copyright (c) 1984-1986.
+ * 	An unpublished work by Mark Williams Company, Chicago.
+ * 	All rights reserved.
+ -lgl) */
+/*
+ * This program reads in a width table in 300-ths of an inch units,
+ * for ascii characters from ascii space to ascii del.
+ * It then prints out the width table in internal ?roff order.
+ */
+#include "hlib.h"
+
+
+#define	LOW	(' ')		/* lowest input character */
+#define	HIGH	('\177')	/* highest input character */
+#define	COLS	8		/* columns to output */
+
+
+uint	intab[HIGH+1-LOW];
+
+
+/*
+ * Table to convert from the internal character set to ASCII.
+ */
+char intasc[] ={
+	0,	'0',	'1',	'2',	'3',	'4',	'5',	'6',
+	'7',	'8',	'9',	'A',	'B',	'C',	'D',	'E',
+	'F',	'G',	'H',	'I',	'J',	'K',	'L',	'M',
+	'N',	'O',	'P',	'Q',	'R',	'S',	'T',	'U',
+	'V',	'W',	'X',	'Y',	'Z',	'a',	'b',	'c',
+	'd',	'e',	'f',	'g',	'h',	'i',	'j',	'k',
+	'l',	'm',	'n',	'o',	'p',	'q',	'r',	's',
+	't',	'u',	'v',	'w',	'x',	'y',	'z',	'!',
+	'"',	'#',	'$',	'%',	'&',	'(',	')',	'*',
+	'+',	',',	'-',	'.',	'/',	':',	';',	'<',
+	'=',	'>',	'?',	'@@',	'[',	'\\',	']',	'^',
+	'_',	'{',	'|',	'}',	'~',	'`',	'\'',	'\'',
+	'`',	'^',	'-'
+};
+
+
+main()
+{
+	gettab();
+	puttab();
+	return (0);
+}
+
+gettab()
+{
+	register int	i;
+
+	for (i=LOW; i <= HIGH; ++i) {
+		if (not skip())
+			die("Unexpected end of file");
+		intab[i-LOW] = getint();
+	}
+	if (skip())
+		die("Extra input");
+}
+
+skip()
+{
+	register int	ch;
+
+	do {
+		ch = getchar();
+	} while (ch == ' ' || ch == '\t' || ch == '\n');
+	ungetc(ch, stdin);
+	return (ch != EOF);
+}
+
+getint()
+{
+	register int	res,
+			ch;
+
+	ch = getchar();
+	if (ch < '0' || ch > '9')
+		die("Bad number");
+	res = ch - '0';
+	loop {
+		ch = getchar();
+		if (ch < '0' || ch > '9')
+			break;
+		res = 10*res + ch-'0';
+	}
+	ungetc(ch, stdin);
+	return (res);
+}
+
+puttab()
+{
+	register char	*ip;
+	register int	col;
+
+	col = COLS;
+	ip = intasc;
+	loop {
+		if (LOW <= *ip && *ip <= HIGH)
+			printf("\t%d", scale(intab[*ip-LOW]));
+		else
+			printf("\t0");
+		if (++ip == &intasc[sizeof(intasc) / sizeof(*intasc)])
+			break;
+		printf(",");
+		if (--col == 0) {
+			printf("\n");
+			col = COLS;
+		}
+	}
+	if (col != COLS)
+		printf("\n");
+}
+
+scale(x)
+int	x;
+{
+	return (x);
+}
+@

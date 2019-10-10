@@ -1,0 +1,79 @@
+# /etc/build.u
+# Wed Nov 10 11:52:22 1993 CST
+
+# Save any special files before update just in case the user wants to
+# get the old ones back...
+
+# /etc/build does "/etc/build.u /mnt"
+
+. /usr/lib/shell_lib.sh
+
+if [ $# -lt 1 ]; then
+	echo "Usage: $0 mount_point"
+	exit 1
+fi
+
+MNT=$1
+
+if [ ! -d "$MNT" ]; then
+	echo "$0: Can't access system directory \"$MNT\""
+	exit 1
+fi
+
+/bin/echo "About to save old system files."
+
+# See if there is already an archive out there.
+
+_ARCHIVE=old_coh.taz
+while [ -f $MNT/$_ARCHIVE ]; do
+
+	echo "
+WARNING: Archive $_ARCHIVE already exists, probably has saved system
+files from a previous update.\n"
+
+	read_input "Overwite old archive $_ARCHIVE" \
+	yesno "n" require_yes_or_no
+
+	is_yes $yesno && break
+
+	read_input "Skip saving system files" yesno "n" require_yes_or_no
+
+	is_yes $yesno && {
+		/bin/echo "System files not saved."
+		exit 0
+	}
+
+	read_input "Name for new save archive" _ARCHIVE
+
+done
+
+# Make list of files in upd_save which are on the present system.
+
+cd $MNT
+TMPLIST=/tmp/upd_save
+> $TMPLIST
+for F in $(cat /conf/upd_save); do
+	for G in $(echo $F); do
+		if [ -f $G ] ; then
+			echo $G >> $TMPLIST
+		fi
+	done
+done
+
+# Use gtar to make the archive.
+
+cd $MNT
+echo "Saving files..."
+/usr/bin/gtar -czf $_ARCHIVE $(cat $TMPLIST)
+rm -f $TMPLIST
+sync
+
+# Sign-off.
+
+echo "Your system files are saved to $_ARCHIVE.  After updating, you can type
+	/usr/bin/gtar -tzf /$_ARCHIVE
+for a listing of saved files.
+Hit <Enter> "
+read JUNK
+
+exit 0

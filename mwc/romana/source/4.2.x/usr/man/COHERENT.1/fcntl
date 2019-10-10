@@ -1,0 +1,103 @@
+ffccnnttll() -- System Call (libc)
+
+Control open files
+#iinncclluuddee <ffccnnttll.hh>
+iinntt ffccnnttll(_f_d, _c_o_m_m_a_n_d, _a_r_g)
+iinntt _f_d, _c_m_d, _a_r_g;
+
+The COHERENT system call ffccnnttll() manipulates an open file.
+
+_f_d is the file descriptor; this  description must have been obtained from a
+call to ccrreeaatt(), dduupp(), ffccnnttll(), ooppeenn(), or ppiippee().
+
+_c_o_m_m_a_n_d identifies  the task that  you want ffccnnttll() to  perform.  The value
+ffccnnttll() returns  varies, depending on  what command you ask  it to perform.
+_a_r_g is an argument specific to the given _c_o_m_m_a_n_d.
+
+ffccnnttll() commands FF_GGEETTLLKK, FF_SSEETTLLKK, and FF_SSEETTLLKKWW (described in detail below)
+implement file-record locking.   File-record locks use the fflloocckk structure,
+which is defined in header file <ffccnnttll.hh> as follows:
+
+typedef struct flock {
+     short     l_type;        /* F_RDLCK, F_WRLCK, or F_UNLCK*/
+     short     l_whence;      /* SEEK_SET, SEEK_CUR, SEEK_END */
+     long      l_start;       /* location */
+     long      l_len;         /* 0 is through EOF */
+     short     l_sysid;       /* system id of lock (for GETLK) */
+     short     l_pid;         /* process id of owner (for GETLK) */
+};
+
+You can  lock a section of  a file for reading  (excluding subsequent write
+locks) or for writing (excluding all subsequent locks).  The locked section
+begins at  the specified  location ll_ssttaarrtt  and can extend  backwards (when
+ll_lleenn is  negative) or forwards (when  it is positive).  If  ll_lleenn is zero,
+the  lock extends  to the  end of  the file.   A lock  may extend  past the
+current end  of file,  but may  not extend to  before the beginning  of the
+file.
+
+_f_c_n_t_l() _C_o_m_m_a_n_d_s
+ffccnnttll() recognizes the following commands:
+
+FF_DDUUPPFFDD Duplicate  file  descriptor   _f_d  onto  the  first  available  file
+        descriptor greater  than or equal  to _a_r_g. ffccnnttll()  returns the new
+        file descriptor.
+
+FF_GGEETTFFDD Get the current value  of the close-on-exec flag FFDD_CCLLOOEEXXEECC for the
+        file.  If the low-order bit of the return value of ffccnnttll() is zero,
+        the  file descriptor  remains open  if the  process uses  eexxeecc() to
+        execute another  process, If the low-order bit  of the return value
+        is one, the file descriptor is closed upon eexxeecc().
+
+FF_GGEETTFFLL Get the file flags for the  file specified by _f_d. With this option,
+        ffccnnttll() returns the file flags.
+
+FF_GGEETTLLKK _a_r_g must  point to a ssttrruucctt  fflloocckk that describes a  section of the
+        file  to lock.   If  the system  does  not have  any  locks on  the
+        specified section, ffccnnttll() sets the lock type of _a_r_g to FF_UUNNLLCCKK and
+        leaves  the  other  members  unchanged.   Otherwise,  it  sets  the
+        contents  of  _a_r_g  to  the  first  existing lock  that  blocks  the
+        requested lock.
+
+FF_SSEETTFFDD Set the close-on-exec flag of the  file to the value of the low bit
+        of _a_r_g.
+
+FF_SSEETTFFLL Set file  flags for  file descriptor _f_d  to the value  specified by
+        _a_r_g. Here, ffccnnttll() returns the new file flags.
+
+FF_SSEETTLLKK Set or clear a file-record lock.  _a_r_g must point to a ssttrruucctt fflloocckk.
+        Set member ll_ttyyppee to FF_RRDDLLCCKK to  request a read lock, to FF_WWRRLLCCKK to
+        request a  write lock, or to FF_UUNNLLCCKK to  unlock a previously locked
+        section.  If the requested lock cannot be set, ffccnnttll() returns with
+        an error value of -1 and sets eerrrrnnoo to EEAACCCCEESS.
+
+FF_SSEETTLLKKWW
+        is just like FF_SSEETTLLKK unless the requested lock is not available, in
+        which case  FF_SSEETTLLKKWW causes the current process  to sleep until the
+        requested  lock  becomes  available.   If  sleeping would  cause  a
+        deadlock, ffccnnttll() returns -1 and sets eerrrrnnoo to EEDDEEAADDLLKK.
+
+Upon failure, each  _c_m_d returns -1 and sets eerrrrnnoo  to an appropriate value.
+Possible eerrrrnnoo values include the following:
+
+EEAAGGAAIINN  Section already locked.
+
+EEBBAADDFF   Bad file desciptor.
+
+EEIINNVVAALL  Invalid command.
+
+EEMMFFIILLEE  Too many files open.
+
+EENNOOLLCCKK  No more locks available.
+
+EEDDEEAADDLLKK Deadlock would result.
+
+_S_e_e _A_l_s_o
+cclloossee()  ccrreeaatt(),  dduupp(), eexxeecc(),  ffccnnttll.hh,  ffiillee,  ffiillee ddeessccrriippttoorr,  lliibbcc,
+lloocckkff() ooppeenn(), ppiippee()
+POSIX Standard, section 6.5.2
+
+_N_o_t_e_s
+Use ffccnnttll()  with the unbuffered I/O routines (ooppeenn(),  wwrriittee(), and so on)
+rather  than  with  standard  I/O  library  routines  (ffooppeenn(),  ffpprriinnttff(),
+ffwwrriittee(), and so  on).  The buffering used by the  standard I/O library may
+cause unexpected behavior with file locking.

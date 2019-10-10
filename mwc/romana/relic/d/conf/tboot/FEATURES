@@ -1,0 +1,94 @@
+September 1991
+updated November 1991
+
+A tertiary boot program is being added to the COHERENT boot sequence.  The
+old sequence was bios->master boot->secondary boot->/coherent.  The new
+boot sequence is bios->master boot->secondary boot->tertiary boot->/coherent.
+
+The problem with the old boot scheme was that the secondary boot was limited
+to 512 bytes, severely limiting its functionality.
+
+The advantages of the new scheme are:  the tertiary boot is written mostly
+in C; the tertiary boot can be as long as 138 blocks.
+
+Writing in C improves maintainability and eases improvements.
+
+The increased size allows greater functionality.  Already the new tertiary
+supports much larger kernels.  It also includes some handy builtin commands.
+Further expansion could include support for other object formats such as COFF.
+
+The ability to support larger kernels is critical for development of the
+386 native kernel.
+
+Limitations of Old Secondary Boot
+_________________________________
+
+The old secondary boot could not load anything from past the first
+32 megabytes of a partition.  This was because it only used 2 byte block
+numbers.
+
+It was also thought to have a length limit of 138 blocks for the l.out file.
+138 is the 10 direct blocks + the 128 singly indirect blocks.  Actually,
+it was capable of loading files up to 256 blocks long.  It read 266 block
+numbers--the 10 direct + 128 indirect + first 128 double indirect, but it
+used a 1 byte index into that table.  Each segment had to be less than
+64k.
+
+It defaulted to loading a file called "autoboot".
+
+It was entirely in assembly language.
+
+
+Features and Limitations of New Secondary Boot
+______________________________________________
+
+The new secondary boot uses 4 byte block numbers, and can thus load from
+anywhere on a legal partition.
+
+It can load an l.out image up to 138 block long.  This covers all 286
+kernels produced to date.  Each segment must be less than 64k.
+
+It defaults to loading a file called "tboot".
+
+It is entirely in assembly language.
+
+
+Features of New Tertiary Boot
+-----------------------------
+The new tertiary boot can load from anywhere on a legal partition.
+
+It can load an l.out or COFF image up to slightly over 1 gigabyte long.
+Individual segments can be up to the full length of the file.
+
+It includes a builtin "dir" command, and "info" for checking disk geometry.
+
+It defaults to loading a file called "autoboot".  Even if "autoboot" is found,
+it is possible to abort the boot by typing any key during a 10 second
+waiting interval.
+
+It is written mostly in C, but has assembly language libraries and startup
+code.
+
+The libraries were designed to facilitate making other bootable utilities.
+
+It is now possible to use open()/read()/close() to access files from tboot
+code.
+
+The base paragraph can be explicitly set, but will automaticly default
+to 0x0060 for l.out files (probably 286 kernels), and 0x0200 for COFF
+files (probably 386 kernels).
+
+There is a mini-monitor available for examining memory.  This is
+particularly useful for debugging tboot itself.
+
+It caches disk i/o, greatly speeding the load procedure.
+
+A data structure full of information, called a boot gift, is passed to
+compatable programs.  See the file gift.c for more details.  Right now,
+some disk geometry information and a command line are passed.
+
+
+					La Monte H. Yarroll <piggy@mwc.com>
+					with many thanks to
+					Vladimir Smelyanski <vlad@mwc.com> and
+					Hal Snyder <hal@mwc.com>.

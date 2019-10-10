@@ -1,0 +1,134 @@
+.TH strtok() "" "" "String Function (libc)"
+.PC "Break a string into tokens"
+.B "#include <string.h>"
+\fBchar *strtok(\fIstring1\^\fB, \fIstring2\^\fB)\fR
+\fBchar *\fIstring1\^\fB, *\fIstring2\^\fB;\fR
+.PP
+.II "string, break into tokens"
+.II "break a string into tokens"
+.II "token, break a string into sequence of"
+.B strtok()
+divides a string into a set of tokens.
+.I string1
+points to the string to be divided, and
+.I string2
+points to the character or characters that delimit the tokens.
+.PP
+.B strtok()
+divides a string into tokens by being called repeatedly.
+.PP
+On the first call to
+.BR strtok() ,
+.I string1
+should point to the string being divided.
+.B strtok()
+searches for a character that is \fInot\fR included within
+.IR string2 .
+If it finds one, then
+.B strtok()
+regards it as the beginning of the first token within the string.
+If one cannot be found, then
+.B strtok()
+returns NULL to signal that the string could not be divided into tokens.
+When it finds the beginning of the first token,
+.B strtok()
+then looks for a character that \fIis\fR included within
+.IR string2 .
+When it finds one,
+.B strtok()
+replaces it with NUL
+to mark the end of the first token, stores a pointer to the remainder of
+.I string1
+within a static buffer, and returns
+the address of the beginning of the first token.
+.PP
+On subsequent calls to
+.BR strtok() ,
+pass it NULL instead of
+.IR string1 .
+.B strtok()
+then looks for subsequent tokens using the address that it
+saved from the first time you called it.
+.PP
+Note that with each call to
+.BR strtok() ,
+.I string2
+may point to a different delimiter or set of delimiters.
+.SH Example
+The following example breaks
+.B command_string
+into individual tokens and puts pointers to the tokens into the array
+.BR tokenlist[] .
+It then returns the number of tokens created.
+No more than
+.B maxtoken
+tokens will be created.
+.B command_string
+is modified to place `\e0' over token separators.
+The token list points into
+.BR command_string .
+Tokens are separated by spaces, tabs, commas, semicolons, and newlines.
+.DM
+#include <stdlib.h>
+#include <string.h>
+#include <stddef.h>
+#include <stdio.h>
+.DE
+.DM
+tokenize(command_string, tokenlist, maxtoken)
+char *command_string, *tokenlist[]; size_t maxtoken;
+{
+	static char tokensep[]="\et\en ,;";
+	int tokencount;
+	char *thistoken;
+.DE
+.DM
+	if(command_string == NULL || !maxtoken)
+		return 0;
+.DE
+.DM
+	thistoken = strtok(command_string, tokensep);
+.DE
+.DM
+	for(tokencount = 0; tokencount < maxtoken &&
+			thistoken != NULL;) {
+		tokenlist[tokencount++] = thistoken;
+		thistoken = strtok(NULL, tokensep);
+	}
+.DE
+.DM
+	tokenlist[tokencount] = NULL;
+	return tokencount;
+}
+.DE
+.DM
+#define MAXTOKEN 100
+char *tokens[MAXTOKEN];
+char buf[80];
+.DE
+.DM
+main()
+{
+	for(;;) {
+		int i, j;
+.DE
+.DM
+		printf("Enter string ");
+		fflush(stdout);
+		if(gets(buf) == NULL)
+			exit(EXIT_SUCCESS);
+.DE
+.DM
+		i = tokenize(buf, tokens, MAXTOKEN);
+		for (j = 0; j < i; j++)
+			printf("%s\en", tokens[j]);
+	}
+}
+.DE
+.SH "See Also"
+.Xr "libc," libc
+.Xr "string.h" string.h
+.br
+\*(AS, \(sc7.11.5.8
+.br
+\*(PX Standard, \(sc8.1

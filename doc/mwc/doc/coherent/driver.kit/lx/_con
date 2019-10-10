@@ -1,0 +1,361 @@
+.TH con "" "" "Internal Data Structure"
+.PC "Structure of a device driver"
+The structure of a \*(CO device driver is set by the
+.B CON
+structure, which the header file
+.B <sys/con.h>
+defines as follows:
+.DM
+.ta 0.5i 1.0i 2.5i
+typedef struct con {
+	int c_flag;
+	int c_mind;
+	void (*c_open);
+	void (*c_close);
+	void (*c_block);
+	void (*c_read);
+	void (*	c_write);
+	void (*c_ioctl);
+	void (*c_power);
+	void (*c_timer);
+	void (*c_load);
+	void (*c_uload);
+	int  (*c_poll);
+} CON;
+.DE
+.PP
+Each of the fields in this header points to the equivalent of a
+DDI/DKI entry-point routine.
+The following subsections describe field in detail.
+.SH Flags
+Field
+.B c_flag
+OR's the manners in which this device can be accessed, as followed:
+.IP \fBDFBLK\fR 1.25i
+Block-special device.
+.IS \fBDFCHR\fR
+Character-special device.
+.IS \fBDFTAP\fR
+Tape device.
+.IS \fBDFPOL\fR
+Accessible via \*(CO system call \fBpoll()\fR.
+.SH "Major-Device Number"
+.II devices.h
+Field
+.B c_mind
+gives the device's major-device number.
+This number must be in the range of zero through 31.
+At present, the major-device number of each device driver is set in
+header file
+.BR devices.h ;
+in a future release of \*(CO, however, each device driver will be
+assigned its major-device number when the kernel is linked.
+Therefore, code should not depend upon the device having a particular
+``magic'' major-device number.
+.SH "Open Routine"
+Field
+.B c_open
+points to the routine within the device driver
+that is executed whenever the kernel opens the device.
+This function is always called with two arguments:
+the first is an
+.B o_dev_t
+that indicates the device being accessed, and the second is an integer
+that indicates the mode in which it is being opened.
+The mode can be
+.B IPW
+(write mode),
+.B IPR
+(read mode),
+or
+.BR "IRW | IRP" .
+If an error occurs during execution of this function, it should call
+.B set_user_error()
+with an appropriate value.
+.SH "Close Routine"
+Field
+.B c_close
+points to the routine that is executed whenever \*(CO closes
+the device.
+This function takes the same arguments as the open function.
+.SH "Block Routine"
+Field
+.B c_block
+points to the routine within the device driver that is executed
+when the kernel reads a file in block mode.
+(As noted earlier, \*(CO \(em unlike most implementations of \*(UN \(em
+permits your driver to open its device into either block- or character-special
+mode, should you wish.)
+This function is called with a pointer to a
+.B buf
+structure, which holds information about this driver's buffer cache.
+.II buf
+For more information on the
+.B buf
+structure, see its entry in this manual's Lexicon.
+.II bdone()
+The driver function that performs block transfers of data should first
+perform the I/O transfer, then set field
+.B c_block->b_resid
+to the appropriate number and call kernel function
+.B bdone()
+to clean up after itself.
+.PP
+Note that the function that performs block transfer must
+.I never
+sleep or access a process's
+.B uproc
+structure.
+This is because this function is asynchronous and therefore not pegged to
+a particular process.
+.SH "Read Routine"
+.II "read a device"
+Field
+.B c_read
+points to the driver's routine that is called when the kernel wishes to
+read data from that driver's device.
+.II dev_t
+It takes two arguments:
+an
+.B o_dev_t
+that indicates the device to read;
+and a pointer to that device's
+.B io
+structure, which is used by the read function.
+For more information on the
+.B io
+structure, see its entry in this manual's Lexicon.
+.PP
+.II sleep()
+.II wakeup()
+Unlike a block transfer, the read function does not return until I/O is
+complete.
+Your driver can use the kernel functions
+.B sleep()
+and
+.B wakeup()
+to surrender the processor to another process while the read is being performed.
+.II ioputc()
+It can also use the kernel function
+.B ioputc()
+to send characters to the user process and to update counter
+.BR io_ioc .
+.SH "Write Routine"
+.II "write to a device"
+Field
+.B c_write
+points to the function that the kernel executes when it wishes to write to
+this device.
+It behaves exactly the same as the function pointed to by field
+.BR c_read ,
+except that the direction of data transfer is reversed.
+.II iogetc()
+Your driver can use kernel function
+.B iogetc()
+is used to fetch characters from the user process and to update counter
+.BR io_ioc .
+.SH "I/O Control Routine"
+.II ioctl
+.II "I/O control"
+Field
+.B c_ioctl
+points to the function that the kernel executes when it wishes to exert
+I/O control over a device.
+This function is called to perform non-standard manipulations of a device,
+e.g., format a disk, rewind a tape, or change the speed of a serial port.
+.PP
+The kernel always calls this function with three arguments.
+The first is an
+.B o_dev_t
+that identifies the device to be manipulated;
+the second is an integer that indicates the command to be executed;
+and the third points to an array that can hold additional information,
+if any, that the command may need.
+.PP
+This function, by its nature, uses a considerable amount of device-specific
+information.
+.II tty.h
+.II mtioctl.h
+.II lpioctl.h
+The header files
+.BR <sys/tty.h> ,
+.BR <sys/mtioctl.h> ,
+and
+.B <sys/lpioctl.h>
+define codes for, respectively, teletypewriter devices (i.e., terminals),
+magnetic-tape devices, and line printers.
+.SH "Power-Fail Routine"
+.II "power-fail routine"
+Field
+.B c_power
+points to the routine to be executed should power fail on the system.
+This field is not yet used by \*(CO.
+.SH "Timeout Routine"
+Field
+.B c_timer
+points to the routine that the kernel executes when a device driver
+requests periodic scheduling.
+To request that the timeout routine for device
+.I dev
+be called once per second, set
+\fBdrvl[major(\fIdev\fB)]\.d_time\fR to a nonzero value.
+.II con.h
+.II major()
+.II stat.h
+The external variable
+.B drvl[]
+is declared in header file
+.BR <sys/con.h> ;
+macro
+.B major()
+is defined in header file
+.BR <sys/stat.h> .
+.IP
+The kernel's clock routines do not affect the value in field
+.BR d_time .
+To stop invocations of the timeout routine, store zero in
+\fBdrvl[major(\fIdev\fB)].d_time\fR.
+.PP
+.I dev
+is an
+.B o_dev_t
+that indicates which device is being timed out.
+.SH "Load Routine"
+.II "loading a driver"
+Field
+.B c_load
+points to the routine that would be executed when this device driver
+were loaded.
+It performs all tasks necessary to prepare the device and
+the driver to exchange information.
+Because \*(CO does not support loadable device drivers, the kernel executes
+this routine when \*(CO is booted.
+.SH "Unload Routine"
+.II "unloading a driver"
+The field
+.B c_uload
+points to the driver's function that the kernel invokes when the driver
+is unloaded from memory.
+This routine is never invoked, because \*(CO does not support loadable
+device drivers.
+.SH "Poll Routine"
+.II "polling the device"
+Field
+.B c_poll
+points to a function that can be accessed by commands or functions
+that poll the device.
+The driver's polling function is always called with three arguments.
+The first is an
+.B o_dev_t
+that indicates the device to be polled.
+The second is an integer whose bits flag which polling tasks are to be
+performed, as follows:
+.DS
+.ta 0.5i 1.5i
+	\fBPOLLIN\fR	Input data is available
+	\fBPOLLPRI\fR	Priority message is available
+	\fBPOLLOUT\fR	Output can be sent		
+	\fBPOLLERR\fR	A fatal error has occurred
+	\fBPOLLHUP\fR	A hangup condition exists
+	\fBPOLLNVAL\fR	\fBfd\fR does not access an open stream
+.DE
+.II poll.h
+These are defined in the header file
+.BR <sys/poll.h> .
+The third is an integer that gives the number of millseconds by
+which the response should be delayed.
+Note that the \*(CO clock timer runs at 100 Hz rather than the
+approximately 18 Hz clock used by MS-DOS.
+.PP
+.II pollopen()
+.II pollwake()
+The kernel functions
+.B pollopen()
+and
+.BR pollwake() ,
+respectively, initiate and terminate a polling event.
+.SH "Example"
+The following shell script displays the values of the
+.B CON
+structure in a driver that uses the internal-kernel interface.
+.DM
+# drvldump - show drvl entry points in a kernel binary
+# Usage: drvldump [-c] [kernel-name]
+.DE
+.DM
+SHOW_CON_ADDRS=n
+.DE
+.DM
+# a function - con_show name offset
+con_show () {
+	NAME=$1
+	OFFSET=$2
+	ADDR=`/conf/patch -p $KER $DEVCON+$OFFSET | sed -e "s/^.*0x/0x/"`
+	if [ "$ADDR" != 0x00000000 ]; then
+		echo "$ADDR	$NAME	$DEVCON"
+	fi
+}
+.DE
+.DM
+for ARG; do
+case $ARG in
+-c)
+	SHOW_CON_ADDRS=y
+	shift
+	;;
+--help|-h)
+	echo "Usage: drvldump [-c] [kernel-name]"
+	exit 1
+	;;
+esac
+done
+.DE
+.DM
+KER=${1-/coherent}
+.DE
+.DM
+if [ ! -f $KER ]; then
+	echo "Can't open $KER"
+	exit 1
+fi
+.DE
+.DM
+if [ "$SHOW_CON_ADDRS" = y ] ; then
+	echo "Starting addresses CON structs in drvl table:\en"
+	for D in `from 0 to 31`; do
+		DO=`expr $D \e* 8`
+		CON_ADDR=`/conf/patch -p $KER drvl+$DO | sed -e "s/^.*0x/0x/"`
+.DE
+.DM
+		if [ "$CON_ADDR" != 0x00000000 ]; then
+			echo "Major number $D: $CON_ADDR"
+		fi
+	done
+	echo
+fi
+.DE
+.DM
+echo "Device driver entry points found in CON structs.\en"
+.DE
+.DM
+for DEVCON in `nm -n $KER | grep "con\e\e$" | sed -e "s/^.* //"`; do
+	con_show open 8
+	con_show close 12
+	con_show block 16
+	con_show read 20
+	con_show write 24
+	con_show ioctl 28
+	con_show powerfail 32
+	con_show timeout 36
+	con_show load 40
+	con_show unload 44
+	con_show poll 48
+done
+.DE
+.SH "See Also"
+.B
+entry-point routines,
+internal data structures,
+internal kernel routines,
+set_user_error()
+.R

@@ -1,0 +1,254 @@
+.TH tmpfile() "" "" "STDIO Function (libc)"
+.PC "Create a temporary file"
+.B "#include <stdio.h>"
+\fBFILE *tmpfile(void);\fR
+.PP
+.II "file^create a temporary file"
+.II "temporary file^create"
+The function
+.B tmpfile()
+creates a file to hold data temporarily.
+The file is opened into binary update mode (\fBwb+\fR)
+and is removed automatically when it is closed or when the program exits.
+There is no way to access the temporary file by name.
+If your program needs to do so, it should open a file explicitly.
+.PP
+.B tmpfile()
+returns NULL if it could not create a temporary file.
+If it could, it returns a pointer to the
+.B FILE
+associated with the temporary file.
+The function
+.B exit()
+removes all files created by
+.BR tmpfile() .
+.SH Example
+This example implements a
+primitive file editor that can edit large files.
+It uses two temporary files to keep all changes.
+The editor accepts the following commands:
+.DS
+	\fBdn\fR	delete; \fBd52\fR deletes line 52
+	\fBin\fR	insert; \fBi7\fR inserts line before line 7
+	\fBpn\fR	print; \fBp17\fR prints line 17
+	\fBp\fR	print the entire file
+	\fBw\fR	write the edited file and quit
+	\fBq\fR	quit without writing the file
+.DE
+.PP
+The entire temporary file is copied with each command.
+.DM
+#include <stdio.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdarg.h>
+.DE
+.DM
+FILE *fp, *tmp[2];
+int linecount;
+.DE
+.\".DM
+.\"void
+.\"fatal(char *format, ...)
+.\"{
+.\"	va_list argptr;
+.\".DE
+.\".DM
+.\"	/* if there is a system message, display it */
+.\"	if(errno)
+.\"		perror(NULL);
+.\".DE
+.\".DM
+.\"	/* if there is a user message, use it */
+.\"	if(format != NULL) {
+.\"		va_start(argptr, format);
+.\"		vfprintf(stderr, format, argptr);
+.\"		va_end(argptr);
+.\"	}
+.\"	exit(EXIT_FAILURE);
+.\"}
+.\".DE
+.DM
+fatal(message)
+char *message;
+{
+	fprintf(stderr, "%s\en", message);
+	exit(EXIT_FAILURE);
+}
+.DE
+.DM
+/*
+ * Copy up to line number or EOF.
+ * Return number of lines copied.
+ */
+static int
+.\"copy(int line, FILE *ifp, FILE *ofp)
+copy(line, *ifp, ofp)
+int line; FILE *ifp, *ofp;
+{
+	int i, c, count;
+.DE
+.DM
+	count = 0;
+	for(c=i=1; (i<line || line==-1) && c!=EOF; i++) {
+		while((c = fgetc(ifp)) != EOF && c != '\en')
+			fputc(c, ofp);
+.DE
+.DM
+		if(c == '\en') {
+			count++;
+			fputc('\en', ofp);
+		}
+	}
+	return(count);
+}
+.DE
+.DM
+/*
+ * Read a file until line number is read.
+ * Return 1 if line is found before EOF.
+ */
+static int
+.\"find(int line, FILE *ifp)
+find(line, ifp)
+int line; FILE *ifp;
+{
+	int i, c;
+.DE
+.DM
+	for(c=i=1; i<line && c!=EOF; i++)
+		while((c = fgetc(ifp)) != EOF && c != '\en')
+			;
+	return(c != EOF);
+}
+.DE
+.DM
+main(int argc, char *argv[])
+{
+	int i, line, args;
+	char c, cmdbuf[80];
+.DE
+.DM
+	if(argc != 2)
+		fatal("usage: tmpfile filename\en");
+.DE
+.DM
+	if((tmp[0]=tmpfile())==NULL||(tmp[1]=tmpfile())==NULL)
+		fatal("Error opening tmpfile\en");
+.DE
+.DM
+	if((fp = fopen(argv[1], "r")) == NULL)
+		fatal("Error opening input file\en");
+.DE
+.DM
+	linecount = copy(-1, fp, tmp[i = 0]);
+	fclose(fp);
+.DE
+.DM
+	/* one file pass per command */
+	for(;;) {
+		if(gets(cmdbuf) == NULL)
+			fatal("EOF on stdin\en");
+.DE
+.DM
+		if(!(args = sscanf(cmdbuf, "%c%d", &c, &line)))
+			continue;
+		fseek(tmp[i], 0L, SEEK_SET);
+.DE
+.DM
+		switch(c) {
+		/* Write edited file */
+		case 'w':
+			if((fp = fopen(argv[1], "w")) ==  NULL)
+				fatal("Error opening file\en");
+			copy(linecount + 1, tmp[i], fp);
+			fclose(fp);
+.DE
+.DM
+		/* Quit */
+		case 'q':
+			exit(EXIT_SUCCESS);
+.DE
+.DM
+		/* Print entire file */
+		case 'p':
+			if(args == 1) {
+				copy(linecount + 1, tmp[i], stdout);
+				continue;
+			}
+			if(find(line, tmp[i]))
+				copy(2, tmp[i], stdout);
+			continue;
+.DE
+.DM
+		/* Delete a line */
+		case 'd':
+			if(args == 1)
+				printf("dn where n is a number\en");
+			else if(line > linecount)
+				printf("only %d lines\en", linecount);
+.DE
+.DM
+			else {
+				copy(line, tmp[i], tmp[i^1]);
+				if(find(2, tmp[i]))
+					copy(-1, tmp[i], tmp[i^1]);
+.DE
+.DM
+				linecount--;
+				fseek(tmp[i], 0L, SEEK_SET);
+				i ^= 1;
+			}
+			continue;
+.DE
+.DM
+		/* Insert a line */
+		case 'i':	
+			if(1 == args)
+				printf("in where n is a number\en");
+			else if(line > linecount)
+				printf("only %d lines\en", linecount);
+.DE
+.DM
+			else {
+				copy(line, tmp[i], tmp[i^1]);
+				printf("Enter inserted line\en");
+				copy(2, stdin, tmp[i^1]);
+				copy(-1, tmp[i], tmp[i^1]);
+				linecount++;
+.DE
+.DM
+				fseek(tmp[i], 0L, SEEK_SET);
+				i ^= 1;
+			}
+			continue;
+.DE
+.DM
+		default:
+			printf("Invalid request\en");
+			continue;
+		}
+	}
+}
+.DE
+.SH "See Also"
+.Xr "mktemp()," mktemp
+.Xr "libc," libc
+.Xr "tempnam()," tempnam
+.Xr "tmpnam()" tmpnam
+.br
+\*(AS, \(sc7.9.4.3
+.br
+\*(PX Standard, \(sc8.1
+.SH Notes
+If a program exits abnormally or aborts, the files created by
+.B tmpfile()
+may not be removed.
+.\".PP
+.\"The Standard requires that the temporary file created by
+.\".B tmpfile
+.\"work as if it were a file written onto a mass-storage device;
+.\"however, the implementor is not required to do so literally.
+.\".PP
+.\"The implementation determines
+.\"whether a temporary file is removed when a program exits abnormally.

@@ -1,0 +1,130 @@
+# /conf/upd2tay.post
+# Thu Nov 18 15:57:25 1993 CST
+
+. /usr/lib/shell_lib.sh
+
+/bin/echo "
+We will now convert your existing uucp configuration files to the format
+used by Taylor uucp. This is not a destructive process.  Before existing
+files are overwritten, you will be given the opportunity to save them to
+a tarred archive.
+
+The conversion process builds new Taylor uucp configuration files from
+the data in your existing files, saves your old uucp files to a tarred
+archive and finally copys the new files into place.  The conversion of
+your existing data files may have problems if you are using undocumented
+features of the existing uucp facilities.  For example, if you have
+multiple entries for a single uucp site in L.sys, you may not achieve
+the expected results with this conversion.  If you run shell scripts to
+swap different L-devices files, e.g. to use multiple modems on your
+system, this conversion process will only deal with the current
+L-devices file; the data from the other L-devies files will not be
+accounted for.
+
+If you notice messages that indicate potential problems during
+conversion, write them down. If necessary, you can always re-run this
+shell script (/conf/upd2tay.post).
+"
+/bin/echo -n "Hit <Enter> to continue..."
+read x
+
+echo "Testing permissions on /usr/lib/uucp..."
+if test -w /usr/lib/uucp
+	then
+	echo "Permissions appear to be acceptable."
+else
+	echo "Permissions are not correct! Setting correct permissions."
+	chmog 755 uucp uucp /usr/lib/uucp
+fi
+
+echo "Testing for existence of Taylor configuration files..."
+if test -f /usr/lib/uucp/sys
+	then
+	echo "The file /usr/lib/uucp/sys Already exists. Aborting UUCP conversion process"
+	echo "\nHit <Enter> to continue...\c"
+	read N
+	exit 0
+fi
+
+
+if test -f /usr/lib/uucp/port
+	then
+	echo "The file /usr/lib/uucp/port already exists. Aborting UUCP conversion process."
+	echo "\nHit <Enter> to continue...\c"
+	read N
+	exit 0
+fi
+
+
+if test -f /usr/lib/uucp/dial
+	then
+	echo "The file /usr/lib/uucp/dial already exists. Aborting UUCP conversion process."
+	echo "\nHit <Enter> to continue...\c"
+	read N
+	exit 0
+fi
+
+echo "
+Taylor uucp does not use the files /usr/lib/uucp/L.sys nor
+/usr/lib/uucp/Permissions. Instead, the contents of these two files are
+merged into the single file /usr/lib/uucp/sys.
+
+This conversion process makes several assumptions. Please read them
+carefully.
+
+	1) In the Permissions file, if you have specified NOWRITE and 
+	   NOREAD parameters, they follow the READ and WRITE parameters.
+
+	2) There is only 1 ACU entry in /usr/lib/uucp/L-devices.
+
+	3) If an L.sys entry occupies more than 1 line, the line
+	   continuation character (backslash) is followed immediately 
+	   by a newline.
+
+	4) A single L.sys entry occupies no more than 2 lines.
+
+If you want to check your existing uucp configuration files against the
+items just listed, you may go to a subshell now by typing an exclamation
+point - \"!\".  After viewing the files, type \"exit\" to return to
+installation.
+"
+
+read_input "Do you wish to continue with the UUCP conversion" ANS y \
+	require_yes_or_no
+
+is_yes $ANS || {
+	echo "You can run this script at a later";
+	echo "time by invoking /conf/upd2tay.post";
+	exit 0;
+}
+
+echo "Now converting L.sys         running: /conf/taylor/cvlsys.";
+/conf/taylor/cvlsys;
+
+echo "Now converting modemcap       running: /conf/taylor/cvmodem."
+/conf/taylor/cvmodem
+
+echo "Now converting L-devices 	    running: /conf/taylor/cvldev."
+/conf/taylor/cvldev
+
+echo -n "
+You have now installed the Coherent implementation of Taylor uucp.
+Please review the information on the sys, dial and port files in
+directory /usr/lib/uucp before using the new uucp facilities.
+
+Important note: The manner in which Taylor uucp handles dialing via a
+modem is different from COHERENT uucp's method. Instead of relying upon
+data in /etc/modemcap, Taylor uucp 'chats' with the modem to set
+register values and to dial. When a connection has ended, Taylor uucp
+can be configured to chat with the modem again to set registers or
+perform other functions.
+
+Because of this, you may encounter difficulty getting Taylor to dial out
+during your initial attempts to use it. Please refer to the UUCP
+articles in your new COHERENT manual for making dial file entries.
+
+Hit <Enter> to continue "
+read N
+exit 0
+
+# end of /conf/upd2tay.post

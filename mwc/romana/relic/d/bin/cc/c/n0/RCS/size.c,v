@@ -1,0 +1,162 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.29.19.06.55;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * C compiler.
+ * sizeof(thing) computation for symbols and trees.
+ */
+#ifdef   vax
+#include "INC$LIB:cc0.h"
+#else
+#include "cc0.h"
+#endif
+
+/*
+ * Given a pointer to a symbol table entry,
+ * return the size of the object in "bytes".
+ */
+sizeof_t ssize(sp)
+register SYM *sp;
+{
+	register sizeof_t n;
+	n = tidsize(sp->s_type, sp->s_ip, sp->s_dp, 1);
+	if (n == 0 && sp->s_class == C_GREF)
+		sizewarn(sp->s_id, 0);
+	return(n);
+}
+
+/*
+ * Much like ssize, but takes a tree node pointer
+ * rather than a symbol table entry pointer.
+ */
+sizeof_t tsize(tp)
+register TREE *tp;
+{
+	register sizeof_t n;
+	n = tidsize(tp->t_type, tp->t_ip, tp->t_dp, 1);
+	if (n == 0 && tp->t_op == GID && tp->t_sp->s_class == C_GREF)
+		sizewarn(tp->t_sp->s_id, 0);
+	return(n);
+}
+
+/*
+ * Much like ssize, but takes a symbol pointer and a dimension list.
+ */
+sizeof_t sdsize(sp, dp)
+register SYM *sp;
+DIM *dp;
+{
+	register sizeof_t n;
+	n = tidsize(sp->s_type, sp->s_ip, dp, 1);
+	if (n == 0 && sp->s_class == C_GREF)
+		sizewarn(sp->s_id, 0);
+	return(n);
+}
+
+
+/*
+ * Figure out a size given a type,
+ * an INFO structure pointer and a dimension list.
+ */
+sizeof_t tidsize(t, ip, dp, f)
+register int t;
+register INFO *ip;
+register DIM *dp;
+int f;			/* Message requested flag */
+{
+	unsigned long n;
+	int a = 0;		/* Array flag for szcheck() */
+	char *s = "object";
+
+	n = 1;
+	while (dp!=NULL && (dp->d_type==D_ARRAY || dp->d_type==D_MOSAR)) {
+		s = "array";
+		n *= dp->d_bound;
+		dp = dp->d_dp;
+		a += 1;
+	}
+	if (n == 0)
+		return (0);
+	if (dp!=NULL && dp->d_type==D_FUNC)
+		return(f ? sizewarn("function", 0) : 0);
+	if (dp != NULL)
+		n *= mysizes[T_PTR];
+	else {
+		if (t == T_VOID)
+			return(f ? sizewarn("void", 0) : 0);
+		if (isfr(t)) {
+			if (f) unksize(t, ip);
+			return (0);
+		}
+		if (t==T_STRUCT || t==T_UNION) {
+			s = (t==T_STRUCT) ? "structure" : "union";
+			n *= ip->i_size;
+		} else {
+			if (t == T_ENUM)
+				t = ip->i_type;
+			n *= mysizes[t];
+		}
+	}
+	if (f)
+		n = szcheck(n, a, s);
+	return(n);
+}
+
+/*
+ * Is this a forward reference?
+ */
+isfr(t)
+register t;
+{
+	if (t==T_FSTRUCT || t==T_FUNION || t==T_FENUM)
+		return (1);
+	return (0);
+}
+
+/*
+ * Mutter about an unknown size.
+ */
+unksize(t, sp)
+register t;
+register SYM *sp;
+{
+	register char *p;
+
+	p = "enumeration";
+	if (t == T_FSTRUCT)
+		p = "structure";
+	if (t == T_FUNION)
+		p = "union";
+	cerror("size of %s \"%s\" is not known", p, sp->s_id);
+}
+
+static
+sizewarn(s, i)
+char *s;
+register int i;
+{
+	cerror("sizeof(%s) set to %d", s, i);
+	return(i);
+}
+@

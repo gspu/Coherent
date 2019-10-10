@@ -1,0 +1,80 @@
+% PostScript/lib/pbc.ps 3/26/91
+% Postal Bar Codes
+% Cf. Andrew Binstock, "Postal Barcodes", C Gazette, V. 5 #2, pp. 23-26.
+
+/inch { 72 mul } bind def
+
+% bool pbc_bar -
+% Print one bar of a postal bar code at current position,
+% move to position for next bar.
+% Long bar height: .115 - .135 inch, use .125.
+% Short bar height: .040 - .060 inch, use .050.
+% Horizontal space between bars: .045 - .050 inch, use .050.
+/pbc_bar
+{
+	0 0 moveto
+	{ 0 .125 inch lineto }			% true == long
+	{ 0 .050 inch lineto }			% false == short
+	ifelse
+	.050 inch 0 translate
+} bind def
+
+% Postal bar code digit encodings (as bitmaps).
+/pbc_code [
+	% 74210
+	2#11000		% 0
+	2#00011		% 1
+	2#00101		% 2
+	2#00110		% 3
+	2#01001		% 4
+	2#01010		% 5
+	2#01100		% 6
+	2#10001		% 7
+	2#10010		% 8
+	2#10100		% 9
+] def
+
+% i pbc_digit -
+% Print 5 postal bar code bars representing one digit of zip code.
+/pbc_digit
+{
+	pbc_code exch get			% pbc_code[i]
+	1 1 5 {
+		pop				% ignore loop index
+		dup 2#10000 and 2#10000 eq	% test next bit
+		pbc_bar				% print a bar
+		1 bitshift			% shift for next bit
+	} for
+	pop					% clean arg
+} bind def
+
+% str lrx lry pbc -
+% Print postal bar code for str on envelope with lower right corner lrx, lry.
+% str can be either a 5-digit or a 9-digit zip code.
+% This handles digits and '-', but does not check for other bogus characters.
+% Horizontal position: baseline .250 inch from bottom of envelope.
+% Vertical position: 3.875 - 4.000 inch from right edge, use 4.000.
+% Bar width: .015 - .025 inch, use .020.
+/pbc
+{
+	gsave
+	translate				% to lower right corner
+	-4 inch .250 inch translate		% to position of first bar
+	.020 inch setlinewidth			% bar width
+	/pbc_sum 0 def				% checksum
+	true pbc_bar				% opening long bar
+	{					% zip code character on stack
+		dup (-) 0 get ne {		% skip - in 9-digit code
+			(0) 0 get sub		% ASCII to int, now 0-9 on stack
+			dup pbc_sum add /pbc_sum exch def	% update checksum
+			pbc_digit		% print digit barcode
+		} if
+	} forall
+	pbc_sum 10 mod 10 exch sub 10 mod	% compute checksum
+	pbc_digit				% print checksum barcode
+	true pbc_bar				% closing long bar
+	stroke
+	grestore
+} bind def
+
+% end of pbc.ps

@@ -1,0 +1,1939 @@
+.TH twm "" "" "X Utility"
+.PC "Tab Window Manager for the X Window System"
+\fBtwm [\-display \fIdpy\^\fB] [\-s] [\-f \fIinitfile\^\fB] [\-v]\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-display \fIdpy\fR"
+Specifies the X server to use
+.IC "\fB\-f \fIfilename\fR"
+Name of the start-up file to use
+.IC \fB\-s\fR
+Manage only the default screen,
+as specified by option \fB\-display\fR or by the
+environmental variable \fBDISPLAY\fR
+.IC \fB\-v\fR
+Verbose:
+tell \fBtwm\fR to print error messages whenever an unexpected X error occurs
+.HE
+.B twm
+is a window manager for the X Window System.
+It provides title bars, shaped windows, several forms of icon management,
+user-defined macro functions, click-to-type and mouse-driven keyboard focus,
+and user-specified bindings for keys and mouse buttons.
+.PP
+The following describes how to ``program''
+.B twm
+\(em that is, how to modify its appearance and its behavior by setting
+variables, and by defining functions and macros.
+For a description of how to use
+.B twm
+interactively, see the tutorial at the beginning of this manual.
+This tutorial also introduces many of the terms used in this article,
+and describes
+.BR twm 's
+in the grand hierarchy of the X Window System.
+.SH "Invoking twm"
+To begin,
+.B twm
+.\" usually is started by the user's session manager or start-up script.
+usually is started by the X utility
+.BR xinit .
+When launched by
+.BR xinit ,
+.B twm
+frequently is executed in the foreground as the last client named in the file
+.BR $HOME/.xinitrc .
+When run this way, exiting
+.B twm
+terminates the X session.
+.PP
+When
+.B twm
+opens a window for an application, it surrounds the window with
+a ``frame'' that has special border and a title bar at the top.
+.II "xeyes^example of window"
+The following shows the window for the X client
+.BR xeyes :
+.PH 1 1 \*(XD/xeyes.eps
+The top of the window has a
+.IR "title bar ,
+which displays the name of the program, and three screen buttons.
+The following describes the buttons from left to right:
+.IP \(bu 0.3i
+The leftmost button, which has a bullet in it, ``iconifies'' the program:
+when you click it, the window disappears from the screen and its icon at the
+top of the screen displays the
+.B X
+logo.
+To redraw the window on the screen, click on its icon.
+.IP \(bu
+The second button from the left, which displays
+displays a stylized capital `D', controls a menu for modifying aspects
+of the window.
+When you click on this button, a drop-down menu appears that has the following
+entries:
+.RS
+.IP \fK(Iconify)\fR
+Iconify the window.
+This is identical to clicking on the leftmost button.
+.IP \fK(Lower)\fR
+If this window overlaps with one or more other windows, this
+option puts this window in the background below the overlapping windows.
+.IP \fK(Move)\fR
+Move the window.
+An outline of the window appears, which you can drag to another position
+on the screen.
+When you release the left mouse button,
+.B twm
+re-draws the window in its new position.
+.IP \fK(Raise)\fR
+If this window overlaps with one or more other windows, raise this
+to the foreground atop the other windows.
+.IP \fK(Refresh)\fR
+Re-draw the window, to eliminate ``garbage'' that may have appeared
+on the screen.
+.IP \fK(Resize)\fR
+Resize the window:
+.B twm
+draws an outline of the window; by dragging the mouse, you can change the
+size of the window.
+Note that the size of the window does not change until the you drag the
+mouse cursor past the current border of the window;
+therefore, if you want
+to make the window smaller, first stretch the window larger, then shrink it.
+.IP \fK(Applications)\fR
+Display the Applications menu, the same menu you see if you click the left
+mouse button while the mouse cursor is not in any application window.
+.IP \fK(Properties)\fR
+Display a sub-menu that has three entries:
+\fK(Autoraise)\fR, \fK(Focus)\fR, and \fK(Unfocus)\fR.
+Selecting an entry from the sub-menu toggles the corresponding property
+of the window.
+.IP  "\fBTwm Operations\fR"
+Display the Operations menu, the same menu you see if you click the right
+mouse button while the mouse cursor is not in any application window.
+.IP "\fK(Info)\fR"
+Display a pop-up window that gives the geometry of the window, plus other
+information.
+.IP "\fK(Kill_Program)\fR"
+Invoke the
+.B twm
+function
+.BR f.destroy ,
+which kills an application.
+This function is described below.
+.IP "\fK(Close_Window)\fR"
+Invoke the
+.B twm
+function
+.BR f.delete ,
+which closes the current window.
+If you close all of an application's windows, the application dies gracefully.
+This function, which is less violent than
+.BR f.destroy ,
+is described below.
+.RE
+.IP \(bu
+The rightmost button, which displays four nested boxes,
+lets you move the window.
+.PP
+In addition, clicking on the title bar itself, apart from the three buttons,
+lets you move the window.
+.PP
+For details on how to modify the appearance of the title bar,
+see below for the description of the variable
+.B ShowIconManager
+and of the function
+.BR f.showiconmgr .
+.PP
+When a client creates a new window,
+.B twm
+honors any size and location information,
+usually requested through the command-line option
+.BR \-geometry ,
+or the application's resources.
+If the user supplies no location or size when he invokes the application,
+.B twm
+displays an outline of the window's default size, its title bar, and lines
+that divide the window into a 3\(mu3 grid that tracks the mouse cursor.
+Clicking the left mouse button
+fixes the window at the current position and give it the default size.
+Pressing the middle mouse button (or both mouse buttons, should
+the mouse have only two buttons) and dragging the outline gives the window
+its current position but lets you resize the sides as described above.
+Clicking the right mouse button tells
+.B twm
+to give the window its current position but make it long enough
+to touch the bottom the screen.
+.SH Options
+.B twm
+recognizes the following command-line options:
+.IP "\fB\-display \fIdpy\fR"
+Specify the display to use.
+Under \*(CO X,
+.B twm
+recognizes only the default display.
+.IP "\fB\-f \fIfilename\fR"
+Name the start-up file to use.
+By default,
+.B twm
+uses file
+.\" \fB$HOME/.twmrc.\fInum\fR
+.\" (where
+.\" .I num
+.\" is a screen number) or
+.BR $HOME/.twmrc .
+.II twmrc
+.II start.twmrc
+If no such file exists, it uses file
+.BR /usr/X11/lib/twm/start.twmrc .
+.IP \fB\-s\fR
+Manage only the default display, as specified by option \fB\-display\fR
+or by the environmental variable \fBDISPLAY\fR.
+By default,
+.B twm
+attempts to manage all displays under a given server.
+.IP \fB\-v\fR
+Verbose:
+tell
+.B twm
+to print error messages whenever an unexpected X error occurs.
+This can be useful when debugging an applications,
+but can be distracting in regular use.
+.SH Customization
+When
+.B twm
+comes up, it reads the following start-up files, in the order
+in which the appear here:
+.\" .IP "\fB$HOME/.twmrc.\fIscreennumber\fR"
+.\" This gives your personal start-up file on systems that have multiple screens.
+.\" .I screennumber
+.\" is the small, positive integer that identifies the screen
+.\" (i.e., the last number in the environmental variable
+.\" .BR DISPLAY ).
+.IP "\fB$HOME/.twmrc\fR"
+This gives your personal start-up file on systems that have only one screen.
+.IP "\fB/usr/X11/lib/twm/system.twmrc\fR"
+.\" If it finds neither of the preceding files,
+If it does not find preceding file,
+.B twm
+reads this file for a default configuration.
+You can tailor this file to give novice users a default configuration.
+.PP
+If you want to customize
+.B twm
+to suit your tastes, copy file
+.B /usr/X11/lib/twm/system.twmrc
+into your home directory, rename it
+.BR .twmrc ,
+and modify it as you like.
+You can, for example, change the default colors used on the windows, add or
+delete entries in
+.BR twm 's
+pop-up menus, or change the options on the programs that the menus invoke.
+The tutorial
+.IR "Using X Windows" ,
+earlier in this manual, introduces how to modify this file.
+.PP
+.\" If it finds none of the above start-up files,
+If it finds neither of these start-up files,
+.B twm
+uses the built-in defaults described above.
+.II resource^bitmapFilePath
+.II bitmapFilePath
+The only resource used by
+.B twm
+is
+.BR bitmapFilePath ,
+which gives a colon-separated list of directories to search
+when looking for bit-map files.
+.\"(For more information, see
+.\"the \fIAthena Widgets\fR manual and
+.\"the Lexicon entry for
+.\".BR xrdb .)
+.PP
+A start-up file contains the following classes of specifications:
+.IP \fBVariables\fR
+These specifications come first in a start-up file.
+They describe fonts, colors, cursors, border widths, icon and window placement,
+highlighting, autoraising, layout of titles, jumping the cursor
+(or ``warping''), and use of the
+icon manager.
+.IP \fBBindings\fR
+These specifications usually come in the start-up file after the
+.B Variables
+specifications.
+They specify the functions to be invoked when keyboard and mouse
+buttons are pressed in windows, icons, titles, and frames.
+.IP \fBMenus\fR
+These specifications give any user-defined menus.
+These menus contain functions to be invoked or commands to be executed.
+.PP
+Variable names and keywords are case-insensitive.
+Strings must be surrounded by quotation marks, and are case-sensitive.
+A pound sign `#' outside of a string tells
+.B twm
+to treat the rest of the line as a comment.
+.PP
+The following three sections detail these classes of specifications.
+.SH Variables
+Many aspects of
+.BR twm 's
+user interface are controlled by variables that you
+can set at the beginning of a start-up file.
+Some variables are Boolean \(em that is, the option a variable controls
+is turned on if that variable is present, and is turned off if it is absent.
+Other options require keywords, numbers, strings, or lists of all of these.
+.PP
+Some variables can take a list of options or arguments that are
+enclosed within braces;
+items within a list are separated by white space or newlines.
+For example:
+.DM
+	AutoRaise { "xclock" "XTerm" }
+.DE
+.PP
+or
+.DM
+	AutoRaise	
+	{
+		"xclock"
+		"XTerm"
+	}
+.DE
+.PP
+When
+.B twm
+searches a variable that contains a list of strings that represent windows
+(e.g., to determine whether to enable
+.BR AutoRaise ,
+as shown above),
+the string must exactly match the window's name
+(given by the window property
+.BR WM_NAME ),
+or its resource or class name (both given by the window property
+.BR WM_CLASS ).
+The above example turns on
+.B AutoRaise
+for all windows named
+.B xclock
+and all windows of class
+.BR XTerm .
+.PP
+A string argument that is interpreted as a file name
+(as with the resources
+.BR Pixmaps ,
+.BR Cursors ,
+and
+.BR IconDirectory )
+is prefixed by your home directory
+(as given by the environmental variable
+.BR HOME )
+if its first character is a tilde `~'.
+If, however, its first character is a colon `:',
+.B twm
+assumes that the name refers to one of the internal bit-maps used to
+create the default title bars symbols, that is,
+.B :xlogo
+or
+.B :iconify
+(both hold the X logo used within the
+.K iconify
+button),
+.B :resize
+(the nested squares used within the
+.K resize
+button), and
+.B :question
+(the question mark used in place of non-existent bit-map files).
+.PP
+You can set the following variables at the beginning of a start-up file:
+.IP "\fBAutoRaise { \fIwin-list\fB }\fR"
+Raise every window automatically whenever the mouse cursor enters it.
+This action can be enabled or disabled interactively
+on an individual window by using the function
+.BR f.autoraise .
+.IP "\fBAutoRelativeResize\fR"
+When you size or resize a window,
+.B twm
+by default waits for the mouse cursor to cross an edge of the window
+before it begins the resizing operation.
+Command
+.B AutoRelativeResize
+turns off this default behavior.
+Instead, moving the mouse cursor automatically
+shifts the nearest edge or edges by the same amount.
+This lets you resize windows that extend past the edge of the screen.
+This option is particularly useful for people
+who like the press-drag-release method of sweeping out the size of a window.
+.IP "\fBBorderColor \fIstring \fB[{ \fIwincolorlist\fB }]\fR"
+Set the default color of the border drawn around every non-iconified window.
+This variable can be given only within a
+.B Color
+or
+.B Monochrome
+list.
+The optional
+.I wincolorlist
+lists pairs of windows and colors,
+with the given window being assigned the corresponding color.
+For example:
+.DM
+	BorderColor "gray50"
+	{
+		"XTerm"	"red"
+		"xclock"	"green"
+	}
+.DE
+.IP
+The default border color is
+.BR black .
+.IP "\fBBorderTileBackground \fIstring \fB[{ \fIwincolorlist\fB }]\fR"
+Set the default background color in the gray pattern
+used in unhighlighted borders.
+It is used only if
+.B NoHighlight
+has not been set, and it can be given only within a
+.B Color
+or
+.B Monochrome
+list.
+.I wincolorlist
+sets the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR white .
+.IP "\fBBorderTileForeground \fIstring \fB[{ \fIwincolorlist\fB }]\fR"
+Exactly like
+.BR BorderTileBackground ,
+described above, except that it sets the foreground color rather than the
+background color.
+The default color is
+.BR black .
+.IP "\fBBorderWidth \fIpixels\fR"
+Set the width, in pixels, of the border that surrounds a window frame.
+This variable applies to every client has not set the variable
+.BR ClientBorderWidth ,
+and to windows that
+.B twm
+creates (e.g., the icon manager).
+The default width is two pixels.
+.IP "\fBButtonIndent \fIpixels\fR"
+Set the amount, in pixels, by which title buttons are indented on all sides.
+Positive values make the buttons smaller than
+the window text and highlight area, so they stand out.
+Setting this and the variable
+.B TitleButtonBorderWidth
+to zero makes title buttons as tall and wide as possible.
+The default is one pixel.
+.IP "\fBClientBorderWidth\fR"
+Set the width of the border of a window's frame
+to the width of the window's initial border, rather than to the value of
+.BR BorderWidth .
+.IP "\fBColor { \fIcolors-list\fB }\fR"
+Set the colors to use on polychromatic displays.
+.I colors-list
+consists of the following color variables and their values:
+.DS
+.B
+	DefaultBackground
+	DefaultForeground
+	MenuBackground
+	MenuForeground
+	MenuTitleBackground
+	MenuTitleForeground
+	MenuShadowColor
+.R
+.DE
+.IP
+Each of the following color variables can take a list of pairs of
+window names and colors, thus letting you assign specific colors
+to specific windows.
+For details, see the description of the variable
+.BR BorderColor ,
+above:
+.DS
+.B
+	BorderColor
+	IconManagerHighlight
+	BorderTitleBackground
+	BorderTitleForeground
+	TitleBackground
+	TitleForeground
+	IconBackground
+	IconForeground
+	IconBorderColor
+	IconManagerBackground
+	IconManagerForeground
+.DE
+.IP
+For example:
+.DM
+.ta 0.5i 1.0i 2.5i
+	Color
+	{
+		MenuBackground 	"gray50"
+		MenuForeground	"blue"
+		BorderColor	"red" { "XTerm" "yellow" }
+		TitleForeground	"yellow"
+		TitleBackground	"blue"
+	}
+.DE
+.IP
+All of these color variables may also be specified for the variable
+.BR Monochrome ,
+thus letting you use the same initialization file for both color and
+monochrome displays.
+.IP
+For a list of recognized colors, see the file
+.BR /usr/X11/lib/rgb.txt .
+.IP "\fBConstrainedMoveTime \fImilliseconds\fR"
+Set the time interval during which two button clicks begin
+a constrained-move operation.
+Double-clicking within this period of time when invoking
+.B f.move
+causes the window to move only horizontally or vertically.
+Setting this variable to zero disables constrained moves.
+The default is 400 milliseconds.
+.IP "\fBCursors { \fIcursor-list\fB }\fR"
+Set the glyphs that
+.B twm
+uses for mouse cursors.
+Each cursor can be defined either from the
+.B cursor
+font or from two bit-map files.
+Shapes from the
+.B cursor
+font can be specified directly, as follows:
+.DS
+	\fIcursorname\fR  "\fIstring\^\fR"
+.DE
+.IP
+where
+.I cursorname
+is one of the cursor names given below, and
+.I string
+is the name of a glyph, as set in the file
+.B /usr/X11/include/cursorfont.h
+(without the prefix
+.BR XC_ ).
+.IP
+If the cursor is to be defined from a bit-map file,
+use the following syntax:
+.DS
+	\fIcursorname\fR  "\fIimage\^\fR" "\fImask\^\fR"
+.DE
+.IP
+.I image
+and
+.I mask
+name the files that contain, respectively,
+the glyph image and mask in bit-map form.
+(For details on bit-mapped images, see the Lexicon entry for the X client
+.BR bitmap ).
+The cursor bit-map files are located in the same manner as icon bit-map files.
+.IP
+The following gives the default cursor definitions:
+.DM
+.ta 0.5i 1.0i 2.5i
+	Cursors
+	{
+		Frame	"top_left_arrow"
+		Title	"top_left_arrow"
+		Icon	"top_left_arrow"
+		IconMgr	"top_left_arrow"
+		Move	"fleur"
+		Resize	"fleur"
+		Menu	"sb_left_arrow"
+		Button	"hand2"
+		Wait	"watch"
+		Select	"dot"
+		Destroy	"pirate"
+	}
+.DE
+.IP
+For a table that shows available cursor shapes,
+see the entry in this manual for the X program
+.BR xfd .
+.IP "\fBDecorateTransients\fR"
+Give title bars to transient windows (that is, windows that contain the property
+.BR WM_TRANSIENT_FOR ).
+By default, transient windows are not reparented.
+.\" (fwb) whatever that means ...
+.IP "\fBDefaultBackground \fIstring\fR"
+Set the background color used in the sizing and information windows.
+The default is
+.BR white .
+.IP "\fBDefaultForeground \fIstring\fR"
+Set the foreground color used in the sizing and information windows.
+The default is
+.BR black .
+.IP "\fBDontIconifyByUnmapping { \fIwin-list\fB }\fR"
+List the windows not to be iconified by
+simply unmapping the window (as is the case if the variable
+.B IconifyByUnmapping
+has been set).
+This variable often is used to force some windows to be treated
+as icons whereas other windows are handled by the icon manager.
+.IP "\fBDontMoveOff\fR"
+Do not let windows be moved off the screen.
+The function
+.B f.forcemove
+overrides this function.
+.IP "\fBDontSqueezeTitle [{ \fIwin-list\fB }]\fR"
+Do not squeeze title bars, as described below for the variable
+.BR SqueezeTitle .
+If the optional list of windows is supplied, only the windows named therein
+are stopped from being squeezed.
+.IP "\fBForceIcons\fR"
+The icon pixel maps specified in the variable
+.BR Icons ,
+described below, should override any client-supplied pixel maps.
+.IP "\fBFramePadding \fIpixels\fR"
+Set the gap between the title-bar decorations
+(the button and text) and the window's frame.
+The default is two pixels.
+.IP "\fBIconBackground \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the background color of icons.
+It can be specified only within a \fBColor\fR or \fBMonochrome\fR list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR white .
+.IP "\fBIconBorderColor \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the color of the border of icon windows.
+It can be specified only inside of a \fBColor\fR or \fBMonochrome\fR list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR black .
+.IP "\fBIconBorderWidth \fIpixels\fR"
+Set the width, in pixels, of the border of icon windows.
+The default is two pixels.
+.IP "\fBIconDirectory \fIstring\fR"
+Set the directory that
+.B twm
+should search if it cannot find a bit-map file in any of the directories
+named in the resource
+.BR bitmapFilePath .
+.IP "\fBIconFont \fIstring\fR"
+Set the font to be used to display icon names within icons.
+The default font is
+.BR variable .
+.IP "\fBIconForeground \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the foreground color used when displaying icons.
+It can be specified only inside of a
+.B Color
+or
+.B Monochrome
+list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR black .
+.IP "\fBIconifyByUnmapping [{ \fIwin-list\fB }]\fR"
+Iconify windows by unmapping them, without trying to map any icons.
+This assumes that you will remap the window through the icon manager,
+the function
+.BR f.warpto ,
+or the menu
+.BR TwmWindows .
+If the optional
+.I win-list
+is provided, only the windows it names will be iconified by unmapping.
+Windows that have set both this and the option
+.B IconManagerDontShow
+may not be accessible if the user's start-up file does not contain a
+binding to the menu
+.BR TwmWindows .
+.IP "\fBIconManagerBackground \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the background color for icon-manager entries.
+It can be specified only within a
+.B Color
+or
+.B Monochrome
+list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR white .
+.IP "\fBIconManagerDontShow\fB [{ \fIwin-list\fB }]\fR"
+The icon manager should not display any windows.
+If the optional \fIwin-list\fR is given, only the windows named therein will
+not be displayed.
+This variable is used to prevent windows that are rarely iconified
+(such as
+.B xclock
+or
+.BR xload )
+from taking up space in the icon manager.
+For example:
+.DM
+	IconManagerDontShow 
+	{ 
+	    "Virtual Desktop" 
+	    "xbiff" 
+	    "xclock" 
+	    "xload"
+	    "oclock"
+	}
+.DE
+.IP "\fBIconManagerFont \fIstring\fR"
+Set the font used when displaying icon-manager entries.
+The default font is
+.BR variable .
+.IP "\fBIconManagerForeground \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the foreground color used when displaying icon-manager entries.
+It can be specified only within a
+.B Color
+or
+.B Monochrome
+list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR black .
+.IP "\fBIconManagerGeometry \fIstring\fB [ \fIcolumns\fB ]\fR"
+Set the geometry of the icon-manager window.
+.I string
+gives the dimensions of the icon manager's window, in standard nomenclature.
+.B twm
+divides that window into
+.I columns
+pieces, which are scaled according to the number of entries in the icon manager.
+The icon manager arranges its icons in rows, each of which contains
+.I columns
+icons.
+The default number of columns is one.
+.IP "\fBIconManagerHighlight \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the border color to be used when highlighting
+the icon manager entry that currently has the focus.
+It can be set only inside of a \fBColor\fR or \fBMonochrome\fR list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR black .
+.IP "\fBIconManagers { \fIiconmgr-list\fB }\fR"
+This variable specifies a list of icon managers to create.
+Each item in
+.I iconmgr-list
+has the following format:
+.DS
+	\fB"\fIwinname\^\fB" ["\fIiconname\^\fB"] "\fIgeometry\^\fB" \fIcolumns\fR
+.DE
+.IP
+where
+.I winname
+names the window to put into this icon manager,
+.I iconname
+names the icon manager window's icon,
+.I geometry
+is a standard geometry specification, and
+.I columns
+is the number of columns in this icon manager as described by the variable
+.B IconManagerGeometry
+(described above).
+For example:
+.DM
+	IconManagers
+	{
+		"XTerm"	"=300x5+800+5"	5
+		"myhost"	"=400x5+100+5"	2
+	}
+.DE
+.IP
+In this example, a client whose name or class is
+.B XTerm
+will has an entry created in the
+.B XTerm
+icon manager, and a client whose name is
+.B myhost
+will be put into the
+.B myhost
+icon manager.
+.IP "\fBIconManagerShow { \fIwin-list\fB }\fR"
+The windows in
+.I win-list
+appear in the icon manager.
+When used with the variable
+.BR IconManagerDontShow ,
+only the windows in this list appear in the icon manager.
+.IP "\fBIconRegion \fIgeomstring vgrav hgrav gridwidth gridheight\fR"
+Set the area in the root window to place icons
+if the client provides no icon-location information.
+.I geomstring
+is a quoted string that contains a standard geometry specification.
+If multiple
+.I IconRegion
+lines are given,
+.B twm
+places icons put into succeeding icon regions when the first is full.
+.I vgrav
+controls whether icons fill the region from top to bottom or vice versa;
+this must be either \fBNorth\fR or \fBSouth\fR.
+Likewise,
+.I hgrav
+controls whether icons fill the region from left to right or vice versa;
+it must be either \fBEast\fR or \fBWest\fR.
+Icons are laid out within the region on a grid whose cells are
+.I gridwidth
+pixels wide and
+.I gridheight
+pixels high.
+.IP "\fBIcons { \fIwin-list\fB }\fR"
+Name the bit-map files to use as icons for selected windows.
+For example:
+.DM
+	Icons
+	{
+		"XTerm"  "xterm.icon"
+		"xfd"    "xfd_icon"
+	}
+.DE
+.IP
+Windows that match
+.B XTerm
+are not iconified by unmapping, and use the icon bit-map in file
+.BR xterm.icon .
+If the variable
+.B ForceIcons
+is set,
+.B twm
+uses this bit-map even if the client has requested its own icon pixel map.
+.IP "\fBInterpolateMenuColors\fR"
+Interpolate menu-entry colors between the specified colors.
+Consider the example:
+.DM
+.ta 0.5i 1.0i 2.0i 3.5i
+	Menu "mymenu"
+	{
+		"Title"	("black":"red")	f.title
+		"entry1"		f.nop
+		"entry2"		f.nop
+		"entry3"	("white":"green")	f.nop
+		"entry4"		f.nop
+		"entry5"	("red":"white")	f.nop
+	}
+.DE
+.IP
+The foreground colors for
+.B entry1
+and
+.B entry2
+are interpolated between black and white,
+and the background colors between red and green.
+Likewise, the foreground color for
+.B entry4
+is half-way between white and red,
+and the background half-way between green and white.
+.IP "\fBMakeTitle { \fIwin-list\fB }\fR"
+List the windows on which a title bar should be placed.
+Use it to request titles on specific windows when
+.B NoTitle
+has been set.
+.IP "\fBMaxWindowSize \fIstring\fR"
+Set the maximum size for a window.
+This typically is used to prevent a window from becoming larger than the screen.
+The default is \fB30000\(mu30000\fR.
+.IP "\fBMenuBackground \fIstring\fR"
+Set the background color for menus.
+It can be used only within a
+.B Color
+or
+.B Monochrome
+list.
+The default color is
+.BR white .
+.IP "\fBMenuFont \fIstring\fR"
+Set the font to use when displaying menus.
+The default is font
+.BR variable .
+.IP "\fBMenuForeground \fIstring\fR"
+Set the foreground color for menus.
+It can be used only within of a
+.B Color
+or
+.B Monochrome
+list.
+The default color is
+.BR black .
+.IP "\fBMenuShadowColor \fIstring\fR"
+Set the color of the shadow behind a pull-down menu.
+It can be used only within a
+.B Color
+or
+.B Monochrome
+list.
+The default color is
+.BR black .
+.IP "\fBMenuTitleBackground\fR \fIstring\fR"
+Set the background color for
+.B f.title
+entries in a menu.
+It can be used only within a
+.B Color
+or
+.B Monochrome
+list.
+The default color is
+.BR white .
+.IP "\fBMenuTitleForeground\fR \fIstring\fR"
+Set the foreground color for
+.B f.title
+entries in a menu.
+It can be used only within of a
+.B Color
+or
+.B Monochrome
+list.
+The default color is
+.BR black .
+.IP "\fBMonochrome { \fIcolors\fB }\fR"
+List the color assignments to make if the screen is monochrome.
+See the description of the variable
+.BR Colors ,
+above.
+.IP "\fBMoveDelta \fIpixels\fR"
+Set the number of pixels the mouse cursor must move before the function
+.B f.move
+starts to work.
+Also, see the description of the function
+.BR f.deltastop ,
+below.
+The default is zero pixels.
+.IP "\fBNoBackingStore\fR"
+Menus should not use backing storage.
+This minimizes repainting of menus.
+This is typically
+used with servers that can repaint faster than they can handle backing storage.
+.IP "\fBNoCaseSensitive\fR"
+Ignore case when sorting icon names within an icon manager.
+This option is typically used with applications that
+capitalize the first letter of their icon name.
+.IP "\fBNoDefaults\fR"
+Do not supply the default title buttons and bindings.
+Use this option only if the start-up
+file contains an entirely new set of bindings and definitions.
+.IP "\fBNoGrabServer\fR"
+Do not grab the server when it pops up menus or moves opaque windows.
+.IP "\fBNoHighlight [{ \fIwin-list\fB }]\fR"
+Do not highlight the borders of a window when the mouse cursor enters it or
+its icon.
+If the optional \fIwin-list\fR is given,
+.B twm
+disables highlighting only for the windows named therein.
+When the border is highlighted,
+.B twm
+draws it in the current \fBBorderColor\fR;
+when the border is not highlighted,
+.B twm
+stipples it with a gray pattern constructed from the variables
+.B BorderTileForeground
+and
+.BR BorderTileBackground .
+.IP "\fBNoIconManagers\fR"
+Do not use an icon manager.
+.IP "\fBNoMenuShadows\fR"
+Do not draw drop shadows behind menus.
+Use this with slower servers, because it speeds up menu drawing
+at the expense of making the menu slightly harder to read.
+.IP "\fBNoRaiseOnDeiconify\fR"
+Do not raise window to the foreground when the user de-iconifies it.
+.IP "\fBNoRaiseOnMove\fR"
+Do not raise a window to the foreground when the user moves it.
+This lets windows slide underneath each other.
+.IP "\fBNoRaiseOnResize\fR"
+Do not raise a window to the foreground when the user resizes it.
+This allow windows to be resized beneath each other.
+.IP "\fBNoRaiseOnWarp\fR"
+Do not raise a window to the foreground when the function
+.B f.warpto
+jumps (or ``warps'') the mouse cursor into it.
+If this option is set,
+jumping to an occluded window may force in the mouse cursor into the
+occluding window instead the occluded window
+(which causes unexpected behavior with
+.BR f.warpring ). 
+.IP "\fBNoSaveUnders\fR"
+Do not request save-unders.
+This minimizes window repainting after menu selection.
+This variable typically is set on displays
+that can repaint faster than they can handle save-unders.
+.IP "\fBNoStackMode [{ \fIwin-list\fB }]\fR"
+Ignore requests from client windows to change stacking order.
+If the optional \fIwin-list\fR is given,
+.B twm
+ignores requests only from the windows named therein.
+This typically is used to stop a ``pushy'' application
+from relentlessly popping itself into the window's foreground.
+Do not give title bars to windows.
+If the optional \fIwin-list\fR is given,
+only the windows named therein should not have title bars.
+Use the variable
+.B MakeTitle
+with this option to force
+.B twm
+to draw title bars only in specific windows.
+.IP "\fBNoTitleFocus\fR"
+Do not set the keyboard-input focus to a window when the mouse cursor enters it.
+Normally,
+.B twm
+sets the focus so that focus and key events from the title bar and
+icon managers are delivered to the application.
+If you move the mouse cursor quickly and
+.B twm
+is slow to respond, it may direct input into the old window
+instead of into the new.
+This option is typically used to prevent this ``input lag'' and to
+work around bugs in older applications that have problems with focus events.
+.IP "\fBNoTitleHighlight [{ \fIwin-list\fB }]\fR"
+Do not display the highlight area of the title bar; this area
+indicates the window that has the input focus.
+If the optional \fIwin-list\fR is given,
+only the windows named therein are not highlighted.
+Setting this and the variable
+.B SqueezeTitle
+substantially reduces the amount of screen space required by title bars.
+.IP "\fBOpaqueMove\fR"
+The function
+.B f.move
+moves the window, instead of just an outline of it.
+This option is typically
+used on fast displays (particularly if variable \fBNoGrabServer\fR is set).
+.IP "\fBPixmaps { \fIpixmaps\fB }\fR"
+List the pixel maps that define the appearance of various images.
+Each entry consists of two strings:
+the first names the pixel map to set, and the second names the bit-map file.
+The following pixel maps may be specified:
+.DM
+	Pixmaps
+	{
+		TitleHighlight	"gray1"
+	}
+.DE
+.IP
+The default for \fBTitleHighlight\fR is an even stipple pattern.
+.IP "\fBRandomPlacement\fR"
+When
+.B twm
+opens an application whose window has no specified geometry,
+it should drop the window into a pseudo-random location instead of having
+the user drag an outline of the window to where she wants it.
+.IP "\fBResizeFont\fR \fIstring\fR"
+Name the font to display in the dimensions window as
+.B twm
+resizes a window.
+The default font is
+.BR fixed .
+.IP "\fBRestartPreviousState\fR"
+Use the property
+.B WM_STATE
+on client windows to remember which windows should be iconified
+and which should be left visible.
+This typically is used to regenerate the state the screen was in
+before the previous window manager was shut down.
+.IP "\fBSaveColor { \fIcolors-list\fB }\fR"
+List the color assignments to be stored as pixel
+values in the root-window property
+.BR _MIT_PRIORITY_COLORS .
+A client may elect to preserve these values when it installs its color map.
+Note that this mechanism is a way an for application to avoid the
+``technicolor'' problem,
+whereby useful screen objects (e.g., window borders and title bars)
+vanish when the window manager installs a program's custom colors.
+For example:
+.DM
+	SaveColor
+	{
+	        BorderColor
+	        TitleBackground
+	        TitleForeground
+	        "red"
+	        "green"
+	        "blue"
+	}
+.DE
+.IP
+This places on the root window three pixel values for borders and title bars,
+as well as the three color strings, all taken from the default color map.
+.IP "\fBShowIconManager\fR"
+Display the icon manager's window when the window manager comes up.
+This window can always be brought up by invoking the function
+.BR f.showiconmgr .
+.IP "\fBSortIconManager\fR"
+Sort the entries in icon manager alphabetically,
+rather than by simply appending new windows to the end.
+.IP "\fBSqueezeTitle [{ \fIsqueeze-list\fB }]\fR"
+Use the
+.B SHAPE
+extension to confine title bars to the screen space they need,
+rather than letting them extend across the top of the window.
+The optional
+.I squeeze-list
+controls the location of the squeezed title bar along the top of the window.
+It contains entries of the form:
+.DS
+	"\fIname\fR"  \fIjustification  num  denom\fR
+.DE
+.IP
+where
+.I name
+names a window,
+.I justification
+is
+.BR left ,
+.BR center ,
+or
+.BR right ,
+and
+.I num
+and
+.I denom
+are numbers that specify a ratio
+that gives the relative position about which the title bar is justified.
+The ratio is measured from left to right if the numerator is positive,
+and right to left if negative.
+A denominator of zero indicates that the numerator should be measured in pixels.
+For convenience, the ratio 0/0 is the same as 1/2 for
+.B center
+and \-1/1
+for
+.BR right .
+For example:
+.DM
+	SqueezeTitle
+	{
+		"XTerm"   left   0  0
+		"xterm1"  left   1  3
+		"xterm2"  left   2  3
+		"oclock"  center 0  0
+		"emacs"   right  0  0
+	}
+.DE
+.IP
+You can use the variable
+.B DontSqueezeTitle
+to turn off squeezing for selected titles.
+.IP "\fBStartIconified [{ \fIwin-list\fB }]\fR"
+Leave client windows as icons until the user explicitly de-iconifies them.
+If the optional \fIwin-list\fR is given,
+only the windows named therein begin life as icons.
+This option is useful for programs that do not support the command-line option
+.BR \-iconic .
+.IP "\fBTitleBackground \fIstring\fB [{ \fIwin-list\fB }]\fR"
+Set the background color for title bars.
+It can be specified only within a \fBColor\fR or \fBMonochrome\fR list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR white .
+.IP "\fBTitleButtonBorderWidth \fIpixels\fR"
+Give the width, in pixels, of a title button's border.
+This is typically set to zero, to allow title buttons to take up as
+much space as possible.
+The default is one.
+.IP "\fBTitleFont\fR \fIstring\fR"
+Name the font used when displaying window names in title bars.
+The default font is
+.BR variable .
+.IP "\fBTitleForeground \fIstring \fB[{ \fIwin-list\fB }]\fR"
+Name the foreground color to use in title bars.
+It can be specified only within a \fBColor\fR or \fBMonochrome\fR list.
+The optional
+.I wincolorlist
+lets you set the color for specific windows, as described above for
+.BR BorderColor .
+The default color is
+.BR black .
+.IP "\fBTitlePadding \fIpixels\fR"
+Give the distance between the various buttons, text, and
+highlight areas in the title bar.
+The default is eight pixels.
+.IP "\fBUnknownIcon\fR \fIstring\fR"
+Name the bit-map file to be used as the default icon.
+This bit-map is used as the icon for every clients that does
+not provide an icon bit-map and is not named in the
+.B Icons
+list.
+.IP "\fBUsePPosition\fR \fIstring\fR"
+Honor program-requested locations
+(given by the flag \fBPPosition\fR in the property
+.BR WM_NORMAL_HINTS )
+in the absence of a user-specified position.
+The argument \fIstring\fR can be one of the following three values:
+.RS
+.IP \fBoff\fR
+Ignore the program-supplied position.
+This is the default.
+.IS \fBon\fR
+Use the position.
+.IS \fBnon-zero\fR
+Use the position if it is other than (0,0).
+.RE
+.IP
+This option is for working around a bug in older toolkits.
+.IP "\fBWarpCursor [{ \fIwin-list\fB }]\fR"
+Warp the mouse cursor into a window when it is de-iconified.
+If the optional \fIwin-list\fR is given,
+.B twm
+jumps the cursor only into the windows named therein.
+.IP "\fBWindowRing\fR { \fIwin-list\fR }"
+List the windows along which the function
+.B f.warpring
+cycles.
+.IP "\fBWarpUnmapped\fR"
+Force function
+.B f.warpto
+to de-iconify a window when it jumps the mouse cursor into it.
+This typically is used to create a key binding that
+pops up a window no matter where it is.
+The default is for
+.B f.warpto
+to ignore iconified windows.
+.IP "\fBXorValue\fR \fInumber\fR"
+Set the value to use when drawing window outlines for moving and resizing.
+Set this to a value that results in a variety of distinguishable
+colors when exclusive-OR'ed with the contents of a typical user's screen.
+Setting this variable to one often gives nice results
+if adjacent colors in the default color map are distinct.
+By default,
+.B twm
+attempts to draw the temporary lines at the opposite end of the color map
+from the graphics.
+.IP "\fBZoom [ \fIcount\fB ]\fR"
+``Zoom'' a window when it is iconified or de-iconified.
+Whenever a window is iconified or de-iconified,
+.B twm
+rapidly displays a sequence of gradually enlarging outlines
+that suggest the window's movement to and from its iconified state.
+.I count
+gives the number of outlines to draw; the default is eight.
+.PP
+The following variables must be set after the fonts have been assigned;
+tberefore, it is best to put them at the end of the variables section:
+.IP "\fBDefaultFunction \fIfunction\fR"
+Execute
+.I function
+when
+.B twm
+receives a key or button event for which no binding is provided.
+This typically is bound to
+.BR f.nop ,
+to
+.BR f.beep ,
+or to a menu that contains window operations.
+.IP "\fBWindowFunction \fIfunction\fR"
+Execute
+.I function
+when the user selects a window from menu
+.BR TwmWindows .
+If this variable is not set,
+.B TwmWindows
+is de-iconified and raised.
+.SH Bindings
+After the variables have been set, your start-up file can have a section of
+.IR bindings .
+These link functions to title buttons, mouse buttons, and keys on the keyboard.
+.PP
+Title buttons can be added from the left or right side,
+and appear in the title bar from left-to-right, according to the
+order in which they are specified.
+Key and mouse-button bindings can appear in any order.
+.PP
+A title-button's specifications must
+name the pixel map to use in the button box
+and the function to invoke when the user presses a mouse button within it.
+For example:
+.DM
+	LeftTitleButton "\fIbitmapname\fP" = \fIfunction\fP
+.DE
+.PP
+or
+.DM
+	RightTitleButton "\fIbitmapname\fP" = \fIfunction\fP
+.DE
+.PP
+.I bitmapname
+can name one of the built-in bit-maps
+(which are scaled to match \fBTitleFont\fR)
+by using the appropriate colon-prefixed name, described above.
+.PP
+Key and mouse-button specifications give the modifiers that must be pressed,
+the parts of the screen over which the mouse must be positioned, and the
+function to invoke when the event occurs.
+Keys are given as strings that contain the appropriate keysym name;
+buttons are given as the keywords
+.B Button1
+through
+.BR Button5 .
+For example:
+.DM
+	"FP1"   = \fImodlist\fP : \fIcontext\fP : \fIfunction\fP
+	Button1 = \fImodlist\fP : \fIcontext\fP : \fIfunction\fP
+.DE
+.PP
+.I modlist
+is any combination of the following modifier names:
+.DM
+.ta 0.5i 1.5i 2.5i
+	shift	control	lock
+	meta	mod1	mod2
+	mod3	mod4	mod5
+.DE
+.PP
+These can be abbreviated as follows:
+.DM
+.ta 0.5i 1.5i 2.5i
+	s	c	l
+	m	m1	m2
+	m3	m4	m5
+.DE
+.PP
+Each entry must be separated by a vertical bar `|'.
+.PP
+Likewise,
+.I context
+is any combination of the following variables:
+.DM
+.ta 0.5i 1.5i 2.5i
+	window	title	icon
+	root	frame	iconmgr
+.DE
+.PP
+Each of the above can be abbreviated.
+The entries must be separated by a vertical bar.
+The entry
+.B all
+combines all of the above variables.
+.PP
+.I function
+is any of the functions described below.
+.PP
+For example, the following gives the bindings from the default start-up file:
+.DM
+	Button1	=   : root          : f.menu "TwmWindows"
+	Button1	= m : window | icon : f.function "move-or-lower"
+	Button2	= m : window | icon : f.iconify
+	Button3	= m : window | icon : f.function "move-or-raise"
+	Button1	=   : title         : f.function "move-or-raise"
+	Button2	=   : title         : f.raiselower
+	Button1	=   : icon          : f.function "move-or-iconify"
+	Button2	=   : icon          : f.iconify
+	Button1	=   : iconmgr       : f.iconify
+	Button2	=   : iconmgr       : f.iconify
+.DE
+.PP
+A user who wanted to manipulate windows from the keyboard could
+use the following bindings:
+.DM
+	"F1"    =       : all    : f.iconify
+	"F2"    =       : all    : f.raiselower
+	"F3"    =       : all    : f.warpring "next"
+	"F4"    =       : all    : f.warpto "xmh"
+	"F5"    =       : all    : f.warpto "emacs"
+	"F6"    =       : all    : f.colormap "next"
+	"F7"    =       : all    : f.colormap "default"
+	"Left"  = m     : all    : f.backiconmgr
+	"Right" = m | s : all    : f.forwiconmgr
+	"Up"    = m     : all    : f.upiconmgr
+	"Down"  = m | s : all    : f.downiconmgr
+.DE
+.PP
+In the above example, the keys
+.BR Left ,
+.BR Right ,
+.BR Up ,
+and
+.B Down
+invoke, respectively, the keys \*(LA, \*(RA, \*(UA, and \*(DA.
+.B twm
+provides many more window-manipulation primitives than can be
+conveniently stored in a title bar, menu, or set of key bindings.
+Although a small set of defaults are supplied
+(unless the \fBNoDefaults\fR is specified),
+most users will want to bind their most common operations
+to key and button strokes.
+To do this,
+.B twm
+associates names with each of the primitives and provides
+.I "user-defined functions"
+for building higher-level primitives,
+and
+.I menus
+for interactively selecting among groups of functions.
+.PP
+A user-defined function consists of the name by which it is referenced
+in calls to
+.BR f.function ,
+and a list (enclosed in braces) of the functions to execute
+when this function is invoked.
+For example:
+.DM
+	Function "move-or-lower"    { f.move f.deltastop f.lower }
+	Function "move-or-raise"    { f.move f.deltastop f.raise }
+	Function "move-or-iconify"  { f.move f.deltastop f.iconify }
+	Function "restore-colormap" { f.colormap "default" f.lower }
+.DE
+.PP
+You must use the new function's name in \fBf.function\fR
+exactly as it appears in its specification.
+.PP
+In the following descriptions, if the function is said to operate
+on the selected window but is invoked from a root menu,
+the mouse cursor changes to the
+.B Select
+cursor and
+.B twm
+executes the function on the next window to receive a mouse-button click:
+.IP "\fB! \fIstring\fR" 0.75i
+This is an abbreviation for \fBf.exec\fR \fIstring\fR.
+.IP "\fBf.autoraise\fR"
+Toggle whether to raise the selected window when the mouse cursor enters it.
+See the description of the variable \fBAutoRaise\fR, above.
+.IP "\fBf.backiconmgr\fR"
+Warp the mouse cursor into the previous column in the current icon manager.
+If necessary, wrap back to the previous row.
+.IP "\fBf.beep\fR"
+Sound the bell.
+.IP "\fBf.bottomzoom\fR"
+This function resembles the function
+.BR f.fullzoom ,
+but resizes the window to fill only the bottom half of the screen.
+.IP "\fBf.circledown\fR"
+Lower the top-most window that occludes another window.
+.IP "\fBf.circleup\fR"
+Raise the bottom-most window that is occluded by another window.
+.IP "\fBf.colormap\fR \fIstring\fR"
+Rotate the color maps (obtained from the property
+.B WM_COLORMAP_WINDOWS
+on the window) that
+.B twm
+displays when the mouse cursor is in this window.
+.I string
+can be one of the following values:
+.BR next ,
+.BR prev ,
+and
+.BR default .
+Note that, in general, the installed color map is determined by the
+keyboard focus.
+A mouse-driven keyboard focus installs a private color map when it enters
+the window that owns that color map.
+Using the click-to-type model,
+.B twm
+does not install a private color map until the user presses a mouse button on
+the target window.
+.IP "\fBf.deiconify\fR"
+De-iconify the selected window.
+If the window is not an icon, this function does nothing.
+.IP "\fBf.delete\fR"
+Sends the message
+.B WM_DELETE_WINDOW
+to the selected window if the client application has requested it
+through the window property
+.BR WM_PROTOCOLS .
+The application should respond to the message by removing the indicated window.
+If the window has not requested
+.B WM_DELETE_WINDOW
+messages,
+.B twm
+beeps to indicate that the user should choose an alternative method.
+Note this is very different from the behavior of the function
+.BR f.destroy .
+The intention here is to delete one window, not
+necessarily the entire application.
+.IP "\fBf.deltastop\fR"
+Abort a user-defined function if the mouse cursor moves
+more than \fIMoveDelta\fR pixels.
+See the example definition given for function
+.B move-or-raise
+at the beginning of the section.
+.IP "\fBf.destroy\fR"
+Tell the X server to close the display connection of the
+client that created the selected window.
+This should only be used as a last
+resort for shutting down runaway clients.
+For a kinder, gentler approach to terminating applications, see the
+description of function
+.BR f.delete ,
+above.
+.IP "\fBf.downiconmgr\fR"
+Warp the mouse cursor to the next row in the current icon manger.
+Wrap to the beginning of the next column, if necessary.
+.IP "\fBf.exec\fR \fIstring\fR"
+Pass
+.I string
+to
+.B /bin/sh
+to execute.
+In multiscreen mode, if
+.I string
+starts a new X client without giving a display argument,
+the client appears on the screen from which this function was invoked.
+.IP "\fBf.focus\fR"
+Toggle the keyboard focus of the server into the
+selected window; if necessary, change the focus rule from mouse-driven.
+If the selected window is already focused, execute function
+.BR f.unfocus .
+.IP "\fBf.forcemove\fR"
+This function resembles function \fBf.move\fR,
+except that it ignores the variable
+.BR DontMoveOff .
+.IP "\fBf.forwiconmgr\fR"
+Warp the mouse cursor to the next column in the current icon manager.
+Wrap to the beginning of the next row if necessary.
+.IP "\fBf.fullzoom\fR"
+Resize the selected window to the full size of the display.
+If the window is already zoomed, restore it to its original size.
+.IP "\fBf.function\fR \fIstring\fR"
+Executes the user-defined function
+.IR string .
+.IP "\fBf.hbzoom\fR"
+This is a synonym for \fBf.bottomzoom\fR.
+.IP "\fBf.hideiconmgr\fR"
+Unmap the current icon manager.
+.IP "\fBf.horizoom\fR"
+This function resembles function
+.BR f.zoom ,
+except that it resizes the selected window to the full width of the display.
+.IP "\fBf.htzoom\fR"
+This is a synonym for
+.BR f.topzoom .
+.IP "\fBf.hzoom\fR"
+This is a synonym for
+.BR f.horizoom .
+.IP "\fBf.iconify\fR"
+Iconify the selected window or icon.
+If the selected window or icon already is iconified, then de-iconify it.
+.IP "\fBf.identify\fR"
+Displays the selected window's name and geometry.
+Clicking the mouse or pressing a key in the window erases the displayed
+information.
+.IP "\fBf.lefticonmgr\fR"
+This function resembles function \fBf.backiconmgr\fR,
+except that wrapping does not change rows.
+.IP "\fBf.leftzoom\fR"
+This function resembles function
+.BR f.bottomzoom ,
+except that it resizes the selected window only to the left half
+of the display.
+.IP "\fBf.lower\fR"
+Lower the selected window.
+.IP "\fBf.menu\fR \fIstring\fR"
+Invoke the menu
+.IR string .
+You can build cascaded menus by nesting calls to
+.BR f.menu .
+.IP "\fBf.move\fR"
+Drag an outline of the selected window (or the window itself, should variable
+.B OpaqueMove
+be set)
+until the user releases the invoking button on the mouse.
+Double-clicking within the number of milliseconds given by variable
+.B ConstrainedMoveTime
+jumps the mouse cursor to the center of the window and
+constrains the move to be either horizontal or vertical,
+depending upon which grid line is crossed.
+To abort a move, press another button before releasing the first button.
+.IP "\fBf.nexticonmgr\fR"
+Warp the mouse cursor to the next icon manager that contains any windows
+on the current or any succeeding screen.
+.IP "\fBf.nop\fR"
+Do nothing.
+This function typically is used with the variables
+.B DefaultFunction
+and
+.BR WindowFunction ,
+and to introduce blank lines in menus.
+.IP "\fBf.previconmgr\fR"
+Warp the mouse cursor to the previous icon manager that contains any
+windows on the current or preceding screens.
+.IP "\fBf.quit\fR"
+Restore the window's borders and exit from
+.BR twm .
+If
+.B twm
+is the first client invoked from
+.BR xdm ,
+this function resets the server.
+.IP "\fBf.raise\fR"
+Raise the selected window.
+.IP "\fBf.raiselower\fR"
+Raise the selected window to the top of the stacking order if
+it is occluded by any windows.
+If the window is not occluded, lower it.
+.IP "\fBf.refresh\fR"
+Refresh all windows.
+.IP "\fBf.resize\fR"
+Display an outline of the selected window.
+Crossing a border (or setting the variable \fBAutoRelativeResize\fR)
+stretches the outline like a rubber band
+until the user releases the invoking button on the mouse.
+To abort a resize, press another mouse button before you release the first.
+.IP "\fBf.restart\fR"
+Kill and restart
+.BR twm .
+.IP "\fBf.righticonmgr\fR"
+This function resembles the function
+.BR f.nexticonmgr ,
+except that wrapping does not change rows.
+.IP "\fBf.rightzoom\fR"
+This function resembles the function
+.BR f.bottomzoom ,
+except that the selected window is resized only to the right half
+of the display.
+.IP "\fBf.saveyourself\fR"
+Send the message
+.B WM_SAVEYOURSELF
+to the selected window if it has requested the message in its window property
+.BR WM_PROTOCOLS .
+Clients that accept this message are expected to checkpoint
+all states associated with the window and update the property
+.BR WM_COMMAND ,
+as specified in the ICCCM.
+If the selected window has not selected for this message, beep.
+.IP "\fBf.showiconmgr\fR"
+Map the current icon manager.
+.IP "\fBf.sorticonmgr\fR"
+Sort the entries in the current icon manager alphabetically.
+See the description of the variable
+.BR SortIconManager ,
+above.
+.IP "\fBf.source \fIfile\fR"
+Read and parse
+.I file
+as a
+.B twm
+startup file.
+You should use this function only to re-build your pull-down menus.
+None of the
+.B twm
+variables change.
+.IP "\fBf.title\fR"
+Provide a centered, unselectable item in a menu definition.
+Do not use it in any other context.
+.IP "\fBf.topzoom\fR"
+This function resembles function
+.BR f.bottomzoom ,
+except that it resizes the selected window only to the top half of the display.
+.IP "\fBf.twmrc\fR"
+Re-read the startup customization file.
+This function resembles function
+.BR f.source ,
+except that you are not required to name the file that
+.B twm
+is to read.
+.IP "\fBf.unfocus\fR"
+Reset the focus to mouse-driven.
+This should be used when a focused window is no longer desired.
+.IP "\fBf.upiconmgr\fR"
+Warp the mouse cursor to the previous row in the current icon manager.
+If necessary, wrap to the last row in the same column.
+.IP "\fBf.version\fR"
+Display a window that shows the version of
+.B twm
+that you are using.
+The window remains displayed until you either press mouse button,
+you move the mouse cursor from one window to another.
+.IP "\fBf.vlzoom\fR"
+This is a synonym for function
+.BR f.leftzoom .
+.IP "\fBf.vrzoom\fR"
+This is a synonym for function
+.BR f.rightzoom .
+.IP "\fBf.warpring \fIstring\fR"
+Jump (or ``warp'') the mouse cursor to the next or previous window.
+.I string
+indicates the direction in which to jump:
+either
+.B next
+or
+.BR prev .
+See the description of the variable
+.BR WindowRing ,
+above.
+.IP "\fBf.warpto \fIstring\fR"
+Jump (or ``warp'') the mouse cursor to the window whose name or class matches
+.IR string .
+If the window is iconified, de-iconify it if the variable
+.BR WarpUnmapped\fR ,
+or ignore it if that variable is not set.
+.IP "\fBf.warptoiconmgr\fR \fIstring\fR"
+Jump (or ``warp'')
+the mouse cursor from a window to that window's entry in icon manager
+.IR string .
+If
+.I string
+is empty (i.e., ""), jump to the icon in the current icon manager.
+.IP "\fBf.warptoscreen \fIstring\fR"
+Warp the mouse cursor to the screen
+.IR string ,
+which can be any of the following:
+.RS
+.IP \(bu 0.3i
+A number (e.g., ``0'' or ``1'').
+.IS \(bu
+The word \fBnext\fR, which indicates the current screen plus one,
+skipping over any unmanaged screens.
+.IS \(bu
+The word \fBback\fR, which indicates the current screen minus one,
+skipping over any unmanaged screens.
+.IS \(bu
+The word \fBprev\fR, which indicates the last screen visited.
+.RE
+.IP "\fBf.winrefresh\fR"
+This function resembles the function
+.BR f.refresh ,
+except that it refreshes only the selected window.
+.IP "\fBf.zoom\fR"
+This function resembles the function
+.BR f.fullzoom
+except that it changes only the height of the selected window.
+.SH Menus
+You can group one or more functions into a menu.
+The user can select interactively one of the menu's entries;
+when an entry is selected,
+.B twm
+executes it.
+.PP
+Menus come in two flavors:
+.IR pop-up ,
+when the menu is bound to a mouse button;
+and
+.IR pull-down ,
+when it is bound to a title button.
+.PP
+A menu, as you define it, has the following syntax:
+.DS
+	\fBMenu "\fImenuname\fB" [ ("\fIforecolor\fB":"\fIbackcolor\fB") ]
+	{
+		\fIname1\fB [ ("\fIfore\fB":"\fIback\fB")] \fIfunction1\fB
+		\fIname2\fB [ ("\fIfore\fB":"\fIback\fB")] \fIfunction2\fB
+			.
+			.
+			.
+		\fInameN\fB [ ("\fIforeN\fB":"\fIbackN\fB")] \fIfunctionN\fB
+	}
+.DE
+.PP
+The keyword
+.B Menu
+tells
+.B twm
+that the following is a menu.
+This is followed by the name of the menu.
+You can pass this name to the function
+.B f.menu
+(described above) to invoke this menu.
+Note that you must reproduce the menu name
+.IR exactly ,
+matching both the case of every character and white space within the name
+(if any).
+The name is followed by optional default foreground and background colors for
+each entry in the menu.
+.PP
+Then comes the body of the menu, which is enclosed between braces.
+The body of the menu consists of an indefinite number of entries, one for
+each row in the menu.
+The field
+.I name
+give the name of the entry, as it appears in the menu.
+The optional fields
+.I fore
+and
+.I back
+give the foreground and background colors to use with this entry.
+These colors are used only on a color display.
+The default is to use the colors specified by the variables
+.B MenuForeground
+and
+.BR MenuBackground .
+Finally, the field
+.I function
+names the function (or functions) that
+.B twm
+is to execute when the user selects that menu entry.
+This can include any user-defined functions or additional menus.
+.PP
+The following gives an example menu, which invokes some X clients:
+.DM
+.ta 0.5i 1.0i 2.0i
+	Menu "Applications" ("black":"lightseagreen")
+	{
+		"APPLICATIONS"	("black":"lightseagreen") f.title
+		"Font Select"	! "xfontsel &"
+		"XBiff"	! "xbiff &"
+		"XCalc"	f.menu " Calculator " 
+		"XClock"	! "xclock -chime -fg blue -update 1&"
+		"Xeyes"	! "xeyes -geometry 200x200+150+150 -fg red&"
+		"XLoad"	! "xload &"
+		"XLogo"	! "xlogo &"
+		"XTerm"	! "xterm  -T 'BOURNE SHELL' -n 'BOURNE SHELL' -e sh &"
+		"XTetris"	! "xtetris &"
+	}
+.DE
+.PP
+The menu is named
+.BR Applications .
+The entries in the menu are given the default colors of green characters on
+a black background.
+.PP
+The first entry in the menu calls the function
+.BR f.title ,
+which displays the menu's title.
+This entry sets the title's colors to black characters on a green background,
+so it will stand out.
+.PP
+The entry
+.B XCalc
+calls the function
+.B f.menu
+to display another menu, in this case the one named
+.BR Calculator .
+Note that the quotations marks around the menu's name includes white space;
+this is because the author of the menu
+.B Calculator
+chose (for some reason)
+to embed white space in its name, and those spaces must be reproduced here.
+.PP
+The other entries invoke the function `!', which
+(as noted above) is a synonym for the \*(CO command
+.BR /bin/sh .
+The text that follows names the command you want
+.B sh
+to execute (in each case, an X client), plus its arguments.
+Each commands ends in an `&', which tells
+.B sh
+to execute the client in the background.
+(If the command were executed in the foreground, you would be stuck in
+this menu until you managed to kill the client that command invoked.)
+Note that most X clients live in directory
+.BR /usr/X11/bin ;
+if the user who invoked
+.B twm
+does not name this directory in her
+.BR PATH ,
+.B sh
+will not find the client and the command will fail.
+.PP
+A special menu named
+.B TwmWindows
+names all of the windows supplied by
+.B twm
+and its clients.
+Selecting an entry tells
+.B twm
+to execute on that window the function defined by the variable
+.BR WindowFunction .
+If
+.B WindowFunction
+has not been set,
+.B twm
+de-iconifies and raises the window.
+.SH Icons
+.B twm
+supports several ways to manipulate iconified windows.
+The common pixel map-and-text style may be laid out by hand or automatically
+arranged, as described by the variable \fBIconRegion\fR.
+In addition, a terse grid of icon names, called an
+.IR "icon manager" ,
+uses screen space more efficiently
+and lets the user navigate amongst windows from the keyboard.
+.PP
+An icon manager is a window that names windows.
+Each entry in the icon manager is a small rectangle that contains the window's
+name.
+When a window is iconified, the icon manager also displays the
+.B iconify
+symbol to the left of the window's name.
+By default, every client that you invoke is given an entry in the icon manager.
+You can, however, exclude selected windows from the
+icon manager by naming them in the variable
+.B IconManagerDontShow
+(described above).
+.PP
+When you move the mouse cursor into an entry in the icon manager,
+the icon manager also directs keyboard focus to the corresponding window.
+By invoking the functions
+.BR f.upiconmgr ,
+.BR f.downiconmgr ,
+.BR f.lefticonmgr ,
+and
+.B f.righticonmgr
+from the keyboard,
+you can move the input focus directly from the keyboard.
+.PP
+By default, clicking on an entry in the icon manager invokes the function
+.B f.iconify
+(described above).
+To change the actions taken in the icon manager, use the the context
+.B iconmgr
+when you specify button and keyboard bindings.
+.SH "Environment Variables"
+.B twm
+reads the following environmental variables:
+.IP "\fBDISPLAY\fR"
+Name the X server to use.
+It is also set during \fBf.exec\fR, so programs appear on the proper screen.
+.IP "\fBHOME\fR"
+Give the prefix for files that begin with a tilde, and for locating the
+.B twm
+start-up file.
+.SH Files
+.\" \fB$HOME/.twmrc.\fIscreen_number\fR
+.\" .br
+\fB$HOME/.twmrc\fR \(em Personalized configuration file
+.br
+\fB/usr/X11/lib/twm/system.twmrc\fR \(em Default configuration file
+.SH "See Also"
+.B
+X utilities,
+xdm,
+xinit,
+xrdb
+.R
+.SH Notes
+Double clicking very quickly to obtain the constrained move function sometimes
+causes the window to move, even though the mouse cursor is not moved.
+.PP
+If
+.B IconifyByUnmapping
+is on and windows are listed in
+.B IconManagerDontShow
+but not in
+.BR DontIconifyByUnmapping ,
+they may be lost if they are iconified and no bindings are set to
+.B "f.menu \"TwmWindows\""
+or
+.BR f.warpto .
+.PP
+Portions copyright \(co 1988 by Evans & Sutherland Computer Corporation;
+portions copyright \(co 1989 Hewlett-Packard Company
+and the Massachusetts Institute of Technology.
+.PP
+.II "LaStrange, Tom"
+.II "Fulton, Jim"
+.II "Packard, Keith"
+.II "Sternlicht, Dave"
+.II "Pitschke, Steve"
+.II "Payne, Dave"
+.B twm
+was written by Tom LaStrange of Solbourne Computer;
+Jim Fulton, Keith Packard, and Dave Sternlicht of the MIT X Consortium;
+Steve Pitschke of Stardent Computer;
+and Dave Payne of Apple Computer.

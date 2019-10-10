@@ -1,0 +1,198 @@
+
+
+mkfs                         Command                         mkfs
+
+
+
+
+Make a new file system
+
+/eettcc/mmkkffss _f_i_l_e_s_y_s_t_e_m _p_r_o_t_o
+
+mkfs makes  a new file system.  filesystem  names the file (norm-
+ally a block special file) where the new file system will reside.
+The contents  of the newly  created file system  are described in
+proto.  proto can be either a number or a file name.
+
+If proto  is a  number, mkfs creates  an empty file  system (con-
+taining only  a root  directory) of the  size in blocks  given by
+proto.  The  number of i-nodes  is calculated as  a percentage of
+this number.  The command
+
+
+        /etc/mkfs /dev/fha0 2400
+
+
+creates a  file system on  a high-density, 5.25-inch  diskette in
+drive 0.   If the disk is a  high-density, 3.5-inch diskette, use
+the command:
+
+
+        /etc/mkfs /dev/fva0 2880
+
+
+If proto is a file name,  however, the contents of that file will
+be used  as a prototype  for modeling the new  file system.  This
+prototype file must be laid out in the following manner:
+
+
+     _b_o_o_t_s_t_r_a_p__f_i_l_e__n_a_m_e  _f_i_l_e__s_y_s_t_e_m__n_a_m_e  _d_e_v_i_c_e__n_a_m_e
+     _n_o.__o_f__b_l_o_c_k_s  _n_o.__o_f__i-_n_o_d_e_s  _m  _n
+     %_b _X_X _X_X _X_X
+     ...
+     _d_i_r_e_c_t_o_r_y__n_a_m_e
+             _d_i_r_e_c_t_o_r_y__n_a_m_e _m_o_d_e _u_s_e_r__i_d _g_r_o_u_p__i_d _c_o_n_t_e_n_t_s
+             ...
+             $
+     $
+
+
+Each line is described below.
+
+The first  line has three fields.   Field 1, bootstrap_file_name,
+contains the name of a file that holds the boot strap, which must
+fit into  block 0 of the disk.   Field 2, file_system_name, gives
+the name of the file  system; and field 3, device_name, gives the
+name of  file system's  physical device (for  example, /ddeevv/hhdd11).
+Only the  first six characters in  fields 2 and  the  first 11 in
+field 3 are significant; all characters after them are ignored.
+
+The second  line contains  four fields.  Field  1, no._of_blocks,
+gives the  size of the  file system in blocks;  field 2, no_of_i-
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+mkfs                         Command                         mkfs
+
+
+
+nodes, gives  the number of i-nodes in  the file system.  Because
+each  file   or  directory  requires  one   i-node,  this  number
+represents the  limit on the number of files  that may be created
+in the file system.  A ratio of seven blocks per i-node generally
+works well.  Fields 3 and 4 control interleaving on your disk.  m
+tells the  system how many blocks to skip  when it increments the
+virtual block  number.  n is the size  of a ``virtual cylinder''.
+All the blocks on a virtual cylinder will be allocated before ad-
+vancing to  the next virtual  cylinder.  The value of  _n need not
+correspond to  the size of  an actual cylinder,  although perfor-
+mance is  improved when it does.   m and n are  specific for your
+hardware.
+
+Next, the third line and following begin with %bb.  These list the
+bad blocks on your storage device.  One or more block numbers may
+appear on each line,  separated by white space.  These blocks are
+allocated to the bad block file (i-node 1).
+
+The remaining  lines in the  _p_r_o_t_o file define  the names, modes,
+and contents  of the  directories and  files in the  file system.
+These  lines are  divided into  fields  separated by  white space
+(blanks or tabs) as follows:
+
+*  The  first field  names the file  or directory to  be created.
+   This field  is missing on the first  line, which describes the
+   root directory of the file system.
+
+*  The second field describes the  mode of the file, which is six
+   characters  long.  The  first character  gives the  file type,
+   that is, whether  the file is ordinary (`-'), directory (`d'),
+   block special (`b'),   or character special (`c').  The second
+   character is `u' for set user id on execution,  and `-' other-
+   wise.  The  third character is `g' for set  group id on execu-
+   tion,  and `-' otherwise.  Characters 4 through 6 specify per-
+   missions in  octal; for example, 664444  specifies read and write
+   permission for the owner, read permission for other users from
+   the  same group,  and  read permission  for  users from  other
+   groups.
+   If the above file  type were a directory, subsequent files are
+   recursively  defined under that  directory, until  the current
+   level of  directory is terminated  by a line  containing a `$'
+   character.
+
+*  The next two fields  specify the owner's numerical user id and
+   group id.
+
+*  The  last field describes file contents.   For a directory, it
+   is not  needed.  For  an ordinary  file, it is  the name  of a
+   COHERENT file that will be copied into the newly created file.
+   For  block or  character-special files,  there are  two fields
+   that specify the numbers of the major and minor devices.
+
+Finally, each  directory's description and the  entire _p_r_o_t_o file
+must terminate with dollar signs `$'.
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+mkfs                         Command                         mkfs
+
+
+
+The  proto  file  need  not  contain  all of  the  above  fields.
+However, it must contain the name of the boot block (line 1), the
+number of blocks and the number  of i-nodes (line 2), the list of
+bad blocks,  the name of  at least one directory,  and the dollar
+sign that ends the file.
+
+The following example  specifies a proto file for a high-density,
+5.25-inch floppy  disk; note that this floppy  disk is faulty and
+contains a number of bad blocks:
+
+
+/conf/boot.fha
+2400 100
+%b 55
+%b 185 86
+d--755 3 1
+     coherent ---644 3 1 /coherent
+     tmp     d--777 3 1
+     $
+     bin     d--755 3 1
+             mail   -u-755 0 1 /bin/mail
+     $
+     dev     d--755 3 1
+             tty30  c--644 0 1 3 0
+             tty35  c--644 0 1 3 5
+             mt0    b--600 0 1 12 0
+     $
+$
+
+
+You can use the command badscan to draw up the list of bad blocks
+on your disk and create a skeleton _p_r_o_t_o file.
+
+***** See Also  ***** badscan, chmod, commands, fsck, mount, res-
+tor, unmkfs
+
+***** Diagnostics *****
+
+Diagnostic  message  are generated  for  badly constructed  proto
+files or for I/O errors on the file system.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 3
+
+

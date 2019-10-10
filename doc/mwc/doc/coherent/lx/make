@@ -1,0 +1,766 @@
+.TH make "" "" Command
+.PC "Program-building discipline"
+\fBmake [\fIoption .\^.\^.\fB] [\fIargument .\^.\^.\fB] [\fItarget .\^.\^.\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC \fB\-d\fR
+Debug mode
+.IC \fB\-e\fR
+Macro definitions in environment override those in \fBmakefile\fR
+.IC "\fB\-f \fIfile\fR"
+Instructions are in \fIfile\fR (default, \fB[mM]akefile\fR)
+.IC \fB\-i\fR
+Ignore command error returns
+.IC \fB\-k\fR
+Continue to update other targets that do not depend upon the
+current target if a non-ignored error occurs while executing
+the commands to bring a target up to date
+.IC \fB\-n\fR
+Test: do all but execute commands
+.IC \fB\-p\fR
+Print macro definitions and target descriptions
+.IC \fB\-q\fR
+Only return exit status (zero if files up to date)
+.IC \fB\-r\fR
+Ignore built-in rules
+.IC \fB\-S\fR
+Terminate \fBmake\fR if an error occurs while executing the commands
+to bring a target up to date
+.IC \fB\-s\fR
+Do not print command lines when executed
+.IC \fB\-t\fR
+Update times of files without regenerating
+.HE
+.B make
+helps you build things that consist of more than one file of source code.
+A ``thing'' can be a program, a report, a document, or anything else that
+is constructed out of something else.
+.PP
+Complex programs often consist of several
+.IR "object modules" ,
+each of which is the product of compiling a
+.IR "source file" .
+A source file may refer to one or more
+.B include
+files, which can also be changed.
+Some programs may be generated from specifications
+given to program generators, such as
+.BR yacc .
+Recompiling and relinking complicated programs can be difficult and tedious.
+.PP
+.B make
+regenerates programs automatically.
+It follows a specification of the
+structure of the program that you write into a file called
+.BR makefile .
+.B make
+also checks the date and time that \*(OS has recorded for each
+source file and its corresponding object module;
+to avoid unnecessary recompilation,
+.B make
+will recompile a source file only if it has been
+altered since its object module was last compiled.
+.SH Options
+The following lists the options that can be passed to
+.B make
+on its command line.
+.IP \fB\-d\fR
+(Debug)
+Give verbose printout of all decisions and information going into decisions.
+.IP \fB\-e\fR
+Force macro definitions in environment to override those in the
+.BR makefile .
+.IP "\fB\-f \fIfile\fR"
+.I file
+contains the
+.B make
+specification.
+If this option does not appear,
+.B make
+uses the file
+.BR makefile ,
+which is sought first in the directories named in the
+.B PATH
+environmental variable, and then in the current directory.
+If
+.I file
+is \*(Ql\f3\-\fP\*(Qr,
+.B make
+uses the standard input; note, however, that the standard input
+can be used \fIonly\fR if it is piped.
+.IP \fB\-i\fR
+Ignore all errors from commands, and continue processing.
+To invoke this behavior for an individual action within a
+.BR makefile ,
+prefix the action with the `-' flag.
+By default,
+.B make
+exits if a command returns an error.
+.IP \fB\-k\fR
+Continue to update other targets that do not depend upon the
+current target if a non-ignored error occurs while executing
+the commands to bring a target up to date.
+.IP \fB\-n\fR
+Test only;
+suppress execution of commands.
+To override this behavior for an individual action within a
+.BR makefile ,
+prefix the action with the `+' flag.
+.IP \fB\-p\fR
+Print all macro definitions and target descriptions.
+.IP \fB\-q\fR
+Return a zero exit status if the targets are up to date.
+Do not execute any commands.
+.IP \fB\-r\fR
+Do not use the built-in rules that describe dependencies.
+.IP \fB\-S\fR
+Terminate
+.B make
+if an error occurs while executing the commands
+to bring a target up to date.
+This is true by default, and the
+opposite of
+.BR \-k .
+.IP \fB\-s\fR
+Do not print command lines when executing them.
+Commands preceded by \*(Ql@\*(Qr are not printed, except under the
+.B \-n
+option.
+.IP \fB\-t\fR
+(Touch option)
+Force the dates of targets
+to be the current time, and bypass actual regeneration.
+However, if the target is out-of-date,
+.B make
+will still execute an individual action if that action is prefixed with the
+`+' flag.
+.SH "The Makefile"
+A
+.B makefile
+consists of three types of instructions:
+.IR "macro definitions" ,
+.IR "dependency definitions" ,
+and
+.IR "commands" .
+.PP
+A macro definition simply defines a macro for use throughout the
+.BR makefile ;
+for example, the macro definition
+.DM
+	FILES=file1.o file2.o file3.o
+.DE
+.PP
+Note the use of the equal sign \*(Ql=\*(Qr.
+.PP
+A dependency definition names the object modules used to build
+the target program,
+and source files used to build each object module .
+It consists of the \fItarget name\fR, or name of the program to be
+created, followed by a colon \*(Ql:\*(Qr and the names of the object
+modules that build it.
+For example, the statement
+.DM
+	example:  $(FILES)
+.DE
+.PP
+uses the macro \fBFILES\fR
+to name the object modules used to build the program \fBexample\fR.
+Likewise, the dependency definition
+.DM
+	file1.o:  file1.c macros.h
+.DE
+.PP
+defines the object module \fBfile1.o\fR as consisting of the
+source file \fBfile1.c\fR and the header file \fBmacros.h\fR.
+.PP
+Finally, a command line
+details an action that \fBmake\fR must perform to build the target program.
+Each command line must begin with a space or tab character.
+For example, the command line
+.DM
+		cc -o example $(FILES)
+.DE
+.PP
+gives the \fBcc\fR command needed to build the program \fBexample\fR.
+The \fBcc\fR command lists the \fIobject modules\fR to be
+used, \fInot\fR the source files.
+.PP
+Note that if you prefix an action with a hyphen `-',
+.B make
+will ignore errors in the action.
+If the action is prefixed by `@', it tells
+.B make
+to be silent about the action \(em that is, do not echo the command to the
+standard output.
+The `+' flag is described below.
+.PP
+Finally, you can embed comments within a \fBmakefile\fR.
+\fBmake\fR ignores a pound sign `#' and all text that follows it.
+\*(CO's implementation of
+.B make
+recognizes the presence of quotation marks, and
+and does not treat a `#' as a comment if it appears between apostrophes or
+quotation marks, or prefixed by a backslash.
+Many other versions of
+.B make
+do not permit this, including the one specified by POSIX.2:
+.IR "caveat utilitor" .
+.PP
+.B make
+searches for
+.B makefile
+first in directories named in the environmental variable
+.BR PATH ,
+and then in the current directory.
+.SH "make Without a Makefile"
+Beginning with release 4.2 of \*(CO, you can also invoke
+.B make
+to build an object for which no
+.B makefile
+exists.
+In this case,
+.B make
+uses its default suffix rules to identify the objects it should construct
+and how it should construct them.
+If, for example, you type
+.DM
+	make foo
+.DE
+.PP
+.B make
+will search the local directory for any file named
+.B foo
+that has any of the suffices that
+.B make
+recognizes by default.
+If the local directory contains a file named
+.BR foo.c ,
+.B make
+invokes
+.B cc
+to compile it; whereas if it contains a file named
+.BR foo.o ,
+it invokes the linker
+.B ld
+to link it.
+.PP
+Note that if no
+.B makefile
+exists,
+.B make
+by default creates an executable named after the C source file,
+just as the command
+.B cc
+does.
+.SH Dependencies
+The
+.B makefile
+specifies which files depend upon other files,
+and how to recreate the dependent files.
+For example, if the target file
+.B test
+depends upon the object module
+.BR test.o ,
+the dependency is as follows:
+.DM
+	test:	test.o
+		cc \-o test test.o
+.DE
+.PP
+.B make
+knows about common dependencies, e.g., that \fB.o\fR
+files depend upon
+.B \&.c
+files with the same base name.
+The target
+.B \&.SUFFIXES
+contains the suffixes that
+.B make
+recognizes.
+(Note that you can use the command
+.B makedepend
+to build such a list dynamically.
+For details, see its entry in the Lexicon.)
+.PP
+.B make
+also has a set of rules to regenerate dependent files.
+For example, for a source file with suffix
+.B \&.c
+and a dependent file with the suffix \fB.o\fR,
+the target \fB\&.c.o\fR gives the regeneration rule:
+.DM
+	\&.c.o:
+		cc -c $<
+.DE
+.PP
+The \fB\-c\fR option to the \fBcc\fR commands tells \fBcc\fR not
+to link or erase the compiled object module.
+.B $<
+is a macro that \fBmake\fR defines; it stands for the
+name of the file that causes the current action.
+The default suffixes and rules are kept in the files
+.B /usr/lib/makemacros
+and
+.BR /usr/lib/makeactions .
+.SH Macros
+To simplify the writing of complex dependencies,
+.B make
+provides a
+.I macro
+facility.
+To define a macro, write
+.DS
+	\fINAME \fB= \fIstring\fR
+.DE
+.PP
+.I string
+is terminated by the end-of-line character, so it can contain blanks.
+To refer to the value of the macro, use a dollar sign \*(Ql$\*(Qr 
+followed by the macro name enclosed in parentheses or braces, e.g.:
+.DM
+	$(\fINAME\fP)
+	${\fINAME\fP}
+.DE
+.PP
+If the macro name is one character, parentheses are not necessary.
+.B make
+uses macros in the definition of default rules:
+.DM
+	\&.c.o:
+		$(CC) $(CFLAGS) \-c $<
+.DE
+.PP
+where the macros are defined as
+.DM
+	CC=cc
+	CFLAGS=\-V
+.DE
+.PP
+The built-in macros are as follows:
+.IP \fB$*\fR
+The target's name, minus a `.'-delimited suffix.
+.IP \fB$@\fR
+For regular targets, the target's full name.
+For targets that are library dependencies of the form
+\fIlibrary\fB(\fIobject\^\fB)\fR,
+this macro expands to the \fIlibrary\fR part of the target.
+.IP \fB$%\fR
+For targets that are library dependencies of the form
+\fIlibrary\fB(\fIobject\^\fB)\fR,
+this macro expands to the \fIobject\fR part of the target.
+.IP \fB$?\fR
+This expands to prerequisite files that are newer than the target.
+.IP \fB$<\fR
+For suffix-rules, this macro expands to the name of the
+prerequisite file that
+.B make
+chose as the implicit prerequisite of the target.
+Do not use this macro outside a suffix rule.
+.PP
+You can specify macro definitions in the
+.BR makefile ,
+in the environment, or as a command-line argument.
+A macro defined as a command-line argument
+always overrides a definition of the same macro name in the environment or
+in the
+.BR makefile .
+Normally, a definition in a
+.B makefile
+overrides a definition
+of the same macro name in the environment; however, with the \-e option,
+a definition in the environment overrides a definition in the
+.BR makefile .
+.PP
+Each
+command line
+.I argument
+should be a macro definition of the form
+.DM
+	OBJECT=a.o b.o
+.DE
+.PP
+Arguments that include spaces must be surrounded by quotation marks,
+because blanks are significant to
+the shell \fBsh\fR.
+.SH "Source File Path"
+.B make
+first looks for the file with the name given, which may be
+relative to the current directory when make was invoked.
+If it does not find the file,
+and if the name of the file is not an absolute path name,
+.B make
+removes any leading path information from the name and looks for the file
+in the current directory.
+If the file is not found in the current directory,
+.B make
+then searches for the file in the list of directories specified by the macro
+.BR $(SRCPATH) .
+This allows you to compile a program in an object directory
+separate from the source directory.
+For example
+.DM
+	export SRCPATH=/usr/src/local/me
+	make
+.DE
+.PP
+or alteratively
+.DM
+	make SRCPATH=/usr/src/local/me
+.DE
+.PP
+builds objects in the current directory as specified by the
+.B makefile
+and sources in
+.BR /usr/src/local/me .
+To test changes to a program built from several
+source files, copy only the files you wish to change to the current
+directory; make will use the local sources and find the other
+sources on the
+.BR $(SRCPATH) .
+.PP
+Note that
+.B $(SRCPATH)
+can be a single directory,
+as in the above example, or a `:'-separated list of directories,
+as described in the Lexicon entry for the function
+.BR path() .
+.SH "Macros and Environmental Variables" 
+The environmental variable
+.B MAKEFLAGS
+provides an alternative method of passing parameters to
+.BR make .
+If this variable is defined,
+.B make
+processes the switches that it contains
+as if they were specified on the command line.
+.B make
+processes
+.B MAKEFLAGS
+before it processes any actual command-line parameters.
+.PP
+Either of the following two formats can be used for
+.BR MAKEFLAGS :
+.DM
+      MAKEFLAGS="-n -d"
+      MAKEFLAGS=nd
+.DE
+.PP
+Either of the above passes to
+.B make
+the options
+.B n
+and
+.BR d .
+.PP
+After it processes the switches named in
+.BR MAKEFLAGS ,
+.B make
+processes all options set on its command line.
+.B make
+then re-defines
+.B MAKEFLAGS
+to contain the full set of switches passed to it,
+and marks the macro for export.
+This means that recursive invocations of
+.B make
+are passed the same switch settings as the highest-level invocation of
+.BR make .
+(See also the description of the `+' flag, below.)
+.PP
+.B make
+takes all other environment-variable settings passed to it
+and uses them to set the values of corresponding macros internally.
+.PP
+When
+.B make
+executes a command, it exports to that command all
+the environmental variables
+.B make
+imported from the initial environment, the
+.B MAKEFLAGS
+environmental variable, and the macros defined on the
+.B make
+command line.
+.SH "Always Actions"
+If an action for rebuilding a target begins with the `+' flag,
+.B make
+executes the action
+even if the command line specifies the option
+.BR \-n .
+This is useful when dealing with recursive
+.BR makefiles :
+when you pass the options
+.BR \-p ,
+.BR \-d ,
+or
+.B \-n
+to the top-level invocation of
+.BR make ,
+the top-level
+.B makefile
+can still invoke the sub-\fBmakefiles\fR,
+and pass them the same flags via the environmental variable
+.BR MAKEFLAGS ,
+as described above.
+This simplifies the debugging of
+.BR makefile s
+for complex projects.
+This flag mainly affects
+.BR make 's
+usage with the options
+.BR \-q ,
+.BR \-n ,
+and
+.BR \-t .
+.SH "Library Dependencies"
+.B make
+interprets targets of the form \fIlibrary\^\fB(\fIobject\^\fB)\fR
+as referring to members of an archive created with the archiver
+.BR ar .
+.B make
+can examine the archive's contents
+to determine whether the named member is present and
+what date it possesses.
+.PP
+When building such a target,
+.B make
+looks for suffix rules for use in building
+.IR object ,
+but with a target suffix of
+.B .a
+rather than the actual suffix of
+.IR object .
+.PP
+For example, with the default
+.B make
+rules in effect, the target
+.DM
+	libc.a(clock.o)
+.DE
+.PP
+would be rebuilt from a source file
+.B clock.c
+by the suffix-rule
+.BR .c.a .
+The default suffix rule (as supplied in file
+.BR /usr/lib/makeactions )
+deals with building the
+.I object
+file and then uses the macros
+.B AR
+and
+.B ARFLAGS
+to move the resulting object file into the target archive.
+.PP
+Actions for library targets use macro definitions that differ slightly from
+those for normal actions.
+When it builds a library target,
+.B make
+sets the macro
+.B $@
+to the name of the
+.I library
+part of the target, and sets the special macro
+.B $%
+(defined only for use with library targets)
+to the name of the
+.I object
+part of the target.
+.SH "Single-Suffix Rules"
+.B make
+can use an inference rule of the form:
+.DM
+	suffix:
+        	actions
+.DE
+.PP
+to infer an action from a target that does not have a suffix.
+When you use a target that has no explicit rule and no known suffix,
+.B make
+appends onto the target every known suffix in turn,
+and for each suffix searches for a file or rule for building the target.
+If
+.B make
+discovers a file that matches one of file names that it has built,
+it then tries to use a single-suffix rule to generate the target
+from \fBtarget\fIsuffix\fR, with the actions given in the single-suffix rule.
+.PP
+For example, the default rules for
+.B make
+contain a single-suffix rule:
+.DM
+      .c:
+              $(CC) $(CFLAGS) $@ $<
+.DE
+.PP
+Given the above rule and a file in the current directory or source path named
+.BR clock.c ,
+the target
+.DM
+      clock:
+.DE
+.PP
+results in the executable file
+.B clock
+being built by compiling the single source file
+.B clock.c
+and linking it.
+.SH "Suffix-Rewriting Macro Expansion"
+You can use a special form of macro expansion
+.DS
+	\fB$(\fImacro\^\fB:\fIsuffix\fB[=\fIvalue\^\fB])\fR
+.DE
+.PP
+to simplify the use of macros that involve long lists of files names.
+When you request the above form of expansion,
+.B make
+searches the expansion of
+.IR macro ;
+for every word that ends in
+.I suffix ,
+it replaces
+.I suffix
+with the optional
+.IR value .
+.PP
+For example, consider the following:
+.DM
+      SOURCES = parse.c interpret.c builtin.c
+      OBJS = $(SOURCES:.c=.o) 
+.DE
+.PP
+This expansion of the macro
+.B OBJS
+is:
+.DM
+	parse.o interpret.o builtin.o
+.DE
+.PP
+When a
+.B makefile
+uses long lists of files,
+this facility not only saves typing,
+but eases maintenance because you need to change only one list of files.
+.SH "Path-Oriented Macro Expansions"
+The following special-macro
+expansion forms perform path processing on the macro's contents:
+.DS
+.ta 0.5i 2.0i
+	\fB$(\fIspecial\^\fB)\fR	Normal expansion
+	\fB$(\fIspecial\^\fBF)\fR	Expand only file-name part
+	\fB$(\fIspecial\^\fBD)\fR	Expand only directory part without trailing slash
+.DE
+.PP
+where
+.I special
+is one of the following:
+.BR @ ,
+.BR ? ,
+.BR < ,
+.BR * ,
+or
+.BR % .
+These expansion forms allow rules (especially inference rules) to
+deal easily with path-oriented operations, without resorting to
+complex shell operations involving backquoting and the command
+.BR basename .
+In particular, when expanding a macro with a file list such as \fB${?D}\fR,
+.B make
+processes all the entries in the file list as specified;
+otherwise, this would be extremely cumbersome.
+.SH Files
+.ta 2.0i
+.B makefile
+.br
+\fBMakefile\fR \(em List of dependencies and commands
+.br
+\fB/usr/lib/makeactions\fR \(em Default actions
+.br
+\fB/usr/lib/makemacros\fR \(em Default macros
+.SH "See Also"
+.Xr "as," as
+.Xr "cc," cc
+.Xr "commands," commands
+.Xr "ld," ld
+.Xr "makedepend," makedepen
+.Xr "srcpath," srcpath
+.Xr "touch" touch
+.br
+\fIThe make Programming Discipline\fR, tutorial
+.SH Diagnostics
+.B make
+returns the following error messages:
+.Ip "; after target or macroname \fI(error)\fR"
+A semicolon appeared after a target name or a macro name.
+.Ip "Bad macro name \fI(error)\fR"
+A macro includes an illegal character, e.g., a control character.
+.Ip "= in or after dependency \fI(error)\fR"
+An equal sign \*(Ql\fB=\fR\*(Qr appeared within or followed the definition
+of a macro name or target file.
+For example, \fBOBJ=atod.o=factor.o\fR will produce this error.
+.Ip "Incomplete line at end of file \fI(error)\fR"
+An incomplete line appeared at the end of the \fBmakefile\fR.
+.Ip "Macro definition too long \fI(error)\fR"
+The macro definition exceeds the limited designed into the preprocessor.
+.Ip "Multiple actions for \fIname\fR \fI(error)\fR"
+A target is defined with more than one single-colon target line.
+.Ip "Multiple detailed actions for \fIname\fR \fI(error)\fR"
+A target is defined with more than one single-colon target line.
+.Ip "Must use ``::'' for \fIname\fR \fI(error)\fR"
+A double-colon target line was followed by a single-colon
+target line.
+.Ip "Newline after target or macroname \fI(error)\fR"
+A newline character appears after a target name or a macro name.
+.Ip "\*(Ql::\*(Qr not allowed for \fIname\fR (error)\fR"
+A double-colon target line was used illegally; for example,
+after single-colon target line.
+.Ip "::: or : in or after dependency list \fI(error)\fR"
+A triple colon is meaningless to
+.BR make ,
+and therefore illegal wherever it appears.
+A single colon may be used only in a target line (which is also
+called the \fIdependency list\fR), and nowhere else.
+.Ip "Out of core (adddep) \fI(error)\fR"
+This results from a system problem.
+Try reducing the size of your \fBmakefile\fR.
+.Ip "Out of range number input. \fI(warning)\fR"
+You attempted to use a numeric value that is out of range.
+.Ip "Out of space \fI(error)\fR"
+System problem.
+Try reducing the size of your \fBmakefile\fR.
+.Ip "Out of space (lookup) \fI(error)\fR"
+System problem.
+Try reducing the size of your \fBmakefile\fR.
+.Ip "Syntax error \fI(error)\fR"
+The syntax of a line is faulty.
+.Ip "Too many macro definitions \fI(error)\fR"
+The number of macros you have created exceeds the capacity
+of your computer to process them.
+.Ip "= without macro name or in token list \fI(error)\fR"
+An equal sign \*(Ql\fB=\fR\*(Qr can be used only to define a macro, using
+the following syntax:  \*(QLMACRO=\fIdefinition\fR\*(QR.
+An incomplete macro definition, or the appearance of an equal sign outside
+the context of a macro definition, will trigger this error message.
+.Ip ": without preceding target \fI(error)\fR"
+A colon appeared without a target file name,
+e.g., :\fIstring\fR.
+.SH Notes
+Prior to release 4.2, \*(CO's implementation of
+.B make
+permitted users to use the macro
+.B $<
+outside of suffix rules.
+This non-standard behavior is no longer supported.
+.PP
+The order of items in \fBmakemacros/.SUFFIXES\fR
+is significant.
+The consequent of a default rule (e.g., \fB\&.o\fR) must
+.I precede
+the antecedent (e.g.,
+.BR \&.c )
+in the entry
+.BR \&.SUFFIXES .
+Otherwise,
+.B make
+will not work properly.

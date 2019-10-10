@@ -1,0 +1,34 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__UTMP_H__
+#define	__UTMP_H__
+
+/*
+ * Structure of the login records in `/etc/utmp' as well as the cumulative
+ * records in `/usr/adm/wtmp'.
+ */
+
+#ifndef DIRSIZ
+# define	DIRSIZ	14
+#endif
+
+#include <common/ccompat.h>
+#include <common/__time.h>
+
+struct	utmp {
+	char		ut_line [8];		/* tty name */
+	char		ut_name [DIRSIZ];	/* User name */
+#pragma	align 2
+	__time_t	ut_time __ALIGN (2);	/* time signed on */
+#pragma	align
+#pragma	align 2
+};
+#pragma	align	/* control structure padding in Coherent 'cc' */
+
+#endif	/* ! defined (__UTMP_H__) */
+

@@ -1,0 +1,271 @@
+head	4.2;
+access
+	hal
+	ljg
+	fred
+	udo
+	nigel;
+symbols
+	r12:4.2;
+locks; strict;
+comment	@# @;
+
+
+4.2
+date	94.05.03.21.19.46;	author rcsadmin;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+4.2
+log
+@This is the baseline version
+@
+text
+@# (-lgl
+#	Coherent 386 release 4.2-Beta
+#	Copyright (c) 1982, 1994 by Mark Williams Company.
+#	All rights reserved. May not be copied without permission.
+#	For copying permission and licensing info, write licensing@@mwc.com
+# -lgl)
+
+# Revised: Tue May  3 16:17:38 1994 CDT
+
+# A small library of POSIX-shell functions for the configuration shell
+# scripts. The scripts below use the features defined in POSIX.2 which
+# are also supported by the Coherent shell. It is intended that standard
+# Coherent shell scripts import this file using the '.' command.
+
+# Returns true if the arguments are equal
+
+is_equal () {
+	case $1 in
+	$2)	return 0 ;;
+	esac
+	return 1
+}
+
+
+# Returns true if the argument is null.
+
+is_empty () {
+	return ${#1}
+}
+
+
+# Returns true if the argument matches an affirmative answer, 1 if the
+# argument matches a negative answer, and 2 otherwise;
+
+is_yes () {
+	case $1 in
+	[Yy] | [Yy][Ee][Ss])	return 0 ;;
+	[Nn] | [Nn][Oo])	return 1 ;;
+	esac
+	return 2
+}
+
+
+# Standard paths for finding configuration files.
+
+if is_empty $CONF_PATH; then
+	CONF_PATH=/etc/conf:/etc/conf/install_conf
+else
+	CONF_PATH=$CONF_PATH:/etc/conf:/etc/conf/install_conf
+fi
+
+
+# Identical functionality to the "basename" command, except that an optional
+# third and fourth arguments provide a prefix and suffix for a command to
+# execute.
+
+basename () {
+	set -- "${1%$2}" "$3" "$4"	# strip optional (shortest) suffix
+	is_empty "$2$3" && set -- "$1" "echo "
+	eval "$2${1##*/}$3"		# strip longest prefix
+}
+
+
+# Return TRUE if $1 has $2 as a prefix
+
+has_prefix () {
+	set -- "${1##$2*}"	# if $2 is a prefix, consumes all of $1
+	is_empty $1		# so $1 will be empty if $2 is a prefix
+}
+
+
+# Return TRUE if the indicated file exists. There are two good candidates for
+# doing this, test and globbing; while globbing might seem preferable in the
+# absence of a built-in 'test', note that globbing requires read permission
+# where using 'test' requires search.
+
+file_exists () {
+	[ -f "$1" ]
+}
+
+
+# By default, write a parent pathname for the pathname given as the first
+# argument. The optional second and third arguments are the prefix and postfix
+# of a command run with the output pathname.
+
+parent_of () {
+	is_empty "$2$3" && set -- "$1" "echo "
+	case "$1" in
+	*/.. | ..)
+		eval "$2$1/.."		# Go up further
+		;;
+
+	.)	eval "$2.."
+		;;
+
+	*/.)	parent_of ${1%/.} "$2" "$3"
+		;;			# Strip redundant /.
+
+	*/*)	eval "$2${1%/*}"	# strip last component
+		;;
+
+	*)	eval "$2."		# current directory
+		;;
+	esac
+}
+
+
+# Read input, with prompting, defaults, and shell escapes
+#	read_input prompt variable default validate
+
+read_input () {
+	while : ; do		# until we break out...
+		# Append question mark to prompt unless it ends in a period.
+		case $1 in
+			*[.:!?])
+				echo -n "$1 "
+				;;
+			*)
+				echo -n "$1 ? "
+				;;
+		esac
+		is_empty "$3" || echo -n "[$3] "
+
+		read $2
+
+		case $(eval echo \$$2) in
+		!)	$SHELL			# subshell escape
+			echo			# write a newline
+			;;
+
+		!\?)	echo "!          Escapes to a shell prompt"
+			echo "!?         This help"
+			echo "!!         Takes default; query fails"
+			echo "!command   Executes command"
+			;;
+
+		!!*)	eval $2="\$3"		# restore default
+			return 1
+			;;
+
+		!*)	eval $(eval echo \${$2#!})
+			;;			# escape a single command
+
+		'')	eval $2="\$3"		# use default
+			break
+			;;
+
+		*)	is_empty "$4" || eval "$4 \$$2" || continue
+			break			# optionally validate
+			;;
+		esac
+	done
+	return 0
+}
+
+
+# Validation function for the above, for yes/no answers.
+
+require_yes_or_no () {
+	is_yes $1
+	case $? in
+	2)	echo "You must enter a yes or no answer"
+		return 1
+		;;
+	*)	return 0
+		;;
+	esac
+}
+
+
+# Take apart an input string consisting of colon-separated elements, such as
+# a $PATH string. The first argument is the path string, the second and third
+# form the prefix and postfix of a command that is run for every component.
+
+split_path () {
+	while : ; do
+		case "$1" in
+		'' | :)	break
+			;;
+
+		:*)	set -- "${1#:}" "$2" "$3"
+			;;
+
+		*:*)	eval "$2${1%:"${1#*:}"}$3"
+			set -- "${1#*:}" "$2" "$3"
+			;;
+
+		*)	eval "$2$1$3"
+			break
+			;;
+		esac
+	done
+	return 1
+}
+
+
+# Called with a filename and a list of paths to search, this function will
+# attempt to locate the file in the given directories.
+
+find_file () {
+	split_path "$2" "find_file=" "/$1
+			file_exists \$find_file && {
+			 eval \"$3\"\$find_file; return 0
+			}" || eval "$4 $1"
+}
+
+
+# Call with the $0 of the script as a parameter; by default, this command
+# writes the name of the directory containing the script to standard output.
+# If a second argument is given, it is taken as a command to pass the output
+# pathname to.
+
+source_path () {
+	is_empty "$2$3" && set -- "$1" "echo "
+
+	case $1 in
+	/*)	eval "$2${1%/*}$3"		# absolute pathname
+		;;
+
+	*/*)	eval "$2$(pwd)/${1%/*}$3"	# relative pathname
+		;;
+
+	*)	eval "$2$(pwd)$3"		# current directory
+		;;
+	esac
+}
+
+
+# Take the value of the arguments (which consist of an expression) and
+# return it, negated, as an exit status. Useful for turning shell arithmetic
+# expansions into test results.
+
+val () {
+	return $((! ($*)))
+}
+
+
+# Check the argument to see if it is numeric or not.
+
+is_numeric () {
+	(trap "exit 1" 0; echo $(($1*0)); trap 0) >/dev/null 2>&1
+}
+@

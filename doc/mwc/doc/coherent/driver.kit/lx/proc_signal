@@ -1,0 +1,73 @@
+.TH proc_signal() "" "" "DDI/DKI Kernel Routine"
+.PC "Send a signal to a process"
+.B "#include <sys/types.h>"
+.B "#include <sys/signal.h>"
+\fBint proc_signal(\fIprocess\^\fB, \fIsignal\^\fB)\fR
+\fBvoid *\fIprocess\^\fB; int \fIsignal\^\fB;\fR
+.PP
+.B proc_signal()
+sends
+.I signal
+to
+.IR process ,
+which must have been obtained by a call to
+.BR proc_ref() .
+.I signal
+can be one of the following:
+.IP \fBSIGHUP\fR 1.0i
+The device has ``hung up''.
+.IS \fBSIGINT\fR
+The driver has received an interrupt.
+.IS \fBSIGQUIT\fR
+The driver has received the quit character.
+.IS \fBSIGWINCH\fR
+The size of a window has changed.
+.IS \fBSIGURG\fR
+Urgent data are waiting.
+.IS \fBSIGPOLL\fR
+A pollable event has occurred.
+.PP
+If
+.I process
+still exists,
+.B proc_signal()
+sends sends it
+.I signal
+and returns zero.
+However, if it has exited,
+.B proc_signal()
+does nothing and returns \-1.
+.SH "See Also"
+.B 
+DDI/DKI kernel routines,
+proc_ref(),
+proc_unref(),
+signals
+.R
+.SH Notes
+.B proc_signal()
+has base or interrupt level.
+It does not sleep.
+.PP
+A driver can hold a
+driver-defined basic lock, read/write lock, or sleep lock
+across a call to this function.
+.PP
+A \*(ST driver or module should not use
+.BR proc_signal() .
+Rather, it should send a message of type
+.B M_SIG
+or
+.B M_PCSIG
+to the stream head.
+A driver must not use
+.B proc_signal()
+to send
+.BR SIGTSTP .
+.PP
+.B proc_signal()
+interrupts any process that is blocked in
+.B SV_WAIT_SIG()
+or
+.BR SLEEP_LOCK_SIG() .
+In most cases, this causes these functions to return prematurely.

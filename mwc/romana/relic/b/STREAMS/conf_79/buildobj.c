@@ -1,0 +1,698 @@
+/*
+ * Implementation of functions prototyped in "buildobj.h"
+ */
+/*
+ *-IMPORTS:
+ *	<sys/compat.h>
+ *		USE_PROTO
+ *		VOID
+ *		ARGS ()
+ *	<stdlib.h>
+ *		NULL
+ *		size_t
+ *		free ()
+ *		malloc ()
+ *	<string.h>
+ *		memcpy ()
+ *		memset ()
+ */
+
+#include <sys/compat.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "buildobj.h"
+
+
+/*
+ * Structures that are only really visible inside this compilation unit.
+ *
+ * Note that "o_prev" is used only for nested build contexts, which are
+ * special, although it could be used for all objects if we wanted to spend
+ * the space on allowing stacklike allocation (which we don't, normally).
+ */
+
+
+typedef	struct buildchunk	bchunk_t;
+typedef	struct objinfo		obj_t;
+
+struct objinfo {
+	obj_t	      *	o_prev;		/* previous object */
+	VOID	      *	o_base;		/* base of object */
+	size_t		o_size;		/* size of object */
+	unsigned char	o_building;	/* object being built */
+};
+
+struct builder {
+	bchunk_t      *	b_first;	/* first allocated chunk */
+	bchunk_t      *	b_last;		/* last allocated chunk */
+	size_t		b_chunksize;	/* recommended chunk size */
+	size_t		b_align;	/* allocation alignment factor */
+
+	obj_t		b_obj;		/* current object */
+	bchunk_t      *	b_chunkp;	/* chunk of last/current object */
+};
+
+struct buildchunk {
+	bchunk_t      *	bc_next;	/* next memory chunk */
+	char	      *	bc_base;	/* base of chunk space */
+	size_t		bc_free;	/* amount of free space */
+};
+
+
+/*
+ * This internal function allocates a new chunk of memory to be parcelled out
+ * to clients. Allocate "b_chunksize" bytes of memory to give out, and copy
+ * any partial allocation over to the new chunk (since we typically only
+ * allocate new chunks when a request to expand a previous allocation
+ * overflows the biggest available block of space).
+ */
+
+#ifdef	USE_PROTO
+bchunk_t * (BUILD_CHUNK) (build_t * heap, bchunk_t * bchunkp)
+#else
+bchunk_t *
+BUILD_CHUNK ARGS ((heap, bchunkp))
+build_t	      *	heap;
+bchunk_t      *	bchunkp;
+#endif
+{
+
+	/*
+	 * Ok, let's add a new chunk.
+	 */
+
+	if ((bchunkp = (bchunk_t *) malloc (heap->b_chunksize +
+					    sizeof (bchunk_t))) == NULL)
+		return NULL;
+
+	bchunkp->bc_base = (char *) (bchunkp + 1);
+	bchunkp->bc_free = heap->b_chunksize;
+
+	/*
+	 * Copy any previously existing data to the new chunk.
+	 */
+
+	if (heap->b_obj.o_size > 0) {
+
+		memcpy (bchunkp->bc_base, heap->b_obj.o_base,
+			heap->b_obj.o_size);
+
+		bchunkp->bc_base += heap->b_obj.o_size;
+		bchunkp->bc_free -= heap->b_obj.o_size;
+	}
+
+
+	heap->b_chunkp = bchunkp;
+	heap->b_obj.o_base = (char *) (bchunkp + 1);
+
+	return bchunkp;
+}
+
+
+/*
+ * This internal function increases the size of an allocation. If a request
+ * causes an allocation to expand beyond the end of the current chunk, try and
+ * find another chunk that can hold it, and if that fails allocate a new chunk
+ * which is guaranteed to be large enough.
+ *
+ * The client's data is copied to the new space, appended to any previously
+ * allocated data in the same group.
+ */
+
+#ifdef	USE_PROTO
+int (BUILD_ADD) (build_t * heap, size_t size, VOID * init)
+#else
+int
+BUILD_ADD ARGS ((heap, size, init))
+build_t	      *	heap;
+size_t		size;
+VOID          *	init;
+#endif
+{
+	bchunk_t      *	bchunkp;
+	size_t		total = size + heap->b_obj.o_size;
+
+	if (size == 0)
+		return BUILD_OK;
+
+	if (total < size || total + sizeof (bchunk_t) < total)
+		return BUILD_SIZE_OVERFLOW;
+
+	/*
+	 * First, try to fit the expanded allocation in the current chunk.
+	 * If there are no chunks allocated yet, let's start.
+	 */
+
+	bchunkp = heap->b_chunkp;
+
+	if ((bchunkp != NULL && bchunkp->bc_free < size) || bchunkp == NULL) {
+		/*
+		 * First, try and find an already allocated chunk that will
+		 * hold the expanded allocation.
+		 */
+
+		while (bchunkp != NULL) {
+
+			if (bchunkp->bc_free >= total) {
+				/*
+				 * Transfer existing object information to new
+				 * chunk.
+				 */
+
+				if (heap->b_obj.o_size > 0)
+					memcpy (bchunkp->bc_base,
+						heap->b_obj.o_base,
+						heap->b_obj.o_size);
+
+				heap->b_obj.o_base = bchunkp->bc_base;
+				heap->b_chunkp = bchunkp;
+
+				bchunkp->bc_base += heap->b_obj.o_size;
+				bchunkp->bc_free -= heap->b_obj.o_size;
+
+				goto gotmem;
+			}
+
+			bchunkp = bchunkp->bc_next;
+		}
+
+		if (total > heap->b_chunksize)
+			heap->b_chunksize = total + (total >> 1);
+
+		if ((bchunkp = BUILD_CHUNK (heap, bchunkp)) == NULL)
+			return BUILD_NO_MEMORY;
+	}
+
+gotmem:
+	/*
+	 * OK, let's initialise the new space.
+	 */
+
+	if (init == INIT_ZERO) {
+		/*
+		 * The client passed us the special pointer value that means
+		 * we should zero the new space.
+		 */
+
+		memset (bchunkp->bc_base, 0, size);
+	} else {
+		/*
+		 * The client has given us explicit initialisation values.
+		 */
+
+		memcpy (bchunkp->bc_base, init, size);
+	}
+
+	bchunkp->bc_base += size;
+	bchunkp->bc_free -= size;
+	heap->b_obj.o_size += size;
+
+	return BUILD_OK;
+}
+
+
+/*
+ * Local function which recovers a chunk number from an object address. Note
+ * that we *cannot* do this by merely scanning the chunks looking for one that
+ * encloses the object pointer we have, because relational comparisons between
+ * distinctly-allocated objects yields an undefined result (ie, we could get
+ * false positives).
+ *
+ * However, we can solve the problem by requiring the object pointer to be the
+ * most recent allocation in a given chunk, and passing in the size of the
+ * object. This way, we can test for a match via equality, which is a stronger
+ * test, because two object pointers compare equal if and only if they point
+ * at the same object.
+ *
+ * [ Note that the converse is controversial; it does not appear to be
+ *   mandated by ISO C, and the notion of object identity is hotly debated
+ *   in C++ circles. Since we will be using pointers that have been derived
+ *   via convential means we can ignore such notions of aliasing. ]
+ */
+
+#ifdef	USE_PROTO
+LOCAL bchunk_t * (FIND_CHUNK) (build_t * heap, VOID * obj, size_t size)
+#else
+LOCAL bchunk_t *
+FIND_CHUNK ARGS ((heap, obj, size))
+build_t	      *	heap;
+VOID	      *	obj;
+size_t		size;
+#endif
+{
+	bchunk_t      *	scan;
+
+	for (scan = heap->b_first ; scan != NULL ; scan = scan->bc_next)
+		if (scan->bc_base - size == obj)
+			return scan;
+
+	return NULL;
+}
+
+
+/*
+ * This function allocates a control block for building variable-sized
+ * objects with. The "chunksize" is the default amount of memory to request
+ * from the C library in a block which other functions will parcel out to
+ * clients.
+ */
+
+#ifdef	USE_PROTO
+build_t * (builder_alloc) (size_t chunksize, size_t align)
+#else
+build_t *
+builder_alloc ARGS ((chunksize, align))
+size_t		chunksize;
+size_t		align;
+#endif
+{
+	build_t	      *	buildp;
+
+	if (chunksize < 256)
+		chunksize = 256;
+
+	if ((buildp = (build_t *) malloc (sizeof (build_t))) != NULL) {
+
+		buildp->b_first = buildp->b_last = NULL;
+		buildp->b_chunksize = chunksize;
+		buildp->b_align = align == 0 ? 1 : align;
+
+		buildp->b_obj.o_building = 0;
+		buildp->b_obj.o_prev = NULL;	/* no previous object */
+		buildp->b_obj.o_base = NULL;	/* not building an object */
+	}
+
+	return buildp;
+}
+
+
+/*
+ * Free the basic object builder structure and all the chunk memory that it
+ * attached to itself during its lifetime.
+ */
+
+#ifdef	USE_PROTO
+void (builder_free) (build_t * heap)
+#else
+void
+builder_free ARGS ((heap))
+build_t	      *	heap;
+#endif
+{
+	bchunk_t      *	scan;
+	bchunk_t      *	next;
+
+	if (heap == NULL)
+		return;
+
+	for (scan = heap->b_first ; scan != NULL ; scan = next) {
+
+		next = scan->bc_next;
+		free (scan);
+	}
+
+	free (heap);
+}
+
+
+/*
+ * Simple function to allocate just a single chunk.
+ */
+
+#ifdef	USE_PROTO
+VOID * (build_malloc) (build_t * heap, size_t size)
+#else
+VOID *
+build_malloc ARGS ((heap, size))
+build_t	      *	heap;
+size_t		size;
+#endif
+{
+	if (heap == NULL || heap->b_obj.o_building != 0 ||
+	    (heap->b_obj.o_base != NULL && heap->b_obj.o_prev != NULL))
+		return NULL;
+
+	heap->b_obj.o_size = 0;
+	heap->b_obj.o_base = NULL;
+
+	heap->b_chunkp = heap->b_first;
+
+#ifdef	__COHERENT__
+	return BUILD_ADD (heap, size, NULL) == 0 ? heap->b_obj.o_base :
+		(VOID *) NULL;
+#else
+	return BUILD_ADD (heap, size, NULL) == 0 ? heap->b_obj.o_base : NULL;
+#endif
+}
+
+
+/*
+ * Begin building some variable-sized object with an initial allocation of
+ * "size" bytes. All previous allocations must be complete before beginning a
+ * new allocation.
+ */
+
+#ifdef	USE_PROTO
+int (build_begin) (build_t * heap, size_t size, VOID * init)
+#else
+int
+build_begin ARGS ((heap, size, init))
+build_t	      *	heap;
+size_t		size;
+VOID          *	init;
+#endif
+{
+	if (heap == NULL)
+		return BUILD_NULL_HEAP;
+	if (heap->b_obj.o_building != 0)
+		return BUILD_OBJECT_BEGUN;
+
+	/*
+	 * We only allow one object to be built per inner nesting level; since
+	 * object descriptors are normally not needed, levels that can be
+	 * unwound have to be pushed/popped manually. However, only one object
+	 * can be built at an inner level or else the stack could not be
+	 * unwound.
+	 */
+
+	if (heap->b_obj.o_base != NULL &&
+	    heap->b_obj.o_prev != NULL)
+		return BUILD_BAD_NESTING;
+
+	heap->b_obj.o_size = 0;
+	heap->b_obj.o_base = NULL;
+	heap->b_obj.o_building = 1;
+
+	heap->b_chunkp = heap->b_first;
+
+	return BUILD_ADD (heap, size, init);
+}
+
+
+/*
+ * Add "size" bytes to the current variable-sized object.
+ */
+
+#ifdef	USE_PROTO
+int (build_add) (build_t * heap, size_t size, VOID * init)
+#else
+int
+build_add ARGS ((heap, size, init))
+build_t	      *	heap;
+size_t		size;
+VOID      *	init;
+#endif
+{
+	if (heap == NULL)
+		return BUILD_NULL_HEAP;
+	if (heap->b_obj.o_building == 0)
+		return BUILD_NO_OBJECT;
+
+	return BUILD_ADD (heap, size, init);
+}
+
+
+/*
+ * Special-case function to add a single character to an object efficiently.
+ * This is useful for functions which must build strings on the fly without
+ * any easy way of predetermining the size.
+ */
+
+#ifdef	USE_PROTO
+int (build_addchar) (build_t * heap, char ch)
+#else
+int
+build_addchar ARGS ((heap, ch))
+build_t	      *	heap;
+char		ch;
+#endif
+{
+	bchunk_t      *	bchunkp;
+
+	if (heap == NULL)
+		return BUILD_NULL_HEAP;
+	if (heap->b_obj.o_building == 0)
+		return BUILD_NO_OBJECT;
+
+	/*
+	 * Like BUILD_ADD (), but faster in the simplest case.
+	 */
+
+	if ((bchunkp = heap->b_chunkp) == NULL || bchunkp->bc_free == 0)
+		if ((bchunkp = BUILD_CHUNK (heap, bchunkp)) == NULL)
+			return BUILD_NO_MEMORY;
+
+	* bchunkp->bc_base ++ = ch;
+	bchunkp->bc_free --;
+	heap->b_obj.o_size ++;
+
+	return BUILD_OK;
+}
+
+
+/*
+ * End construction of an object, optionally returning the size in bytes
+ * occupied.
+ */
+
+#ifdef	USE_PROTO
+VOID * (build_end) (build_t * heap, size_t * size)
+#else
+VOID *
+build_end ARGS ((heap, size))
+build_t	      *	heap;
+size_t	      *	size;
+#endif
+{
+	size_t		adjust;
+
+	if (heap == NULL || heap->b_obj.o_building == 0)
+		return NULL;
+
+	if (size != NULL)
+		* size = heap->b_obj.o_size;
+
+	if ((adjust = heap->b_obj.o_size & (heap->b_align - 1)) != 0) {
+		/*
+		 * Waste some space at the end to make the alignment happen.
+		 */
+
+		adjust = heap->b_align - adjust;
+
+		heap->b_obj.o_size += adjust;
+		heap->b_chunkp->bc_base += adjust;
+		heap->b_chunkp->bc_free -= adjust;
+	}
+
+	heap->b_obj.o_building = 0;
+	return heap->b_obj.o_base;
+}
+
+
+
+/*
+ * Return the storage of the most recently constructed object to the free
+ * pool. Note that the GNU obstack system allows an object heap to be cut back
+ * to any arbitrary point in a stack-like fashion; we don't, because we try
+ * and squeeze space into end-of-chunk areas that the GNU system would leave
+ * alone. Perhaps later we can add options to allow this.
+ */
+
+#ifdef	USE_PROTO
+int (build_release) (build_t * heap, VOID * base)
+#else
+int
+build_release ARGS ((heap, base))
+build_t	      *	heap;
+VOID      *	base;
+#endif
+{
+	if (heap == NULL)
+		return BUILD_NULL_HEAP;
+	if (base == NULL)
+		return BUILD_NULL_BASE;
+	if (heap->b_obj.o_building == 1)
+		return BUILD_OBJECT_BEGUN;
+	if (heap->b_obj.o_base != base)
+		return BUILD_NOT_LAST;
+
+	/*
+	 * Return "heap->b_size" bytes to the chunk that the last object was
+	 * constructed in. We also forget that the object was ever built,
+	 * which will allow nested builds to happen.
+	 */
+
+	heap->b_chunkp->bc_base -= heap->b_obj.o_size;
+	heap->b_chunkp->bc_free += heap->b_obj.o_size;
+
+	heap->b_obj.o_base = NULL;
+	heap->b_obj.o_size = 0;
+
+	return BUILD_OK;
+}
+
+
+/*
+ * Temporarily suspend construction of an object and begin nested construction
+ * of another object. Once a nested build context has been entered, only one
+ * object may be allowed to be built (although it may be thrown away and
+ * another one begun).
+ */
+
+#ifdef	USE_PROTO
+int (build_push) (build_t * heap)
+#else
+int
+build_push ARGS ((heap))
+build_t	      *	heap;
+#endif
+{
+	obj_t		temp;
+	int		err;
+
+	if (heap == NULL)
+		return BUILD_NULL_HEAP;
+
+	/*
+	 * We will need to find some space in the heap for the saved build
+	 * context. We take a snapshot of the allocation context in a local
+	 * variable for eventual storage in the heap, and start a "new"
+	 * allocation. Then, calling BUILD_ADD () will find space for the
+	 * snapshot and copy it.
+	 */
+
+	temp = heap->b_obj;
+
+	heap->b_obj.o_size = 0;
+
+	if ((err = BUILD_ADD (heap, sizeof (temp), & temp)) != 0) {
+		/*
+		 * We couldn't create space for the saved context, so restore
+		 * the state and return the error to the caller.
+		 */
+
+		heap->b_obj = temp;
+	} else {
+		/*
+		 * Record the location where the saved snapshot was stored as
+		 * the back-link in the snapshot chain. Then, we clear the
+		 * top object record for use in at most one nested allocation.
+		 */
+
+		heap->b_obj.o_prev = (obj_t *) heap->b_obj.o_base;
+
+		heap->b_obj.o_size = 0;
+		heap->b_obj.o_base = NULL;
+	}
+
+	return err;
+}
+
+
+/*
+ * Undo the actions of build_push (). If there is an allocation in the current
+ * top-level object record, discard it implicitly.
+ */
+
+#ifdef	USE_PROTO
+int (build_pop) (build_t * heap)
+#else
+int
+build_pop ARGS ((heap))
+build_t	      *	heap;
+#endif
+{
+	bchunk_t      *	temp;
+
+	if (heap == NULL)
+		return BUILD_NULL_HEAP;
+	if (heap->b_obj.o_prev == NULL)
+		return BUILD_STACK_EMPTY;
+
+	/*
+	 * Before we retrieve the previous object context, we have to find
+	 * the chunk it is stored in (so that we can discard the saved
+	 * context record).
+	 */
+
+	if ((temp = FIND_CHUNK (heap, heap->b_obj.o_prev,
+				sizeof (obj_t))) == NULL)
+		return BUILD_CORRUPT;
+
+	/*
+	 * Implicitly discard top object.
+	 */
+
+	if (heap->b_obj.o_base != NULL) {
+
+		heap->b_chunkp->bc_base -= heap->b_obj.o_size;
+		heap->b_chunkp->bc_free += heap->b_obj.o_size;
+	}
+
+
+	/*
+	 * Free saved record and recover the data stored there. We do it in
+	 * that backwards order to avoid storing too many temporary pointers,
+	 * and because it is safe for us (we won't be interrupted, and our
+	 * code doesn't overwrite newly-freed memory).
+	 */
+
+	temp->bc_base -= sizeof (obj_t);
+	temp->bc_free += sizeof (obj_t);
+
+	heap->b_obj = * heap->b_obj.o_prev;
+
+
+	/*
+	 * We don't store the previous chunk pointer in the object record
+	 * because we can recover it easily if necessary (and it often isn't).
+	 */
+
+	if (heap->b_obj.o_base != NULL &&
+	    (heap->b_chunkp = FIND_CHUNK (heap, heap->b_obj.o_base,
+					  heap->b_obj.o_size)) == NULL)
+		return BUILD_CORRUPT;
+
+	return 0;
+}
+
+
+/*
+ * Return a human-readable string from an error code.
+ */
+
+#ifdef	USE_PROTO
+CONST char * (build_error) (int errcode)
+#else
+CONST char *
+build_error ARGS ((errcode))
+int		errcode;
+#endif
+{
+	static CONST char * errors [] = {
+		/*
+		 * Error strings to match the error enumeration, from 0 to
+		 * the maximum negative error code, plus an extra code for
+		 * invalid error codes.
+		 */
+
+		"no error",
+		"\"heap\" parameter is NULL",
+		"\"base\" parameter is NULL",
+		"object already under construction",
+		"object construction not begun",
+		"insufficient memory to satisfy request",
+		"overflow of \"size_t\" would result",
+		"not most recently built object",
+		"can build only one object in inner nesting level",
+		"pop of empty saved object stack",
+		"heap appears to be corrupt",
+		"<not a valid error>"
+	};
+
+#define	ARRAY_LEN(a)	(sizeof (a) / sizeof (* (a)))
+
+	return (errcode > 0 || - errcode >= ARRAY_LEN (errors) ?
+			errors [ARRAY_LEN (errors) - 1] : errors [- errcode]);
+}

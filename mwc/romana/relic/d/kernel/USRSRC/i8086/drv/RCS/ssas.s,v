@@ -1,0 +1,576 @@
+head     1.7;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @/ @;
+
+
+1.7
+date     91.06.01.10.51.00;  author hal;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     91.06.01.10.32.51;  author hal;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.05.20.17.22.03;  author root;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.05.20.16.21.35;  author root;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.05.20.10.23.13;  author root;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.05.17.00.24.17;  author root;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.05.16.14.16.21;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Assembler I/O for Seagate SCSI.
+@
+
+
+1.7
+log
+@Add ffcopy().
+@
+text
+@////////
+/
+/ I/O for Seagate ST01/ST02 SCSI Host Adapters.
+/
+/ $Log:	ssas.s,v $
+/ Revision 1.6  91/06/01  10:32:51  hal
+/ Do handshaking both ways.  Now names are ss_getb()/ss_putb().
+/ 
+/ Revision 1.5	91/05/20  17:22:03	root
+/ Not using ss_put() any more.
+/ 
+/ Revision 1.4	91/05/20  16:21:35	root
+/ Call to ss_putc() now works.
+/ 
+/ Revision 1.3	91/05/20  10:23:13	root
+/ Drop 3rd arg.  Same code for Seagate & Future Domain.
+/ 
+/ Revision 1.2	91/05/17  00:24:17	root
+/ Code ss_put - use REQ handshake.
+/ 
+/ Revision 1.1	91/05/16  14:16:21	root
+/ Initial version - no code yet for ss_put().
+/ 
+/
+/	Since these functions are called from the midst of C code in
+/	the "ss" driver, they need to preserve the following registers:
+/		SI  DI  SP  BP    SS  DS  ES
+/	Additionally, surrounding C code is expected to leave the "D"
+/	CPU flag clear (string op's increment index registers).
+/
+////////
+
+////////
+/
+/	Export functions.
+/
+////////
+	.globl	ss_getb_
+	.globl	ss_putb_
+	.globl	ffcopy_
+
+////////
+/
+/ Constants
+/
+/	Relative to the RAM base address of the host adapter, offsets
+/	for Control/Status Register (CSR) and Data Port (DAT) differ
+/	between Seagate and Future Domain as follows:
+/			Seagate		Future Domain
+/		SS_CSR	0x1A00		0x1C00
+/		SS_DAT	0x1C00		0x1E00
+/	The difference between these (CSR_OFF) is 0x200 in either case.
+/
+////////
+
+	BSIZE	= 0x200		/ Disk block size in bytes
+	CSR_OFF	= 0x200
+
+	REQ_LIM = 500
+	RS_REQUEST = 0x10
+
+////////
+/
+/ ss_getb(ss_dat_fp, buf_fp)
+/ faddr_t ss_dat_fp, buf_fp;
+/
+/ Fetch input bytes from host adapter and store at buffer address.
+/
+/ Do REQ handshaking and return the number of bytes remaining to transfer.
+/ (So return value of 0 means no error.)
+/
+/ Here is the stack after initial "push bp":
+/
+/	10(bp)	FP_SEL(buf_fp)
+/	8(bp)	FP_OFF(buf_fp)
+/	6(bp)	FP_SEL(ss_dat_fp)
+/	4(bp)	FP_OFF(ss_dat_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+ss_getb_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si
+
+	lds	si, 4(bp)	/ ss_dat_fp to DS:SI
+	mov	bx, si		/ .. and to DS:BX
+	sub	bx, $CSR_OFF	/ ss_csr to DS:BX
+	les	di, 8(bp)	/ buf_fp to ES:DI
+	mov	cx, $BSIZE	/ rep count to CX
+
+G01:				/ start outer loop - reading bytes from SCSI
+	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+G02:				/ start inner loop - polling for REQ
+	movb	dl, (bx)
+	testb	dl, $RS_REQUEST
+	jne	G03		/ got REQ
+	dec	ax
+	jnz	G02		/ no REQ - look again
+	jmp	G04		/ no REQ - give up
+
+G03:				/ got REQ - ok to read a byte
+	movsb
+	loop	G01
+G04:				/ all done
+	mov	ax, cx		/ normal exit returns 0
+
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+
+////////
+/
+/ int ss_putb(ss_dat_fp, buf_fp)
+/ faddr_t ss_dat_fp, buf_fp;
+/
+/ Write output bytes to host adapter from buffer address.
+/
+/ Return the number of bytes remaining to be sent (should be 0).
+/
+/ Here is the stack after initial "push bp":
+/
+/	10(bp)	FP_SEL(buf_fp)
+/	8(bp)	FP_OFF(buf_fp)
+/	6(bp)	FP_SEL(ss_dat_fp)
+/	4(bp)	FP_OFF(ss_dat_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+ss_putb_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si 
+	lds	si, 8(bp)	/ buf_fp to DS:SI
+	les	di, 4(bp)	/ ss_dat_fp  to ES:DI
+	mov	bx, di		/ .. and to ES:BX
+	sub	bx, $CSR_OFF	/ ss_csr to ES:BX
+	mov	cx, $BSIZE	/ count to CX
+
+P01:				/ start outer loop - writing bytes to SCSI
+	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+P02:				/ start inner loop - polling for REQ
+	movb	dl, es:(bx)
+	testb	dl, $RS_REQUEST
+	jne	P03		/ got REQ
+	dec	ax
+	jnz	P02		/ no REQ - look again
+	jmp	P04		/ no REQ - give up
+
+P03:				/ got REQ - ok to write a byte
+	movsb
+	loop	P01
+P04:				/ all done - now restore registers
+	mov	ax, cx
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+
+////////
+/
+/ void ffcopy(from_fp, to_fp, count)
+/ faddr_t from_fp, to_fp;
+/ int count;
+/
+/ Copy count bytes from from_fp to to_fp.
+/
+/ Here is the stack after initial "push bp":
+/
+/	12(bp)	count
+/	10(bp)	FP_SEL(to_fp)
+/	8(bp)	FP_OFF(to_fp)
+/	6(bp)	FP_SEL(from_fp)
+/	4(bp)	FP_OFF(from_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+ffcopy_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si
+
+	lds	si, 4(bp)	/ from_fp  to DS:SI
+	les	di, 8(bp)	/ to_fp to ES:DI
+	mov	cx, 12(bp)	/ rep count to CX
+	rep
+	movsb
+
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+@
+
+
+1.6
+log
+@Do handshaking both ways.  Now names are ss_getb()/ss_putb().
+@
+text
+@d5 4
+a8 1
+/ $Log:	/usr/src/sys/i8086/drv/RCS/ssas.s,v $
+d40 1
+d174 41
+@
+
+
+1.5
+log
+@Not using ss_put() any more.
+@
+text
+@d6 3
+d35 2
+a36 2
+	.globl	ss_get_
+/	.globl	ss_put_
+d60 1
+a60 1
+/ ss_get(ss_dat_fp, buf_fp)
+a63 2
+/ (Also used conversely - this routine should be called "ff_bcopy()"
+/ for "far-to-far block copy".)
+d65 3
+d79 1
+a79 1
+ss_get_:
+d87 3
+a89 1
+	lds	si, 4(bp)	/ ss_dat_fp  to DS:SI
+d92 12
+a103 1
+	rep
+d105 3
+a115 2
+/ THE FOLLOWING ROUTINE APPEARS TO BE UNNECESSARY, SO IS COMMENTED OUT.
+
+d118 1
+a118 1
+/ int ss_put(ss_dat_fp, buf_fp)
+d136 34
+a169 34
+/ss_put_:
+/	push	bp
+/	mov	bp, sp
+/	push	es
+/	push	di
+/	push	ds
+/	push	si 
+/	lds	si, 8(bp)	/ buf_fp to DS:SI
+/	les	di, 4(bp)	/ ss_dat_fp  to ES:DI
+/	mov	bx, di		/ .. and to ES:BX
+/	sub	bx, $CSR_OFF	/ ss_csr to ES:BX
+/	mov	cx, $BSIZE	/ count to CX
+/
+/P01:				/ start outer loop - writing bytes to SCSI
+/	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+/P02:				/ start inner loop - polling for REQ
+/	movb	dl, es:(bx)
+/	testb	dl, $RS_REQUEST
+/	jne	P03
+/	dec	ax
+/	jnz	P02
+/	jmp	P04
+/
+/P03:				/ got REQ - ok to write a byte
+/	movsb
+/	loop	P01
+/P04:				/ all done - now restore registers
+/	mov	ax, cx
+/	pop	si
+/	pop	ds
+/	pop	di
+/	pop	es
+/	pop	bp
+/	ret
+@
+
+
+1.4
+log
+@Call to ss_putc() now works.
+@
+text
+@d6 3
+d33 1
+a33 2
+	.globl	ss_put_
+	.globl	req_waitA_	/ temporary!
+d61 2
+d96 2
+d118 12
+a129 36
+ss_put_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si 
+	lds	si, 8(bp)	/ buf_fp to DS:SI
+	les	di, 4(bp)	/ ss_dat_fp  to ES:DI
+	mov	bx, di		/ .. and to ES:BX
+	sub	bx, $CSR_OFF	/ ss_csr to ES:BX
+	mov	cx, $BSIZE	/ count to CX
+
+P01:				/ start outer loop - writing bytes to SCSI
+	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+P02:				/ start inner loop - polling for REQ
+	movb	dl, es:(bx)
+	testb	dl, $RS_REQUEST
+	jne	P03
+	dec	ax
+	jnz	P02
+	jmp	P04
+
+P03:				/ got REQ - ok to write a byte
+	movsb
+	loop	P01
+P04:				/ all done - now restore registers
+	mov	ax, cx
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+
+////////
+d131 9
+a139 2
+/ int req_waitA(ss_dat_fp, buf_fp)
+/ faddr_t ss_dat_fp, buf_fp;
+d141 11
+a151 49
+/ Return when REQ is true or timeout.
+/
+/ Return 1 if REQ received, 0 if timeout.
+/
+/ Here is the stack after initial "push bp":
+/
+/	10(bp)	FP_SEL(buf_fp)
+/	8(bp)	FP_OFF(buf_fp)
+/	6(bp)	FP_SEL(ss_dat_fp)
+/	4(bp)	FP_OFF(ss_dat_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+
+req_waitA_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si 
+	lds	si, 8(bp)	/ buf_fp to DS:SI
+	les	di, 4(bp)	/ ss_dat_fp  to ES:DI
+	mov	bx, di		/ .. and to ES:BX
+	sub	bx, $CSR_OFF	/ ss_csr to ES:BX
+	mov	cx, $BSIZE	/ count to CX
+
+Q01:				/ start outer loop - writing bytes to SCSI
+	mov	ax, $REQ_LIM	/ max # of times to look for REQ
+Q02:				/ start inner loop - polling for REQ
+	movb	dl, es:(bx)
+	testb	dl, $RS_REQUEST
+	jne	Q03
+	dec	ax
+	jnz	Q02
+	xor	ax, ax		/ timeout - return 0
+	jmp	Q04
+
+Q03:				/ got REQ
+	mov	ax, $1		/ return 1
+Q04:				/ all done - now restore registers
+	movb	dh, $0xEE
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret
+@
+
+
+1.3
+log
+@Drop 3rd arg.  Same code for Seagate & Future Domain.
+@
+text
+@d6 3
+d31 1
+d50 1
+a50 1
+	REQ_LIM = 200
+d122 1
+a122 1
+	sub	bx, CSR_OFF	/ ss_csr to ES:BX
+d146 55
+@
+
+
+1.2
+log
+@Code ss_put - use REQ handshake.
+@
+text
+@d6 3
+a31 2
+/	Also defined in /usr/src/sys/i8086/sys/ss.h:
+/		SS_CSR  SS_DAT  RS_REQUEST
+d33 8
+d43 2
+a44 2
+	SS_CSR	= 0x1A00
+	SS_DAT	= 0x1C00
+d51 2
+a52 3
+/ ss_get(ss_fp, buf_fp, count)
+/ faddr_t ss_fp, buf_fp;
+/ int count;
+a54 1
+/ Count must be <= SS_RAM_LEN (0x400).
+a57 1
+/	12(bp)	count
+d60 2
+a61 2
+/	6(bp)	FP_SEL(ss_fp)
+/	4(bp)	FP_OFF(ss_fp)
+d75 1
+a75 2
+	lds	si, 4(bp)	/ ss_fp  to DS:SI
+	add	si, $SS_DAT	/ ss_dat to DS:SI
+d77 1
+a77 1
+	mov	cx, 12(bp)	/ count to CX
+d90 2
+a91 3
+/ int ss_put(ss_fp, buf_fp, count)
+/ faddr_t ss_fp, buf_fp;
+/ int count;
+a93 1
+/ Count must be <= SS_RAM_LEN (0x400).
+d95 1
+a95 1
+/ Return 0 if timeout occurred, otherwise nonzero.
+a98 1
+/	12(bp)	count
+d101 2
+a102 2
+/	6(bp)	FP_SEL(ss_fp)
+/	4(bp)	FP_OFF(ss_fp)
+d116 1
+a116 1
+	les	di, 4(bp)	/ ss_fp  to ES:DI
+d118 2
+a119 3
+	add	di, $SS_DAT	/ ss_dat to ES:DI
+	add	bx, $SS_CSR	/ ss_csr to ES:BX
+	mov	cx, 12(bp)	/ count to CX
+d121 1
+a121 1
+P01:				/ start of 2 loops
+d123 4
+a126 2
+	testb	es:(bx), $RS_REQUEST
+	jne	P02
+d128 2
+a129 2
+	jnz	P01
+	jmp	P03
+d131 1
+a131 1
+P02:				/ got REQ - ok to write a byte
+d134 2
+a135 1
+P03:				/ all done - now restore registers
+@
+
+
+1.1
+log
+@Initial version - no code yet for ss_put().
+@
+text
+@d5 4
+a8 1
+/ $Log$
+d24 1
+a24 1
+/	.globl	ss_put_
+d29 2
+a30 1
+/	These are also defined in /usr/src/sys/i8086/sys/ss.h
+d37 3
+d82 56
+@

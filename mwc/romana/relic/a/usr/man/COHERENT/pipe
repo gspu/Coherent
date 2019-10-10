@@ -1,0 +1,132 @@
+
+
+pipe()                 COHERENT System Call                pipe()
+
+
+
+
+Open a pipe
+
+iinntt ppiippee(_f_d)
+iinntt _f_d[22];
+
+A pipe is  an interprocess communication mechanism.  pipe creates
+a pipe, typically to construct pipelines in the shell sh.
+
+pipe fills  in fd[0] and fd[1] with read  and write file descrip-
+tors, respectively.   The file descriptors allow  the transfer of
+data from one or more writers  to one or more readers.  Pipes are
+buffered to  5,120 bytes.  If  more than 5,120  bytes are written
+into the  pipe, the write  call will not return  until the reader
+has removed sufficient data for the write to complete.  If a read
+occurs on  an empty  pipe, its  completion awaits the  writing of
+data.
+
+When all writing processe close their write file descriptors, the
+reader receives  an end  of file indication.   A write on  a pipe
+with  no remaining  readers  generates a  SIGPIPE  signal to  the
+caller.
+
+pipe is  generally called just before fork.   Once the parent and
+child processes  are created, the unused  file descriptors should
+be closed in each process.
+
+***** Example *****
+
+The following  example prints  the word  Waiting until a  line of
+data  is entered.   It illustrates  how to  use pipe,  fstat, and
+fork.
+
+
+#include <stdio.h>
+#include <sys/stat.h>
+
+
+
+main()
+{
+        struct stat s;
+        char buff[10];
+        int fd[2];
+
+
+
+        if(pipe(fd) == -1) {
+                fprintf(stderr, "Cannot open pipe");
+                exit(1);
+        }
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+pipe()                 COHERENT System Call                pipe()
+
+
+
+        if(!fork()) { /* child process */
+                buff[0] = getchar(); /* wait for the keyboard */
+                write(fd[1], buff, 1); /* childs copy of buff */
+                exit(0);
+        }
+
+
+
+        for(;;) { /* parent process. */
+                fstat(fd[0], &s);
+                if(s.st_size) { /* char in the pipe */
+                        read(fd[0], buff, 1); /* parents copy */
+                        printf("Got data\n");
+                        exit(0);
+                }
+
+
+
+                printf("Waiting\n");
+        }
+}
+
+
+***** See Also *****
+
+close(),  COHERENT system calls,  mknod(), read(),  sh, signal(),
+write()
+
+***** Diagnostics *****
+
+pipe  returns zero  on successful  calls, or -1  if it  could not
+create the pipe.
+
+If it  is necessary to create  a pipe between tasks  that are not
+parent and  child, use /etc/mknod to create  a named pipe.  These
+named pipes can be opened and used by different programs for com-
+munication.  Remember to  give them the correct owner and permis-
+sions.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+

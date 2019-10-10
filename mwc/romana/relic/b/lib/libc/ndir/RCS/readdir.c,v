@@ -1,0 +1,145 @@
+head     1.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.3; strict;
+comment  @ * @;
+
+
+1.3
+date     93.01.22.09.54.47;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     92.12.09.09.03.06;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     92.05.26.08.41.02;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+1.3
+log
+@steve handed updated 1/21/92
+@
+text
+@/*
+	readdir -- read next entry from a directory stream
+
+	last edit:	25-Apr-1987	D A Gwyn
+*/
+
+#ifdef COHERENT
+#include	<errno.h>
+#else
+#include	<sys/errno.h>
+#endif
+
+#include	<sys/types.h>
+#include	"dirent.h"
+
+extern int	getdents();		/* SVR3 system call, or emulation */
+
+extern int	errno;
+
+#ifndef NULL
+#define	NULL	0
+#endif
+
+
+struct dirent *
+readdir( dirp )
+	register DIR		*dirp;	/* stream from opendir() */
+	{
+	register struct dirent	*dp;	/* -> directory data */
+
+#if DBG
+	printf("In readdir(dirp = %x, buffer= %x\n",(int) dirp,dirp->dd_buf);
+	printf("fd= %d; loc= %d; size=%d.",dirp->dd_fd,dirp->dd_loc,dirp->dd_size);
+
+#endif
+	if ( dirp == NULL || dirp->dd_buf == NULL )
+		{
+		errno = EFAULT;
+		return NULL;		/* invalid pointer */
+		}
+
+	do	{
+		if ( dirp->dd_loc >= dirp->dd_size )	/* empty or obsolete */
+			dirp->dd_loc = dirp->dd_size = 0;
+
+		if ( dirp->dd_size == 0	/* need to refill buffer */
+		  && (dirp->dd_size =
+			getdents( dirp->dd_fd, dirp->dd_buf, (unsigned)DIRBUF )
+
+		     ) <= 0
+		   )
+
+			return NULL;	/* EOF or error */
+#if DBG
+	printf("dirp is good.\n");
+#endif
+
+		dp = (struct dirent *) (&(dirp->dd_buf[dirp->dd_loc]));
+#if DBG
+	printf("buffer = %x, ptr = %x\n",dirp->dd_buf, dp);
+#endif
+		dirp->dd_loc += dp->d_reclen;
+#ifdef DBG
+	printf("readdir: dir. buffer loc= %d\n",dirp->dd_loc);
+	printf("\tinode = %D\n",dp->d_ino);
+#endif
+		}
+	while ( dp->d_ino == 0L );	/* don't rely on getdents() */
+
+#if DBG
+printf ("readdir: name: %s; inode %D; offset %D; reclen %d\n",dp->d_name,
+	dp->d_ino, dp->d_off, dp->d_reclen);
+#endif
+	return dp;
+	}
+
+
+
+
+
+
+
+
+@
+
+
+1.2
+log
+@changed %D to %ld
+@
+text
+@d65 1
+a65 1
+	printf("\tinode = %ld\n",dp->d_ino);
+d71 1
+a71 1
+printf ("readdir: name: %s; inode %ld; offset %ld; reclen %d\n",dp->d_name,
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d65 1
+a65 1
+	printf("\tinode = %D\n",dp->d_ino);
+d71 1
+a71 1
+printf ("readdir: name: %s; inode %D; offset %D; reclen %d\n",dp->d_name,
+@

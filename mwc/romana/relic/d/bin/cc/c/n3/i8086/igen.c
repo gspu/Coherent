@@ -1,0 +1,191 @@
+/*
+ * C compiler - intermediate file printer.
+ *	machine and assembly format dependent output routines.
+ */
+#ifdef vax
+#include "INC$LIB:cc3.h"
+#else
+#include "cc3.h"
+#endif
+
+/*
+ * How to enter or leave a segment.
+ */
+char	*seg_enter[] = {
+#if AS_FORMAT
+	".shri",
+	".prvi",
+	".shrd",
+	".strn",
+	".prvd",
+	".bssd"
+#else
+	"code",
+	"linkage",
+	"pure",
+	"strings",
+	"impure",
+	"bss"
+#endif
+};
+
+char	*seg_leave[] = {
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL
+};
+
+/*
+ * Process AUTOS items.
+ * The opcode byte has been read.
+ * Read in whatever operands are used by the
+ * target machine and print them out in a nice
+ * way. The registers on the 8086 are named.
+ */
+genautos()
+{
+	register int	numauto;
+	register int	regmask;
+	register int	reg;
+	register int	sepchar;
+
+	numauto = iget();
+	regmask = iget();
+	fprintf(ofp, "\tautos\t%d", numauto);
+	sepchar = '\t';
+	for (reg=AX; reg<=DS; ++reg) {
+		if ((regmask&01) != 0) {
+			fprintf(ofp, "%c%s", sepchar, regnames[reg]);
+			sepchar = ' ';
+		}
+		regmask >>= 1;
+	}
+	fprintf(ofp, "\n");
+}
+
+/*
+ * Output a double value.
+ */
+gendval(dp)
+register dval_t	dp;
+{
+	register int i;
+
+	for (i = 0; i < sizeof(dval_t); i += 1)
+		fprintf(ofp, "%02x", dp[i] & 0377);
+}
+
+/*
+ * Generate a machine dependent leaf node.
+ */
+genmdl(op)
+{
+	cbotch("bad mdl: %d", op);
+}
+
+/*
+ * Generate a machine dependent operator node.
+ */
+genmdo(op)
+{
+	cbotch("bad mdo: %d", op);
+}
+
+/*
+ * Generat a .comm record.
+ * The operands must be read.
+ */
+gencomm()
+{
+	sget(id, NCSYMB);
+	if (isvariant(VASM))
+#if AS_FORMAT
+		fprintf(ofp, "\t.comm\t");
+#else
+		fprintf(ofp, "%s\tcommon\t", CMTSTR);
+#endif
+	else
+		fprintf(ofp, "common\t");
+	fprintf(ofp, "%s\t%ld\n", id, (long)zget());
+}
+
+/*
+ * Generate an assembly operator involving a name.
+ */
+genname(op, id)
+char *id;
+{
+	switch (op) {
+	case FNAME:
+		fprintf(ofp, "%s\tfile name %s\n", CMTSTR, id);
+		break;
+	case MNAME:
+#if AS_FORMAT
+		fprintf(ofp, "%s\tmodule name %s\n", CMTSTR, id);
+#else
+		fprintf(ofp, "\tname %s\n", id);
+#endif
+		break;
+	case GLABEL:
+#if AS_FORMAT
+		fprintf(ofp, "\t.globl %s\n%s:\n", id, id);
+#else
+		fprintf(ofp, "\tpublic %s\n%s:\n", id, id);
+#endif
+		break;
+	case SLABEL:
+		fprintf(ofp, "%s:\n", id);
+		break;
+#ifdef UREFER
+	case UREFER:
+		fprintf(ofp, "%s\tundefined reference %s\n", CMTSTR, id);
+		break;
+#endif
+	default:
+		cbotch("genname: bad op: %d", op);
+	}
+}
+
+/*
+ * Generate an assembly operator involving an integer value.
+ */
+genival(op, i)
+long i;
+{
+	register char *s;
+
+	switch (op) {
+	case LINE:
+		fprintf(ofp, "%s\tline number %ld\n", CMTSTR, i);
+		break;
+	case BLOCK:
+#if AS_FORMAT
+		fprintf(ofp, "\t.blkb\t0x%lx\n", i);
+#else
+		fprintf(ofp, "\tdb\t0%lxh dup(0)\n", i);
+#endif
+		break;
+	case ALIGN:
+#if AS_FORMAT
+		fprintf(ofp, "\t.even\n");
+#else
+		fprintf(ofp, "\teven\n");
+#endif
+		break;
+	case ENTER:
+		if (dotseg >= 0 && (s=seg_leave[dotseg]) != NULL)
+			fprintf(ofp, "\n\t%s\n\n", s);
+		dotseg = i;
+		if (dotseg >= 0 && (s=seg_enter[dotseg]) != NULL)
+			fprintf(ofp, "\n\t%s\n\n", s);
+		break;
+	case LLABEL:
+		fprintf(ofp, "L%ld:\n", i);
+		break;
+	default:
+		cbotch("genival: bad op: %d", op);
+	}
+}

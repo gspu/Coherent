@@ -1,0 +1,347 @@
+.\" Coherent 386 release 4.2
+.\" Copyright (c) 1982, 1995 by Mark Williams Company.
+.\" All rights reserved. May not be copied without permission.
+.\" For copying permission and licensing info, write licensing@mwc.com
+.\"
+.\" This macro package process the Mark Williams Lexicon entries into HTML
+.\" format.  It is adapted from the standard tmac.cohman by fwb, 01/05/95.
+.\" Entries must first be filtered through "sed" using the sed script
+.\" "html.sed".
+.\"
+.\" strings:
+.\"	OD	Output Directory - directory in which Mosaic should seek
+.\"		this page
+.\"
+.\" flags:
+.\"	LS	text is a list
+.\"	HT	This should be set on the command line, to indicate that
+.\"		the output will be in HyperText format.  This will suck in
+.\"		the correct definitions of the special characters from file
+.\"		/usr/lib/roff/nroff/specials.r.
+.\"	PR	text is pre-defined
+.\"	SU	set up environment 0
+.\"	VS	flag to indicate whether to move vertical space
+.\"	X	Used in some Lexicon entries to trigger COHERENT output
+.\"
+.\" global strings:
+.\"	Ha	command name
+.\"	Hb	thrown away
+.\"	Hc	thrown away
+.\"	Hd	command type
+.\"	He	left chunk of running head; e.g., "double"
+.\"	Hf	right chunk of running head; e.g., " \(em drvld"
+.\"	Hg	library that holds function/system call
+.\"	OD	Output Directory - where the manual pages will be written
+.\"
+.\" ... and away we go ... !
+.\"
+.\" GENERAL INITIALIZATION
+.\"
+.nr IN 0.5i
+.nr PW 6.0i
+.nr PD 1v
+.nr pD 1v
+.nr HT 1
+.nr PR 0
+.nr LS 0
+.nr X  0
+.ll \n(PWu
+.lt \n(PWu
+.po 0
+.rf R B
+.rf R I
+.ds OD COHERENT
+.fi
+.na
+.nh
+.em Xe
+.\"
+.\" USER-CALLABLE MACROS
+.\"
+.\" parse TH macro
+.\"
+.de TH
+.ds Ha "\\$1"
+.ds Hb "\\$2"
+.ds Hc "\\$3"
+.ds Hd "\\$4"
+.ds Hg "\\$5"		\" He and Hf, in case you wonder, are defined below
+.Rr
+..
+.\" Print slug and other good stuff
+.de PC
+.nr PR 1
+.in 0
+.nf
+<H1>\\*(Ha\fR \\(em \\*(Hd \\*(Hg</H1>
+.sp
+.tm %\\*(Ha@<A HREF="/usr/man/HTML/\\n(.F">\\*(Ha</A>
+.ie \\n(.$ \\{\\
+\\$1
+<P>
+.tm <A HREF="/usr/man/HTML/\\n(.F">\\*(Ha</A> -- \\$1
+.nr VS 1
+\\}
+.el \\{\\
+.tm <A HREF="/usr/man/HTML/\\n(.F">\\*(Ha</A> -- \\*(Hd
+.nr VS 0\\}
+<pre>
+.nr PR 1
+..
+.\" Subheading
+.de SH
+.br
+.Rr
+.sp \\n(pDu
+.fi
+.if \\n(.$ <H2>\\$1</H2>
+.br
+..
+.\" Sub-subheading
+.de Sh
+.SH "\\$1"
+..
+.\" Paragraph
+.de PP
+<P>
+.DT
+.fi
+.Rr
+.\" If there's no argument to .PC, don't move down a space
+.ie \\n(VS .sp
+.el        .nr VS 1
+..
+.\" Begin a two-column list
+.de LB 
+<P>
+<PRE>
+.nr PR 1
+.ta 1.75i
+.nf
+..
+.\" Display monofont
+.de DM
+.DS
+..
+.\" Display
+.de DS
+.sp
+.nf
+.ie \\n(PR <P>
+.el        \\{\\
+<PRE>
+.nr PR 1\\}
+..
+.\" End display
+.de DE
+</PRE>
+.nr PR 0
+.fi
+..
+.\" Start relative indent
+.de RS
+<DL>
+..
+.\" End relative indent
+.de RE
+</DL>
+..
+.\" Simplified indented paragraph:  for use with stuff with apostrophes in it
+.de Ip
+.sp \\n(pDu
+.DT
+.ft R
+.fi
+.if \\n(LS=0 \\{\\
+.RS
+.nr LS 1\\}
+<P>
+.if \\n(.$ <DT>\\$1
+.br
+<DD>
+..
+.\" Simplified indented paragraph:  for use with stuff with apostrophes in it
+.de Is
+.DT
+.ne 0.3i
+.fi
+.if \\n(LS=0 \\{\\
+.RS
+.nr LS 1\\}
+<P>
+.if \\n(.$ <DT>\\$1
+.br
+<DD>
+..
+.\" Indented paragraph
+.de IP
+<P>
+.ie \\n(.$=0 .IT
+.el          .IT "\\$1"
+..
+.\" Indented section.  Exactly like .IP, except it is not preceded by a space
+.de IS
+.ie \\n(.$=0 .IT
+.el          .IT "\\$1"
+..
+.\" Indented thing.  Actually do the indenting, etc.
+.de IT
+.DT
+.fi
+.if \\n(LS=0 \\{\\
+.nr LS 1
+.RS\\}
+<DT>\\$1
+.br
+<DD>
+..
+.\" Print a display within an indented paragraph
+.de ID
+.nf
+.sp \\n(pDu
+..
+.\" End a display within an indented paragraph
+.de IE
+.sp \\n(pDu
+.fi
+..
+.\" help text:  ignore it all
+.de HS
+.ig HE
+..
+.de HE
+..
+.\" Start quoted paragraph
+.de QS
+<P>
+<BLOCKQUOTE>
+..
+.\" End quoted paragraph
+.de QE
+</BLOCKQUOTE>
+..
+.\" Keycaps entry
+.de K
+.if \\n(.$ \\{\\
+.ie \\n(.$=1 <B>[\\$1]</B>
+.el          <B>[\\$1]</B>\\$2
+\\}
+..
+.\" Keycaps entry
+.de Kr
+.if \\n(.$ \\{\\
+.ie \\n(.$=1 <B>[\\$1]</B>
+.el          <B>[\\$1]</B>\\$2
+\\}
+..
+.\"
+.\" Font-Handling Macros
+.\"
+.\" Bold font
+.de B
+.if \\n(.$ <B>\\$1</B>
+..
+.\" Roman font
+.de R
+.if \\n(.$ \\$1
+..
+.\" Italic font
+.de I
+.if \\n(.$ <I>\\$1</I>
+..
+.\" Bold/italic fonts
+.de BI
+.Af B I \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\" Bold/roman fonts
+.de BR
+.Af B B \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\" Italic/bold fonts
+.de IB
+.Af I B \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\" Italic/roman fonts
+.de IR
+.Af I I \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\" Roman/bold fonts
+.de RB
+.Af B B \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\" Roman/italic fonts
+.de RI
+.Af I I \\n(.$ "\\$1" "\\$2" "\\$3" "\\$4" "\\$5" "\\$6"
+..
+.\" Set default tabs
+.de DT
+.ta 0.5i 1.0i 1.5i 2.0i 2.5i 3.0i 3.5i 4.0i 4.5i 5.0i
+..
+.\" Output an entry for the "index" command
+.de II
+.tm %\\$1@<A HREF="/usr/man/HTML/\\n(.F">\\*(Ha</A>
+..
+.\" Same as .II
+.de XR
+.tm %\\$1@<A HREF="/usr/man/HTML/\\n(.F">\\*(Ha</A>
+..
+.\"
+.\" INTERNAL MACROS
+.\"
+.\" Alternating fonts
+.de Af
+.if \\$3=1 <\\$1>\\$4</\\$1>
+.if \\$3=2 <\\$1>\\$4</\\$1><\\$2>\\$5</\\$2>
+.if \\$3=3 <\\$1>\\$4</\\$1><\\$2>\\$5</\\$2><\\$1>\\$6</\\$1>
+.if \\$3=4 <\\$1>\\$4</\\$1><\\$2>\\$5</\\$2><\\$1>\\$6</\\$1><\\$2>\\$7</\\$2>
+.if \\$3=5 <\\$1>\\$4</\\$1><\\$2>\\$5</\\$2><\\$1>\\$6</\\$1><\\$2>\\$7</\\$2><\\$1>\\$8</\\$1>
+.if \\$3=6 <\\$1>\\$4</\\$1><\\$2>\\$5</\\$2><\\$1>\\$6</\\$1><\\$2>\\$7</\\$2><\\$1>\\$8</\\$1><\\$2>\\$9</\\$2>
+.if \\$3>6 .tm .\\$1\\$2 has more than six arguments
+..
+.\" Replace the boxes drawn by tmac.box with simple displays
+.de B1
+.DS
+..
+.de B2
+.DE
+..
+.\" Replace the shaded line macro from tmac.box with simple boldfacing
+.de SL
+<B>
+.\" Turn off boldfacing after the next input line
+.it 1 </B>
+..
+.\" Replace attempted placement of an .eps file with an apology
+.de PH
+<P>
+.nf
+<IMG SRC="/usr/man/HTML/\\$1">
+.fi
+<P>
+..
+.\" Reset registers
+.de Rr
+.DT
+.tc
+.fi
+.in 0
+.if \\n(LS \\{\\
+</DL>
+.nr LS 0\\}
+.if \\n(PR \\{\\
+</PRE>
+.nr PR 0\\}
+..
+.\" Cross-reference
+.de Xr
+.if \\n(PR=0 \\{\\
+<PRE>
+.nr PR 1\\}
+.br
+.nf
+<A HREF="/usr/man/HTML/\\$2.html">\\$1</A>
+.fi
+..
+.de Xe
+.if \\n(PR </PRE>
+..

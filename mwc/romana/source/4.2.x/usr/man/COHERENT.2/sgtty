@@ -1,0 +1,325 @@
+ssggttttyy -- Device Driver
+
+General terminal interface
+
+COHERENT uses  two method for  controlling terminals: ssggttttyy  and tteerrmmiioo. To
+use ssggttttyy, simply include the statement #iinncclluuddee <ssggttttyy.hh> in your sources.
+To use tteerrmmiioo, include the statement #iinncclluuddee <tteerrmmiioo.hh>.
+
+The  rest  of  this  article  discusses  the ssggttttyy  method  of  controlling
+terminals.
+
+When a  terminal file  is opened,  it normally causes  the process  to wait
+until  a connection  is established.  In  practice, users'  programs seldom
+open these files; they are opened  by the program _g_e_t_t_y and become a user's
+standard  input, output,  and error  files.  The  very first  terminal file
+opened  by  the  process  group  leader  of a  terminal  file  not  already
+associated with  a process group becomes the  _c_o_n_t_r_o_l_l_i_n_g _t_e_r_m_i_n_a_l for that
+process group.   The controlling terminal plays a  special role in handling
+qquuiitt and  iinntteerrrruupptt signals, as discussed  below.  The controlling terminal
+is inherited by a child process  during a call to ffoorrkk. A process can break
+this association by changing its process group using sseettppggrrpp.
+
+A terminal associated with one  of these files ordinarily operates in full-
+duplex mode.   Characters can be  typed at any  time, even while  output is
+occurring,  and  are  only lost  when  the  system's  input buffers  become
+completely  full, which  is  rare, or  when  the user  has accumulated  the
+maximum allowed number  of input characters that have not  yet been read by
+some program.   Currently, this  limit is  256 characters.  When  the input
+limit is  reached, the sytems throws away all  the saved characters without
+notice.
+
+Normally,  terminal  input is  processed  in  units of  lines.   A line  is
+delimited by  a newline  character (ASCII  LF) or an  end-of-file character
+(ASCII EOT).  Unless otherwise  directed, a program attempting to read will
+be suspended until an entire line has been typed.  Also, no matter how many
+characters  are requested  in  the read  call,  at most  one  line will  be
+returned.  It is not, however, necessary  to read a whole line at once; any
+number of characters  may be requested in a read,  even one, without losing
+information.
+
+During input, the system  normally processes eerraassee and kkiillll characters.  By
+default, the  backspace character erases  the last character  typed, except
+that it will  not erase beyond the beginning of  the line.  By default, the
+<ccttrrll-UU> kills  (deletes) the entire  input line, and  optionally outputs a
+newline  character.   Both  these  characters  operate on  a  keystroke-by-
+keystroke basis, independently of any backspacing or tabbing which may have
+been done.  Both the erase and  kill characters may be entered literally by
+preceding them  with the  escape character (\).   In this case,  the escape
+character is  not read.  You may  change the erase and  kill characters via
+command ssttttyy.
+
+Certain characters  have special functions  on input.  These  functions and
+their default character values are summarized as follows:
+
+IINNTTRR      (<ccttrrll-CC>  or ASCII  ETX) generates an  _i_n_t_e_r_r_u_p_t signal  that is
+          sent to  all processes associated with  the controlling terminal.
+          Normally,  each   such  process  is  forced   to  terminate,  but
+          arrangements  may  be made  either  to ignore  the  signal or  to
+          receive a trap to  an agreed-upon location; see the Lexicon entry
+          for ssiiggnnaall.
+
+QQUUIITT      (Control-\ or  ASCII ES) generates a  _q_u_i_t signal.  Its treatment
+          is identical to that  of the interrupt signal except that, unless
+          a receiving process has made other arrangements, it will not only
+          be terminated but a core image file (called ccoorree) will be created
+          in the current working directory.
+
+EERRAASSEE     (<bbaacckkssppaaccee>  or ASCII  BS) erases  the preceding  character.  It
+          will not  erase beyond  the start  of a line,  as delimited  by a
+          newline or EEOOFF character.
+
+KKIILLLL      (<ccttrrll-UU> or ASCII NAK)  deletes the entire line, as delimited by
+          a newline or EEOOFF character.
+
+EEOOFF       (<ccttrrll-DD> or ASCII EOT) generates an end-of-file character from a
+          terminal.  When  received, all the characters  waiting to be read
+          are  immediately passed  to  the program  without  waiting for  a
+          newline, and  the EEOOFF is  discarded.  Thus, if  no characters are
+          waiting, which is  to say the EEOOFF occurred at  the beginning of a
+          line.  zero characters will be passed back, which is the standard
+          end-of-file indication.
+
+NNLL        (ASCII LF) is the normal line delimiter.  It cannot be changed or
+          escaped.
+
+SSTTOOPP      (<ccttrrll-SS> or  ASCII DC3)  can be used  to suspend output.   It is
+          useful  with CRT  terminals to  prevent output  from disappearing
+          before  it  can   be  read.   While  output  is  suspended,  STOP
+          characters are ignored and not read.
+
+SSTTAARRTT     (<ccttrrll-QQ> or ASCII DC1) resumes output that has been suspended by
+          a  STOP   character.   While  output  is   not  suspended,  START
+          characters are  ignored and not read.   The start/stop characters
+          can be  changed via  command ssttttyy,  or via special  iiooccttll() calls
+          described below.
+
+The character values for INTR, QUIT, ERASE, EEOOFF, and KILL may be changed to
+suit individual tastes.  The ERASE,  KILL, and EEOOFF character may be escaped
+by a  preceding \ character, in  which case the system  ignores its special
+meaning.  See the Lexicon article on  ssttttyy for information on how to change
+these settings dynamically.
+
+When using a ``modem control'' serial  line, loss of carrier from the data-
+set (modem)  causes a _h_a_n_g_u_p signal  to be sent to  all processes that have
+this terminal as  the controlling terminal.  Unless other arrangements have
+been  made, this  signal causes  the process to  terminate.  If  the hangup
+signal  is  ignored,  any  subsequent  read  returns  with  an  end-of-file
+indication.  Thus  programs that read  a terminal and  test for end-of-file
+can terminate appropriately when hung up on.
+
+When  one or  more  characters are  written,  they are  transmitted to  the
+terminal  as soon  as previously written  characters have  finished typing.
+Input characters are  echoed by putting them into the  output queue as they
+arrive.  If  a process  produces characters more  rapidly than they  can be
+printed, it  will be  suspended when its  output queue exceeds  some limit,
+known as the  ``high water mark''.  When the queue  has ``drained'' down to
+some threshold, the program resumes.
+
+The  header file  <ssggttttyy.hh> declares structures  and manifest  constants to
+control the  ssggttttyy interface.  Of interest to users  are the constants that
+define baud rates for terminal ports; these are as follows.
+
+            BB5500        50 baud
+            BB7755        75 baud
+           BB111100       110 baud
+           BB113344       134 baud
+           BB115500       150 baud
+           BB220000       200 baud
+           BB330000       300 baud
+           BB660000       600 baud
+          BB11220000      1200 baud
+          BB11880000      1800 baud
+          BB22440000      2400 baud
+          BB44880000      4800 baud
+          BB99660000      9600 baud
+         BB1199220000    19,200 baud
+         BB3388440000    38,400 baud
+
+_T_e_r_m_i_n_a_l _i_o_c_t_l() _F_u_n_c_t_i_o_n_s
+Header file  <ssggttttyy.hh> defines  the following  data structures used  by the
+various  device drivers  to  convey terminal  specific information.   These
+structures are  used in conjunction with special  terminal or device driver
+symbolic constants as part of iiooccttll() requests.
+
+The ssggttttyybb structure  contains information related to line discipline, such
+as  serial   line  speed,  if  appropriate,   the  ``erase''  and  ``kill''
+characters, and a series of flags which set the mode of the line.
+
+
+     /*
+      * Structure for TIOCSETP/TIOCGETP
+      */
+     struct sgttyb {
+          char sg_ispeed;/* Input speed */
+          char sg_ospeed;/* Output speed */
+          char sg_erase; /* Character erase */
+          char sg_kill;  /* Line kill character */
+          int  sg_flags; /* Flags */
+     };
+
+The following symbolic constants are used to access bit positions of member
+ssgg_ffllaaggss in data structure ssggttttyybb:
+
+CCBBRREEAAKK      Each input character  causes wakeup (i.e., forces a return from
+            a rreeaadd() system call).
+
+CCRRMMOODD       Map  the  carriage   return  characters  '\r'  to  the  newline
+            character '\n'.
+
+CCRRTT         Use CRT-style character erase.
+
+EECCHHOO        Echo input characters.
+
+EEVVEENNPP       Select even  parity.  If used  in conjunction with  OODDDDPP, allow
+            either parity.
+
+LLCCAASSEE       Lowercase mapping on input.
+
+OODDDDPP        Select odd  parity.  If used  in conjunction with  EEVVEENNPP, allow
+            either parity.
+
+RRAAWW         Raw mode.  Same as RRAAWWIINN plus RRAAWWOOUUTT.
+
+RRAAWWIINN       Input is treated as 8-bit characters and not interpreted.
+
+RRAAWWOOUUTT      Output is treated as 8-bit characters and not interpreted.
+
+TTAANNDDEEMM      Use X-ON/X-OFF flow control protocol to remote device.
+
+XXTTAABBSS       Expand tabs to spaces.
+
+Data structure ttcchhaarrss specifies additional special terminal characters such
+as the  ``interrupt'' and ``quit''  characters, the ``start''  and ``stop''
+characters used for flow control, and the ``end-of-file'' character.
+
+     /*
+      * Structure for TIOCSETC/TIOCGETC
+      */
+     struct tchars {
+          char t_intrc;  /* Interrupt */
+          char t_quitc;  /* Quit */
+          char t_startc; /* Start output */
+          char t_stopc;  /* Stop output */
+          char t_eofc;   /* End of file */
+          char t_brkc;   /* Input delimiter */
+     };
+
+The  following  symbolic  constants  are  used  to  access  various  device
+functions via iiooccttll() calls, as defined in header file <ssggttttyy.hh>. Note that
+not all functions are appropriate for all classes of devices.
+
+TTIIOOCCCCBBRRKK    Clear a  BREAK condition on  a serial line  (i.e., ``mark'' the
+            line).   This  request  cancels  a previously  issued  TTIIOOCCSSBBRRKK
+            request.
+
+TTIIOOCCCCDDTTRR    Clear  modem control  signal  Data Terminal  Ready  (DTR) on  a
+            serial line.
+
+TTIIOOCCCCHHPPCCLL   Do not force  a hangup on ``last close'' on  a modem line.  The
+            normal  mode of  operation for  serial lines  is to  drop modem
+            signal  Data  Terminal   Ready  (DTR)  when  the  last  cclloossee()
+            operation is  performed, thus requesting the  attached modem to
+            drop the connection.
+
+TTIIOOCCCCRRTTSS    Clear the Request To Send (RTS) signal on a serial line.  Modem
+            control signal RTS is often used for hardware flow control.
+
+TTIIOOCCEEXXCCLL    Set device access  as exclusive use.  This request requires the
+            process to have rroooott privileges.
+
+TTIIOOCCFFLLUUSSHH   Flush the input queue, discarding any pending input characters,
+            and wait for the output queue to ``drain''.
+
+TTIIOOCCGGEETTCC    Get  current  values of  the  special  terminal characters,  as
+            defined by data structure ttcchhaarrss.
+
+TTIIOOCCGGEETTFF    Get  current  console  keyboard  function key  bindings.   This
+            request is specific  to the nnkkbb console keyboard device driver.
+            See Lexicon article nnkkbb for further details.
+
+TTIIOOCCGGEETTKKBBTT  Get current  console keyboard key mapping  table.  This request
+            is  specific to  the nnkkbb console  keyboard device  driver.  See
+            Lexicon article nnkkbb for further details.
+
+TTIIOOCCGGEETTPP    Get  current  terminal   line  settings,  as  defined  by  data
+            structure ssggttttyybb.
+
+TTIIOOCCGGEETTTTFF   Get current  value of the  terminal flags, as  defined by field
+            tt_ffllaaggss in the TTY structure.
+
+TTIIOOCCHHPPCCLL    Set  hangup  on  ``last  close''.   See TTIIOOCCCCHHPPCCLL  for  further
+            details.
+
+TTIIOOCCRRMMSSRR    Get the  current value of  the Modem Status  Register (MSR) for
+            the  specified  serial line.   This  request  is device  driver
+            specific  and is  currently  supported only  in  the aall  device
+            driver.  Symbolic constants  MMSSRRCCTTSS, MMSSRRDDSSRR, MMSSRRRRII, and MMSSRRRRLLSSDD
+            correspond to the Clear To Send, Data Set Ready, Ring Indicator
+            and Receive  Line Status Detect (i.e.  Carrier Detect) signals,
+            respectively, in the MSR.
+
+TTIIOOCCNNXXCCLL    Set this device or port as non-exclusive use.  See TTIIOOCCEEXXCCLL for
+            further details.
+
+TTIIOOCCQQUUEERRYY   Query the  number of characters currently  waiting in the input
+            queue.
+
+TTIIOOCCSSBBRRKK    Assert  BREAK (i.e.,  ``space the line'')  on the  given serial
+            port.   This is  often  used during  login to  signal a  remote
+            system to  ``hunt'' to the  next baud rate in  a sequence.  See
+            TTIIOOCCCCBBRRKK for further details.
+
+TTIIOOCCSSDDTTRR    Assert  modem control  signal Data  Terminal  Ready (DTR)  on a
+            serial line.
+
+TTIIOOCCSSEETTCC    Wait  for output  to ``drain'', then  set the  terminal control
+            characters  for this  device,  as specified  by data  structure
+            ttcchhaarrss.
+
+TTIIOOCCSSEETTFF    Set  console keyboard  function key  mapping.  This  request is
+            specific  to  the  nnkkbb  console  keyboard device  driver.   See
+            Lexicon article nnkkbb for further details.
+
+TTIIOOCCSSEETTKKBBTT  Set  console  keyboard  key  mapping  table.  This  request  is
+            specific  to  the  nnkkbb  console  keyboard device  driver.   See
+            Lexicon article nnkkbb for further details.
+
+TTIIOOCCSSEETTNN    Set  terminal  line  settings,  as  defined by  data  structure
+            ssggttttyybb. Do  not flush  the input queue  prior to using  the new
+            settings.
+
+TTIIOOCCSSEETTPP    Same as request TTIIOOCCSSEETTNN, but also flush the input queue.
+
+TTIIOOCCSSRRTTSS    Assert  the Request  To  Send (RTS)  signal on  a serial  line.
+            Modem  control  signal  RTS is  often  used  for hardware  flow
+            control.
+
+
+_E_x_a_m_p_l_e_s
+The following  code fragment gets  the current terminal  settings and turns
+off echo.
+
+    #include <sgtty.h>
+    static struct sgttyb new, orig;
+    . . .
+    /*
+     * Get the existing terminal parameters for the terminal
+     * device associated with file descriptor 0 (stdin),
+     * turn off echo, turn on CBREAK (break on every input character)
+     * and set the new parameters.
+     */
+    ioctl(0, TIOCGETP, &orig);
+    new = orig;
+    new.sg_flags &= ~ECHO;           /* Turn off echo */
+    new.sg_flags |= CBREAK;          /* Turn on CBREAK mode */
+    ioctl(0, TIOCSETN, &new);
+
+The following  line uses the  previously saved terminal mode  to return the
+terminal mode to its prior state:
+
+    ioctl(0, TIOCSETN, &orig);
+
+
+_S_e_e _A_l_s_o
+ddeevviiccee ddrriivveerrss, ggttttyy(), iiooccttll(), ssggttttyy.hh, ssttttyy(), ssttttyy, tteerrmmiinnaall, tteerrmmiioo

@@ -1,0 +1,27 @@
+#ifndef	__COMMON__FSIZE_H__
+#define	__COMMON__FSIZE_H__
+
+/*
+ * This internal header file is intended as the sole point of definition for
+ * the Coherent data type "fsize_t". This type is intended to abstract the
+ * notion of file size for Coherent utilities to aid in migration to file
+ * systems capable of representing files more than 2^32-1 bytes in size.
+ *
+ * Historically, Coherent has exported this type to the user through the
+ * <sys/types.h> header, but it has also been implicitly defined by various
+ * other headers; there has never been any documented point of export.
+ *
+ * This type is never exported to the user if _POSIX_SOURCE is defined. Macros
+ * for accessing items for this type are not yet defined; users of this type
+ * should be aware that it may not remain a scalar type. Use of this type in
+ * portable software is strongly discouraged.
+ */
+
+#include <common/feature.h>
+#include <common/__fsize.h>
+
+#if	! _POSIX_SOURCE
+typedef	__fsize_t	fsize_t;
+#endif	/* ! _POSIX_SOURCE */
+
+#endif	/* ! defined (__COMMON__FSIZE_H__) */

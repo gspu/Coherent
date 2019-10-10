@@ -1,0 +1,177 @@
+.TH msgrcv() "" "" "General Function (libc)"
+.PC "Receive a message"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/msg.h>"
+\fBmsgrcv(\fIid\^\fB, \fIbuffer\^\fB, \fIsize\^\fB, \fItype\^\fB, \fIflag\^\fB)\fR
+\fBint \fIid\^\fB, \fIsize\^\fB, \fIflag\^\fB; long *\fIbuffer\^\fB; long \fItype\^\fB;\fR
+.PP
+.II "message passing^msgrcv()"
+The function
+.B msgrcv()
+reads a message from the queue associated with identifier
+.IR id ,
+and writes it into the user-defined chunk of memory to which
+.I buffer
+points.
+The memory to which
+.I buffer
+points has a layout similar to a structure
+with the following members
+(if we pretend
+.B "mtext[]"
+is legal C):
+.DM
+.ta 0.5i 2.75i
+struct msgbuf {
+	long mtype;	/* message type */
+	char mtext[];	/* message text */
+};
+.DE
+.PP
+.B mtype
+gives the message's type, as specified by the sending process.
+.B mtext
+gives the text of the message.
+.PP
+.I size
+gives the size of the message's text, in bytes.
+.B msgrcv()
+silently truncates the received message to
+.I size
+if it more than
+.I size
+bytes long and (\fIflag\fB & MSG_NOERROR\fR) is true.
+.PP
+.I type
+gives the type of message being requested.
+.B msgrcv
+obeys the following rules when it reads the message queue:
+.IP \fB\(bu\fR 0.3i
+If
+.I type
+equals \fB0L\fR, it reads the first message in the queue.
+.IP \(bu
+If
+.I type
+is greater than \fB0L\fR, it reads the first message of
+.IR type .
+.IP \(bu
+If
+.I type
+is less than \fB0L\fR,
+it reads the first message whose type is less than
+or equal to the absolute value of
+.IR type .
+.PP
+If the message queue contains no message of the desired type,
+the behavior of
+.B msgrcv()
+is determined by the value of
+.IR flag .
+If
+.I flag
+contains the value
+.B IPC_NOWAIT
+(i.e., \fIflag \fB& IPC_NOWAIT\fR is true)
+then
+.B msgrcv()
+sets
+.B errno
+to
+.B ENOMSG
+and returns \-1.
+If, however,
+.I flag
+does not contain
+.BR IPC_NOWAIT ,
+then
+.B msgrcv()
+suspends execution until one of the following occurs:
+.IP \fB1.\fR 0.3i
+A message of the desired type appears on the queue.
+.IP \fB2.\fR
+.I id
+is removed from the system.
+.B msgrcv()
+sets
+.B errno
+to
+.B EIDRM
+and returns \-1.
+.IP \fB3.\fR
+The calling process receives a signal.
+.B msgrcv()
+sets
+.B errno
+to
+.B EINTR
+and returns \-1.
+The calling process then resumes execution in the manner by signal received.
+For information on what given signals mean, see the Lexicon entry for
+.BR signal() .
+.PP
+.B msgrcv()
+also fails and returns no message if any of the following is true:
+.IP \(bu 0.3i
+.I id
+is not a valid message-queue identifier.
+.B msgrcv
+sets
+.B errno
+to
+.BR EINVAL .
+.IP \(bu
+The calling process lacks operation permission (\fBEACCES\fR).
+.IP \(bu
+.I size
+is less than zero (\fBEINVAL\fR).
+.IP \(bu
+The message's size
+is greater than
+.I size
+bytes long and (\fIflag\fB & MSG_NOERROR\fR) is false (\fBE2BIG\fR).
+.IP \(bu
+.I buffer
+points to an illegal address (\fBEFAULT\fR).
+.PP
+When
+.B msgrcv()
+has successfully received its message,
+it modifies the data structure associated with
+.I id
+in the following ways:
+.IP \(bu 0.3i
+It decrements field
+.B msg_qnum
+by one.
+.IP \(bu
+It sets
+.B msg_lrpid
+to the identifier of the process that called
+.BR msgrcv() .
+.IP \(bu
+It sets
+.B msg_rtime
+to the current time.
+.PP
+When it completes successfully,
+.B msgrcv()
+returns the number of bytes written into the field
+.B mtext
+of the structure pointed to by
+.IR buffer .
+.SH Example
+For an example of this function, see the Lexicon entry for
+.BR msgget() .
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/msg.h
+.R
+.SH "See Also"
+.Xr "libc," libc
+.Xr "msgctl()," msgctl
+.Xr "msgget()," msgget
+.Xr "msgsnd()" msgsnd

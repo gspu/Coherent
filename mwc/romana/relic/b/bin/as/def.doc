@@ -1,0 +1,71 @@
+Some Unix languages such as gcc and g++ produce assembler rather than object
+code. This approach radically slows down the compiler and produces amazing
+unneeded complexity, especially if debug information is to be placed on
+object files.
+
+The compiler starts with type and line information in a format much like that
+of the desired COFF output files. It must break this down into lines to ship
+through the assembler, the assembler then must rebuild the information into
+COFF format for output.
+
+In line with its function the Mark Williams assembler not only supports this
+sillyness it documents it. (Not a Unix assembler notion). However error
+checking of these is minamum and bad debug information can corrupt the
+generated COFF output.
+
+This section must be read with a listing of coff.h for reference.
+
+	.file "filename"
+If used this should be the first statement in the file. It produces a
+SYMENT of n_sclass = C_FILE and an AUXENT with ae_fname = filename. This
+connects the object file to the original source file.
+
+	.def symbolName
+This initializes this SYMENT with n_name = symbolName. If there is a symbol
+by that name on the assemblers internal symbol table it is marked to
+prevent output to the symbol table, any RELOC references will point to
+this table entry so its n_value had better end up correct. Because this
+kind of code is assumed to be the result of a compiler we assume it is
+right. The following commands upto and including .endef refer to this
+SYMENT.
+
+	.type number
+This sets this SYMENT's n_type with number. If number indicates a function,
+DT_FCN, An LINENO record is built pointing at this SYMENT.
+
+	.val symbol or number
+This sets this SYMENT's n_value and if it is a symbol it sets n_scnum
+to the symbols section number.
+
+	.scl number
+This sets this SYMENT's n_sclass to number.
+
+	.dim number [, number [, number [, number]]]
+This sets up to 4 entries in an AUXENT's ae_dimen. It is used to describe
+multi dimensioned arrays to COFF. Past 4 dimensional arrays the COFF specs
+are admittedly buggy. One of the reasons that people are playing with other
+output formats.
+
+	.size n
+This sets this AUXENT ae_size to n.
+
+	.tag name
+This scans backwards on the SYMENTs for a matching n_name. It points this
+ae_tagndx to that names symbol number and that ae_endndx to the next symbol
+number. A good example is a struct, It would start with a SYMENT of type
+T_STRUCT, then there would be SYMENTs for its members. At the end there would
+be a C_EOS (end of structure) with a tag that gets us back to the
+symbol's name. .tag connects the forward and backward pointers.
+
+	.line n
+This sets the AUXENT's ae_lnno to n.
+
+	.endef
+This marks the end of a SYMENT started by .def. If the n_sclass == C_EFCN
+(end of function) it builds the functions ae_fsize and ae_endndx and does
+not output this syment. If any AUXENT fields were set an AUXENT record will
+follow this SYMENT.
+
+	.ln number
+This builds a LINENO record with l_lnno = n and l_addr.l_paddr = the current
+location.

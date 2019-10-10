@@ -1,0 +1,196 @@
+sseedd -- Command
+
+Stream editor
+sseedd [ -nn ] [-ee _c_o_m_m_a_n_d] [-ff _s_c_r_i_p_t] ... _f_i_l_e ...
+
+sseedd is  a non-interactive text editor.   It reads input from  each _f_i_l_e, or
+from the standard input if no  file is named.  It edits the input according
+to commands given  in the _c_o_m_m_a_n_d_s argument and the  _s_c_r_i_p_t files.  It then
+writes the edited text onto the standard output.
+
+sseedd resembles the interactive editor eedd, but its operation is fundamentally
+different.  sseedd  normally edits one  line at a  time, so it may  be used to
+edit very  large files.  After  it constructs a  list of commands  from its
+_c_o_m_m_a_n_d_s and _s_c_r_i_p_t arguments, sseedd reads  the input one line at a time into
+a _w_o_r_k  _a_r_e_a. Then sseedd executes  each command that applies  to the line, as
+explained below.   Finally, it copies the work area  to the standard output
+(unless the  -nn option is specified),  erases the work area,  and reads the
+next input line.
+
+_L_i_n_e _I_d_e_n_t_i_f_i_e_r_s
+sseedd identifies input lines by  integer line numbers, beginning with one for
+the first  line of  the first _f_i_l_e  and continuing through  each successive
+_f_i_l_e. The following special forms identify lines:
+
+_n       A decimal number _n addresses the _nth line of the input.
+
+.       A period `.' addresses the current input line.
+
+$       A dollar sign `$' addresses the last line of input.
+
+/_p_a_t_t_e_r_n/
+        A _p_a_t_t_e_r_n  enclosed within  slashes addresses  the next  input line
+        that contains _p_a_t_t_e_r_n.  Patterns, also called  _r_e_g_u_l_a_r _e_x_p_r_e_s_s_i_o_n_s,
+        are described in detail below.
+
+_C_o_m_m_a_n_d_s
+Each command must  be on a separate line.  Most  commands may be optionally
+preceded by  a line identifier  (abbreviated as [_n] in  the command summary
+below)  or by  two-line identifiers  separated by  a comma  (abbreviated as
+[_n[,_m]]). If no line identifier precedes a command, sseedd applies the command
+to  every input  line.   If one  line  identifier precedes  a command,  sseedd
+applies the command to each input line selected by the identifier.  If two-
+line identifiers precede a command, sseedd begins to apply the command when an
+input line is  selected by the first, and continues  applying it through an
+input line selected by the second.
+
+sseedd recognizes the following commands:
+
+[_n]=    Output the current input line number.
+
+[_n[,_m]]!_c_o_m_m_a_n_d
+        Apply _c_o_m_m_a_n_d to each line _n_o_t identified by [_n[,_m]].
+
+[_n[,_m]]{_c_o_m_m_a_n_d...}
+        Execute each enclosed _c_o_m_m_a_n_d on the given lines.
+
+:_l_a_b_e_l  Define _l_a_b_e_l for use in branch or test command.
+
+[_n]aa\   Append new text  after given line.   New text is  terminated by any
+        line not ending in `\'.
+
+bb [_l_a_b_e_l]
+        Branch to _l_a_b_e_l, which must be  defined in a `:' command.  If _l_a_b_e_l
+        is omitted, branch to end of command script.
+
+[_n[,_m]]cc\
+        Change specified  lines to  new text  and  proceed with  next input
+        line.  New text is terminated by any line not ending in `\'.
+
+[_n[,_m]]dd
+        Delete specified lines and proceed with next input line.
+
+[_n[,_m]]DD
+        Delete first line in work area and proceed with next input line.
+
+[_n[,_m]]gg
+        Copy  secondary  work  area  to   work  area,  destroying  previous
+        contents.
+
+[_n[,_m]]GG
+        Append secondary work area to work area.
+
+[_n[,_m]]hh
+        Copy  work  area  to  secondary  work  area,   destroying  previous
+        contents.
+
+[_n[,_m]]HH
+        Append work area to secondary work area.
+
+[_n]ii\   Insert new text before  given line.  New text  is terminated by any
+        line not ending in `\'.
+
+[_n[,_m]]ll
+        Print selected lines, interpreting non-graphic characters.
+
+[_n[,_m]]nn
+        Print the work area and replace it with the next input line.
+
+[_n[,_m]]NN
+        Append next input line preceded by a newline to work area.
+
+[_n[,_m]]pp
+        Print work area.
+
+[_n[,_m]]PP
+        Print first line of work area.
+
+[_n]qq    Quit without reading any more input.
+
+[_n]rr _f_i_l_e
+        Copy _f_i_l_e to output.
+
+[_n[,_m]]ss[_k]/_p_a_t_t_e_r_n_1/_p_a_t_t_e_r_n_2/[gg][pp][ww _f_i_l_e]
+        Search for  _p_a_t_t_e_r_n_1  and substitute  _p_a_t_t_e_r_n_2  for _kth  occurrence
+        (default,  first).   If   optional  gg  is   given,  substitute  all
+        occurrences.  If optional pp is given, print the resulting line.  If
+        optional ww is  given, append the  resulting line to  _f_i_l_e. Patterns
+        are described in detail below.
+
+[_n[,_m]]tt[_l_a_b_e_l]
+        Test if  substitutions have  been made.   If  so, branch  to _l_a_b_e_l,
+        which must  be defined  in  a `:'  command.  If  _l_a_b_e_l is  omitted,
+        branch to end of command script.
+
+[_n[,_m]]ww _f_i_l_e
+        Append lines to _f_i_l_e.
+
+[_n[,_m]] xx
+        Exchange the work area and the secondary work area.
+
+[_n[,_m]]yy/_c_h_a_r_s/_r_e_p_l_a_c_e_m_e_n_t_s/
+        Translate characters  in _c_h_a_r_s to  the corresponding  characters in
+        _r_e_p_l_a_c_e_m_e_n_t_s.
+
+_P_a_t_t_e_r_n_s
+Substitution commands and  search specifications may include _p_a_t_t_e_r_n_s, also
+called _r_e_g_u_l_a_r  _e_x_p_r_e_s_s_i_o_n_s. Pattern specifications are  identical to those
+of eedd, except that the special characters `\nn' match a newline character in
+the input.
+
+A non-special  character in a  pattern matches itself.   Special characters
+include the following:
+
+^       Match beginning of  line, unless  it appears immediately  after `['
+        (see below).
+
+$       Match end of line.
+
+\nn      Match the newline character.
+
+.       Match any character except newline.
+
+*       Match zero or more repetitions of preceding character.
+
+[_c_h_a_r_s]
+        Match any one  of the enclosed  _c_h_a_r_s. Ranges of  letters or digits
+        may be indicated using `-'.
+
+[^_c_h_a_r_s]
+        Match any  character _e_x_c_e_p_t  one of the  enclosed _c_h_a_r_s.  Ranges of
+        letters or digits may be indicated using `-'.
+
+\_c      Disregard special meaning of character _c.
+
+\(_p_a_t_t_e_r_n\)
+        Delimit substring _p_a_t_t_e_r_n; for use with \_d, described below.
+
+In addition,  the replacement part  _p_a_t_t_e_r_n_2 of the  substitute command may
+also use the following:
+
+&  Insert characters matched by _p_a_t_t_e_r_n_1.
+
+\_d Insert  substring delimited  by _dth  occurrence  of delimiters  `\(' and
+   `\)', where _d is a digit.
+
+_O_p_t_i_o_n_s
+sseedd recognizes the following options:
+
+-ee   Next argument  gives a sseedd command.  sseedd's command  line can have more
+     than one -ee option.
+
+-ff   Next argument gives file name of command script.
+
+-nn   Output lines only when explicit pp or PP commands are given.
+
+_L_i_m_i_t_s
+The COHERENT  implementation of sseedd sets the following  limits on input and
+output:
+
+     Characters per input record512
+     Characters per output record512
+     Characters per field     512
+
+_S_e_e _A_l_s_o
+ccoommmmaannddss, eedd, eellvviiss, eexx, mmee, vvii
+_I_n_t_r_o_d_u_c_t_i_o_n _t_o _t_h_e _s_e_d _S_t_r_e_a_m _E_d_i_t_o_r

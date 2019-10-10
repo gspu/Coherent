@@ -1,0 +1,69 @@
+/* (-lgl
+ *	Coherent 386 release 4.2
+ *	Copyright (c) 1982, 1993 by Mark Williams Company.
+ *	All rights reserved. May not be copied without permission.
+ *	For copying permission and licensing info, write licensing@mwc.com
+ -lgl) */
+
+#ifndef	__SYS_UIO_H__
+#define	__SYS_UIO_H__
+
+/*
+ * This file defines the uio_t data structure used to control a scatter/gather
+ * I/O request under the System V DDI/DKI. Drivers should follow the DDI/DKI
+ * guidelines with respect to this structure by not directly modifying any
+ * members. The only permitted use of this structure is to initialize members
+ * of a driver-created uio_t to pass to the DDI/DKI library functions.
+ */
+
+#include <common/ccompat.h>
+#include <common/__off.h>
+#include <common/__iovec.h>
+
+typedef	struct uio	uio_t;
+typedef __iovec_t	iovec_t;
+
+
+/*
+ * Note that the definition of this structure in the DDI/DKI allows the
+ * routines uiomove (), ureadc () and uwritec () license to maintain all kinds
+ * of cached state about iovec's once I/O through a uio structure has been
+ * initiated. For now, we don't define any such state, but note that it may
+ * be added.
+ */
+
+struct uio {
+	__iovec_t     *	uio_iov;	/* start of the iovec array */
+	int		uio_iovcnt;	/* number of iovecs in the array */
+	__off_t		uio_offset;	/* offset into file/device */
+	short		uio_segflg;	/* type of I/O transfer */
+	short		uio_fmode;	/* file mode flags (see <sys/file.h>) */
+	int		uio_resid;	/* residual count */
+};
+
+
+/*
+ * Values for "uio_segflg"
+ */
+
+enum {
+	UIO_USERSPACE,
+	UIO_SYSSPACE
+};
+
+typedef enum {
+	UIO_READ,
+	UIO_WRITE
+} uio_rw_t;
+
+
+__EXTERN_C_BEGIN__
+
+int		uiomove		__PROTO ((__caddr_t _addr, long _nbytes,
+					  uio_rw_t _rwflag, uio_t * _uiop));
+int		ureadc		__PROTO ((int _c, uio_t * _uiop));
+int		uwritec		__PROTO ((uio_t * uiop));
+
+__EXTERN_C_END__
+
+#endif	/* ! defined (__SYS_UIO_H__) */

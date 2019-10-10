@@ -1,0 +1,39 @@
+# Run.notes
+#
+# Compile the release notes for the COHERENT system
+#
+TROFF="troff -p -Z6 -rRN1 -rNS1 -rNI1"
+OUTPUT=/tmp/doc/rel.notes
+V=/v/doc/coherent/manual
+
+rm $OUTPUT/*
+
+# do the title page and table of contents
+$TROFF $V/fonts.r title.r 2>/dev/null >$OUTPUT/title.p
+$TROFF $V/fonts.r $V/top.r copyright.r >$OUTPUT/copyright.p
+
+> pgn.r
+
+# do each chapter in turn
+for i in intro.r \
+	hardware.r \
+	install.r \
+	update.r \
+	thirdparty.r \
+	thirdrun.r \
+	usergroup.r \
+	errata.r
+do
+	$TROFF -mcohtext $V/fonts.r pgn.r $V/top.r \
+		$i \
+		2>notes.x > $OUTPUT/`basename $i .r`.p
+	tail -1 notes.x >pgn.r
+done
+
+# compile the table of contents
+$V/bin/contents <notes.x >/tmp/contents.r
+$TROFF -rNS1 -mcohcon $V/fonts.r $V/top.r \
+	/tmp/contents.r 2>> notes.x > $OUTPUT/rel.con.p
+
+$TROFF $V/fonts.r order.r \
+	2>>notes.x > $OUTPUT/order.p

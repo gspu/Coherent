@@ -1,0 +1,86 @@
+# bld - make 386 kernel
+#
+# requires a running 386 kernel
+#
+
+sync
+
+# make sure the environment is set for kernel objects
+if [ -z $K386OBJ ]; then
+	echo "Error - K386OBJ environment variable not set!"
+	exit 1
+fi
+
+# make sure the environment is set for kernel libraries
+if [ -z $K386LIB ]; then
+	echo "Error - K386LIB environment variable not set!"
+	exit 1
+fi
+
+CFLAGS=${CFLAGS-"-VPSTR"}
+CC=${CC-"exec /bin/cc"}
+
+unset TARGET
+
+# Each drvl entry is 0x14, or 20 decimal, bytes.
+
+while [ $# -gt 0 ]
+do
+	ARG=$1
+	case $ARG in
+
+	fha)	CONFDIR="CONFDIR=fha_conf"
+		TARGET=${TARGET-/tmp/fha_kernel}
+		;;
+
+	ft)	PATCH="${PATCH} ftCon=ftcon PHYS_MEM=589824"
+		;;
+
+	fva)	CONFDIR="CONFDIR=fva_conf"
+		TARGET=${TARGET-/tmp/fva_kernel}
+		;;
+
+	sc)	CFLAGS=${CFLAGS}" -DGORT"
+		;;
+
+	ticom)	# piggy's Tiwanese 4 port card
+		PATCH="${PATCH} AL_ADDR+8=0x2b0 AL_ADDR+12=0x2b8"
+		;;
+
+	xl)	PATCH="${PATCH} ftCon=ftxlcon PHYS_MEM=589824"
+		;;
+
+	-c)	shift
+		CFLAGS="$CFLAGS $1"
+		;;
+
+	-o)	shift
+		TARGET=$1
+		;;
+
+	*=*)	PATCH="${PATCH} ${ARG}"
+		;;
+
+	*)
+echo "Usage:  $0"
+echo "  {fha | fva | sc | ticom} {-o target} {-c cflags} {addr=value}..."
+		exit 1
+		;;
+	esac
+	shift
+done
+
+make "CFLAGS=$CFLAGS" "CC=$CC" libs 	|| exit 1
+
+TARGET=${TARGET-/at386.test}
+
+here=$CWD
+cd ../conf
+make TARGET=${TARGET} ${CONFDIR} || exit 1
+cd $here
+
+if [ -n "${PATCH}" ]; then
+	set -x
+	/conf/patch $TARGET $PATCH || exit 1
+fi
+

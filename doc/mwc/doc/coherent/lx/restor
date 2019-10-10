@@ -1,0 +1,215 @@
+.TH restor "" "" Command
+.PC "Restore file system"
+\fBrestor \fIcommand \fB[\fIdump_device\^\fB] [\fIfilesystem\^\fB] [\fIfile ...\fB]\fR
+.PP
+.HS
+.SH Options:
+.IC \fBf\fR
+Next argument names the dump device
+.IC \fBr\fR
+Mass restore (also \fBR\fR)
+.IC \fBt\fR
+Print taken and since dates of the dump
+.IC \fBv\fR
+Verbose (print commentary during mass restore)
+.IC \fBx\fR
+Selective extract of argument files (also `X')
+.HE
+.B restor
+copies to the hard disk one or more files from floppy disks or tapes written by
+the command
+.BR dump .
+.PP
+.B restor
+recognizes the following
+.IR commands :
+.RS
+.IP \fBr\fR 0.3i
+Mass restore both full and incremental dump disks/tapes into the
+.I filesystem.
+The target file system must have enough data blocks
+and i-nodes to hold the dump.
+.sp \n(pDu
+The mass restoration is performed in three phases.
+In phase 1,
+.B restor
+clears all i-nodes that were either clear at dump time or are going to be
+restored.
+Any allocated blocks are released.
+Second, it restores all files on the disk.
+The i-numbering is preserved; however, data blocks
+are allocated in the standard fashion.
+Third, a pass is made over the i-nodes and the
+list of free i-nodes in the superblock is updated.
+.sp \n(pDu
+Restoration begins immediately, using the currently mounted disk or tape.
+.IP \fBR\fR
+Like the \fBr\fR command,
+except that it pauses to ask for numbers of disks or reels.
+.IP \fBt\fR
+Read the header from the dump.
+Display the date the dump was written
+and the ``dump since'' date that produced the dump.
+.IP \fBx\fR
+Extract each
+.I file
+from the dump and restore it to the hard disk.
+All file names are absolute path names starting at the root of the dump
+(the first directory dumped, which is always the root directory of the file
+system).
+A numeric file name is taken to be an i-number on
+the dumped file system, permitting restore by i-number.
+.sp \n(pDu
+.B restor
+looks up each
+.I argument
+file in the directories of the dumped file system
+and prints out each name and associated i-number.
+.B restor
+extracts the files from the currently mounted dump disk or tape,
+and writes the extracted files into the current directory.
+Extracted files are named after their i-numbers.
+.IP \fBX\fR
+Like command \fRx\fR,
+except that before it begins, it asks you for the number of the disk
+(or the reel number of the dump tape).
+It continues asking for dump disks until all
+files have been extracted or you types \fB<ctrl-D>\fR.
+.PP
+Each of the above commands can be modified either or both of the following
+modifiers:
+.RS
+.IP \fBf\fR 0.3i
+Tell
+.B restor
+to take the next
+.I argument
+as the path name of the dump device (floppy-disk drive or tape drive).
+If the
+.B f
+modifier is not specified,
+.B restor
+uses the device
+.BR /dev/dump .
+.IP \fBv\fR
+Verbose output.
+Tell
+.B restor
+to print a step-by-step trace of its actions when restoring an entire
+file system.
+This is for discovering what went wrong when a mass restore runs into trouble.
+.SH "Restoring from a Damaged Medium"
+As noted below, \fBdump\fR requires that its output be written to disks or
+tapes that are free of defects.
+Restoring a file system from a damaged medium is difficult and is not
+associated with a high probability of success;
+if, however, you must try to do so, the following directions will give you
+a fighting chance of restoring your data.
+.IP 1. 0.3i
+Use the command
+.B fdformat
+to format a blank disk.
+Use the command
+.B badscan
+to examine it for bad sectors; if it does have bad sectors, put it aside
+and try another.
+.IP 2.
+Use the command
+.B dd
+to copy the bad disk to directory \fB/tmp\fIfoo1\fR
+.B dd
+should die at the bad sector in the disk.
+.IP 3.
+.B dd
+again to directory \fB/tmp/\fIfoo2\fR
+using that command's \fBskip=\fIn\fR to skip past the bad sector (or sectors).
+.IP 4.
+Repeat step 3 (if it died too) until the end of the disk is reached.
+Now you have a set of directories named
+\fB/tmp/\fIfoo[1...n]\fR that contain parts of the bad disk.
+.IP 5.
+Use the command
+.ID
+	dd if=/tmp/\fIfoo1\fP of=/dev/fha0
+.IE
+with the new, defect-free disk.
+.IP 6.
+Now, use the command
+.ID
+	dd if=/tmp/\fIfoo2\fP of=/dev/fha0 seek=\fIwhatever\fR
+.IE
+to place \fIfoo2\fR into the right place on the new disk.
+.IP 7.
+Repeat 6 for each directory \fIfoo3\fR through \fIfooN\fR.
+.IP 8.
+Create a 512-byte file that
+contain the string
+.ID
+	GARBAGE\en
+.IE
+repeated 64 times.
+Use
+.B dd
+to copy it into new disk where the bad sectors were.
+.PP
+Now, you \fIshould\fR have a disk that is a mirror image of the old,
+damaged dump disk.
+Each bad sectors will have been replaced by 64 iterations of the string
+\fBGARBAGE\en\fR.
+As noted, there is no guarantee that this scheme will work in every instance
+(the chances of error are quite high), but it will give you a fighting chance
+to save your data.
+.SH Files
+\fB/dev/dump\fR \(em Dump device
+.br
+\fB/etc/ddate\fR \(em Dump date file
+.SH "See Also"
+.Xr "commands," commands
+.Xr "dump," dump
+.Xr "dumpdir" dumpdir
+.SH Diagnostics
+Most of the diagnostics produced by
+.B restor
+are self-explanatory, and are caused by internal table overflows or I/O errors
+on the dump medium or file system.
+.PP
+If the dump spans multiple disks or reels,
+.B restor
+asks you to mount the next disk at the appropriate time.
+Type a newline when the disk has been mounted.
+.B restor
+verifies that this is the correct disk, and gives you another chance if
+the disk number in the dump header is incorrect.
+.SH Notes
+You cannot perform a mass restore onto a live root partition.
+Instead, boot a stand-alone version of \*(CO on a floppy-disk drive,
+or boot from an alternative \*(CO file system on another hard-disk
+partition before you attempt to do a mass restoration.
+.PP
+The handling of tapes with multiple dumps on them (created by
+dumping to the no rewind special files) is not very general.
+Basically,
+.B restor
+assumes that tapes holding multiple dumps and tapes holding dumps that span
+multiple reels are mutually exclusive.
+You can restore from any file on a reel by positioning the tape
+and then restoring with the
+.B x
+or
+.B r
+commands, which do not reposition the tape.
+It is (almost) impossible to use the
+.B X
+or
+.B R
+commands, as the position of the dump tape will be lost when
+.B restor
+closes it.
+.PP
+.B dump
+requires that its output be written to disks that are free of bad sectors.
+If you write a dump to a disk with bad sectors, you will not be able to
+restore files from that disk.
+See
+.B dump
+for directions on processing disks to ensure that they are free of bad sectors.

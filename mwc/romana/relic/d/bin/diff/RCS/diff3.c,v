@@ -1,0 +1,536 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.14.42;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver provided by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Internal part of diff3.
+ * This file resides in /usr/lib/diff3.
+ * It is called as:
+ * /usr/lib/diff3 [options] generator
+ * Generator is the generator for the tempfile
+ * names (as in /tmp/d30239).  `a' and `b' are used.
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+
+#define NINF	3		/* Number of input files */
+
+typedef	long	SEEK;		/* May be made long */
+
+/*
+ * A set of changes between two files.
+ * This is just pairs of ranges from each file.
+ */
+typedef	struct	CHANGES {
+	SEEK	c_seek;		/* Seek position after header line */
+	unsigned c_oldbeg;	/* Old (first) file - beginning line number */
+	unsigned c_oldend;	/* end line number */
+	unsigned c_newbeg;	/* New (second) file - beginning */
+	unsigned c_newend;	/* end line number */
+}	CHANGES;
+
+int	eflag;		/* Type of ed script */
+int	ndiffs;		/* Number of differences found */
+unsigned lastchange[NINF];
+char	line[1000];	/* Input line buffer */
+
+FILE	*fp13;		/* Changes of file 1 versus file 3 */
+FILE	*fp23;		/* Changes of file 2 versus file 3 */
+
+FILE	*diffopen();
+CHANGES	*getdiff();
+
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	register char *ap;
+
+	if (argc>1 && *argv[1]=='-') {
+		for (ap = &argv[1][1]; *ap!='\0'; ap++)
+			switch (*ap) {
+			case 'e':
+				eflag = 03;
+				break;
+
+			case 'x':
+				eflag = 01;
+				break;
+
+			case '3':
+				eflag = 02;
+				break;
+
+			default:
+				cerr("bad option `%s'", argv[1]);
+			}
+		argv++;
+		argc--;
+	}
+	if (argc != 2)
+		ierr("main");
+	fp13 = diffopen(argv[1], 'a');
+	fp23 = diffopen(argv[1], 'b');
+	collate();
+	exit(ndiffs!=0);
+}
+
+/*
+ * Open one of the difference files
+ * (i.e. the output of `diff').
+ * Arguments are the generator name and
+ * an identifying letter.
+ */
+FILE *
+diffopen(gener, let)
+char *gener;
+int let;
+{
+	FILE *fp;
+
+	sprintf(line, "%s%c", gener, let);
+	if ((fp = fopen(line, "r")) == NULL)
+		cerr("cannot open intermediate file `%s'", line);
+	return (fp);
+}
+
+/*
+ * Read in one entry from the specified
+ * file of differences.  The `fp'
+ * argument is the stream containing one
+ * of the output files of `diff'.
+ */
+CHANGES *
+getdiff(fp)
+FILE *fp;
+{
+	register CHANGES *cp;
+	char *linep;
+	register int type;
+
+	while (fgets(line, sizeof line, fp) != NULL) {
+		if (!isdigit(line[0]))
+			continue;
+		if ((cp = (CHANGES *)malloc(sizeof (CHANGES))) == NULL)
+			cerr("out of memory for changes");
+		linep = line;
+		cp->c_oldbeg = cp->c_oldend = readnum(&linep);
+		if (*linep == ',') {
+			linep++;
+			cp->c_oldend = readnum(&linep);
+		}
+		type = *linep++;
+		cp->c_newbeg = cp->c_newend = readnum(&linep);
+		if (*linep == ',') {
+			linep++;
+			cp->c_newend = readnum(&linep);
+		}
+		if (type == 'a')
+			cp->c_oldbeg++;
+		else if (type == 'd')
+			cp->c_newbeg++;
+		cp->c_oldend++;
+		cp->c_newend++;
+		cp->c_seek = ftell(fp);
+		ndiffs++;
+		return (cp);
+	}
+	return (NULL);
+}
+
+/*
+ * Read a line number from the line.
+ * The pointer is given by reference
+ * so that it can be updated.
+ * Leading and trailing space is skipped.
+ */
+readnum(npp)
+register char **npp;
+{
+	register char *np;
+	register int n = 0;
+
+	np = *npp;
+	while (isspace(*np))
+		np++;
+	while (isdigit(*np))
+		n = n*10 + *np++ - '0';
+	while (isspace(*np))
+		np++;
+	*npp = np;
+	return (n);
+}
+
+/*
+ * Read through the two difference
+ * files, collating changes that we
+ * encounter to produce one consistent
+ * view of changes on all three files.
+ */
+collate()
+{
+	register CHANGES *p13, *p23;
+	register CHANGES *n13, *n23;
+
+	if ((p13 = getdiff(fp13)) != NULL)
+		n13 = getdiff(fp13); else
+		n13 = NULL;
+	if ((p23 = getdiff(fp23)) != NULL)
+		n23 = getdiff(fp23); else
+		n23 = NULL;
+	while (p13!=NULL || p23!=NULL) {
+		/*
+		 * Differences found in the
+		 * first file.
+		 */
+		if (p23==NULL || (p13!=NULL && p13->c_newend<p23->c_newbeg)) {
+			prsep(1);
+			prchanges(1, p13, fp13);
+			prdummy(2, p13);
+			prchanges(3, p13, fp13);
+			cfree(p13);
+			if ((p13 = n13) != NULL)
+				n13 = getdiff(fp13);
+			continue;
+		}
+		/*
+		 * Differences found in the
+		 * second file.
+		 */
+		if (p13==NULL || (p23!=NULL && p23->c_newend<p13->c_newbeg)) {
+			prsep(2);
+			prdummy(1, p23);
+			prchanges(2, p23, fp23);
+			prchanges(3, p23, fp23);
+			cfree(p23);
+			if ((p23 = n23) != NULL)
+				p23 = getdiff(fp23);
+			continue;
+		}
+		/*
+		 * Merge changes that overlap
+		 * with next change in first file.
+		 * This happens as a result of
+		 * the extension of a change as below.
+		 */
+		if (n13!=NULL && p13->c_newend >= n13->c_newbeg) {
+			n13->c_oldbeg = p13->c_oldbeg;
+			n13->c_newbeg = p13->c_newbeg;
+			cfree(p13);
+			p13 = n13;
+			n13 = getdiff(fp13);
+			continue;
+		}
+		/*
+		 * Do the same merge as above
+		 * only for the second file of changed.
+		 */
+		if (n23!=NULL && p23->c_newend >= n23->c_newbeg) {
+			n23->c_oldbeg = p23->c_oldbeg;
+			n23->c_newbeg = p23->c_newbeg;
+			cfree(p23);
+			p23 = n23;
+			n23 = getdiff(fp23);
+			continue;
+		}
+		/*
+		 * Find lines only in third file or
+		 * different in all.  The difference
+		 * between these two cases has to
+		 * be tested by reading the actual
+		 * different lines and comparing them.
+		 */
+		if (p13->c_newbeg == p23->c_newbeg
+		 && p13->c_newend == p23->c_newend) {
+			register int mat;
+			register CHANGES *cp;
+			register FILE *fp;
+
+			mat = match12(p13, p23);
+			prsep(mat ? 3 : 0);
+			/*
+			 * This masks out the editing changes
+			 * desired, i.e. all different and 3 different
+			 * for -e, and the individual cases for -x and -3.
+			 */
+			if (eflag & (mat+01))
+				preditor(p13);
+			prchanges(1, p13, mat?NULL:fp13);
+			prchanges(2, p23, fp23);
+			/*
+			 * Depends on whether a `c' or
+			 * an `a' operation.
+			 */
+			if (p13->c_oldend > p13->c_oldbeg) {
+				cp = p13;
+				fp = fp13;
+			} else {
+				cp = p23;
+				fp = fp23;
+			}
+			prchanges(3, cp, fp);
+			cfree(p13);
+			if ((p13 = n13) != NULL)
+				n13 = getdiff(fp13);
+			cfree(p23);
+			if ((p23 = n23) != NULL)
+				n23 = getdiff(fp23);
+			continue;
+		}
+		/*
+		 * When a range of lines overlaps that
+		 * of another range in the other change
+		 * file, the ranges have to be adjusted.
+		 */
+		if (p13->c_newbeg < p23->c_newbeg) {
+			p23->c_oldbeg -= p23->c_newbeg-p13->c_newbeg;
+			p23->c_newbeg = p13->c_newbeg;
+		} else if (p23->c_newbeg < p13->c_newbeg) {
+			p13->c_oldbeg -= p13->c_newbeg-p23->c_newbeg;
+			p13->c_newbeg = p23->c_newbeg;
+		}
+		if (p13->c_newend > p23->c_newend) {
+			p23->c_oldend += p13->c_newend-p23->c_newend;
+			p23->c_newend = p13->c_newend;
+		} else if (p23->c_newend > p13->c_newend) {
+			p13->c_oldend += p23->c_newend-p13->c_newend;
+			p13->c_newend = p23->c_newend;
+		}
+	}
+}
+
+/*
+ * Free a CHANGES node, checking first
+ * to see if it is NULL.
+ */
+cfree(cp)
+register CHANGES *cp;
+{
+	if (cp != NULL)
+		free((char *)cp);
+}
+
+/*
+ * Since we have only the output of two diffs,
+ * we have to cross-check the output for a match
+ * between files one and two.  This will use the
+ * line ranges found in the c_before of each
+ * CHANGES description.
+ * We have to seek both file descriptors back
+ * to where they were at entry upon leaving this routine.
+ */
+match12(cp13, cp23)
+register CHANGES *cp13, *cp23;
+{
+	register int n;
+	register char *lp;
+	register int ret = 1;
+	long seek13, seek23;
+
+	n = cp13->c_oldend - cp13->c_oldbeg;
+	if (n != cp23->c_oldend - cp23->c_oldbeg)
+		return (0);
+	if (n == 0)
+		return (1);
+	seek13 = ftell(fp13);
+	seek23 = ftell(fp23);
+	fseek(fp13, (long)cp13->c_seek, 0);
+	fseek(fp23, (long)cp23->c_seek, 0);
+	do {
+		if (fgets(line, sizeof line, fp13) == NULL)
+			ierr("match12/1");
+		for (lp = line; *lp++ != '\0'; )
+			;
+		if (fgets(lp, sizeof line - (lp-line), fp23) == NULL)
+			ierr("match12/2");
+		if (line[0]!='<' || line[1]!=' ')
+			ierr("match12/3");
+		if (*lp++!='<' || *lp++!=' ')
+			ierr("match12/4");
+		if (strcmp(lp, line+2) != 0) {
+			ret = 0;
+			break;
+		}
+	} while (--n);
+	fseek(fp13, seek13, 0);
+	fseek(fp23, seek23, 0);
+	return (ret);
+}
+
+/*
+ * Print out the changes on file numbered `fn' (1-3),
+ * given the CHANGES structure reference `cp'.
+ * Since file 3 is always the `new' file, if `fn==3'
+ * then the new range is used, otherwise the old.
+ * `prt' is set, if the text needs to be printed.
+ */
+prchanges(fn, cp, prtfp)
+int fn;
+CHANGES *cp;
+FILE *prtfp;
+{
+	register unsigned beg, end;
+	register char recog;
+	register int nl;
+	long oseek;
+
+	if (eflag)
+		return;
+	if (fn == 3) {
+		recog = '>';
+		beg = cp->c_newbeg;
+		end = cp->c_newend;
+	} else {
+		recog = '<';
+		beg = cp->c_oldbeg;
+		end = cp->c_oldend;
+	}
+	lastchange[fn-1] = end;
+	printf("%d: ", fn);
+	predcom(beg, end);
+	if (prtfp == NULL)
+		return;
+	oseek = ftell(prtfp);
+	fseek(prtfp, (long)cp->c_seek, 0);
+	while (fgets(line, sizeof line, prtfp) != NULL)
+		if (line[0]==recog && line[1]==' ')
+			break;
+	for (nl = end-beg; nl-- > 0; ) {
+		if (line[0]!=recog || line[1]!=' ')
+			break;
+		printf("  %s", line+2);
+		if (fgets(line, sizeof line, prtfp) == NULL)
+			break;
+	}
+	fseek(prtfp, oseek, 0);
+}
+
+/*
+ * Print out dummy changes.
+ */
+prdummy(fn, cp)
+register int fn;
+register CHANGES *cp;
+{
+	register unsigned diff;
+
+	if (eflag)
+		return;
+	diff = lastchange[3-1] - lastchange[fn-1];
+	lastchange[fn-1] = cp->c_newend-diff;
+	printf("%d: ", fn);
+	predcom(cp->c_newbeg-diff, cp->c_newend-diff);
+}
+
+/*
+ * Print out an entry in the editor
+ * script given the first difference
+ * file (between files 1 and 3).
+ * Line numbers have to be adjusted
+ * because this script is printed in
+ * forward order.  Special handling is
+ * done for a line which is `.'
+ */
+preditor(cp)
+register CHANGES *cp;
+{
+	register int nl;
+	long seek13;
+	static int lnadjust;
+
+	predcom(cp->c_oldbeg+lnadjust, cp->c_oldend+lnadjust);
+	if (cp->c_oldend > cp->c_oldbeg)
+		lnadjust -= cp->c_oldend-cp->c_oldbeg;
+	seek13 = ftell(fp13);
+	fseek(fp13, (long)cp->c_seek, 0);
+	while (fgets(line, sizeof line, fp13) != NULL)
+		if (line[0]=='>' && line[1]==' ')
+			break;
+	for (nl = cp->c_newend-cp->c_newbeg; nl--  > 0; ) {
+		if (line[0]!='>' || line[1]!=' ')
+			break;
+		if (line[2]=='.' && line[3]=='\n' && line[4]=='\0')
+			fputs("~\n.\ns/~/./\na\n", stdout);
+		else
+			fputs(line+2, stdout);
+		lnadjust++;
+		if (fgets(line, sizeof line, fp13) == NULL)
+			break;
+	}
+	fputs(".\n", stdout);
+	fseek(fp13, seek13, 0);
+}
+
+/*
+ * Print out an editing command based
+ * upon the range of lines given.
+ * They have been adjusted in `readdiffs'
+ * so that an `a' and `c' are differentiable.
+ */
+predcom(beg, end)
+register unsigned beg, end;
+{
+	if (end <= beg)
+		printf("%da\n", beg-1);
+	else {
+		printf("%d", beg);
+		if (end > beg+1)
+			printf(",%d", end-1);
+		printf("c\n");
+	}
+}
+
+/*
+ * Print out a separator.
+ * The `fn' is which file differs.
+ * If `fn' is 0, it means all files differ.
+ */
+prsep(fn)
+register int fn;
+{
+	if (!eflag)
+		if (fn != 0)
+			printf("====%d\n", fn); else
+			printf("====\n");
+}
+
+/*
+ * Error routines
+ */
+/* VARARGS */
+cerr(x)
+{
+	fprintf(stderr, "diff3: %r\n", &x);
+	exit(2);
+}
+
+/*
+ * Internal error.
+ */
+ierr(type)
+char *type;
+{
+	cerr("internal error in %s", type);
+}
+@

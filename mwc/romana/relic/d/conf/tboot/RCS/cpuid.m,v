@@ -1,0 +1,714 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @@;
+
+
+1.1
+date     92.07.15.14.05.20;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/ 
+/ FLG_PIQL	 Pre-fetch instruction queue length, 0 => 4-byte, 1 => 6-byte
+/ FLG_08		 Intel 808x
+/ FLG_NEC 	 NEC V20 or V30
+/ FLG_18		 Intel 8018x
+/ FLG_28		 Intel 8028x
+/ FLG_38		 Intel 8038x
+/ 
+/ FLG_87		 Intel 8087
+/ FLG_287 	 Intel 80287
+/ FLG_387 	 Intel 80387
+/ 
+/ FLG_1167	 Weitek 1167
+/ 
+/ $FLG_CERR	 Faulty CPU
+/ $FLG_NERR	 Faulty NDP switch setting
+
+FLG	 record  $RSVD:6,$FLG_NERR:1,$FLG_CERR:1,$FLG_WTK:1,$FLG_NDP:3,$FLG_CPU:4
+
+/ CPU-related flags
+
+FLG_PIQL equ	 0001b shl $FLG_CPU
+FLG_08	 equ	 0000b shl $FLG_CPU
+FLG_NEC  equ	 0010b shl $FLG_CPU
+FLG_18	 equ	 0100b shl $FLG_CPU
+FLG_28	 equ	 0110b shl $FLG_CPU
+FLG_38	 equ	 1000b shl $FLG_CPU
+
+FLG_8088 equ	 FLG_08
+FLG_8086 equ	 FLG_08 or FLG_PIQL
+FLG_V20  equ	 FLG_NEC
+FLG_V30  equ	 FLG_NEC or FLG_PIQL
+FLG_80188 equ	 FLG_18
+FLG_80186 equ	 FLG_18 or FLG_PIQL
+FLG_80286 equ	 FLG_28 or FLG_PIQL
+FLG_80386 equ	 FLG_38 or FLG_PIQL
+
+/ NDP-related flags
+
+FLG_NDPX equ	 000b shl $FLG_NDP	/ Not present
+FLG_NDPU equ	 001b shl $FLG_NDP	/ Untested
+FLG_87	 equ	 010b shl $FLG_NDP
+FLG_287  equ	 011b shl $FLG_NDP
+FLG_387  equ	 100b shl $FLG_NDP
+
+FLG_1167 equ	 mask $FLG_WTK
+
+CPUID	 proc	 near		/ Start CPUID procedure
+
+/ This procedure determines the type of CPU and NDP (if any) in use.
+/ 
+/ The possibilities include:
+/ 
+/ Intel 8086
+/ Intel 8088
+/ NEC   V20
+/ NEC   V30
+/ Intel 80186
+/ Intel 80188
+/ Intel 80286
+/ Intel 80386
+/ Intel 8087
+/ Intel 80287
+/ Intel 80387
+/ 
+/    Also checked is whether or not the CPU allows interrupts after
+/ changing the SS segment register.  If the CPU does, it is faulty and
+/ should be replaced.
+/ 
+/    Further, if an NDP is installed, non-AT machines should have a
+/ system board switch set correspondingly.  Such a discrepancy is
+/ reported upon.
+/ 
+/    On exit, BX contains flag settings (as defined in $FLG record) which
+/ the caller can check.  For example, to test for an Intel 80286, use
+/ 
+/ 	 and	 bx,mask $FLAG_CPU
+/ 
+/ 	 cmp	 bx,FLG_80286
+/ 	 je	 ITSA286
+/ 
+
+	push	ax / Save registers
+	push	cx
+	push	di
+	push	ds
+	push	es
+
+/ Test for 80286/386 -- these CPUs execute PUSH SP by first storing SP on stack,
+/ then decrementing it.  Earlier CPUs first decrement then store.
+
+	 push	 sp		/ Only 286 pushes pre-push SP
+	 pop	 ax		/ Get it back
+
+	 cmp	 ax,sp		/ Check for same
+	 jne	 CHECK_18x	/ They aren't, try next class
+
+	 call	 DIST_286or386	/ Distinguish a 286 from 386
+	 jmp	 short CHECK_PIQL / Join common code
+
+/ Test for 80186/80188 -- 18x and later CPUs mask shift/rotate operations
+/ mod 32/ earlier CPUs use all 8 bits of CL.
+
+CHECK_18x:
+	 mov	 bx,FLG_18	/ Assume it's an 8018x
+	 mov	 cl,32+1	/ 18x masks shift counts mod 32
+				/ Note we can't use just 32 in CL
+	 mov	 al,0FFh	/ Start with all bits set
+
+	 shl	 al,cl		/ Shift one position if 18x
+	 jnz	 CHECK_PIQL	/ Some bits still on, so it's a 18x or later/
+				/ check PIQL
+
+	 mov	 bx,FLG_NEC	/ Assume it's an NEC V-series CPU
+	 call	 CHECK_NEC	/ See if it's an NEC chip
+	 jcxz	 CHECK_PIQL	/ Good guess, check PIQL
+
+	 mov	 bx,FLG_08	/ It's an 808x
+/	subttl  Check Length Of Pre-fetch Instruction Queue
+/	page
+
+/ Check the length of the pre-fetch instruction queue (PIQ).
+/ 
+/ xxxx6 CPUs have a PIQ length of 6 bytes,
+/ xxxx8 CPUs   "     "     "      4   "
+/ 
+/ Self-modifying code is used to distinguish the two PIQ lengths.
+/ 
+/ To overcome write pipelining in 286/386 chips, the largest value
+/ over several executions of the subroutine is used.
+
+CHECK_PIQL:
+	 call	 PIQL_SUB	/ Handled via subroutine
+
+	 cmp	 cx,PIQL	/ Use the larger of the two
+	 jbe	 CHECK_PIQL1	/ CX is smaller
+
+	 mov	 PIQL,cx	/ Save to report on later
+CHECK_PIQL1:
+	 dec	 PIQL_CNT	/ One fewer times through the loop
+	 jnz	 CHECK_PIQL	/ Jump if
+
+	 cmp	 PIQL,4 	/ Check PIQL
+	 jbe	 CHECK_ERR	/ Jump if xxxx8
+
+	 or	 bx,FLG_PIQL	/ PIQ length is 5 or longer
+/	subttl  Check For Allowing Interrupts After POP SS
+/	page
+
+/ Test for faulty chip (allows interrupts after change to SS register)
+
+CHECK_ERR:
+	 call	 ERR_SUB	/ Handled via subroutine
+	 jcxz	 CHECK_NDP	/ If CX is 0, the DEC was executed,
+				/ and the CPU is OK
+	 or	 bx,mask $FLG_CERR / It's a faulty chip
+/	subttl  Check For Numeric Data Processor
+/	page
+CHECK_NDP:
+	 call	 NDP_SUB	/ Handled via subroutine
+
+	 pop	es / Restore registers
+	 pop	ds
+	 pop	di
+	 pop	cx
+	 pop	ax
+
+	 ret			/ Return to caller
+
+CPUID	 endp			/ End CPUID procedure
+/	subttl  Distinguish A 286 From 386
+/	page
+DIST_286or386 proc   near
+
+/ The test for 286 vs. 386 is done by attempting to set flag bits in
+/ the high-order nibble of the flag word.  If that's successful, it's a
+/ 386/ otherwise it's a 286.
+
+
+	 push	ax		/ Save register
+
+	 pushf			/ Save flags for a moment
+
+	 mov	 ax,0F000h	/ Try to set high bits in flag register
+
+	 push	 ax		/ Move into flag register
+	 popf
+
+	 pushf			/ Get flags back into AX
+	 pop	 ax
+
+	 popf			/ Restore original flags
+
+	 test	 ax,0F000h	/ Any bits set?
+	 jz	 ITSA286	/ No, so it's a 286
+
+	 or	 bx,FLG_38	/ It's a 38x
+	 jmp	 short DIST_286or386_EXIT / Join common exit code
+ITSA286:
+	 or	 bx,FLG_28	/ It's a 28x
+DIST_286or386_EXIT:
+	 pop ax		/ Restore
+
+	 ret			/ Return to caller
+
+DIST_286or386 endp		/ End DIST_286or386 procedure
+/	subttl  Check For NEC V20/V30
+/	page
+CHECK_NEC proc	 near
+/    The NEC V20/V30 CPUs are very compatible with the Intel 8086/8088.
+/ The only point of "incompatiblity" is that they do not contain a bug
+/ found in the Intel CPUs.  Specifically, the NEC CPUs correctly restart
+/ an interrupted multi-prefix string instruction at the start of the
+/ instruction.  The Intel CPUs incorrectly restart it in the middle of
+/ the instruction.  This routine tests for that situation by executing
+/ such an instruction for a sufficiently long period of time for a timer
+/ interrupt to occur.  If at the end of the instruction, CX is zero,
+/ it must be an NEC CPU/ if not, it's an Intel CPU.
+/ 
+/    Note that we're counting on the timer interrupt to do its thing
+/ every 18.2 times per second.
+/ 
+/    Here's a worst case analysis:  An Intel 8086/8088 executes 65535
+/ iterations of LODSB ES:[SI] in 2+9+13*65535 = 851,966 clock ticks.  If
+/ the Intel 8086/8088 is running at 15 MHz, each clock tick is 66.67
+/ nanoseconds, hence the entire operation takes 56.8 milliseconds.  If the
+/ timer is running at normal speed, it interrupts the CPU every 55
+/ millseconds and so should interrupt the repeated string instruction at
+/ least once.
+
+	 mov	 cx,0FFFFh	/ Move a lot of data
+	 sti			/ Ensure timer enabled
+
+/  Execute multi-prefix instruction.  Note that the value of ES as
+/  well as the direction flag setting is irrelevant.
+
+	 push	 ax		/ Save registers
+	 push	 si
+     rep lods	 byte ptr es:[si]
+	 pop	 si		/ Restore
+	 pop	 ax
+
+/ On exit, if CX is zero, it's an NEC CPU, otherwise it's an Intel CPU
+
+	 ret			/ Return to caller
+
+CHECK_NEC endp
+/	subttl  Pre-fetch Instruction Queue Subroutine
+/	page
+PIQL_SUB proc	 near
+/    This subroutine attempts to discern the length of the CPU's
+/ pre-fetch instruction queue (PIQ).
+/ 
+/    It stores a new instruction into the instruction stream
+/ following the STOSB.  The loop proceeds backwards from the end
+/ of the stream to the beginning.  At the point the inserted
+/ instruction is not executed, we have found the last byte in
+/ the PIQ.  The value in CX at that time is then the PIQ length.
+
+	 push	ax / Save registers
+	 push	bx
+	 push	dx
+	 push	si
+	 push	di
+
+@@REP	 equ	 64		/ Maximum length of PIQ
+				/ we can handle
+
+	 std			/ Store backwards
+
+	 mov	 cx,@@REP	/ Loop counter
+	 lea	 di,LAB_NOP+@@REP-1 / ES:DI ==> PIQL last byte
+				/ in fill area
+
+	 mov	 al,ds:LAB_INC	/ Change to INC BX
+	 mov	 ah,ds:LAB_NOP	/ Save a NOP here to restore
+	 mov	 si,1		/ Divisor
+	 xor	 dx,dx		/ Zero high-order word for divide
+	 cli			/ Ensure interrupts are disabled, otherwise
+				/ a timer tick could disturb the PIQ filling
+	 even			/ Ensure word alignment for LAB_FILL
+	 nop
+PIQL_SUB_NEXT:
+	 xor	 bx,bx		/ Initialize flag
+	 div	 si		/ Take up some time and
+				/ refill the queue
+	 stosb			/ Change the instruction
+
+/ The PIQ begins filling here
+
+LAB_NOP  label	 byte
+	 rept	 @@REP
+	 nop			// Fill byte
+	 endm
+
+	 mov	 es:[di+1],ah	/ Restore the NOP
+
+	 and	 bx,bx		/ Did we execute it?
+	 loopnz  PIQL_SUB_NEXT	/ Go around again if we did
+				/ and loop not finished
+	 inc	 cx		/ Count in last byte
+
+	 sti			/ Restore interrupts
+	 cld			/ Restore direction flag
+
+	 pop	di / Restore
+	 pop	si
+	 pop	dx
+	 pop	bx
+	 pop	ax
+
+/ At the end, CX has the length of the PIQ
+
+	 ret			/ Return to caller
+
+LAB_INC  label	 byte
+	 inc	 bx		/ Increment counter
+
+PIQL_SUB endp			/ End PIQL_SUB procedure
+/	 subttl  Check For Faulty Interrupts
+/	 page
+ERR_SUB  proc	 near
+/ Test for faulty chip (allows interrupts after change to SS register).
+/ Setup a handler for INT 01h (single-step interrupt) and turn on that
+/ flag just before executing a POP SS.  If the CPU allows a single-step
+/ interrupt after the POP SS, it's faulty.
+/ 
+/ On exit:
+/ 
+/ CX	 =	 1 if CPU is faulty
+/ 	 =	 0 if OK
+
+
+
+	 push	ax	/ Save registers
+	 push	ds
+
+	 xor	 ax,ax		/ Prepare to address interrupt vector segment
+	 mov	 ds,ax		/ DS points to segment 0
+
+	 cli			/ Nobody move while we swap
+
+	 lea	 ax,INT01	/ Point to our own handler
+	 xchg	 ax,INT01_OFF	/ Get and swap offset
+	 mov	 OLDINT01_OFF,ax / Save to restore later
+
+	 mov	 ax,cs		/ Our handler's segment
+	 xchg	 ax,INT01_SEG	/ Get and swap segment
+	 mov	 OLDINT01_SEG,ax / Save to restore later
+
+/ Note we continue with interrupts disabled to avoid an external interrupt
+/ occurring during this test.
+
+	 mov	 cx,1		/ Initialize a register
+	 push	 ss		/ Save SS to store back into itself
+
+	 pushf			/ Move flags
+	 pop	 ax		/ ...into AX
+	 or	 ax,mask $TF	/ Set trap flag
+	 push	 ax		/ Place onto stack
+	 POPFF			/ ...and then into effect
+				/ Some CPUs effect the trap flag immediately,
+				/   some wait one instruction.
+	 nop			/ Allow interrupt to take effect
+POST_NOP:
+	 pop	 ss		/ Change the stack segment register (to itself)
+	 dec	 cx		/ Normal CPUs execute this instruction before
+				/ recognizing the single-step interrupt
+	 hlt			/ We never get here
+INT01:
+
+/ Note IF=TF=0
+
+/ If we're stopped at or before POST_NOP, continue on
+
+	 push	 bp		/ Prepare to address the stack
+	 mov	 bp,sp		/ Hello, Mr. Stack
+
+	 cmp	 [bp].ARG_OFF,offset cs:POST_NOP / Check offset
+	 pop	 bp		/ Restore
+	 ja	 INT01_DONE	/ We're done
+
+	 iret			/ Return to caller
+INT01_DONE:
+
+/ Restore old INT 01h handler
+
+	 push	 es		/ Save for a moment
+	 les	 ax,OLDINT01_VEC / ES:AX ==> old INT 01h handler
+	 mov	 INT01_OFF,ax	/ Restore offset
+	 mov	 INT01_SEG,es	/ ...and segment
+	 pop	 es		/ Restore
+
+	 sti			/ Allow interrupts again (IF=1)
+
+	 add	 sp,3*2 	/ Strip IP, CS, and Flags from stack
+
+	 pop	ds	/ Restore
+	 pop	ax
+
+	 ret			/ Return to caller
+
+ERR_SUB  endp			/ End ERR_SUB procedure
+/	 subttl  Check For Numeric Data Processor
+/	 page
+NDP_SUB  proc	 near
+/    Test for a Numeric Data Processor -- Intel 8087, 80287, or 80387.
+/ An 8087 allows FDISI, an 80287/80387 ignores it.  The 80287 and 80387
+/ can be distinguished through their different treatment of the infinity
+/ closure setting.
+/ 
+/    In general, the technique used is passive -- it leaves the NDP in
+/ the same state in which it is found.
+/ 
+/    Unfortunately, some IBM PC/ATs and 3270/ATs without an NDP don't
+/ handle floating-point instructions correctly.  In particular, when
+/ no-WAIT NDP instruction is executed on those systems, they wipe out
+/ the memory location and all bytes following in the same segment.  To
+/ overcome this bug, Dan Lewis has suggested a technique which computes
+/ the segment and offset of the location into which the store is made
+/ such that the offset is in the last paragraph of the segment.  This
+/ way, the wipe out is harmless.
+/ 
+/ On exit:
+/ 
+/ BX	 =	 $FLG_NDP & $FLG_NERR bits set as appropriate.
+
+	 push	ax	/ Save registers
+	 push	cx
+	 push	di
+
+	 call	 CHECK_1167	/ See if there's a Weitek 1167 in the system
+
+/ Because some IBM PC/ATs and 3270/ATs without an NDP don't handle
+/ floating-point instructions correctly, we check for a 286 explicitly
+/ and rely upon the equipment flags to tell us if there's an NDP installed.
+/ This behavior is also present on some 386s.
+
+	 test	 LCL_FLAGS,@@LCL_REAL / Use real code or not?
+	 jnz	 NDP_SUB1	/ It's real
+
+	 mov	 ax,bx		/ Copy CPUID bits for destructive testing
+	 and	 ax,(mask $FLG_CPU) and not FLG_PIQL / Isolate CPU bits
+
+	 cmp	 ax,FLG_28	/ Izit a 28x?
+	 je	 NDP_SUB0	/ Yes, skip NDP instructions
+
+	 cmp	 ax,FLG_38	/ Izit a 38x?
+	 jne	 NDP_SUB1	/ Not this time
+NDP_SUB0:
+	 test	 LCL_FLAGS,@@LCL_I11H / Skip INT 11h test?
+	 jnz	 NDP_SUB_UN	/ Yes
+
+	 int	 11h		/ Get equipment flags into AX
+
+	 test	 ax,mask $I11_NDP / Check NDP-installed bit
+	 jz	 NDP_SUB_EXIT0	/ Not installed
+
+	 call	 DIST_287or387	/ Distinguish a 287 from a 387
+NDP_SUB_EXIT0:
+	 jmp	 NDP_SUB_EXIT	/ Join common exit code
+
+NDP_SUB_UN:
+	 or	 bx,FLG_NDPU	/ Mark as untested
+
+	 jmp	 NDP_SUB_EXIT	/ Join common exit code
+
+NDP_SUB1:
+	 push	 es		/ Save for a moment
+
+	 lea	 di,NDP_ENV+(size NDP_ENV)-1 / Offset of end of environment
+	 call	 MAX_OFFSET	/ Return with ES:DI ==> NDP_ENV and DI largest
+	 sub	 di,(size NDP_ENV)-1 / Back off to start of NDP_ENV
+
+	 cli			/ Protect FNSTENV
+	 fnstenv es:[di]	/ If NDP present, save current environment,
+				/ otherwise, this instruction is ignored
+	 sti			/ Allow interrupts
+
+	 pop	 es		/ Restore
+
+	 mov	 cx,50/7	/ Cycle this many times
+	 loop	 $		/ Wait for result to be stored
+
+	 fninit 		/ Initialize processor to known state
+	 jmp	 short $+2	/ Wait for initialization
+
+	 push	 es		/ Save for a moment
+
+	 lea	 di,NDP_CW+(size NDP_CW)-1 / Offset of end of control word
+	 call	 MAX_OFFSET	/ Return with ES:DI ==> NDP_CW and DI largest
+	 sub	 di,(size NDP_CW)-1 / Back off to start of control word
+
+	 fnstcw  es:[di]	/ Save control word
+
+	 pop	 es		/ Restore
+
+	 jmp	 short $+2	/ Wait for result to be stored
+	 jmp	 short $+2
+
+	 and	 NDP_CW,not mask $IC / Turn off infinity control in case of 387
+
+	 cmp	 NDP_CW_HI,03h	/ Check for NDP initial control word
+	 jne	 NDP_SUB_NONE	/ No NDP installed
+
+	 test	 LCL_FLAGS,@@LCL_I11H / Skip INT 11h test?
+	 jnz	 NDP_SUB2	/ Yes
+
+	 int	 11h		/ Get equipment flags into AX
+
+	 test	 ax,mask $I11_NDP / Check NDP-installed bit
+	 jnz	 NDP_SUB2	/ It's correctly set
+
+	 or	 bx,mask $FLG_NERR / Mark as in error
+NDP_SUB2:
+	 and	 NDP_CW,not mask $IEM / Enable interrupts (IEM=0, 8087 only)
+	 fldcw	 NDP_CW 	/ Reload control word
+	 fdisi			/ Disable interrupts (IEM=1) on 8087,
+				/ ignored by 80287/80387
+	 fstcw	 NDP_CW 	/ Save control word
+	 fldenv  NDP_ENV	/ Restore original NDP environment
+				/ No need to wait for environment to be loaded
+
+	 test	 NDP_CW,mask $IEM / Check Interrupt Enable Mask (8087 only)
+	 jnz	 NDP_SUB_8087	/ It changed, hence NDP is an 8087
+
+	 call	 DIST_287or387	/ Distinguish a 287 from a 387
+
+	 jmp	 short NDP_SUB_EXIT / Exit with flags in BX
+NDP_SUB_8087:
+	 or	 bx,FLG_87	/ NDP is an 8087
+
+	 jmp	 short NDP_SUB_EXIT / Join common exit code
+NDP_SUB_NONE:
+	 test	 LCL_FLAGS,@@LCL_I11H / Skip INT 11h test?
+	 jnz	 NDP_SUB_EXIT	/ Yes
+
+	 int	 11h		/ Get equipment flags into AX
+
+	 test	 ax,mask $I11_NDP / Check NDP-installed bit
+	 jz	 NDP_SUB_EXIT	/ It's correctly set
+
+	 or	 bx,mask $FLG_NERR / Mark as in error
+NDP_SUB_EXIT:
+	 pop	di	/ Restore
+	 pop	cx
+	 pop	ax
+
+	 ret			/ Return to caller
+
+NDP_SUB  endp			/ End NDP_SUB procedure
+/	 subttl  Check For Weitek 1167
+/	 page
+CHECK_1167 proc near
+/ See if there's a Weitek 1167 in the system.
+/ 
+/ To determine that, clear EAX, call INT 11h, and test bit 24
+/ in EAX.  If set, the coprocessor is present/ if not, then
+/ it's not.  Obviously, we must be running on a 386.
+
+	 test	 LCL_FLAGS,@@LCL_I11H / Skip INT 11h test?
+	 jnz	 CHECK_1167_EXIT / Yes, 1167 untested
+
+	 test	 bx,FLG_38	/ Are we on a 38x?
+	 jz	 CHECK_1167_EXIT / No, thus no 1167
+
+	 db	 66h		/ Use EAX
+	 push	 ax		/ Save for a moment
+
+	 db	 66h		/ Use EAX
+	 xor	 ax,ax		/ Clear entire register
+
+	 int	 11h		/ Get equipment flags
+
+	 db	 66h		/ Use EAX
+	 test	 ax,0000h
+	 dw	 0100h		/ Test bit 24
+	 jz	 CHECK_1167_EXIT0 / Not present
+
+	 or	 bx,FLG_1167	/ Mark as present
+CHECK_1167_EXIT0:
+	 db	 66h		/ Use EAX
+	 pop	 ax		/ Restore
+CHECK_1167_EXIT:
+	 ret			/ Return to caller
+
+CHECK_1167 endp 		/ End CHECK_1167 procedure
+/	subttl  Distinguish A 287 From 387
+/	page
+DIST_287or387 proc near
+/    Distinguish a 287 from a 387.
+/ 
+/    Both the 80287 and 80387 are initialized with the infinity closure
+/ bit set to one.  However, only the 80287 is sensitive to the value of
+/ this bit.  Ordinarily when this bit is set to one, the chip uses
+/ projective closure/ when it is cleared to zero, the chip uses affine
+/ closure.  Thus the 80287 is initialized to use projective closure, but
+/ that state can be changed through the infinity closure bit in the
+/ control word.  On the other hand, the 80387 is initialized to use
+/ affine closure and remains in that state independent of the setting of
+/ the infinity closure bit.  The two NDPs can be distinguished by
+/ executing code which is sensitive to the setting of the infinity
+/ closure bit.
+
+   The algorithm used is based upon one published by Intel on how to
+detect the 80387.
+
+On exit:
+
+BX	 =	 $FLG_NDP bits set as appropriate.
+
+|
+
+.287
+	 fstenv  NDP_ENV	/ Save current environment
+	 finit			/ Initialize processor to known state
+				/ The 80287 is using projective
+				/ closure for arithmetic, the 80387 is
+				/ using affine closure
+
+	 fld1			/ Generate infinity
+	 fldz			/  by dividing zero into one
+	 fdiv			/ ST0 = +infinity
+	 fld	 st(0)		/ Copy it
+	 fchs			/ ST0 = -infinity, ST1 = +infinity
+	 fcompp 		/ Compare them and pop both from stack
+	 fstsw	 ax		/ Get status word
+	 fldenv  NDP_ENV	/ Restore original NDP environment
+	 sahf			/ Copy into flags
+	 jz	 DIST_287or387_PROJ / Jump if the two are equal
+				/ (projective closure)
+
+	 or	 bx,FLG_387	/ NDP is an 80387
+
+	 jmp	 short DIST_287or387_EXIT / Join common exit code
+
+DIST_287or387_PROJ:
+	 or	 bx,FLG_287	/ NDP is an 80287
+DIST_287or387_EXIT:
+	 ret			/ Return to caller
+.8087
+DIST_287or387 endp		/ End DIST_287or387 procedure
+/	subttl  Calculate Maximum Offset
+/	page
+MAX_OFFSET proc  near
+
+/ On entry:
+/ 
+/ ES:DI	 ==>	 memory offset
+/ 
+/ On exit:
+/ 
+/ ES:DI	 ==>	 same location but with DI as large as possible
+
+
+MAXOFF	 equ	 0FFF0h
+
+	 push	ax	/ Save registers
+	 push	cx
+
+	 push	 di
+
+	 mov	 cl,4		/ Shift amount
+	 shr	 di,cl		/ Isolate para of control word
+	 mov	 ax,es		/ Get current segment
+	 add	 ax,di		/ Add in segment of control word
+	 sub	 ax,MAXOFF shr 4 / Less a lot of paras
+	 mov	 es,ax		/ Save as segment of control word
+
+	 pop	 di		/ Restore
+
+	 or	 di,MAXOFF	/ Include paras subtracted out above
+
+	 pop	cx	/ Restore
+	 pop	ax
+
+	 ret			/ Return to caller
+
+MAX_OFFSET endp 		/ End MAX_OFFSET procedure
+
+CODE	 ends			/ End CODE segment
+
+	 if1
+%OUT Pass 1 complete
+	 else
+%OUT Pass 2 complete
+	 endif
+
+	 end	 INITIAL	/ End CPUID module
+@

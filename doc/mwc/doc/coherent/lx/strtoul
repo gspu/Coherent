@@ -1,0 +1,244 @@
+.TH strtoul() "" "" "General Function (libc)"
+.PC "Convert string to unsigned long integer"
+.B "#include <stdlib.h>"
+\fBunsigned long strtoul(\fIstring, tailptr, base\^\fB)\fR
+char *\fIstring\^\fB; char **\fItailptr\^\fB; int \fIbase\^\fB;\fR
+.PP
+.II "hashing, example"
+.II "linked list, example"
+.II "subject sequence"
+.II "string, convert to unsigned long integer"
+.II "unsigned long integer, create from string"
+.II "convert string to unsigned long integer"
+.B strtoul()
+converts the number given in
+.I string
+to a
+.B "unsigned long"
+and returns its value.
+It is the
+.B "unsigned long"
+counterpart of
+.B strtol()
+and a more general version of the function
+.BR atol() .
+.B strtoul()
+also stores a pointer to the first character following the number through
+.IR tailptr ,
+provided
+.I tailptr
+does not equal NULL.
+.PP
+.I base
+gives the base of the number being read,
+either zero or a value from two to 36.
+If the given
+.I base
+is zero,
+.B strtoul()
+determines an implicit base for the number:
+hexadecimal if the number starts with 
+.B 0x
+or
+.BR 0X ,
+octal if the number starts with
+.BR 0 ,
+or decimal otherwise.
+Alternatively,
+the user can specify an explicit
+.I base
+between two and 36.
+.PP
+.B strtoul()
+parses the
+.I string
+into three portions:
+beginning, subject sequence, and tail.
+.PP
+The
+.I beginning
+consists of zero or more white-space characters that
+begin the string.
+.PP
+The
+.I "subject sequence"
+is the portion of the string that
+.B strtoul()
+converts into an
+.BR "unsigned long" .
+It consists of an optional sign character,
+an optional prefix
+.B 0x
+or
+.B 0X
+if the
+.I base
+is 16,
+and a nonempty sequence of
+.I digits
+in the specified base.
+For example, if the
+.I base
+is 16, then
+.B strtoul()
+recognizes numeric characters \*(Ql0\*(Qr to \*(Ql9\*(Qr and
+alphabetic characters \*(QlA\*(Qr through \*(QlF\*(Qr
+and \*(Qla\*(Qr to \*(Qlf\*(Qr as digits.
+It continues to scan until it encounters a nondigit.
+.PP
+The
+.I tail
+continues from the end of the subject sequence to the null
+character that ends the string.
+.PP
+.B strtoul()
+ignores the beginning portion of the string.
+It converts the subject sequence to an
+.BR "unsigned long" .
+Finally,
+if
+.I tailptr
+does not equal NULL ,
+it sets the pointer pointed to by
+.I tailptr
+to the address of the first character of the string's tail.
+.PP
+.B strtoul()
+returns an
+.B "unsigned long"
+representing the value of the subject sequence.
+If the input
+.I string
+does not specify a valid number,
+it returns zero
+and stores the initial value of
+.I string
+through
+.IR tailptr .
+If the number it builds is too large to fit into an
+.BR "unsigned long" ,
+it sets the global variable
+.B errno
+to the value of the macro
+.B ERANGE
+and returns
+.BR ULONG_MAX .
+.SH Example
+This example uses
+.B strtoul()
+as a hash function for table lookup.
+It demonstrates both hashing and linked lists.
+Hash-table lookup is the most efficient when used to look up
+entries in large tables; this is an example only.
+.DM
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+.DE
+.DM
+/*
+ * For fastest results, use a prime about 15% bigger
+ * than the table. If short of space, use a smaller prime.
+ */
+#define HASHP 11
+struct symbol {
+	struct symbol *next;
+	char *name;
+	char *descr;
+} *hasht[HASHP], codes[] = {
+.DE
+.DM
+.ta 0.4i 1.25i 2.5i 3.0i
+	NULL,	"a286",	"frogs togs",
+	NULL,	"xy7800",	"doughnut holes",
+	NULL,	"z678abc",	"used bits",
+	NULL,	"xj781",	"black-hole varnish",
+	NULL,	"h778a",	"table hash",
+	NULL,	"q167",	"log(-5.2)",
+	NULL,	"18888",	"quid pro quo",
+	NULL,	NULL,	NULL	/* end marker */
+};
+.DE
+.DM
+void
+buildTable()
+{
+	long h;
+	register struct symbol *sym, **symp;
+.DE
+.DM
+	for(symp = hasht; symp != (hasht + HASHP); symp++)
+		*symp = NULL;
+.DE
+.DM
+	for(sym = codes; sym->descr != NULL; sym++) {
+		/*
+		 * hash by converting to base 36. There are
+		 * many ways to hash, but use all the data.
+		 */
+.DE
+.DM
+		h = strtoul(sym->name, NULL, 36) % HASHP;
+		sym->next = hasht[h];
+		hasht[h] = sym;
+	}
+}
+.DE
+.DM
+struct symbol *
+lookup(s)
+char *s;
+{
+	long h;
+	register struct symbol *sym;
+.DE
+.DM
+	h = strtoul(s, NULL, 36) % HASHP;
+	for(sym = hasht[h]; sym != NULL; sym = sym->next)
+		if(!strcmp(sym->name, s))
+			return(sym);
+	return(NULL);
+}
+.DE
+.DM
+main()
+{
+	char buf[80];
+	struct symbol *sym;
+.DE
+.DM
+	buildTable();
+	for(;;) {
+		printf("Enter name ");
+		fflush(stdout);
+.DE
+.DM
+		if(gets(buf) == NULL)
+			exit(EXIT_SUCCESS);
+.DE
+.DM
+		if((sym = lookup(buf)) == NULL)
+			printf("%s not found\en", buf);
+.DE
+.DM
+		else
+			printf("%s is %s\en", buf, sym->descr);
+	}
+}
+.DE
+.SH "See Also"
+.Xr "errno," errno
+.Xr "libc," libc
+.Xr "limits.h," limits.h
+.Xr "stdlib.h," stdlib.h
+.Xr "strtol()" strtol
+.br
+\*(AS, \(sc7.10.1.6
+.SH Notes
+.B strtoul()
+ignores initial white space in the input
+.IR string .
+White space is defined as being all characters so
+recognized by the function
+.BR isspace() .

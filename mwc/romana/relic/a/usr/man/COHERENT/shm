@@ -1,0 +1,132 @@
+
+
+shm                       Device Driver                       shm
+
+
+
+
+Shared memory device driver
+
+
+The device  /dev/shm is an interface to  the shared memory device
+driver.  It is assigned major  device 24 (minor device 0) and can
+be accessed as a character-special device.
+
+Shared memory  access operations  are performed by  seeks, reads,
+and  writes through  the  interface /ddeevv/sshhmm.   The desired  seek
+location is (sshhmmiidd << 16L) + offset.
+
+Shared memory control operations are performed through the system
+call ioctl.  The  operations shmctl and shmget are performed with
+an integer  parameter array.  The  first element of  the array is
+reserved for the return value (default, -1).  Subsequent elements
+represent  arguments.   ioctl passes  SHMCTL,  SHMGET, SHMAT,  or
+SHMDT  as the  second argument,  and the  parameter array  as the
+third argument.  The first argument is an open file descriptor to
+/dev/shm.  Seeks, reads, and  writes on shared memory can be per-
+formed through the file descriptor shmfd.
+
+***** Access *****
+
+To access shared memory, do the following:
+
+1. Be  sure that /dev/shm is present  as a special-character file
+   with major number 24, minor number 0, and broad enough permis-
+   sions.  The command
+
+           /etc/mknod /dev/shm c 24 0
+
+   will create /dev/shm if it does not yet exist.
+
+2. Become the superuser root.  Execute the command
+           /etc/drvld /drv/shm
+
+   to load the driver.
+
+3.  Use the  COHERENT system  call shmget()  to create  a shared-
+   memory segment and obtain shmid value for it.
+
+4. Use  the COHERENT system call lseek() to  position for read or
+   write of a shared-memory segment.  The first argument to lseek
+   is shmfd,  which is an external  declared in <sys/shm.h>.  The
+   second argument to lseek is a long whose high word is the seg-
+   ment identifier shmid and  whose low word is the offset within
+   the  shared-memory segment.   The third  argument to  lseek is
+   zero.
+
+5. Use the COHERENT system calls read() and write() to access the
+   segment.  Again, use shmfd as the file descriptor.
+
+6. When you are finished using shared memory, use the call
+           shmctl(shmid, IPC_RMID, 0)
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+shm                       Device Driver                       shm
+
+
+
+
+   to remove segments when you are finished.
+
+7. Finally,  use ps  -d to obtain  the process identifier  of the
+   shared-memory driver.  To unload the driver, become the super-
+   user root, and then type the command
+
+           kill  -9 _x_x_x_x
+
+   where xxxx is the process identifier for the shm driver.
+
+Note that this manner of  proceding is not entirely in the spirit
+of  System  V  IPC  shared  memory:  COHERENT  does  not  support
+functions shmat() and shmdt().  Unfortunately, true attachment of
+shared segments is not possible in SMALL-model systems.
+
+***** Notes *****
+
+If you allocate too  many shared memory identifiers, you will ex-
+haust kernel data space, and thus halt the system in its tracks.
+
+Creating  many  large shared  memory  segments  can exhaust  main
+memory, as shared  memory segments do not currently support swap-
+ping.
+
+The functions shmat and shmdt are not currently supported.
+
+Private shared  memory is not supported.   Shared memory segments
+must be removed manually  when no longer required.  To remove all
+shared memory segments use the following C code:
+
+
+#include <sys/shm.h>
+
+#define NSHMID 16
+
+shmget( 0, 0, 0 );        /* must do first */
+
+for ( id=0; id < NSHMID; ++id )
+        shmctl( id, IPC_RMID, 0 );
+
+
+To load shm into memory, use the command drvld.
+
+***** Files *****
+
+/usr/include/sys/ipc.h
+/usr/include/sys/shm.h
+/dev/shm
+/drv/shm
+
+***** See Also *****
+
+device drivers, drvld, shmctl(), shmget()
+
+
+
+COHERENT Lexicon                                           Page 2
+
+

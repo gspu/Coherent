@@ -1,0 +1,168 @@
+/* (-lgl
+ * 	COHERENT Version 3.0
+ * 	Copyright (c) 1982, 1990 by Mark Williams Company.
+ * 	All rights reserved. May not be copied without permission.
+ -lgl) */
+/*
+ * Machine dependent definitions.
+ * 8086/8088 Coherent, IBM PC.
+ */
+#ifndef	__SYS_MACHINE_H__
+#define	__SYS_MACHINE_H__
+
+#include <sys/const.h>
+#include <sys/types.h>
+
+/*
+ * Offsets for registers.
+ */
+#define	OIP	-3
+
+/*
+ * Alloc definitions.
+ */
+#define	align(p)	((ALL *) ((int) (p) & ~1))
+#define	link(p)		align((p)->a_link)
+#define	tstfree(p)	(((int) (p)->a_link&1) == 0)
+#define	setfree(p)	((p)->a_link = (int) (p)->a_link & ~1)
+#define	setused(p)	((p)->a_link = (int) (p)->a_link | 1)
+
+/*
+ * Functions.
+ * blockn - block number from byte number
+ * blocko - block offset from byte number
+ * nbnrem - offset into indirect block from block number
+ * nbndiv - residual indirect mapping from block number
+ * btocru - byte to click (saddr_t) rounding up
+ * btocrd - byte to click rounding down
+ * bruc - byte rounded up to click boundary
+ * ctob - click to byte
+ * ctokrd - click to Kbyte rounding down
+ * stod - saddr_t to daddr_t conversion for swapper.
+ */
+#define	blockn(n)		((n)>>9)
+#define	blocko(n)		((n)&(512-1))
+#define nbnrem(b)		((int)(b)&(128-1))
+#define nbndiv(b)		((b)>>7)
+	/* A click is a 16 byte paragraph, but they are allocated in chunks
+	 * of 512 bytes so that disk and memory segments have same granularity.
+	 */
+/* The following macros are no longer valid in protected mode.
+ * #define btocru(n)		((saddr_t) (((n+511)>>9) << 5))
+ * #define btocrd(n)		((saddr_t) ((n)>>4))
+ * #define bruc(n)		((n+511)&~511)
+ * #define ctob(n)		((n)<<4)
+ * #define ctokrd(n)		((n)>>6)
+ * #define stod(n)		((daddr_t)((n)>>5))
+ */
+
+/*
+ * Simple functions.
+ */
+#define	msetppc(v)    (((int *)((char *)&u+UPASIZE))[OIP] = (v))
+#define sxalloc(s, f) ((f&SFHIGH)?shalloc(s):smalloc(s))
+#define	vsegpair(v)	(v),sds
+
+/* The following macro is no longer valid in protected mode.
+ * #define psegpair(p)	(int)((p)&0xF),((int)((p)>>4))
+ */
+
+/*
+ * For mapping auxiliary segment in exec.
+ */
+#define	asave(o)
+#define	arest(o)
+#define	abase(s)	(sas=s, 0)
+#define	adone(s)
+
+/*
+ * Buffers are not mapped.
+ */
+#define	bsave(o)
+#define	brest(o)
+#define	bmapv(p)
+#define	bconv(p)	(p)
+/* #define	bvirt(p)	(p-ctob(sds)) */
+
+/*
+ * Clist are not mapped.
+ */
+#define	csave(o)
+#define	crest(o)
+#define	cmapv(p)
+#define	cconv(p)	(p)
+#define	cvirt(p)	((CLIST *)(p))
+
+/*
+ * Drivers are not mapped.
+ */
+#define	dsave(o)
+#define	drest(o)
+#define	dmapv(s)
+#define	dvirt()		0
+#define dcopy(dst,src)
+
+/*
+ * Register structure.
+ */
+typedef union mreg_u {
+	unsigned m_reg[];
+	unsigned m_int;
+} MREG;
+
+/*
+ * Segmenation prototype.
+ */
+typedef struct mproto {
+	saddr_t	*mp_cbp;
+	saddr_t	*mp_dbp;
+	unsigned mp_csl;
+	unsigned mp_dsl;
+	vaddr_t	mp_svb;
+	vaddr_t	mp_svl;
+} MPROTO;
+
+/*
+ * Set jump and return structure.
+ */
+typedef	struct menv_s {
+	int	me_di;
+	int	me_si;
+	int	me_bp;
+	int	me_sp;
+	int	me_pc;
+	int	me_fw;
+	int	me_depth;		/* Stack depth */
+}	MENV;
+
+/*
+ * Context structure.
+ */
+typedef	struct mcon_s {
+	int	mc_di;
+	int	mc_si;
+	int	mc_bp;
+	int	mc_sp;
+	int	mc_pc;
+	int	mc_fw;
+	int	mc_depth;		/* Stack depth */
+}	MCON;
+
+/*
+ * General register structure.
+ */
+typedef struct mgen {
+} MGEN;
+
+#ifdef KERNEL
+/*
+ * Global variables.
+ */
+extern	unsigned sas;			/* System auxiliary segment */
+extern	unsigned scs;			/* System code segment */
+extern	unsigned sds;			/* System data segment */
+
+extern saddr_t uasa;			/* Currently active uarea segment */
+#endif
+
+#endif

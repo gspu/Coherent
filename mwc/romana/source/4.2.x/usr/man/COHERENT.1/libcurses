@@ -1,0 +1,932 @@
+lliibbccuurrsseess -- Library
+
+Library of screen-handling functions
+
+lliibbccuurrsseess is  the library that holds  the ccuurrsseess screen-handling functions.
+With ccuurrsseess, you can  perform rudimentary graphics, even on dumb terminals;
+the range of routines includes mapping portions of the screen, drawing pop-
+up windows,  creating forms  with fields  for data entry,  and highlighting
+portions of text.
+
+_I_m_p_l_e_m_e_n_t_a_t_i_o_n_s _o_f _c_u_r_s_e_s
+COHERENT uses the Cornell edition of ccuurrsseess.  This implementation of ccuurrsseess
+reads  the tteerrmmiinnffoo  data base.   It uses  eight-bit characters;  thus, the
+COHERENT  edition  of  ccuurrsseess  can  display  characters  with  accents  and
+diacritical marks.  Library lliibbccuurrsseess contains the functions needed to read
+tteerrmmiinnffoo capability  codes; thus, to  compile the program  ccuurrsseess_eexx.cc, use
+the following command line:
+
+    cc curses_ex.c -lcurses
+
+Programs  that wish  to use  ccuurrsseess  _m_u_s_t _n_o_t  link in  both lliibbccuurrsseess  and
+lliibbtteerrmm; doing  so will cause  collisions among library  routines.  Rather,
+these programs  must link in _o_n_l_y  lliibbccuurrsseess.  On the hand,  if you wish to
+use the  functions that read  tteerrmmiinnffoo descriptions, you  must link library
+lliibbccuurrsseess into your program, even if you are not using any ccuurrsseess routines.
+
+If  you  have  special terminal  descriptions  under  tteerrmmccaapp, the  command
+ccaappttooiinnffoo converts a tteerrmmccaapp description into its tteerrmmiinnffoo analogue.
+
+See the  Lexicon entries for  tteerrmmccaapp and tteerrmmiinnffoo for  more information on
+this rather confusing topic.
+
+_H_o_w _c_u_r_s_e_s _W_o_r_k_s
+ccuurrsseess organizes the screen into a two-dimensional array of cells, one cell
+for every character that the device can display.  It maintains in memory an
+image of the screen, called the  _c_u_r_s_c_r. A second image, called the _s_t_d_c_u_r,
+is  manipulated   by  the  user;  when  the  user   has  finished  a  given
+manipulation,  ccuurrsseess copies  the changes  from the  _s_t_d_c_u_r to  the _c_u_r_s_c_r,
+which results in their being displayed on the physical screen.  This act of
+copying  from the  _s_t_d_s_c_r to  the _c_u_r_s_c_r is  called _r_e_f_r_e_s_h_i_n_g  the screen.
+ccuurrsseess keeps  track of where all  changes have begun and  ended between one
+refresh and the next; this lets  it rewrite only the portions of the _c_u_r_s_c_r
+that the user has changed, and so speed up rewriting of the screen.
+
+ccuurrsseess records  the position of  a ``logical cursor'', which  points to the
+position in  the _s_t_d_s_c_r  that is  being manipulated by  the user,  and also
+records the  position of the  physical cursor.  Note  that the two  are not
+necessarily  identical: it  is possible  to  manipulate the  logical cursor
+without repositioning the physical cursor, and vice versa, depending on the
+task you wish to perform.
+
+Most  ccuurrsseess routines  work  by manipulating  a WWIINNDDOOWW  object.  WWIINNDDOOWW  is
+defined in the header ccuurrsseess.hh.
+
+ccuurrsseess defines WWIINNDDOOWW as follows:
+
+#define WINDOW _win_st
+struct _win_st {
+     short     _cury, _curx;
+     short     _maxy, _maxx;
+     short     _begy, _begx;
+     short     _flags;
+     chtype    _attrs;
+     bool      _clear;
+     bool      _leave;
+     bool      _scroll;
+     bool      _idlok;
+     bool      _use_keypad;/* 0=no, 1=yes, 2=yes/timeout */
+     bool      _use_meta;/* T=use the meta key */
+     bool      _nodelay;/* T=don't wait for tty input */
+     chtype    **_line;
+     short     _firstchar;/* First changed character in the line */
+     short     *_lastchar;/* Last changed character in the line */
+     short     *_numchngd;/* Number of changes made in the line */
+     short     _regtop;/* Top and bottom of scrolling region */
+     short     _regbottom;
+};
+
+Type bbooooll is defined in ccuurrsseess.hh; an object of this type can hold the value
+of true (nonzero) or false (zero).
+
+The following describes selected WWIINNDDOOWW fields in detail.
+
+_ccuurryy, _ccuurrxx
+          Give the Y and X positions of the logical cursor.  The upper left
+          corner of the window  is, by definition, position 0,0.  Note that
+          ccuurrsseess by  convention gives positions as  Y/X (row/column) rather
+          than X/Y, as is usual elsewhere.
+
+_mmaaxxyy, _mmaaxxxx
+          Width and height of the window.
+
+_bbeeggyy, _bbeeggxx
+          Position of  the upper left corner of the  window relative to the
+          upper left  corner of the  physical screen.  For  example, if the
+          window's  upper left  corner is  five  rows from  the top  of the
+          screen and  ten columns from the left, then  _bbeeggyy and _bbeeggxx will
+          be set to ten and five, respectively.
+
+_ffllaaggss    One or more of the following flags, logically OR'd together:
+
+          _SSUUBBWWIINN -- Window is a sub-window
+          _EENNDDLLIINNEE -- Right edge of window touches edge of the screen
+          _FFUULLLLWWIINN -- Window fills the physical screen
+          _SSCCRROOLLLLWWIINN -- Window touches lower right corner of physical screen
+          _FFUULLLLIINNEE -- Window extends across entire physical screen
+          _SSTTAANNDDOOUUTT -- Write text in reverse video
+          _IINNSSLL -- Line has been inserted into window
+          _DDEELLLL -- Line has been deleted from window
+
+_cchh_ooffff   Character offset.
+
+_cclleeaarr    Clear the physical screen before next refresh of the screen.
+
+_lleeaavvee    Do not move the physical cursor after refreshing the screen.
+
+_ssccrroollll   Enable scrolling for this window.
+
+_yy        Pointer to an array of pointers to the character arrays that hold
+          the window's text.
+
+_ffiirrssttcchh  Pointer to an array of integers, one for each line in the window,
+          whose  value is  the first  character  in the  line to  have been
+          altered by  the user.  If a  line has not been  changed, then its
+          corresponding entry in the array is set to _NNOOCCHHAANNGGEE.
+
+_llaassttcchh   Same as _ffiirrssttcchh, except  that it indicates the last character to
+          have been changed on the line.
+
+_nneexxttpp    Point to next window.
+
+_oorriigg     Point to parent window.
+
+When ccuurrsseess  is first invoked,  it defines the  entire screen as  being one
+large window.   The programmer  has the  choice of subdividing  an existing
+window or creating new windows; when  a window is subdivided, it shares the
+same _c_u_r_s_c_r as its parent window, whereas a new window has its own _s_t_d_s_c_r.
+
+_M_u_l_t_i_p_l_e _T_e_r_m_i_n_a_l_s
+Some  applications  need  to  display  text  on  more  than  one  terminal,
+controlled  by the  same  process.  ccuurrsseess  can  handle this,  even if  the
+terminals  are of  different  types.  The  following  describes how  ccuurrsseess
+output to multiple terminals.
+
+All information  about the  current terminal is  kept in a  global variable
+ssttrruucctt ssccrreeeenn *SSPP.  Although the  screen structure is hidden from the user,
+the C  compiler will accept  declarations of variables  which are pointers.
+The  user  program should  declare  one screen  pointer  variable for  each
+terminal it wishes to handle.
+
+The function  nneewwtteerrmm() sets up a  new terminal of the  given terminal type
+that is  accessed via file-descriptor  _f_p.  To use more  than one terminal,
+call nneewwtteerrmm() for each terminal and save the value returned as a reference
+to that terminal.
+
+To switch to a different terminal, call sseett_tteerrmm().  It returns the current
+contents of SSPP.  Do not assign directly to SSPP  because certain other global
+variables must also be changed.
+
+All ccuurrsseess routines always  affect the current terminal.  To handle several
+terminals, switch to each one in  turn with sseett_tteerrmm(), and then access it.
+Each terminal  must first be  set up with  nneewwtteerrmm(), and closed  down with
+eennddwwiinn().
+
+_V_i_d_e_o _A_t_t_r_i_b_u_t_e_s
+ccuurrsseess  lets  you  display  any  combination  of video  attributes  on  any
+terminal.  Each character position on the screen has 16 bits of information
+associated with it.  Seven bits  are the character to be displayed, leaving
+bits  for nine  video attributes.   These bits are  used for  the following
+modes respectively:  standout, underline, reverse video,  blink, dim, bold,
+blank,  protect,   and  alternate-character  set.    Standout  is  whatever
+highlighting works best on the terminal,  and should be used by any program
+that does  not need specific or  combined attributes.  Underlining, reverse
+video, blink,  dim, and bold  are the usual video  attributes.  Blank means
+that  the  character  is  displayed  as  a  space,  for  security  reasons.
+Protected and  alternate character set depend on the  terminal.  The use of
+these last three bits is subject to change and not recommended.
+
+The  routines   to  use  these  attributes   include  aattttrroonn(),  aattttrrooffff(),
+aattttrrsseett(),  ssttaannddeenndd(),   ssttaannddoouutt(),  wwaattttrrooffff(),  wwaattttrroonn(),  wwaattttrrsseett(),
+wwssttaannddeenndd(), and wwssttaannddoouutt(). All are described below.
+
+Attributes, if  given, can be  any combination of  AA_SSTTAANNDDOOUUTT, AA_UUNNDDEERRLLIINNEE,
+AA_RREEVVEERRSSEE,  AA_BBLLIINNKK, AA_DDIIMM, AA_BBOOLLDD,  AA_IINNVVIISS, AA_PPRROOTTEECCTT,  and AA_AALLTTCCHHAARRSSEETT,
+OR'd together.  These constants  are defined in ccuurrsseess.hh. If the particular
+terminal does  not have the particular  attribute or combination requested,
+ccuurrsseess  will attempt  to use  some other  attribute in  its place.   If the
+terminal has no highlighting, all attributes are ignored.
+
+_F_u_n_c_t_i_o_n _K_e_y_s
+Many terminals  have special keys,  such as arrow  keys, keys to  erase the
+screen, insert  or delete text, and keys intended  for user functions.  The
+particular  sequences  these   terminals  send  differs  from  terminal  to
+terminal.  ccuurrsseess lets you handle these keys.
+
+A program using function keys should turn on the keypad by calling kkeeyyppaadd()
+at initialization.  This causes  special characters to be passed through to
+the program  by the function  ggeettcchh().  These keys have  constants that are
+defined in ccuurrsseess.hh. They have values  starting at 0401, so they should not
+be stored in a cchhaarr variable, as significant bits will be lost.
+
+A program  that uses function keys  should avoid using the  <eesscc> key: most
+sequences start with <eesscc>, so an ambiguity will occur.  ccuurrsseess sets a one-
+second alarm to deal with this ambiguity, which will cause delayed response
+to the  <eesscc> key.  It is  a good idea to avoid <eesscc>  in any case, because
+there  is eventually  pressure for  nearly  _a_n_y screen-oriented  program to
+accept arrow-key input.
+
+_S_c_r_o_l_l_i_n_g _R_e_g_i_o_n
+Most terminals have  a user-accessible scrolling region.  Normally, this is
+set to  the entire window,  but the calls sseettssccrrrreegg()  and wwsseettssccrrrreegg() set
+the scrolling region  for _s_t_d_s_c_r or the given window  to any combination of
+top and  bottom margins.   If scrolling  has been enabled  with ssccrroollllookk(),
+scrolling takes place only within that window.
+
+_T_T_Y _M_o_d_e _F_u_n_c_t_i_o_n_s
+In addition  to the save/restore  routines ssaavveettttyy() and  rreesseettttyy(), ccuurrsseess
+contains routines for going into and out of normal tty mode.
+
+The normal  routines are rreesseetttteerrmm(),  which puts the terminal  back in the
+mode it  was in when  curses was started,  and ffiixxtteerrmm(), which  undoes the
+effects  of rreesseetttteerrmm(),  that is,  restores  the ``current  curses mode''.
+eennddwwiinn()  automatically   calls  rreesseetttteerrmm().   These   routines  are  also
+available at the _t_e_r_m_i_n_f_o level.
+
+_N_o-_D_e_l_a_y _M_o_d_e
+ccuurrsseess offers  the call nnooddeellaayy(), which puts  the terminal into ``no-delay
+mode''.  While in no-delay mode, any  call to _g_e_t_c_h() returns -1 if nothing
+is waiting to be read.  This  is useful for programs that require real-time
+behavior, where  the user watches  action on the  screen and presses  a key
+when he wants  something to happen.  For example, the  cursor can be moving
+across the screen, and the user can press an arrow key to change direction.
+This mode is especially useful for games.
+
+_P_o_r_t_a_b_i_l_i_t_y
+ccuurrsseess  contains several  routines to  improve portability.   Because these
+routines do not  directly relate to terminal handling, their implementation
+differs from system to system, and the differences can be isolated from the
+user program by including them in ccuurrsseess.
+
+Functions   eerraasseecchhaarr()  and   kkiillllcchhaarr()  return   the   characters  that,
+respectively,  erase one  character and  kill the  entire input  line.  The
+function bbaauuddrraattee()  returns the  current baud  rate, as an  integer.  (For
+example, at  9600 baud, bbaauuddrraattee() returns the integer  9600, not the value
+B9600 from  <ssggttttyy.hh>.) The routine  fflluusshhiinnpp() throws away  all typeahead.
+call  rreesseetttteerrmm()  to  restore the  tty  modes.   After  the shell  escape,
+ffiixxtteerrmm()  can be  called  to set  the  tty modes  back  to their  internal
+settings.   These calls  are  now required,  because  they perform  system-
+dependent processing.
+
+_c_u_r_s_e_s _R_o_u_t_i_n_e_s
+The following  table summarizes the functions and  macros that comprise the
+ccuurrsseess library.  These routines are declared and defined in the header file
+ccuurrsseess.hh.
+
+aaddddcchh(_c_h) cchhaarr _c_h;
+     Insert a character into _s_t_d_s_c_r.
+
+aaddddssttrr(_s_t_r) cchhaarr *_s_t_r;
+     Insert a string into _s_t_d_s_c_r.
+
+aattttrrooffff(_a_t) iinntt _a_t;
+     Turn off video attributes on _s_t_d_s_c_r.
+
+aattttrroonn(_a_t) iinntt _a_t;
+     Turn on video attributes on _s_t_d_s_c_r.
+
+aattttrrsseett(_a_t) iinntt _a_t;
+     Set video attributes on _s_t_d_s_c_r.
+
+bbaauuddrraattee()
+     Return the baud rate of the current terminal.
+
+bbeeeepp()
+     Sound the audible bell.
+
+bbooxx(_w_i_n, _v_e_r_t, _h_o_r) WWIINNDDOOWW *_w_i_n; cchhaarr _v_e_r_t, _h_o_r;
+     Draw a  box.  _v_e_r_t is the  character used to draw  the vertical lines,
+     and _h_o_r is used to draw the horizontal lines.  The call
+
+         box(win, 0, 0)
+
+     draws a box with solid lines.  The call
+
+         box(win, '|', '-');
+
+     draws a  box around window wwiinn,  using `|' to draw  the vertical lines
+     and `-' to draw the horizontal lines.  Do not use non-ASCII characters
+     unless you are very sure of the output terminal's identity.
+
+ccbbrreeaakk()
+     Turn on cbreak mode.
+
+cclleeaarr()
+     Clear the _s_t_d_s_c_r.
+
+cclleeaarrookk(_w_i_n,_b_f) WWIINNDDOOWW *_w_i_n; bbooooll _b_f;
+     Set the clear  flag for window _w_i_n. This will  clear the screen at the
+     next refresh, but not reset the window.
+
+ccllrrttoobboott()
+     Clear from  the position of  the logical cursor  to the bottom  of the
+     window.
+
+ccllrrttooeeooll()
+     Clear from the logical cursor to the end of the line.
+
+ccrrmmooddee()
+     Turn on control-character mode; i.e., force terminal to receive cooked
+     input.
+
+ddeellcchh()
+     Delete a  character from _s_t_d_s_c_r;  shift the rest of  the characters on
+     the line one position to the left.
+
+ddeelleetteellnn()
+     Delete all of the current line;  shift up the rest of the lines in the
+     window.
+
+ddeellwwiinn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Delete window _w_i_n.
+
+ddoouuppddaattee()
+     Update the physical screen.
+
+eecchhoo()
+     Turn  on  both  physical and  logical  echoing;  i.e., characters  are
+     automatically inserted  into the current window  and onto the physical
+     screen.
+
+eennddwwiinn()
+     Terminate text processing with ccuurrsseess.
+
+eerraassee()
+     Erase a window; do not clear the screen.
+
+cchhaarr *eerraasseecchhaarr()
+     Return the erase character of the current terminal.
+
+ffllaasshh()
+     Execute the visual bell.
+
+fflluusshhiinnpp()
+     Flush input from the current terminal.
+
+ggeettcchh()
+     Read a character from the terminal.
+
+ggeettssttrr(_s_t_r) cchhaarr *_s_t_r;
+     Read a string from the terminal.
+
+ggeettyyxx(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x;
+     Read the  position of the logical  cursor in _w_i_n and  store it in _y,_x.
+     Note that this is a macro, and due to its construction the variables _y
+     and _x must be integers, not pointers to integers.
+
+iiddllookk(_w_i_n, _f_l_a_g) WWIINNDDOOWW *_w_i_n; iinntt _f_l_a_g;
+     Enable  insert/delete  line  operations  for  window _w_i_n.   _f_l_a_g  must
+     contain the OR'd operations you desire.
+
+iinncchh()
+     Read the character pointed to by the _s_t_d_s_c_r's logical cursor.
+
+WWIINNDDOOWW *iinniittssccrr()
+     Initialize ccuurrsseess.  Among other things, this  function initializes the
+     global variables LLIINNEESS  and CCOOLLSS, which give, respectively, the number
+     of lines and the number of columns on your screen.
+
+     This is of  most use under X Windows.  When  you change the size of an
+     xxtteerrmm or xxvvtt window, the command
+
+         eval `resize`
+
+     resets  these variables.   The  next time  you  invoke a  ccuurrsseess-based
+     program, its size will reflect new the dimensions of window.
+
+iinnsscchh(_c_h) cchhaarr _c_h;
+     Insert character _c_h into the _s_t_d_s_c_r.
+
+iinnsseerrttllnn()
+     Insert a blank line into _s_t_d_s_c_r, above the current line.
+
+kkeeyyppaadd(_w_i_n,_f_l_a_g) WWIINNDDOOWW *_w_i_n; iinntt _f_l_a_g;
+     Enable keypad-sequence mapping.
+
+cchhaarr *kkiillllcchhaarr()
+     Return the kill character for the current terminal.
+
+lleeaavveeookk(_w_i_n,_b_f) WWIINNDDOOWW *_w_i_n; bbooooll _b_f;
+     Set _w_i_n->_lleeaavvee to  _b_f. If set to TTRRUUEE, refresh  will leave the cursor
+     after the last character changed  by refresh.  This makes sense if you
+     want  to minimize  the commands  sent to  the screen  and it  does not
+     matter where the cursor is.
+
+cchhaarr *lloonnggnnaammee(_t_e_r_m_b_u_f, _n_a_m_e) cchhaarr *_t_e_r_m_b_u_f, *_n_a_m_e;
+     Copy the long name for the terminal from _t_e_r_m_b_u_f into _n_a_m_e.
+
+mmeettaa(_w_i_n, _f_l_a_g) WWIINNDDOOWW *_w_i_n; iinntt _f_l_a_g;
+     Enable use of the mmeettaa key.
+
+mmoovvee(_y,_x) sshhoorrtt _y,_x;
+     Move logical cursor to position _y,_x in _s_t_d_s_c_r.
+
+mmvvaaddddbbyytteess(_y,_x,_d_a,_c_o_u_n_t) iinntt _y,_x; cchhaarr *_d_a; iinntt _c_o_u_n_t;
+     Move to position _y,_x and print  _c_o_u_n_t bytes from the string pointed to
+     by _d_a.
+
+mmvvaaddddcchh(_y,_x,_c_h) sshhoorrtt _y,_x; cchhaarr _c_h;
+     Move the logical cursor to position _y,_x and insert character _c_h.
+
+mmvvaaddddssttrr(_y,_x,_s_t_r) sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move the logical cursor to position _y,_x and insert string _s_t_r.
+
+mmvvccuurr(_y__c_u_r,_x__c_u_r,_y__n_e_w,_x__n_e_w) iinntt _y__c_u_r, _x__c_u_r, _y__n_e_w, _x__n_e_w;
+     Move cursor from position _y__c_u_r,_x__c_u_r to position _y__n_e_w,_x__n_e_w.
+
+mmvvddeellcchh(_y,_x) sshhoorrtt _y,_x;
+     Move to position _y,_x and delete the character found there.
+
+mmvvggeettcchh(_y,_x) sshhoorrtt _y,_x;
+     Move to position _y,_x and get a character through _s_t_d_s_c_r.
+
+mmvvggeettssttrr(_y,_x,_s_t_r) sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move to  position _y,_x, get a  string through _s_t_d_s_c_r, and  copy it into
+     _s_t_r_i_n_g.
+
+mmvviinncchh(_y,_x) sshhoorrtt _y,_x;
+     Move to position _y,_x and get the character found there.
+
+mmvviinnsscchh(_y,_x,_c_h) sshhoorrtt _y,_x; cchhaarr _c_h;
+     Move to position _y,_x and insert a character into _s_t_d_s_c_r.
+
+mmvvwwaaddddbbyytteess(_w_i_n,_y,_x,_d_a,_c_o_u_n_t) WWIINNDDOOWW *_w_i_n; iinntt _y,_x; cchhaarr *_d_a; iinntt _c_o_u_n_t;
+     Move to position _y,_x and print  _c_o_u_n_t bytes from the string pointed to
+     by _d_a into window _w_i_n.
+
+mmvvwwaaddddcchh(_w_i_n,_y,_x,_c_h) WWIINNDDOOWW *_w_i_n; iinntt _y,_x; cchhaarr _c_h;
+     Move to position _y,_x and insert character _c_h into window _w_i_n.
+
+mmvvwwaaddddssttrr(_w_i_n,_y,_x,_s_t_r) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move to position _y,_x and insert string _s_t_r.
+
+mmvvwwddeellcchh(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; iinntt _y,_x;
+     Move to position _y,_x and delete character _c_h from window _w_i_n.
+
+mmvvwwggeettcchh(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x;
+     Move to position _y,_x and get a character.
+
+mmvvwwggeettssttrr(_w_i_n,_y,_x,_s_t_r) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move to position _y,_x, get a string, and write it into _s_t_r.
+
+mmvvwwiinn(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; iinntt _y,_x;
+     Move window _w_i_n to position _y,_x.
+
+mmvvwwiinncchh(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x;
+     Move to position _y,_x and get character found there.
+
+mmvvwwiinnsscchh(_w_i_n,_y,_x,_c_h) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x; cchhaarr _c_h;
+     Move to position _y,_x and insert character _c_h there.
+
+ssttrruucctt ssccrreeeenn *nneewwtteerrmm(_t_y_p_e, _f_d) cchhaarr *_t_y_p_e; iinntt _f_d;
+     Initialize  the  new  terminal  _t_y_p_e,  which  is  accessed  via  file-
+     descriptor _f_d.
+
+WWIINNDDOOWW *nneewwwwiinn(_l_i_n_e_s, _c_o_l_s, _y_1, _x_1)
+iinntt _l_i_n_e_s, _c_o_l_s, _y_1, _x_1;
+     Create a new window.  The new window is _l_i_n_e_s lines high, _c_o_l_s columns
+     wide,  with the  upper-left  corner at  position _y_1,_x_1.  It returns  a
+     pointer to the WWIINNDDOOWW structure that defines the newly created window.
+
+nnll() Turn on  newline mode; i.e., force terminal  to output <nneewwlliinnee> after
+     <lliinneeffeeeedd>.
+
+nnooccbbrreeaakk()
+     Turn off cbreak mode.
+
+nnooccrrmmooddee()
+     Turn off  control-character mode; i.e.,  force terminal to  accept raw
+     input.
+
+nnooddeellaayy(_w_i_n, _f_l_a_g) WWIINNDDOOWW *_w_i_n; iinntt _f_l_a_g;
+     Make ggeettcchh() non-blocking.
+
+nnooeecchhoo()
+     Turn off echo mode.
+
+nnoonnll()
+     Turn off newline mode.
+
+nnoorraaww()
+     Turn off raw mode.
+
+oovveerrllaayy(_w_i_n_1,_w_i_n_2) WWIINNDDOOWW *_w_i_n_1, _w_i_n_2;
+     Copy all  characters, except spaces,  from their current  positions in
+     _w_i_n_1 to identical positions in _w_i_n_2.
+
+oovveerrwwrriittee(_w_i_n_1,_w_i_n_2) WWIINNDDOOWW *_w_i_n_1, _w_i_n_2;
+     Copy all  characters, including spaces,  from _w_i_n_1 to  their identical
+     positions in _w_i_n_2.
+
+pprriinnttww(_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N]) cchhaarr *_f_o_r_m_a_t; [_d_a_t_a _t_y_p_e] _a_r_g_1,.._a_r_g_N;
+     Print formatted text on the standard screen.
+
+rraaww()
+     Turn on raw  mode; i.e., kernel does not process  what is typed at the
+     keyboard,  but passes  it directly  to ccuurrsseess.  In normal  (or _c_o_o_k_e_d)
+     mode,  the  kernel intercepts  and  processes  the control  characters
+     <_c_t_r_l-_C>, <_c_t_r_l-_S>, <_c_t_r_l-_Q>, and <ccttrrll-YY>. See the entry for ssttttyy for
+     more information.
+
+rreeffrreesshh()
+     Copy the contents of _s_t_d_s_c_r to the physical screen.
+
+rreesseettttyy()
+     Reset the terminal flags to values stored by earlier call to ssaavveettttyy.
+
+ssaavveetteerrmm()
+     Save the current state of the terminal.
+
+ssaavveettttyy()
+     Save the current terminal settings.
+
+ssccaannww(_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N]) cchhaarr *_f_o_r_m_a_t; [_d_a_t_a _t_y_p_e] _a_r_g_1,.._a_r_g_N;
+     Read the  standard input; translate what is  read into the appropriate
+     data type.
+
+ssccrroollll(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Scroll _w_i_n up by one line.
+
+ssccrroollllookk(_w_i_n,_b_f) WWIINNDDOOWW *_w_i_n; bbooooll _b_f;
+     Permit or forbid scrolling of window _w_i_n, depending upon whether _b_f is
+     set to true or false.
+
+sseettssccrrrreegg(_t_o_p, _b_o_t_t_o_m) iinntt _t_o_p, bboottttoomm;
+     Set the scrolling region on _s_t_d_s_c_r.
+
+sseetttteerrmm(_n_a_m_e) cchhaarr *_n_a_m_e;
+     Set term variables for _n_a_m_e.
+
+ssttrruucctt ssccrreeeenn *sseett_tteerrmm(_n_e_w) ssttrruucctt ssccrreeeenn *_n_e_w;
+     Switch output to terminal _n_e_w.  It returns a pointer to the previously
+     used terminal.
+
+ssttaannddeenndd()
+     Turn off standout mode.
+
+ssttaannddoouutt()
+     Turn on standout mode for text.  Usually, this means that text will be
+     displayed in reverse video.
+
+WWIINNDDOOWW *ssuubbwwiinn(_w_i_n, _l_i_n_e_s, _c_o_l_s, _y_1, _x_1)
+iinntt _w_i_n,_l_i_n_e_s,_c_o_l_s,_y_1,_x_1;
+     Create a  sub-window in window _w_i_n. The new  sub-window is _l_i_n_e_s lines
+     high, _c_o_l_s columns wide, and is fixed at position _y_1,_x_1. Note that the
+     position is relative to  the upper-left corner of the physical screen.
+     This function  returns a pointer to the  WWIINNDDOOWW structure that defines
+     the newly created sub-window.
+
+ttoouucchhwwiinn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Copy all characters in window _w_i_n to the screen.
+
+ttrraacceeooffff()
+     Turn off debugging output.
+
+ttrraacceeoonn()
+     Turn on debugging output
+
+uunnccttrrll(_c_h) cchhaarr _c_h;
+     Output a printable version of the control-character _c_h.
+
+wwaaddddcchh(_w_i_n,_c_h) WWIINNDDOOWW *_w_i_n; cchhaarr _c_h;
+     Add character _c_h to window _w_i_n.
+
+wwaaddddssttrr(_w_i_n,_s_t_r) WWIINNDDOOWW *_w_i_n; cchhaarr *_s_t_r;
+     Add the string pointed to by _s_t_r to window _w_i_n.
+
+wwaattttrrooffff(_w_i_n,_a_t_t) WWIINNDDOOWW *_w_i_n; iinntt _a_t_t;
+     Turn off video attributes _a_t_t for the window pointed to by _w_i_n.
+
+wwaattttrroonn(_w_i_n,_a_t_t) WWIINNDDOOWW *_w_i_n; iinntt _a_t_t;
+     Turn on video attributes _a_t_t for the window pointed to by _w_i_n.
+
+wwaattttrrsseett(_w_i_n,_a_t) WWIINNDDOOWW *_w_i_n; iinntt _a_t_t;
+     Set the video attributes _a_t_t for the window pointed to by _w_i_n.
+
+wwcclleeaarr(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window  _w_i_n. Move  cursor to position  0,0 and set  the screen's
+     clear flag.
+
+wwccllrrttoobboott(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window _w_i_n from current position to the bottom.
+
+wwccllrrttooeeooll(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window _w_i_n from the current position to the end of the line.
+
+wwddeellcchh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Delete the character at the  current position in window _w_i_n; shift all
+     remaining characters to the right of the current position one position
+     left.
+
+wwddeelleetteellnn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Delete the current line and shift all lines below it one line up.
+
+wweerraassee(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window _w_i_n.  Move the cursor to position 0,0  but do not set the
+     screen's clear flag.
+
+wwggeettcchh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Read one character from the standard input.
+
+wwggeettssttrr(_w_i_n,_s_t_r) WWIINNDDOOWW *_w_i_n; cchhaarr *_s_t_r;
+     Read a string from the standard input; write it in the area pointed to
+     by _s_t_r.
+
+wwiinncchh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Force the next call to rreeffrreesshh() to rewrite the entire screen.
+
+wwiinnsscchh(_w_i_n,_c_h) WWIINNDDOOWW *_w_i_n; cchhaarr _c_h;
+     Insert character  _c_h into window  _w_i_n at the  current position.  Shift
+     all existing characters one position to the right.
+
+wwiinnsseerrttllnn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Insert a blank line into window _w_i_n at the current position.  Move all
+     lines down by one position.
+
+wwmmoovvee(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; iinntt _y, _x;
+     Move current position in the window _w_i_n to position _y,_x.
+
+wwnnoouuttrreeffrreesshh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Copy  the window  pointed to  by  _w_i_n to  the virtual  screen; do  not
+     refresh the real screen.
+
+wwpprriinnttww(_w_i_n,_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N])
+WWIINNDDOOWW *_w_i_n; cchhaarr *_f_o_r_m_a_t;
+[_d_a_t_a _t_y_p_e] aarrgg11,..aarrggNN;
+     Format text and print it to the current position in window _w_i_n.
+
+wwrreeffrreesshh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Refresh a window.
+
+wwssccaannww(_w_i_n,_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N])
+WWIINNDDOOWW *_w_i_n; cchhaarr *_f_o_r_m_a_t;
+[_d_a_t_a _t_y_p_e] _a_r_g_1,.._a_r_g_N;
+     Read standard  input from the  current position in  window _w_i_n, format
+     it, and store it in the indicated places.
+
+wwssttaannddeenndd(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Turn off standout (reverse video) mode for window _w_i_n.
+
+wwssttaannddoouutt(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Turn on standout (reverse video) mode for window _w_i_n.
+
+wwsseettssccrrrreegg(_w_i_n,_t_o_p,_b_o_t_t_o_m) WWIINNDDOOWW *_w_i_n; iinntt _t_o_p, _b_o_t_t_o_m;
+     Set the scrolling region on the window pointed to by _w_i_n.
+
+_C_o_l_o_r _S_u_p_p_o_r_t
+Beginning with  release 4.2,  COHERENT's implementation of  ccuurrsseess supports
+color.  ccuurrsseess  defines colors  as a video  attribute, like any  other.  It
+actually handles pairs of colors --  one for the foreground and one for the
+background.   You  must initialize  a  color  pair and  given  it a  unique
+identifying  number; then  pass the  identifier  of the  color pair  to the
+function wwaattttrroonn() to turn on, like any other video attribute.
+
+The  header file  <tteerrmmiinnffoo.hh> defines the  following colors,  which ccuurrsseess
+recognizes:
+
+    CCOOLLOORR_BBLLAACCKK
+    CCOOLLOORR_RREEDD
+    CCOOLLOORR_GGRREEEENN
+    CCOOLLOORR_YYEELLLLOOWW
+    CCOOLLOORR_BBLLUUEE
+    CCOOLLOORR_MMAAGGEENNTTAA
+    CCOOLLOORR_CCYYAANN
+    CCOOLLOORR_WWHHIITTEE
+
+Header  file  <ccuurrsseess.hh>  defines the  variables  CCOOLLOORRSS,  which holds  the
+maximum  number of  colors that  your console  or terminal  recognizes; and
+CCOOLLOORR_PPAAIIRRSS,  which  holds the  maximum  number of  color  pairs that  your
+console  or terminal  recognizes.  The  function  ssttaarrtt_ccoolloorr() initializes
+both variables.
+
+The following gives the functions  and macros with which you can manipulate
+colors:
+
+ccaann_cchhaannggee_ccoolloorrss()
+     This function returns TRUE if you can change the definition of a color
+     on  your  device, and  FALSE  if  you cannot.   You  should call  this
+     function before you invoke the function iinniitt_ccoolloorr(), described below.
+
+ccoolloorr_ccoonntteenntt(_c_o_l_o_r,_r,_g,_b); iinntt _c_o_l_o_r,*_r,*_g,*_b;
+     Read the RGB settings for _c_o_l_o_r  and write them at the addresses given
+     by _r, _g, and _b.
+
+CCOOLLOORR_PPAAIIRR(_p_a_i_r_n_u_m); iinntt _p_a_i_r_n_u_m;
+     Return the  definition of  the color  pair identified by  _p_a_i_r_n_u_m. The
+     color pair must have been initialized by a call to iinniitt_ppaaiirr().
+
+hhaass_ccoolloorrss()
+     Return TRUE if your console or terminal supports color and FALSE if it
+     does not.
+
+iinniitt_ccoolloorr(_c_o_l_o_r,_r,_g,_b); iinntt _c_o_l_o_r,_r,_g,_b;
+     Initialize _c_o_l_o_r to the RGB values  _r, _g, and _b. _c_o_l_o_r must be greater
+     than zero and less than CCOOLLOORRSS. _r,' _g, and _b must each be between zero
+     and 1,000.   Not every  console or terminal  permits you to  reset its
+     colors.   Call  ccaann_cchhaannggee_ccoolloorrss()  to  see  if  you can  alter  your
+     device's colors.
+
+iinniitt_ppaaiirr(_p_a_i_r_n_u_m,_f_c,_b_c) iinntt _p_a_i_r_n_u_m, _f_c, _b_c;
+     Initialize the  color pair _p_a_i_r_n_u_m to the foreground  color _f_c and the
+     background color  _b_c. _p_a_i_r_n_u_m must be greater than  zero and less than
+     CCOOLLOORR_PPAAIIRRSS. _f_c and _b_c must be greater than -1 and less than CCOOLLOORRSS.
+
+ppaaiirr_ccoonntteenntt(_p_a_i_r_n_u_m,_f_c,_b_c) iinntt _p_a_i_r_n_u_m,*_f_c,*_b_c;
+     Read the  foreground and background  colors represented by  color pair
+     _p_a_i_r_n_u_m and write them into the areas pointed to by _f_g and _b_g.
+
+ssttaarrtt_ccoolloorr()
+     Turn on color processing.   This function must precede all other color
+     routines; usually, it immediately follows the function iinniittssccrr().
+
+A brief example of how to colors appears in the EExxaammpplleess section, below.
+
+_t_e_r_m_i_n_f_o _R_o_u_t_i_n_e_s
+As  noted above,  ccuurrsseess reads terminal  descriptions from  tteerrmmiinnffoo rather
+than  tteerrmmccaapp. The  library lliibbccuurrsseess also  holds the  following functions,
+with which you can read a tteerrmmiinnffoo description:
+
+ffiixxtteerrmm()......Set the terminal into program mode
+ppuuttpp().........Write a string into _s_t_d_w_i_n
+rreesseetttteerrmm()....Reset the terminal into a saved mode
+sseettuupptteerrmm()....Initialize terminal capabilities
+ttppaarrmm()........Output a parameterized string
+ttppuuttss()........Process a capability string
+vviiddaattttrr()......Set the terminal's video attributes
+vviiddppuuttss()......Set video attributes into a function
+
+For more information on these  routines, see the Lexicon entry tteerrmmiinnffoo, or
+see each routine's entry in the Lexicon.
+
+If  you define  the environment  variable TTEERRMMIINNFFOO,  ccuurrsseess checks  for the
+terminal definition in the directory that TTEERRMMIINNFFOO names rather than in the
+standard  directory   /uussrr/lliibb/tteerrmmiinnffoo.  For  example,  if   you  set  the
+environmental variable  TTEERRMM is  set to  vvtt110000, then the  compiled tteerrmmiinnffoo
+definition is kept  in directory /uussrr/lliibb/tteerrmmiinnffoo/vv/vvtt110000. However, if you
+define    TTEERRMMIINNFFOO   to    be   $HHOOMMEE/tteesstttteerrmm,    ccuurrsseess    first   checks
+$HHOOMMEE/tteesstttteerrmm/vv/vvtt110000;     if    that     fails,     it    then     checks
+/uussrr/lliibb/tteerrmmiinnffoo/vv/vvtt110000. This is useful when you are debugging a tteerrmmiinnffoo
+entry.
+
+_S_t_r_u_c_t_u_r_e _o_f _a _c_u_r_s_e_s _P_r_o_g_r_a_m
+To  use  the  ccuurrsseess routines,  a  program  must  include  the header  file
+ccuurrsseess.hh, which declares and defines the functions and macros that comprise
+the ccuurrsseess library.
+
+Before  a program  can  perform any  screen  operations, it  must call  the
+function iinniittssccrr() to initialize the ccuurrsseess environment.
+
+As noted  above, ccuurrsseess manipulates  text in a  copy of the  screen that it
+maintains in  memory.  After a  program has manipulated text,  it must call
+rreeffrreesshh() to  copy these  alterations from  memory to the  physical screen.
+(This is  done because writing to  the screen is slow;  this scheme permits
+mass alterations to  be made to copy in memory,  then written to the screen
+in a batch.)
+
+Finally, when  the program has  finished working with ccuurrsseess,  it must call
+the function eennddwwiinn(). This frees memory allocated by ccuurrsseess, and generally
+closes down the ccuurrsseess environment gracefully.
+
+_E_x_a_m_p_l_e_s
+The  first example  shows what  modes  and characters  are visible  on your
+system.
+
+#include <curses.h>
+#define A_ETX 0x03
+
+main()
+{
+    int c, y = 0, x = 0, attr = A_NORMAL, mask, state = 0, hibit = 0;
+
+    initscr();
+    noecho();
+    raw();
+
+    erase();
+    move(y, 0);
+    addstr(
+"+ sets - clears Normal Bold Underline blInk Reverse Standout Altmode");
+    move(++y, 0);
+    refresh();
+
+    for (;;) {
+        if (!state) {
+            switch (c = getch()) {
+            case '+':
+                state = 1;
+                break;
+
+            case '-':
+                state = 2;
+                break;
+
+            case '\b':
+                if (!x)
+                    break;
+                move(y, --x);
+                addch(' ');
+                move(y, x);
+                refresh();
+                break;
+
+            case '\r':
+            case '\n':
+                move(++y, x = 0);
+                refresh();
+                break;
+
+            case A_ETX:
+                noraw();
+                echo();
+                endwin();
+                exit(0);
+
+            default:
+                x++;
+                addch(c | hibit);
+                refresh();
+            }
+
+        } else {
+            switch (c = getch()) {
+            case 'A':   /* turn on high bit of input */
+                hibit = (state & 1) << 7;
+                state = 0;
+                continue;
+
+            case 'B':
+                mask = A_BOLD;
+                break;
+
+            case 'U':
+                mask = A_UNDERLINE;
+                break;
+
+            case 'I':
+                mask = A_BLINK;
+                break;
+
+            case 'R':
+                mask = A_REVERSE;
+                break;
+
+            case 'S':
+                mask = A_STANDOUT;
+                break;
+
+            case 'N':   /* normal is an absence of bits */
+                if (state == 1) {
+                    attr = A_NORMAL;
+                    hibit = state = 0;
+                    continue;
+                }
+
+            default:
+                beep();
+                continue;
+            }
+
+            if (state == 1)
+                attr |= mask;
+            else
+                attr &= ~mask;
+            attrset(attr);
+            state = 0;
+        }
+    }
+}
+
+The second example demonstrates how to  use colors in a ccuurrsseess program.  It
+selects colors  randomly, builds color  pairs, and displays  a 40-character
+text string to demonstrate the newly build color pair.
+
+#include <curses.h>
+#include <stdlib.h>
+
+void goodbye()
+{
+    move(23, 0);
+    noraw();
+    echo();
+    endwin();
+    exit(EXIT_SUCCESS);
+}
+
+main()
+{
+    int x, y, i;
+
+    initscr();
+    start_color();
+    noecho();
+    raw();
+
+    srand(time(NULL));
+    erase();
+    if (!has_colors())
+        goodbye();
+
+    for (x = 0, y = 0, i = 1; i < COLOR_PAIRS; i++, y++) {
+        if (y == 23) {
+            x = 40;
+            y = 0;
+        }
+
+        move(y, x);
+        init_pair(i, (rand() % COLORS), (rand() % COLORS));
+        attrset(COLOR_PAIR(i));
+        addstr("Pack my box with five dozen liquor jugs.");
+    }
+
+    refresh();
+    goodbye();
+}
+
+_S_e_e _A_l_s_o
+ccuurrsseess.hh, lliibbrraarriieess, tteerrmmccaapp, tteerrmmiinnffoo
+Strang J: _P_r_o_g_r_a_m_m_i_n_g _w_i_t_h _c_u_r_s_e_s. Sebastopol, Calif, O'Reilly & Associates
+Inc., 1986.
+
+_N_o_t_e_s
+The implementation  of ccuurrsseess  used by the  COHERENT system was  written by
+Pavel Curtis of Cornell University.  It was ported to COHERENT by Udo Munk.

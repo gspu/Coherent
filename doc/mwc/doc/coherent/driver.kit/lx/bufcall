@@ -1,0 +1,76 @@
+.TH bufcall() "" "" "DDI/DKI Kernel Routine"
+.PC "Call a function when a buffer becomes available"
+.B "#include <sys/types.h>"
+.B "#include <sys/stream.h>"
+\fBtoid_t bufcall(\fIsize\^\fB, \fIpriority\^\fB, \fIfunction\^\fB, \fIargument\^\fB)\fR
+\fBuint_t \fIsize\^\fB; \fBint \fIpriority\^\fB;\fR
+\fBvoid (*\fIfunction\^\fB)()\fB; long \fIargument\^\fB;\fR
+.PP
+.B bufcall()
+schedules
+.I function
+to be called with
+.I argument
+when a buffer of
+.I size
+bytes becomes available.
+You can use
+.B bufcall()
+to obtain a buffer at some time in the future, should a
+call to a buffer-allocation routine fail.
+.PP
+When
+.I function
+runs, all interrupts from \*(ST devices are blocked.
+.I function
+has no user context and cannot call any function that sleeps.
+.PP
+.I priority
+gives the priority of the request.
+You can use the following values:
+.IP \fBBPRI_LO\fR 1.0i
+Low (normal) priority.
+.IS \fBBPRI_MED\fR
+Medium priority.
+.IS \fBBPRI_HI\fR
+High priority.
+.PP
+.B bufcall()
+returns a non-zero value that identifies the scheduling request.
+You can pass this value to
+.B unbufcall()
+to cancel the request.
+If something goes wrong,
+.B bufcall()
+returns zero.
+.SH "See Also"
+.B
+allocb(),
+DDI/DKI kernel routines,
+esballoc(),
+esbbcall(),
+itimeout(),
+unbufcall()
+.R
+.SH Notes
+.B bufcall()
+has base or interrupt level.
+It does not sleep.
+.PP
+A function can hold
+driver-defined basic locks, read/write locks, and sleep locks
+across a call to this function.
+.PP
+.B bufcall()
+cannot guarantee that
+.I function
+will succeed.
+Although
+.I function
+will not be executed until a buffer of
+.I size
+bytes has become available,
+another driver may snatch the buffer between the time
+.I function
+is called and the time
+it tries to claim the memory for itself.

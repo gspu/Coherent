@@ -1,0 +1,74 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @@;
+
+
+1.1
+date     92.04.30.14.18.07;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@//////////
+/ i8086 C string library.
+/ strncat()
+/ ANSI 4.11.3.2.
+//////////
+
+//////////
+/ char *
+/ strncat(To, From, Count)
+/ char *To, *From;
+/ int Count;
+/
+/ Append not more than Count characters (NOT including the NUL) from From to To.
+/ Always append a NUL.
+//////////
+
+#include <larges.h>
+
+To	=	LEFTARG
+From	=	To+DPL
+Count	=	From+DPL
+
+	Enter(strncat_)
+	Les	di, To(bp)	/ To address to ES:DI
+	mov	cx, $-1		/ Max count to CX
+	sub	ax, ax
+	cld
+	repne
+	scasb			/ Find end of To
+	dec	di		/ and back up ES:DI to point at NUL
+
+	mov	cx, Count(bp)	/ Limit of move (not limit of result) to CX
+	or	cx, cx
+	je	2f		/ Move nothing
+	Lds	si, From(bp)	/ From address to DS:SI
+
+1:	lodsb			/ Fetch from From
+	stosb			/ and store to To
+	orb	al, al
+	loopne	1b		/ Count nonzero and NUL not seen yet, continue
+	je	2f		/ NUL has been copied, done
+	subb	al, al		/ Count ran out before NUL found,
+	stosb			/ NUL-terminate the string
+
+2:	mov	ax, To(bp)	/ Return the destination
+#if	LARGEDATA
+	mov	dx, es
+#endif
+	Leave
+@

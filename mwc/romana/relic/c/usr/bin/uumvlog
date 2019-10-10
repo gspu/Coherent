@@ -1,0 +1,28 @@
+: /usr/lib/uucp/uumvlog 6/05/91
+: Usage: uumvlog days_to_keep
+: ${1?Please use uumvlog days_to_keep}
+tmp=/tmp/uulogclean.tmp
+date >$tmp
+echo Moving old uucp log files >>$tmp
+for dir in uucico uux uuxqt uucp; do
+	for site in `uuname` `echo $dir | tr a-z A-Z`; do
+		file=/usr/spool/uucp/.Log/$dir/$site
+		if [ $1 -ge 2 ] ; then
+			for days in `from $1 to 2 by -1`; do
+				new=`expr $days - 1`
+				if [ -f $file.$new ] ; then
+					echo moving $file.$new to $file.$days >>$tmp
+					mv $file.$new $file.$days >>$tmp 2>&1
+				fi
+			done
+		fi
+		if [ -f $file ] ; then
+			echo moving $file to $file.1 >>$tmp
+			mv $file $file.1 >>$tmp 2>&1
+			>$file
+		fi
+	done
+done
+cat $tmp
+rm $tmp
+exit 0

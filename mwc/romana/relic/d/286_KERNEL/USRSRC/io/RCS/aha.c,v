@@ -1,0 +1,819 @@
+head     1.2;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.2
+date     91.05.01.04.54.43;  author root;  state Exp;
+branches ;
+next	1.1;
+
+1.1
+date     91.04.30.11.01.41;  author root;  state Exp;
+branches ;
+next	;
+
+
+desc
+@Adaptec-specific code for "sd" driver.
+@
+
+
+1.2
+log
+@Debug code and kalloc arg fixes.
+@
+text
+@/*
+ * This is the host adaptor specific portion of the
+ * Adaptec AHA154x driver.
+ *
+ * $Log:	/usr/src/sys/i8086/drv/RCS/aha.c,v $
+ * Revision 1.1	91/04/30  11:01:41	root
+ * Shipped with COH 3.1.0
+ * 
+ */
+#include <sys/coherent.h>
+#include <sys/buf.h>
+#include <sys/sched.h>
+
+#include "scsiwork.h"
+#include "aha154x.h"
+
+extern	saddr_t	sds;		/* System Data Selector */
+static	paddr_t	sds_physical;	/* as physical address */
+static	short	aha_i_o_base;
+static	char	aha_loaded;	/* did load() find a host adaptor? */
+static	char	dev_bit_map[8];	/* one byte per SCSI-ID; one bit per LUN */
+char	drive_info[MAX_SCSI_ID * MAX_LUN]; /* "per drive" info/flags */
+
+void	aha_intr();		/* interrupt service routine */
+
+#define	MIN_MAILBOX	1
+int	MAX_MAILBOX = { 8 };	/* tunable value */
+
+static	scsi_work_t	*scsi_work_queue;
+static	mailentry	*mailbox_in, *mailbox_out;
+static	char		*aha_err_msg = { "no message" };
+
+static	long	aha_timeout[] = { 
+#define	TIMEOUT_PRESENT	0
+	0x30000L,
+#define	TIMEOUT_SENDCMD	1
+	0x10000L,
+#define	TIMEOUT_POLL	2
+	0x100L,
+};
+
+#if	0
+static
+OUTB( port, value )
+short port;
+{	printf( "<O(%x,%x)>", port, value );
+	outb( port, value );	}
+INB( port )
+short port;
+{	register i = inb(port);
+	printf( "<I(%x)=%x>", port, i );
+	return i;	}
+#else
+#define	OUTB( port, value )	outb( port, value )
+#define	INB(port)	inb(port)
+#endif
+
+#if	VERBOSE
+#define	SETMSG(msg)	aha_err_msg = msg
+
+static
+char	*aha_last_msg()
+{
+	return aha_err_msg;
+}
+
+#else
+
+#define	SETMSG(msg)
+static
+char	*aha_last_msg()
+{
+	return "error messages not verbose";
+} 
+#endif
+
+static
+int	no_mem()
+{
+	printf("aha154x: out of kernel memory\n");
+}
+
+int	aha_set_base( base )
+{
+	register i;
+
+	i = aha_i_o_base;
+	aha_i_o_base = base;
+	return i;
+}
+
+int	aha_get_base()
+{
+	return aha_i_o_base;
+}
+
+aha_process( ccb )
+ccb_t *ccb;
+{
+	register scsi_work_t *sw = ccb->ccb_sw;
+	register BUF *bp;
+
+	printf( "aha_process: ccb %x ", ccb );
+printf("sw=%x bp=%x\n", ccb->ccb_sw, ccb->ccb_sw->sw_bp);
+#if	VERBOSE
+	aha_ccb_print( ccb );
+#endif
+	if( ccb->ccb_sw == 0 ) {
+#if	VERBOSE
+		printf( "process: ccb %x with NULL sw\n", ccb );
+#endif
+		++ccb->opcode;
+		wakeup( ccb );
+		return;
+	}
+
+	bp = sw->sw_bp;
+#if	VERBOSE
+	printf( "bp = %x\n", bp );
+#endif
+	if( (ccb->hoststatus != 0) || (ccb->targetstatus != 0) ) {
+		if( --sw->sw_retry > 0
+		   || (ccb->targetstatus == CHECK_TARGET_STATUS
+		   && ccb->cmd_status[12] == SENSE_UNIT_ATTENTION)) {
+			int s = sphi();
+			if( scsi_work_queue->sw_actf == NULL ) {
+				scsi_work_queue->sw_actf = sw;
+printf("0-swq-f=%x\n", scsi_work_queue->sw_actf);
+{BUF *bp=sw->sw_bp;
+printf("bno=%lx count=%d ", bp->b_bno, bp->b_count);
+printf("faddr=%lx resid=%d ", bp->b_faddr, bp->b_resid);
+printf("req=%x bp=%x\n", bp->b_req, bp);
+}
+			} else {
+				scsi_work_queue->sw_actl->sw_actf = sw;
+			}
+			scsi_work_queue->sw_actl = sw;
+			spl(s);
+			aha_start();
+			return;
+		}
+		bp->b_flag |= BFERR;
+	} else
+		bp->b_resid = 0;
+#if	VERBOSE
+	printf( "bp flag = %o\n", bp->b_flag );
+#endif
+	bdone( bp );
+	kfree( sw );
+	kfree( ccb );
+}
+
+static
+int	aha_1out( value )
+{
+	register i;
+
+	while( (i = INB(aha_i_o_base + AHA_STATUS) & AHA_CDOPFULL) != 0 )
+		if( (i & AHA_INVDCMD)
+		 || (INB(aha_i_o_base+AHA_INTERRUPT) & AHA_CMD_DONE) )
+			return -1;
+	OUTB( aha_i_o_base + AHA_WRITE, value );
+	return 0;
+}
+
+static
+int	aha_1in()
+{
+	register i;
+
+	while( (i = INB(aha_i_o_base + AHA_STATUS) & AHA_DIPFULL) == 0 )
+		if( (i & AHA_INVDCMD)
+		 || (INB(aha_i_o_base+AHA_INTERRUPT) & AHA_CMD_DONE) )
+			return -1;
+	return INB( aha_i_o_base + AHA_READ ) & 0xFF;
+}
+
+static
+void	aha_cmd_out( value )
+{
+	register long l;
+	register int i;
+
+	for( l = aha_timeout[TIMEOUT_SENDCMD]; --l > 0; )
+		if( ((i=INB(aha_i_o_base + AHA_STATUS))
+		    & AHA_SCSIIDLE ) != 0 ) {
+			aha_1out( value );
+			return;
+		}
+#if	VERBOSE
+		else
+			printf( "aha: cmd_out status = %x\r", i );
+#endif
+	SETMSG( "timeout sending cmd byte" );
+	printf( "aha154x: timeout sending cmd byte\n" );
+}
+
+static
+int	aha_poll()
+{
+	register i;
+	register l = aha_timeout[TIMEOUT_POLL];
+	while( (--l > 0 )
+	  &&  ((i = INB(aha_i_o_base + AHA_INTERRUPT)) & AHA_CMD_DONE) == 0 )
+		;
+	if( l == 0 )
+		printf( "aha154x: aha_poll timed out\n" );
+
+	i = INB(aha_i_o_base + AHA_STATUS);
+	OUTB( aha_i_o_base + AHA_CONTROL, AHA_INTRRESET );
+	return i;
+}
+
+static
+void	aha_get_data( vec, cnt )
+char	*vec;
+int	cnt;
+{
+	while( --cnt >= 0 )
+		*vec++ = aha_1in();
+	aha_poll();
+}
+
+static
+int	aha_present()
+{
+	long	l;
+
+	if( INB(aha_i_o_base) == 0xFF ) {
+		SETMSG( "no adapter found at io base" );
+		return -3;
+	}
+	for( l = aha_timeout[TIMEOUT_PRESENT];
+		(--l > 0) && (INB(aha_i_o_base + AHA_STATUS) & AHA_SELFTEST); )
+			;
+	if( l == 0 ) {
+		SETMSG( "selftest not completed" );
+		return -1;
+	}
+	if( INB(aha_i_o_base + AHA_STATUS) & AHA_DIAGFAIL ) {
+		SETMSG( "diagnostics failed" );
+		return -2;
+	}
+	if( INB(aha_i_o_base + AHA_STATUS) & AHA_INITMAIL ) {
+		SETMSG( "mailbox initialization needed" );
+		return 1;
+	}
+	if( INB(aha_i_o_base + AHA_STATUS) & AHA_SCSIIDLE ) {
+		SETMSG( "adaptor okay, idle" );
+		return 0;
+	}
+	SETMSG( "unknown status at start" );
+	return -4;
+}
+
+static
+void	aha_l_to_p3( value, vec )
+paddr_t	value;
+unsigned char *vec;
+{
+	register i;
+
+	for( i = 3; --i >= 0; ) {
+		vec[i] = value & 0xFF;
+		value >>= 8;
+	}
+}
+
+static
+char	*aha_p3_to_v( vec )
+unsigned char *vec;
+{
+	paddr_t adr;
+
+	adr = vec[0];
+	adr <<= 16;
+	adr |= (vec[1]<<8) | vec[2];
+	adr -= sds_physical;
+	return (char *)adr;
+}
+
+aha_device_info()
+{
+	register i;
+	static char buf[256];
+
+	aha_cmd_out( AHA_DO_GET_DEVICES );
+	aha_get_data( &buf[0], 8 );
+	for( i = 0; i < 8; ++i )
+		if( buf[i] != 0 )
+			printf( "[%d] %x ", i, buf[i] );
+	printf( "\n" );
+}
+
+int	aha_unload( ireq )
+{
+#if	VERBOSE
+	printf( "aha_unload: %x\n", ireq );
+#endif
+	/*
+	 *	we should really verify that everything
+	 *	out there gets flushed.
+	 */
+	if (!aha_loaded)
+		return;
+	if( mailbox_out ) {
+		kfree( mailbox_out );
+		mailbox_out = 0;
+	}
+	clrivec( ireq );
+}
+
+int	aha_load( dma, ireq, base, head )
+scsi_work_t *head;
+{
+	register int	i;
+	unsigned char	adr[4];
+
+#if	VERBOSE
+	printf( "aha_load( %d, %d, 0x%x );\n", dma, ireq, base );
+#endif
+	aha_set_base(base);
+	if( mailbox_out == 0 ) {
+		if( (mailbox_out = 
+		     kalloc(2 * MAX_MAILBOX * sizeof(mailentry))) == 0 ) {
+			no_mem();
+			return -1;
+		} else
+			mailbox_in = &mailbox_out[MAX_MAILBOX];
+	}
+
+	for( i = 0; i < MAX_MAILBOX; ++i )
+		mailbox_out[i].cmd = mailbox_in[i].cmd = 0;
+
+printf("B");
+	sds_physical = VTOP2( 0, sds );
+printf("C");
+	aha_l_to_p3( VTOP2( mailbox_out, sds ), &adr[1] );
+	adr[0] = MAX_MAILBOX;
+
+	/*
+	 * setup HW
+	 */
+	setivec( ireq, aha_intr );
+	outb( 0xD6, 0xC1 );		/* DMA is currently hard coded for */
+	outb( 0xD4, 0x01 );		/* DMA channel 5 */
+
+
+	OUTB( aha_i_o_base+AHA_CONTROL, AHA_HARDRESET );
+	if (aha_present() < 0) {
+		printf("aha154x: initialization error or host adaptor not ");
+		printf("found at 0x%x\n", aha_i_o_base);
+		return -1;
+	}
+	aha_cmd_out( AHA_DO_MAILBOX_INIT );
+	for( i = 0; i < 4; ++i )
+		aha_1out( adr[i] );
+	scsi_work_queue = head;
+printf("1-swq-f=%x\n", scsi_work_queue->sw_actf);
+	++aha_loaded;
+	return MAX_MAILBOX;
+}
+
+aha_command( sc )
+register scsi_cmd_t *sc;
+{
+	register i;
+	register ccb_t *ccb;
+
+	short	count = sc->blklen;
+	long	block = sc->block;
+
+	ccb = (ccb_t *) kalloc(sizeof (ccb_t));
+	if (ccb == (ccb_t *) 0) {
+		no_mem();
+		return -1;
+	}
+#if	VERBOSE
+	printf( "aha_command( SCSI ID %d, LUN %d, c %x, b %D",
+		sc->unit >> 2, sc->unit & 0x3, sc->cmd, sc->block ); 
+	printf( " [%d] @@%x:%x )\n",
+		sc->buflen, sc->buffer );
+#endif
+	ccb->ccb_sw = 0;
+	ccb->opcode = 0;			/* SCSI_INITIATOR*/
+	ccb->target = (sc->unit & 0x1C) << 3;	/* SCSI ID */
+	ccb->target |= sc->unit & 0x3;		/* LUN */
+	if( (ccb->cmd_status[0] = sc->cmd) == ScmdWRITEXTENDED ) {
+		ccb->target |= AHA_CCB_DATA_OUT;
+	} else { /* READEXT, READCAP, INQUIRY */
+		ccb->target |= AHA_CCB_DATA_IN;
+	}
+	ccb->cmd_status[1] = 0;
+	ccb->cmd_status[2] = block;
+	ccb->cmd_status[3] = block >>16;
+	ccb->cmd_status[4] = block >> 8;
+	ccb->cmd_status[5] = block;
+	ccb->cmd_status[6] = 0;
+	ccb->cmd_status[7] = count / 512;
+	ccb->cmd_status[8] = count;
+	ccb->cmd_status[9] = 0;
+	ccb->cmdlen = 10;
+	ccb->senselen = MAX_SENSEDATA;
+
+	aha_l_to_p3( (long)sc->buflen, ccb->datalen );
+	aha_l_to_p3( sc->buffer, ccb->dataptr );
+printf("D");
+	aha_l_to_p3( VTOP2( ccb, sds ), mailbox_out[0].adr );
+#if	VERBOSE
+	aha_ccb_print( ccb );
+#endif
+	mailbox_out[0].cmd = MBO_TO_START;
+	aha_1out( AHA_DO_SCSI_START );
+	while( ccb->opcode == 0 )
+		sleep( ccb, CVBLKIO, IVBLKIO, SVBLKIO );
+	
+#if	VERBOSE
+	printf( "done with status = %d, %d\n",
+		ccb->hoststatus, ccb->targetstatus );
+#endif
+	if( (ccb->targetstatus == CHECK_TARGET_STATUS)
+	   && (ccb->cmd_status[12] != SENSE_UNIT_ATTENTION) ) {
+		printf( "aha: SCSI ID %d LUN %d. SCSI sense =",
+		(sc->unit >> 2), sc->unit & 0x3 );
+		for( i = 0; i < ccb->senselen; ++i )
+			printf( " %x", ccb->cmd_status[10+i] );
+		printf( "\n" );
+	}
+	i = ccb->hoststatus | ccb->targetstatus;
+	kfree( ccb );
+	return i;
+}
+
+ccb_t	*buildccb( sw )
+register scsi_work_t *sw;
+{
+	register ccb_t *ccb;
+	ccb = (ccb_t *)kalloc(sizeof(ccb_t));
+
+#if	1
+	printf( "build: drv = %x, bno = %D  ",
+		sw->sw_drv, sw->sw_bno );
+#endif
+	ccb->ccb_sw = sw;
+	ccb->opcode = 0;			/* SCSI INITIATOR */
+	ccb->target = (sw->sw_drv & 0x1C) << 3;	/* SCSI ID */
+	ccb->target |= (sw->sw_drv) & 0x3;	/* LUN */
+	if( sw->sw_bp->b_req == BREAD ) {
+		ccb->target |= AHA_CCB_DATA_IN;
+		ccb->cmd_status[0] = ScmdREADEXTENDED;
+	} else {
+		ccb->target |= AHA_CCB_DATA_OUT;
+		ccb->cmd_status[0] = ScmdWRITEXTENDED;
+	}
+	ccb->cmd_status[2] = 0;
+	ccb->cmd_status[3] = sw->sw_bno >>16;
+	ccb->cmd_status[4] = sw->sw_bno >> 8;
+	ccb->cmd_status[5] = sw->sw_bno;
+	ccb->cmd_status[6] = 0;
+	ccb->cmd_status[7] = sw->sw_bp->b_count / (512*256L);
+	ccb->cmd_status[8] = sw->sw_bp->b_count / 512;
+	ccb->cmd_status[9] = 0;
+	ccb->cmdlen = 10;
+	ccb->senselen = MAX_SENSEDATA;
+
+	aha_l_to_p3( (long)sw->sw_bp->b_count, ccb->datalen );
+printf("E");
+{BUF *bp=sw->sw_bp;
+printf("bno=%lx count=%d ", bp->b_bno, bp->b_count);
+printf("faddr=%lx resid=%d ", bp->b_faddr, bp->b_resid);
+printf("req=%x bp=%x\n", bp->b_req, bp);
+}
+	aha_l_to_p3( VTOP(sw->sw_bp->b_faddr), ccb->dataptr );
+	return ccb;
+#if	0
+/* start of ioctl code */
+	if( f == SASI_CMD_IN )
+		ccb->target |= AHA_CCB_DATA_IN;
+	else if( f == SASI_CMD_OUT )
+		ccb->target |= AHA_CCB_DATA_OUT;
+	else
+		ccb->target |=	 AHA_CCB_DATA_IN
+				|AHA_CCB_DATA_OUT;
+#endif
+}
+
+aha_start()
+{
+	register i, s, n = 0;
+	scsi_work_t *sw;
+	static char locked;
+printf("aha_start ");
+	s = sphi();
+	if( locked ) {
+		spl(s);
+		return;
+	}
+	++locked;
+	spl(s);
+
+	while( (sw = scsi_work_queue->sw_actf) != NULL ) {
+		for( i = MIN_MAILBOX; i < MAX_MAILBOX; ++i )
+			if( mailbox_out[i].cmd == MBO_IS_FREE ) {
+				register ccb_t *ccb;
+				int s;
+
+				++n;
+printf("before buildccb\n");
+				ccb = buildccb( sw );
+printf("after buildccb\n");
+#if	VERBOSE
+				aha_ccb_print( ccb );
+#endif
+printf("F");
+				aha_l_to_p3( VTOP2( ccb, sds ),
+						mailbox_out[i].adr );
+				mailbox_out[i].cmd = MBO_TO_START;
+#if	1
+				printf( "MBO[%d] = %x:%x:%x:%x, ccb = %x ",
+					i, mailbox_out[i].cmd,
+					mailbox_out[i].adr[0],
+					mailbox_out[i].adr[1],
+					mailbox_out[i].adr[2], ccb );
+printf("sw=%x bp=%x\n", ccb->ccb_sw, ccb->ccb_sw->sw_bp);
+#endif
+				aha_1out( AHA_DO_SCSI_START );
+
+				s = sphi();
+				sw = scsi_work_queue->sw_actf = sw->sw_actf;
+printf("2-swq-f=%x\n", scsi_work_queue->sw_actf);
+				if( sw == NULL )
+					scsi_work_queue->sw_actl = NULL;
+				spl(s);
+
+				if( sw == NULL )
+					break;
+			}
+		if( i == MAX_MAILBOX )
+			break;
+	}
+	--locked;
+	return n;
+}
+
+int	aha_completed()
+{
+	register i, n;
+printf("aha_completed ");
+	for( n = 0, i = 0; i < MAX_MAILBOX; ++i )
+		if( mailbox_in[i].cmd != MBI_IS_FREE ) {
+#if	1
+			printf( "aha: mail[%d] = %x:%x:%x:%x\n",
+				i, mailbox_in[i].cmd,
+				mailbox_in[i].adr[0],
+				mailbox_in[i].adr[1],
+				mailbox_in[i].adr[2] );
+#endif
+			defer( aha_process,
+				aha_p3_to_v( mailbox_in[i].adr ) );
+			mailbox_in[i].cmd = MBI_IS_FREE;
+			++n;
+		}
+	return n;
+}
+
+void	aha_intr()
+{
+	register i;
+
+#if	VERBOSE
+	printf( "aha_interrupt routine\n" );
+#endif
+	if( ((i = INB(aha_i_o_base+AHA_INTERRUPT)) & AHA_ANY_INTER) == 0 )
+		printf( "aha: spurious interrupt %x\n", i );
+#if	VERBOSE
+	printf( "aha_interrupt: %x\n", i );
+#endif
+	switch( i & AHA_ALL_INTERRUPTS ) {
+	case AHA_RESETED:
+#if	VERBOSE
+		printf( "aha: reseted\n" );
+#endif
+		break;
+	case AHA_CMD_DONE:
+#if	VERBOSE
+		printf( "aha: adapter command completed\n" );
+#endif
+		break;
+	case AHA_MBO_EMPTY:
+#if	VERBOSE
+		printf( "aha: MAILBOX emptied\n" );
+#endif
+		defer( aha_start, (char *)0 );
+		break;
+	case AHA_MBI_STORED:
+#if	VERBOSE
+		printf( "aha: MAILBOX in stored\n" );
+#endif
+		aha_completed();
+		break;
+	default:
+		printf( "aha: multiple interrupts not yet handled\n" );
+	}
+	outb( aha_i_o_base+AHA_CONTROL, AHA_INTRRESET );
+}
+
+aha_ioctl()
+{
+	printf( "aha_ioctl: Not implemented\n" );
+}
+
+#if	VERBOSE
+static	unsigned char vec[256];
+
+static	aha_ports_are() {
+	printf( "aha_ports_are: %x %x %x\n",
+		INB(aha_i_o_base+0),
+		INB(aha_i_o_base+1),
+		INB(aha_i_o_base+2) );
+}
+
+static	aha_inquiry_is() {
+	printf( "aha_inquiry:" );
+	printf( "... aha_present = %d, ", aha_present() );
+	printf( "%s\n", aha_last_msg() );
+	aha_cmd_out( AHA_DO_INQUIRY );
+
+	aha_get_data( &vec[0], 4 );
+	printf( " board id '%c'", vec[0] );
+	printf( ", options '%c'", vec[1] );
+	printf( ", HW '%c'", vec[2] );
+	printf( ", FW '%c'\n", vec[3] );
+}
+
+void	aha_setup_is() {
+	register i;
+
+	printf( "Setup and Data:\n" );
+	aha_cmd_out( AHA_DO_GET_SETUP );
+	aha_cmd_out( 16 );
+	aha_get_data( &vec[0], 16 );
+	printf( "  Data Xfer %s Sync (J1)\n", (vec[0]&1) ? "is" : "not" );
+	printf( "  Parity %s Enabled (J1)\n", (vec[0]&2) ? "is" : "not" );
+	switch( vec[1] ) {
+	case AHA_SPEED_5_0_MB:
+		printf( "  5.0 Mb/sec.\n" );	break;
+	case AHA_SPEED_6_7_MB:
+		printf( "  6.7 Mb/sec.\n" );	break;
+	case AHA_SPEED_8_0_MB:
+		printf( "  8.0 Mb/sec.\n" );	break;
+	case AHA_SPEED_10_MB:
+		printf( "  10 Mb/sec.\n" );	break;
+	case AHA_SPEED_5_7_MB:
+		printf( "  5.7 Mb/sec.\n" );	break;
+	default:
+		if( vec[1] & 0x80 )
+			printf( "  Pulse Read %d, Write %d, Strobe off %d\n",
+				50*(2+(vec[1]>>4)&0x7), 50*(2+(vec[1]&7)),
+				vec[1] & 0x80 ? 150 : 100 );
+	}
+	printf( "  Bus Time ON %d, OFF %d\n", vec[2], vec[3] );
+	printf( "  %d Mailboxes at %x|%x|%x\n", vec[4],
+		vec[5], vec[6], vec[7] );
+	for( i = 0; i < 8; ++i )
+		if( vec[i+8] )
+			printf( "  Target [%d] = Sync Neg %x\n", i, vec[i+8] );
+}
+
+static	aha_mailboxes_are( n, adr )
+mailentry *adr;
+{
+	register i;
+
+	printf( "addresses for mailbox is %x:%x\n", (long)adr );
+	for( i = 0; i < n; ++i, ++adr )
+		printf( "  mbo[%x] = %x %x|%x|%x\n",
+			i, adr->cmd, adr->adr[0], adr->adr[1], adr->adr[2] );
+	for( i = 0; i < n; ++i, ++adr )
+		printf( "  mbi[%x] = %x %x|%x|%x\n",
+			i, adr->cmd, adr->adr[0], adr->adr[1], adr->adr[2] );
+}
+
+void	aha_status()
+{
+	aha_ports_are();
+	aha_inquiry_is();
+	aha_devices_are();
+	aha_setup_is();
+	aha_mailboxes_are( MAX_MAILBOX, mailbox_out );
+}
+
+aha_ccb_print( ccb )
+ccb_t	*ccb;
+{
+	register i;
+	register unsigned char *cp;
+
+	printf( "ccb @@%x, sw @@%x, bp @@%x, flag %o\n",
+		ccb, ccb->ccb_sw, ccb->ccb_sw->sw_bp,
+		ccb->ccb_sw->sw_bp->b_flag );
+	printf( "op %d, ", ccb->opcode );
+	printf( "target ID=%d, ", (ccb->target>>5) & 0x7 );
+	printf( "LUN=%d, ", (ccb->target & 0x7) );
+	printf( "dir=%s%s\n",	(ccb->target&AHA_CCB_DATA_IN)?"IN":"",
+				(ccb->target&AHA_CCB_DATA_OUT)?"OUT":"" );
+	printf( "data len %x|%x|%x, adr %x|%x|%x\n",
+		ccb->datalen[0],ccb->datalen[1],ccb->datalen[2],
+		ccb->dataptr[0],ccb->dataptr[1],ccb->dataptr[2] );
+	printf( "status host=%x, target=%x\n",
+		ccb->hoststatus, ccb->targetstatus );
+	printf( "cmddata[%d]:", ccb->cmdlen );
+	for( i = 0, cp = ccb->cmd_status; i < ccb->cmdlen; ++i )
+		printf( " %x", *cp++ );
+	printf( "\nrequest sense[%d]:", ccb->senselen );
+	for( i = 0; i < ccb->senselen; ++i )
+		printf( " %x", *cp++ );
+	if( i = cp[-1] ) {
+		printf( "\n   + " );
+		while( --i >= 0 )
+			printf( " %x", *cp++ );
+	}
+	printf( "\n" );
+}
+
+#endif	/* VERBOSE */
+
+@
+
+
+1.1
+log
+@Shipped with COH 3.1.0
+@
+text
+@d5 4
+a8 1
+ * $Log$
+a11 2
+#include <sys/mmu.h>
+#include <sys/types.h>
+d103 2
+a105 1
+	printf( "aha_process: ccb %x\n", ccb );
+d126 1
+a126 1
+			if( scsi_work_queue->sw_actf == NULL )
+d128 7
+a134 1
+			else
+d136 1
+d335 4
+a338 2
+	sds_physical = vtop( 0, sds );
+	aha_l_to_p3( vtop( mailbox_out, sds ), &adr[1] );
+d359 1
+d373 1
+a373 1
+	ccb = (ccb_t *) kalloc(sizeof *ccb);
+d407 2
+a408 1
+	aha_l_to_p3( vtop( ccb, sds ), mailbox_out[0].adr );
+d438 1
+a438 1
+	ccb = (ccb_t *)kalloc(10 + sizeof *ccb);
+d440 1
+a440 1
+#if	VERBOSE
+d467 7
+a473 1
+	aha_l_to_p3( vtop(sw->sw_bp->b_faddr), ccb->dataptr );
+d492 1
+a492 1
+
+d508 1
+d510 1
+d514 2
+a515 1
+				aha_l_to_p3( vtop( ccb, sds ),
+d518 2
+a519 2
+#if	VERBOSE
+				printf( "MBO[%d] = %x:%x:%x:%x, ccb = %x\n",
+d524 1
+d530 1
+d548 1
+a548 1
+
+d551 1
+a551 1
+#if	VERBOSE
+@

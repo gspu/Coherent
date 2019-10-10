@@ -1,0 +1,19 @@
+: mkboot 10/16/90
+: Make a bootable floppy disk.
+: Run as root.
+
+: Format, mkfs, copy boot.
+/etc/fdformat -a -v -i 6 $DEV
+/etc/mkfs -i 216 $DEV $BLOCKS
+cp /conf/$BOOT $DEV
+/etc/mount $DEV /f0
+cpdir -ad /distrib1 /f0
+
+: Patch the /coherent image and link it to /begin.
+/conf/patch /f0/coherent ronflag_=1 rootdev_=makedev\($MAJOR,$MINOR\) pipedev_=makedev\(8,131\)
+ln -f /f0/coherent /f0/begin
+ln -f /f0/etc/brc.build /f0/etc/brc
+
+: Cleanup.
+/etc/umount $DEV
+sync

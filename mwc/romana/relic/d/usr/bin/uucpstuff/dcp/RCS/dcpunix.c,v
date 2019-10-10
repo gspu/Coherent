@@ -1,0 +1,376 @@
+head     1.8;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.8;
+comment  @ * @;
+
+
+1.8
+date     92.07.21.12.41.06;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     92.06.30.14.31.13;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     92.05.07.08.19.16;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.12.11.11.50.54;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.08.15.13.21.12;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.06.03.14.34.39;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.04.30.18.46.43;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.04.11.18.02.56;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@init ver pulled from mango
+@
+
+
+1.8
+log
+@fixed nasty condition where we were playing games with pointers in 
+sread() after a read() returned a -1 instead of exiting the function
+@
+text
+@/*
+ * dcpunix.c
+ *
+ * Coherent/Unix/Minix support for dcp
+ * Copyright 1989 (c) by Peter S. Housel.
+ * Changes Copyright (c) 1989-1991 by Mark Williams Company.
+ */
+
+#include <stdio.h>
+
+#include <signal.h>
+#include "dial.h"
+#include "dcp.h"
+#include "alarm.h"
+
+#if SGTTY
+#include <sgtty.h>
+#elif TERMIO
+#include <termio.h>
+#endif
+
+int swritefd;		/* fd for serial write */
+int sreadfd;		/* fd for serial read */
+
+swrite(data, num)
+char *data; 
+int num;
+{
+	return( write(swritefd, data, num) );
+}
+
+#define	MINTIMEOUT	2
+
+int sread(data, num, timeout)
+char *data; 
+int num, timeout;
+{
+	int ret;
+	register char *ptr;
+
+	SETALRM( (timeout>MINTIMEOUT) ? timeout: MINTIMEOUT );
+	ret = read(sreadfd, data, num);
+	CLRALRM();
+
+	if ( (ret > 0) && stripflg )
+		for (ptr=data; ptr<data+ret; ptr++)
+			*ptr &= 0x7F;
+#if 0
+	printmsg(M_DATA, "sread: {%s}", visbuf(data, num));
+#endif
+	return( (ret>0) ? ret: 0 );
+}
+
+int sread2(data, num)
+char *data; 
+int num;
+{
+	int retval = read(sreadfd, data, num);
+	register char *ptr;
+
+	if ( stripflg )
+		for (ptr=data; ptr<data+retval; ptr++)
+			*ptr &= 0x7F;
+#if 0
+	printmsg(M_DATA, "sread2: %d: {%s}", retval, visbuf(data, retval));
+#endif
+	return(retval);
+}
+
+/*
+ *  Coherent support for setting the line parameters.
+ *
+ *  initline()  --  Used for uucico SLAVE mode.
+ *	Sets the serial file descriptors: sreadfd and swritefd.
+ *	Returns (1) for success, (0) for failure.
+ *
+ *  fixline()
+ *	Fixes the line to RAW for uucico MASTER mode.
+ */
+
+int initline()
+{
+#if SGTTY
+	struct sgttyb ttyb;
+
+	sreadfd = 0;	/* standard input */
+	swritefd = 1;	/* standard output */
+	ioctl(sreadfd, TIOCHPCL);
+	gtty(sreadfd, &ttyb);	/* set raw mode */
+	ttyb.sg_flags |= (RAW | CBREAK);
+	stripflg = 0;
+	ttyb.sg_flags &= ~(XTABS | EVENP | ODDP | CRMOD | ECHO | LCASE);
+	stty(sreadfd, &ttyb);
+
+#elif TERMIO
+	struct termio tio;
+
+	sreadfd = 0;			/* standard input */
+	swritefd = 1;			/* standard output */
+	ioctl(sreadfd, TCGETA, &tio);
+	tio.c_iflag = 0;
+	tio.c_oflag = 0;
+	tio.c_cflag &= ~(CSIZE|PARENB);
+	tio.c_cflag |= (HUPCL|CS8);
+	stripflg = 0;
+	tio.c_lflag = 0;
+	ioctl(sreadfd, TCSETA, &tio);
+#endif
+	return(1);
+}
+
+fixline()
+{
+#if SGTTY
+	struct sgttyb ttyb;
+
+	gtty(sreadfd, &ttyb);
+	ttyb.sg_flags |= (RAW | CBREAK);
+	stripflg = 0;
+	stty(sreadfd, &ttyb);
+
+#elif TERMIO
+	struct termio tio;
+
+	ioctl(sreadfd, TCGETA, &tio);
+#if 0
+	printmsg(M_LOG, "tio.c_iflag = 0x%04x", tio.c_iflag);
+#endif
+	tio.c_iflag = 0;
+	stripflg = 0;
+	ioctl(sreadfd, TCSETA, &tio);
+#endif
+}
+
+
+/*
+ *  Coherent support for dialing and connecting with a modem device.
+ *  Used for uucico MASTER mode.
+ *
+ *  dcpdial(dev, speed, tel)  char *dev, *speed, *tel;
+ *	Initiates the call, utilizing the modemcap dial package,
+ *	and sets the serial file descriptors: sreadfd and swritefd.
+ *	Returns (1) for success, and (0) for failure.
+ *
+ *  dcpundial()
+ *	Closes the serial file descriptors set up with dcpdial().
+ */
+
+static CALL call;		/* dial(3) structure, see "dial.h"	*/
+
+int dcpdial(dev, speed, tel)
+char *dev, *speed, *tel;
+{
+	char	*cp;
+
+	call.baud = atoi(speed);
+	call.line = dev;
+	call.telno = tel;
+
+	printmsg(M_CALL, "Trying to connect at speed %d", call.baud);
+	if (tel != NULL)
+		printmsg(M_CALL, "Calling phone# %s", call.telno);
+	if ((sreadfd = swritefd = dial(&call)) < 0) {
+		plog(M_CALL, "Dial failed, %s {%d}", _merr_list[-merrno],
+			processid);
+ 		while ((cp = index(modembuf, '\r')) != NULL)
+ 			*cp = ' ';
+ 		while ((cp = index(modembuf, '\n')) != NULL)
+ 			*cp = ' ';
+ 		plog(M_CALL, "Modem says %s", modembuf);
+		dcpundial();
+		return( 0 );
+	}
+	return( 1 );
+}
+
+	/* dcpundial() is called by sysend(), possibly others.
+	 * Dcpundial calls hangup. Hangup terminates the call and hangs up the
+	 * modem. Hangup then calls undial() which removes device lock files
+	 * and re-enables any ports if necessary. Bob H. 11/22/91
+	 */
+
+dcpundial()
+{
+	printmsg(M_DEBUG,"dcpundial: about to call hangup().");
+
+	if (role == MASTER)
+		hangup(swritefd);
+	else {
+#if 0
+		ioctl(swritefd, TIOCHPCL);
+#endif
+		/* slave mode */
+		close(swritefd); /* stdout */
+		close(sreadfd);  /* stdin  */
+		close(2);	 /* stderr */
+	}
+
+#if 0
+	plog(M_CALL, "dcpundial(%d)", sreadfd);
+	if (sreadfd > 2)
+		hangup(sreadfd);
+	else {
+		ioctl(sreadfd, TIOCHPCL);
+		close(sreadfd);
+	}
+#endif
+}
+
+sendbrk()
+{
+#if SGTTY
+	ioctl(swritefd, TIOCSBRK);
+	sleep(1);
+	ioctl(swritefd, TIOCCBRK);
+#endif
+}
+@
+
+
+1.7
+log
+@opened to 7 windows, corrected bogus error for removing lock file
+@
+text
+@d45 1
+a45 1
+	if ( stripflg )
+@
+
+
+1.6
+log
+@fixed dcpunidal to call hangup if in MASTER mode only and to close
+stdin and stdout if in SLAVE mode
+@
+text
+@a182 4
+	/* hangup is only called if we are in MASTER mode. If we are slave, then
+	 * we're basically a shell with sdtout and stdin as out read/write
+	 * devices. If slave, then we simply close stdout and stdin.
+	 */
+@
+
+
+1.5
+log
+@bob h and piggy added code and comments for port locking support.
+Also added was a -c option to check for queded files before firing off a call.
+@
+text
+@d183 4
+d191 1
+a191 1
+	if (swritefd > 2)
+d197 4
+a200 1
+		close(swritefd);
+@
+
+
+1.4
+log
+@changes by epstein for 7bit character sites
+@
+text
+@d177 6
+d185 2
+@
+
+
+1.3
+log
+@changes by epstein
+@
+text
+@d39 1
+d45 3
+d59 1
+d61 3
+d65 1
+a65 1
+	printmsg(M_DATA, "sread2: {%s}", visbuf(data, num));
+d91 1
+d105 1
+d119 1
+d130 1
+@
+
+
+1.2
+log
+@modified by epstein due to uucico not completing chat scripts with
+other unix sites
+@
+text
+@d188 7
+a194 1
+{}
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d82 2
+a83 3
+	ttyb.sg_flags |= (RAW|TANDEM);
+	/* ttyb.sg_flags &= ~(XTABS | EVENP | ODDP | CRMOD | ECHO | CBREAK);*/
+	ttyb.sg_flags &= ~(CRMOD | ECHO);
+d108 1
+a108 1
+	ttyb.sg_flags |= (RAW|TANDEM);
+@

@@ -1,0 +1,98 @@
+ccooffffnnlliisstt() -- General Function (libc)
+
+Symbol table lookup, COFF format
+#iinncclluuddee <ccooffff.hh>
+ccooffffnnlliisstt(_f_n, _n_l_p, _n_a_m_e_s, _c_o_u_n_t)
+cchhaarr *_f_n;
+SSYYMMEENNTT *_n_l_p;
+cchhaarr *_n_a_m_e_s;
+iinntt _c_o_u_n_t;
+
+The function ccooffffnnlliisstt()  finds one or more names in  the symbol table of a
+file in the COFF format.
+
+You must arrange  the names you seek into the  form of a COFF symbol table.
+All long  names (i.e.,  names longer than  four characters) must  be strung
+together like the COFF  long-symbol-name section.  Give each name an nn_ttyyppee
+of -1.  After the call, any unfound names will still have this nn_ttyyppee, as a
+sign  that it could  not be  found.  Thus,  you can use  the same  table to
+search several different COFF files.
+
+_f_n points to  the name of the file to  be searched.  _n_l_p points to an array
+of type SSYYMMEENNTT. This structure is defined in header file ccooffff.hh as follows:
+
+typedef struct  syment  {
+    union   {
+        char _n_name[SYMNMLEN]; /* Name */
+        struct {
+            long _n_zeroes; /* If name[0-3] zero, */
+            long _n_offset; /* string table offset */
+        } _n_n;
+        char *_n_nptr[2];
+    } _n;
+    long        n_value;    /* Value */
+    short       n_scnum;    /* Section number */
+    unsigned short n_type;  /* Type */
+    char        n_sclass;   /* Storage class */
+    char        n_numaux;   /* Auxilliary entries */
+#pragma align 2
+} SYMENT;
+#pragma align
+
+_c_o_u_n_t gives the  number of symbols being sought.  If  there are long names,
+the displacement works from the _n_a_m_e_s parameter.
+
+Each item being  sought must have 0xFFFF in its  nn_ttyyppee field.  This allows
+ccooffffnnlliisstt() to be used on several files in order.
+
+ccooffffnnlliisstt() opens  and reads the file  pointed to by _f_n.  It then scans the
+symbol table  and tries to  find a symbol  with an nn_ttyyppee  of 0xFFFF.  Upon
+finding this entry, ccooffffnnlliisstt() fills in the fields of the symbol entry.
+
+ccooffffnnlliisstt() returns  zero if anything  goes wrong, such as  an inability to
+open the file _f_n. Otherwise, it returns one.
+
+_E_x_a_m_p_l_e
+The following  example looks up three  symbol names in the  symbol table of
+file ttxx.oo.
+
+#include <stdio.h>
+#include <coff.h>
+
+main()
+{
+    int i;
+    static SYMENT sym[3];   /* the table of names to find */
+
+    /* the long names section */
+    static char long_names[] = "a_very_long_name";
+    strcpy(sym[0].n_name, "x"); /* look up x */
+    sym[0].n_type = -1;
+
+    strcpy(sym[1].n_name, "y"); /* look up y */
+    sym[1].n_type = -1;
+
+    sym[2].n_zeroes = 0;    /* look up a_very_long_name */
+    /* the long name table starts with a long giving its length
+      * offsets are from the beginning of that long. Therefore
+     * the n_offset of the first field is 4 not zero */
+    sym[2].n_offset = sizeof(long);
+    sym[2].n_type = -1;
+
+    /* do lookups */
+    if (!coffnlist("tx.o", sym, long_names, 3))
+        exit(1);
+
+    /* show off results */
+    for (i = 0; i < 2; i++) {
+        if (sym[i].n_type != -1) {
+            printf("%s found at %x\n",
+                (sym[i].n_zeroes ?
+                    sym[i].n_name :
+                    long_names + sym[i].n_offset - sizeof(long)),
+                    sym[i].n_value);
+    }
+}
+
+_S_e_e _A_l_s_o
+ccooffff.hh, lliibbcc, nnlliisstt()

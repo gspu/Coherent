@@ -1,0 +1,483 @@
+2,6 c 2,3
+<  * cpdir.c
+<  * DON"T USE THIS SOURCE!  MAY REBOOT THE SYSTEM ON BIG CPDIRS!
+<  * Copy hierarchies in a file system, preserving structure.
+<  * Needs directory stuff in headers: cc -D__KERNEL__ cpdir.c
+<  * Define SLOW for 'block at a time copying' - not recommended.
+---
+>  * Cpdir. Copy hierarchies in a file system, preserving structure.
+>  *	  Define SLOW for 'block at a time copying' - not recommended tho.
+8,13 d 4
+< 
+< /*
+<  * Known bug: if dir1/a and dir1/b are linked, and dir2/b exists,
+<  * cpdir -u dir1 dir2 creates new dir2/a not linked to dir2/b.
+<  */
+< 
+15,16 d 5
+< #include <stdlib.h>
+< #include <string.h>
+21 c 10
+< #include <sys/uproc.h>
+---
+> #include <sys/dir.h>
+26,33 c 15
+< extern	long	lseek();
+< 
+< /* Avoid conflicts with headers, bogus nachos. */
+< #undef	hash
+< #undef	DIRBUF
+< 
+< /* Manifest constants. */
+< #define	VERSION		"1.2"
+---
+> #define	VERSION		"1.1"
+43,44 d 24
+< #define	TRUE		(0==0)
+< #define	FALSE		(0==1)
+46 d 25
+< /* Macros. */
+49,50 c 28,29
+< /* Type definitions. */
+< typedef	char		bool;
+---
+> #define	TRUE		(0==0)
+> #define	FALSE		(0==1)
+52 c 31,37
+< typedef	union	{
+---
+> typedef	char		bool;
+> typedef	unsigned char	uchar;
+> typedef	unsigned int	uint;
+> typedef	unsigned short	ushort;
+> typedef	unsigned long	ulong;
+> 
+> typedef union {
+59 d 43
+< /* Link tables keep track of whether links have been properly preserved. */
+65 c 49
+< 	uint_t		l_nlink;
+---
+> 	uint		l_nlink;
+74 a 59
+> 
+77 a 63
+> extern	int	errno;
+125 a 112,113
+> char	*dot =		".";
+> char	*dotdot =	"..";
+130 a 119
+> char	*usage =	"usage: cpdir [options] dir1 dir2";
+136 a 126
+> char	*nomemory =	"out of memory";
+147 a 138
+> long	lseek();
+149,154 c 140,141
+< bool	dirchecks();
+< bool	suppress();
+< LINK	*linklocate();
+< LINK	*linkinstall();
+< bool	linkattempt();
+< bool	tgtunlink();
+---
+> char	*realloc();
+> char	*rindex();
+156 a 144
+> bool	suppress();
+157 a 146,150
+> bool	dirchecks();
+> bool	linkattempt();
+> bool	tgtunlink();
+> LINK	*linklocate();
+> LINK	*linkinstall();
+168 c 161
+< 	return exitval;
+---
+> 	return (exitval);
+177,178 c 170,173
+< 		if ((cp = *++av) == NULL)
+< 			usage();
+---
+> 		if ((cp = *++av) == NULL) {
+> 			errprint(fmt1, usage);
+> 			exit(1);
+> 		}
+220 c 215,216
+< 				usage();
+---
+> 				errprint(fmt1, usage);
+> 				exit(1);
+225,226 c 221,225
+< 	if ((dir1=*av++) == NULL  ||  (dir2=*av++) == NULL  ||  *av != NULL)
+< 		usage();
+---
+> 	if ((dir1=*av++) == NULL  ||  (dir2=*av++) == NULL  ||  *av != NULL) {
+> 		errprint(fmt1, usage);
+> 		exit(1);
+> 	}
+> 	return;
+272,275 c 271,278
+< 	if (stat(dir1, &srcstat) < 0)
+< 		fatal(fmt2, dir1, nofind);
+< 	if ((srcstat.st_mode & S_IFMT) != S_IFDIR)
+< 		fatal(fmt2, dir1, notdir);
+---
+> 	if (stat(dir1, &srcstat) < 0) {
+> 		errprint(fmt2, dir1, nofind);
+> 		exit(1);
+> 	}
+> 	if ((srcstat.st_mode & S_IFMT) != S_IFDIR) {
+> 		errprint(fmt2, dir1, notdir);
+> 		exit(1);
+> 	}
+279,282 c 282,289
+< 		if (stat(cp, &tgtstat) < 0)
+< 			fatal(fmt2, dir2, "cannot find parent");
+< 		if (access(cp, AWRITE|ASRCH) < 0)
+< 			fatal(fmt2, dir2, nomkdir);
+---
+> 		if (stat(cp, &tgtstat) < 0) {
+> 			errprint(fmt2, dir2, "cannot find parent");
+> 			exit(1);
+> 		}
+> 		if (access(cp, AWRITE|ASRCH) < 0) {
+> 			errprint(fmt2, dir2, nomkdir);
+> 			exit(1);
+> 		}
+291 a 299
+> 	return;
+296,300 c 304,307
+<  * Assume:
+<  * Source is a directory we can read and search. Srcstat contains its status.
+<  * Target is a directory we can write and search. Tgtstat contains its status.
+<  * Src_dev and tgt_dev are the devices of the parents of source and target.
+<  * If tflag is on target may not exist. In this case tgtstat.st_dev
+---
+>  * Assume: Source is a directory we can read and search. Srcstat contains its
+>  * status. Target is a directory we can write and search. Tgtstat contains its
+>  * status. Src_dev and tgt_dev are the devices of the parents of source and
+>  * target. If tflag is on target may not exist. In this case tgtstat.st_dev
+370,371 c 377,378
+< 		    !strcmp(dbp->db_name, ".")	||
+< 		    !strcmp(dbp->db_name, ".."))
+---
+> 		    !strcmp(dbp->db_name, dot)	||
+> 		    !strcmp(dbp->db_name, dotdot))
+426 c 433
+< 					"cannot reopen, copy incomplete");
+---
+> 				"cannot reopen, copy incomplete");
+441 a 449
+> 	return;
+466 d 473
+< 	LINK *lp;
+473 c 480
+< 	if (uflag && stat(target, &tgtstat) == 0)
+---
+> 	if (uflag  &&  stat(target, &tgtstat) == 0)
+475,478 d 481
+< 			/*
+< 			 * Target exists and is not older, do not update.
+< 			 * But watch out for links and keep the link counts sane.
+< 			 */
+481,492 d 483
+< 			if (srcstat.st_nlink > 1) {
+< 				if ((lp = linklocate(SOURCE)) == NULL)
+< 					linkinstall(SOURCE);
+< 				else if (lp->l_nlink == 0)
+< 					linkpurge(SOURCE, lp);
+< 			}
+< 			if (tgtstat.st_nlink > 1) {
+< 				if ((lp = linklocate(TARGET)) == NULL)
+< 					linkinstall(TARGET);
+< 				else if (lp->l_nlink == 0)
+< 					linkpurge(TARGET, lp);
+< 			}
+547 c 538
+< 					return FALSE;
+---
+> 					return (FALSE);
+558 c 549
+< 			return FALSE;
+---
+> 			return (FALSE);
+574 c 565
+< 			return FALSE;
+---
+> 			return (FALSE);
+590,591 c 581,582
+< 	else
+< 		vprintf();
+---
+> 	else vprintf();
+> 	return;
+619 a 611
+> 	return;
+636,637 c 628,631
+< 		if ((source = realloc(source, a+b)) == NULL)
+< 			nomemory();
+---
+> 		if ((source = realloc(source, a+b)) == NULL) {
+> 			errprint(fmt1, nomemory);
+> 			exit(1);
+> 		}
+646,647 c 640,643
+< 		if ((target = realloc(target, a+b)) == NULL)
+< 			nomemory();
+---
+> 		if ((target = realloc(target, a+b)) == NULL) {
+> 			errprint(fmt1, nomemory);
+> 			exit(1);
+> 		}
+667 a 664
+> 	return;
+690 c 687
+< 	return sum;
+---
+> 	return (sum);
+704 a 702
+> 	return;
+707,713 d 704
+< fatal(arg)
+< char *arg[];
+< {
+< 	errprint("%r", &arg);
+< 	exit(1);
+< }
+< 
+722,724 c 713,717
+< 	if ((cp = malloc(n)) == NULL)
+< 		nomemory();
+< 	return cp;
+---
+> 	if ((cp = malloc(n)) == NULL) {
+> 		errprint(fmt1, nomemory);
+> 		exit(1);
+> 	}
+> 	return (cp);
+740 a 734,736
+> 	register int n;
+> 	static int status;
+> 
+743 c 739
+< 		return FALSE;
+---
+> 		return (FALSE);
+749 c 745
+< 			return FALSE;
+---
+> 			return (FALSE);
+753 c 749
+< 			return FALSE;
+---
+> 			return (FALSE);
+755 c 751
+< 		return TRUE;
+---
+> 		return (TRUE);
+760 c 756
+< 		return TRUE;
+---
+> 		return (TRUE);
+765 c 761
+< 		return FALSE;
+---
+> 		return (FALSE);
+770 c 766
+< 		return FALSE;
+---
+> 		return (FALSE);
+772 c 768
+< 	return TRUE;
+---
+> 	return (TRUE);
+788 a 785
+> 	return;
+803 c 800
+< 		return FALSE;
+---
+> 		return (FALSE);
+810 c 807
+< 			return TRUE;
+---
+> 			return (TRUE);
+815 c 812
+< 	return FALSE;
+---
+> 	return (FALSE);
+819 c 816
+< register uchar_t *cp;
+---
+> register uchar *cp;
+821 c 818
+< 	register uint_t sum = 0;
+---
+> 	register uint sum = 0;
+824 c 821
+< 	return sum % HASHSIZE;
+---
+> 	return (sum % HASHSIZE);
+827,831 d 823
+< /*
+<  * Look for a LINK entry in the source or target link table.
+<  * If found, decrement the link count field and return a pointer to the LINK.
+<  * If not found, return NULL.
+<  */
+842 c 834,835
+< 	} else {
+---
+> 	}
+> 	else {
+853 c 846
+< 		return lp;
+---
+> 		return (lp);
+855 c 848
+< 	return NULL;
+---
+> 	return (NULL);
+858,861 d 850
+< /*
+<  * Create a new LINK table entry and add it to the source or target LINK table.
+<  * Initialize its link count to nlinks - 1.
+<  */
+892 c 881
+< 	return lp;
+---
+> 	return (lp);
+895,897 d 883
+< /*
+<  * Purge LINK entry lp from the source or target LINK table.
+<  */
+920 a 907
+> 	return;
+923,927 d 909
+< /*
+<  * The source file has a link count greater than 1.
+<  * If the source file is not in the source LINK list already,
+<  * add it to the list and return FALSE.
+<  */
+935 d 916
+< 	ret = TRUE;
+937,938 c 918,919
+< 		linkinstall(SOURCE);		/* add new source LINK */
+< 		return FALSE;
+---
+> 		linkinstall(SOURCE);
+> 		return (FALSE);
+942 c 923
+< 	if (tflag) {				/* test only */
+---
+> 	if (tflag) {
+947 c 928,929
+< 		} else
+---
+> 		}
+> 		else {
+949 c 931,934
+< 	} else if (link(cp, target) == 0) {	/* link succeeded */
+---
+> 			ret = TRUE;
+> 		}
+> 	}
+> 	else if (link(cp, target) == 0) {
+951 c 936,938
+< 	} else {				/* link failed */
+---
+> 		ret = TRUE;
+> 	}
+> 	else {
+959 c 946
+< 	return ret;
+---
+> 	return (ret);
+962,966 d 948
+< /*
+<  * Unlink the target.
+<  * Return TRUE if the unlink is successful (or target does not exist)
+<  * or FALSE if the unlink fails.
+<  */
+973 c 955
+< 		return TRUE;
+---
+> 		return (TRUE);
+976,979 c 958
+< 		return FALSE;
+< 	} else if ((tgtstat.st_mode & S_IFMT) != (srcstat.st_mode & S_IFMT)) {
+< 		errprint(fmt3, source, "file type mismatch with ", target);
+< 		return FALSE;
+---
+> 		return (FALSE);
+980 a 960,963
+> 	else if ((tgtstat.st_mode & S_IFMT) != (srcstat.st_mode & S_IFMT)) {
+> 		errprint(fmt3, source, "file type mismatch with ", target);
+> 		return (FALSE);
+> 	}
+981 a 965,969
+> 	if (!tflag)
+> 		if (unlink(target) < 0) {
+> 			errprint(fmt2, target, nounlink);
+> 			return (FALSE);
+> 		}
+984,987 d 971
+< 	else if (unlink(target) < 0) {
+< 		errprint(fmt2, target, nounlink);
+< 		return FALSE;			/* unlink failed */
+< 	}
+989,990 c 973
+< 	/* The unlink succeeded, decrement the target link count. */
+< 	if ((lp = linklocate(TARGET)) != NULL) {	/* target LINK exists */
+---
+> 	if ((lp = linklocate(TARGET)) != NULL) {
+993,995 c 976,979
+< 	} else if (tgtstat.st_nlink > 1)
+< 		linkinstall(TARGET);		/* add new target LINK */
+< 	return TRUE;
+---
+> 	}
+> 	else if (tgtstat.st_nlink > 1)
+> 		linkinstall(TARGET);
+> 	return (TRUE);
+998,1001 d 981
+< /*
+<  * Report on link botches.
+<  * This information is not known until the actual copying is finished.
+<  */
+1026 a 1007
+> 	return;
+1048 a 1030
+> 	return;
+1073 c 1055
+< 	return ret;
+---
+> 	return (ret);
+1086 c 1068
+< 		return ".";
+---
+> 		return (dot);
+1089 c 1071
+< 	return ret;
+---
+> 	return (ret);
+1097 d 1078
+< 
+1100,1101 c 1081,1082
+< 			return FALSE;
+< 	return TRUE;
+---
+> 			return (FALSE);
+> 	return (TRUE);
+1142,1154 d 1122
+< 
+< usage()
+< {
+< 	fprintf(stderr, "Usage: cpdir [options] dir1 dir2\n");
+< 	exit(1);
+< }
+< 
+< nomemory()
+< {
+< 	fatal(fmt1, "out of memory");
+< }
+< 
+< /* end of cpdir.c */

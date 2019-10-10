@@ -1,0 +1,137 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.43.09;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@#include <stdio.h>
+#include <sys/stat.h>
+#include <access.h>
+#include "mail.h"
+
+char	*parent();
+char	keyname[64];		/* Destination public key file name */
+
+
+/*
+ * Check access on a file.
+ */
+maccess(name)
+char *name;
+{
+	struct stat sb;
+
+	if (stat(name, &sb) < 0) {
+		if (access(parent(name), ACREAT) < 0)
+			return (-1);
+	} else if (access(name, AWRITE) < 0)
+		return (-1);
+	return (0);
+}
+
+/*
+ * Check enrollment for xmail.
+ */
+xaccess(name) char *name;
+{
+	struct stat sb;
+	sprintf(keyname, "%s%s", PUBKEYDIR, name);
+	return stat(keyname, &sb) >= 0;
+}
+/*
+ * Find the parent directory for access permissions.
+ */
+char *
+parent(name)
+char *name;
+{
+	register char *cp, *xp;
+	static char p[256];
+	char *rindex();
+
+	xp = rindex(name, '/');
+	if (xp == NULL)
+		return (".");
+	if (xp == name)
+		return ("/");
+	if (xp - name >= 256)
+		return ("");
+	cp = p;
+	while (name < xp)
+		*cp++ = *name++;
+	*cp = 0;
+	return (p);
+}
+
+/*
+ * Copy from the file stream `ifp' (starting at
+ * position `start' and ending at `end' or EOF)
+ * to the file stream `ofp' which is assumed
+ * to be already correctly positioned.
+ * Returns non-zero on errors.
+ * intstop == 1 means stop on interrupt
+ * intstop == 0 means ignore interrupt
+ */
+mcopy(ifp, ofp, start, end, intstop)
+register FILE *ifp, *ofp;
+fsize_t start, end;
+{
+	register int c;
+
+	fseek(ifp, start, 0);
+	end -= start;
+	if (intstop)
+		while (!intcheck() && end-- > 0  &&  (c = getc(ifp))!=EOF)
+			putc(c, ofp);
+	else
+		while (end-- > 0  &&  (c = getc(ifp))!=EOF)
+			putc(c, ofp);
+	fflush(ofp);
+	if (ferror(ofp))
+		return (1);
+	return (0);
+}
+
+char helpmessage[] = "\
+\
+mail -- computer mail\n\
+xmail -- secret computer mail\n\
+Usage:	mail [ options ] [ user ... ]\n\
+or:	xmail [ options ] user [ ... ]\n\
+Options:\n\
+	-f file		Print mail from 'file' instead of the default\n\
+	-p		Print mail non-interactively\n\
+	-q		Exit on interrupt, leaving mail unchanged\n\
+	-r		Print mail in reverse order, latest first\n\
+If 'user' is present, send each a mail message read from standard input.\n\
+If 'xmail' is the command, use xencode to encrypt the mail messages.\n\
+Mail message ends with EOF of a line containing only '.'.  Otherwise, read\n\
+and print the invoking user's mailbox.\n\
+\
+";
+
+usage()
+{
+	mmsg(helpmessage);
+	rmexit(1);
+}
+
+@

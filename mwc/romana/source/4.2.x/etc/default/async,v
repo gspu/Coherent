@@ -1,0 +1,386 @@
+head	4.2;
+access
+	hal
+	ljg
+	fred
+	udo
+	nigel;
+symbols
+	r12:4.2;
+locks; strict;
+comment	@# @;
+
+
+4.2
+date	92.07.12.21.58.45;	author rcsadmin;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+4.2
+log
+@This is the baseline version
+@
+text
+@#/etc/default/async
+
+#This file contains commented-out entries for all multi-port async cards
+#that have been tested at MWC, along with an explanation of how each
+#board was set up, and where to get in touch with the manufacturer.
+#Setups shown below are examples of actual working configurations on one
+#system;  for most boards, there are many possible valid configurations.
+
+#There are many differences among the boards.  Things to consider in
+#selecting a serial board:
+#-  Is the board available with 16550A-compatible (FIFO) UART parts?
+#-  Are all common RS-232 circuits available for each port?  This
+#   includes TD/RD/DTR/DSR/RTS/CTS/CD/RI.
+#-  Is there a group status register so that individual parts do not have
+#   to be polled when the board issues an interrupt?
+#-  Is there provision in hardware for dealing with limitations of the
+#   edge-triggered interrupt system on the AT bus?  SEALEVEL, GTEK, and
+#   Comtrol offer this.
+#-  Can boards be chained on the same interrupt line?
+#-  What sort of cables and connectors are provided with the board?
+#-  Are UART parts socketed?
+#-  Is documentation intelligible and complete?
+#-  Is technical support helpful, and readily available?
+
+#The "asy" driver shipped with COHERENT 4.0 allows you to mix several
+#different board types on the same system, as long as each port has its
+#own channel number and the total number of channels is no more than 32.
+#Each board should be configured to occupy a unique interrupt number,
+#unless you are chaining boards specifically designed to allow sharing of
+#an interrupt line.
+
+#The file begins with uncommented entries for the usual com1-com4,
+#occupying channels 0-3.  Unless noted otherwise, all sample multiport
+#configurations are shown in addition to these ports, with additional
+#channels starting at number 4.
+
+#Record formats:
+#
+#P	Port	Irq	OUT[12]	Excl	Speed	Channel	Nms
+#
+#G	Port	Irq	OUT[12]	Type	Number-of-Slots	Nms
+#
+#M	Port	Speed	Slot	Channel
+#
+#------------------------------------------------------
+
+# com1/2/3/4
+P	3f8	4	8	1	9600	0	0
+P	2f8	3	8	1	9600	1	0
+P	3e8	4	8	1	9600	2	0
+P	2e8	3	8	1	9600	3	0
+
+#------------------------------------------------------
+#SEALEVEL Systems, Inc.
+#P.O. Box 830
+#102 W. Main St.
+#Liberty, SC 29657
+#803-843-4343
+
+#TURBO COMM+4  - one group of 4 ports, channels 4-7
+
+#i/o base 0x1A0, irq 11, status at 0x1A7
+
+#Jumper	  1111
+#E1	OM5210765432
+#	.X..X...
+#	.X..X...
+
+#	SW1
+#	12345678
+#On	XXXX..X.
+#Off	....XX.X
+
+#G	1A7	11	8	1	4	0
+#M	1A0	9600	0	4
+#M	1A8	9600	1	5
+#M	1B0	9600	2	6
+#M	1B8	9600	3	7
+
+#TURBO COMM+8
+
+#The configuration of the TURBO COMM+8 below shows how this board can be
+#used to give three ports their own interrupt - they will be connected to
+#modems, and will have heavy traffic - and put the remaining five ports
+#in a single group on another interrupt line.  Port channels start at 0
+#as this system is used without conventional com1-com4 equipment.
+
+#single port at 0x280 using irq 4
+#single port at 0x288 using irq 3
+#single port at 0x290 using irq 10
+#remaining five ports at i/o base 0x298, irq 7, status at 0x287
+
+#Jumper	  2  3  4  5  6  7  10 11 12 15
+#E1	  .  .  X  .  .  .  .  .  .  .		E10  7 .XX. .XX. 5
+#E2	  .  X  .  .  .  .  .  .  .  .		     8 .XX. .XX. 6
+#E3	  .  .  .  .  .  .  X  .  .  .
+#E4	  .  .  .  .  .  X  .  .  .  .		E9   3 .XX. XX.. 1
+#E5	  .  .  .  .  .  X  .  .  .  .		     4 XX.. XX.. 2
+#E6	  .  .  .  .  .  X  .  .  .  .
+#E7	  .  .  .  .  .  X  .  .  .  .		E11  PAL  SW
+#E8	  .  .  .  .  .  X  .  .  .  .		     ..   XX
+
+#	SW1
+#	1234567
+#On	XXX.X.X
+#Off	...X.X.
+
+#P	280	4	8	1	19200	0	0
+#P	288	3	8	1	19200	1	0
+#P	290	10	8	1	2400	2	0
+
+#G	287	7	8	1	5	0
+#M	298	9600	3	3
+#M	2A0	9600	4	4
+#M	2A8	9600	5	5
+#M	2B0	9600	6	6
+#M	2B8	9600	7	7
+
+#------------------------------------------------------
+#Comtrol Corporation
+#2675 Patton Rd
+#P.O. Box 64750
+#St Paul, MN 55164
+#800-926-6876
+#612-631-7654 (US)
+#(44) 844-261-634 (UK)
+
+#Hostess 550 16 - two groups of 8 ports, channels 4-19
+
+#i/o base 0x500, irq 12, interrupt mask enable off
+#	   S1		   S2
+#	12345678	12345678
+#On	X.X.XXXX	.......X
+#Off	.X.X....	XXXXXXX.
+
+#G	507	12	8	1	8	0
+#M	500	9600	0	4
+#M	508	9600	1	5
+#M	510	9600	2	6
+#M	518	9600	3	7
+#M	520	9600	4	8
+#M	528	9600	5	9
+#M	530	9600	6	10
+#M	538	9600	7	11
+
+#G	547	12	8	1	8	0
+#M	540	9600	0	12
+#M	548	9600	1	13
+#M	550	9600	2	14
+#M	558	9600	3	15
+#M	560	9600	4	16
+#M	568	9600	5	17
+#M	570	9600	6	18
+#M	578	9600	7	19
+
+#------------------------------------------------------
+#GTEK Inc.
+#Development Hardware & Software
+#P.O. Box 2310
+#399 Hwy 90
+#Bay St. Louis, MS 39521-2310
+#601-467-8048
+
+#PCSS-8TX
+
+#i/o base 0x280, irq 7, status at 0x2BF
+
+#Jumpers		JB1	JB2	JB3
+#		23457
+#		....X	X	.
+#		....X	X	.
+
+#G	2BF	7	8	3	8	0
+#M	280	9600	0	4
+#M	288	9600	1	5
+#M	290	9600	2	6
+#M	298	9600	3	7
+#M	2A0	9600	4	8
+#M	2A8	9600	5	9
+#M	2B0	9600	6	10
+#M	2B8	9600	7	11
+
+#------------------------------------------------------
+#DigiBoard Inc.
+#6751 Oxford St.
+#St. Louis Park
+#MN 55426
+#612-943-9020
+
+#DigiCHANNEL PC/16 - one group of 16 ports, channels 4-19
+
+#Below is for PAL's 40000246 and 40000247, board 0.
+#Eight ports starting at 0x100, eight more starting at 0x148.
+#Status at 0x142.
+#Jumpers - shunt at J6 (irq 7).  J7 across pins 2&3.
+
+#G	142	7	8	4	16	0
+#M	100	9600	0	4
+#M	108	9600	1	5
+#M	110	9600	2	6
+#M	118	9600	3	7
+#M	120	9600	4	8
+#M	128	9600	5	9
+#M	130	9600	6	10
+#M	138	9600	7	11
+#M	148	9600	8	12
+#M	150	9600	9	13
+#M	158	9600	10	14
+#M	160	9600	11	15
+#M	168	9600	12	16
+#M	170	9600	13	17
+#M	178	9600	14	18
+#M	180	9600	15	19
+
+#------------------------------------------------------
+#Arnet Corporation
+#618 Grassmere Park Drive, #6
+#Nashville, TN 37211
+#615-834-5222
+
+#Multiport - one group of 8 ports, channels 4-11
+#UART address 0x280, option address 0x270, irq 7
+
+#	 S1	  S2	  S3
+#	12345	1234567	123456
+#On	XX.X.	X...XX.	.....X
+#Off	..X.X	.XXX..X	XXXXX.
+
+#G	272	7	0	2	8	0
+#M	280	9600	0	4
+#M	288	9600	1	5
+#M	290	9600	2	6
+#M	298	9600	3	7
+#M	2A0	9600	4	8
+#M	2A8	9600	5	9
+#M	2B0	9600	6	10
+#M	2B8	9600	7	11
+
+#------------------------------------------------------
+#Applied Digital
+#HCR 63
+#Box 130C West Plains
+#MO 65775
+#417-257-1894
+
+#SIO4
+
+#First configuration - 4 ports starting at 0x280, using irq 7.
+
+#	ADR Switch	Jumpers
+#	12345		23457D
+#On	XX.X.		....X.
+#Off	..X.X
+
+#P	280	7	8	0	9600	4	0
+#P	288	7	8	0	9600	5	0
+#P	290	7	8	0	9600	6	0
+#P	298	7	8	0	9600	7	0
+
+#Second configuration - this replaces the usual com1-com4.
+#The advantage is that all four ports may run in interrupt mode at once.
+
+#	ADR Switch	Jumpers
+#	12345		23457D
+#On	XX.X.		.....X
+#Off	..X.X
+
+#P	3f8	4	8	0	9600	0	0
+#P	2f8	3	8	0	9600	1	0
+#P	3e8	4	8	0	9600	2	0
+#P	2e8	3	8	0	9600	3	0
+
+#------------------------------------------------------
+#Star Gate Technologies, Inc.
+#29300 Aurora Rd
+#Solon, OH 44139
+#1-800-782-7428
+#216-349-1860
+
+#PLUS 8
+#PAL 800000-01 Secondary Addresses.  Normal interrupt mode on irq 2/9.
+#Eight ports starting at 0x180.
+
+#	  SW1
+#	12345678
+#On	X.....X.
+#Off	.XXXXX.X
+
+#G	580	9	8	1	8	0
+#M	180	9600	0	4
+#M	188	9600	1	5
+#M	190	9600	2	6
+#M	198	9600	3	7
+#M	1A0	9600	4	8
+#M	1A8	9600	5	9
+#M	1B0	9600	6	10
+#M	1B8	9600	7	11
+
+#------------------------------------------------------
+#Connect Tech Inc
+#340 Woodlawn Road West
+#Unit 20
+#Guelph, Ontario
+#N1H 7K6
+#519-836-1291
+
+#DFlex Serial Communications Board - one group of 8 ports, channels 4-11
+
+#i/o base 0x190, irq 10, status at 0x1D0
+#	IRQ Jumpers
+#	    1111
+#	34570125
+#B	........
+#.	....X...
+#A	....X...
+#.
+#	SW1
+#	12345678
+#On	......XX
+#Off	XXXXXX..
+
+#G	1D0	10	8	1	8	0
+#M	190	9600	0	4
+#M	198	9600	1	5
+#M	1A0	9600	2	6
+#M	1A8	9600	3	7
+#M	1B0	9600	4	8
+#M	1B8	9600	5	9
+#M	1C0	9600	6	10
+#M	1C8	9600	7	11
+
+#------------------------------------------------------
+#Boca Research, Inc.
+#6413 Congress Avenue
+#Boca Raton, FL 33487
+#407-997-6227
+
+#Bocaboard BB1008
+#Eight ports starting at 0x100, status register at 0x107, irq 15.
+
+#		0000 XXXX
+#		0123 XXXX	Irq
+#		XXXX 046C
+#Jumpers	XXXX 0000	3  4  5  7 10 11 12 15
+#Set		.X.. X...	.  .  .  .  .  .  .  X
+
+#G	107	15	8	1	8	0
+#M	100	9600	0	4
+#M	108	9600	1	5
+#M	110	9600	2	6
+#M	118	9600	3	7
+#M	120	9600	4	8
+#M	128	9600	5	9
+#M	130	9600	6	10
+#M	138	9600	7	11
+
+# end of /etc/default/async
+@

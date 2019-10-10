@@ -1,0 +1,148 @@
+.TH fopen() "" "" "STDIO Function (libc)"
+.PC "Open a stream for standard I/O"
+.B "#include <stdio.h>"
+\fBFILE *fopen (\fIname, type\^\fB)\fR
+\fBchar *\fIname\^\fB, *\fItype\^\fB;\fR
+.PP
+.B fopen()
+allocates and initializes a
+.B FILE
+structure, or
+.IR stream ;
+opens or creates the file
+.IR name ;
+and returns a pointer to the structure for use by other STDIO routines.
+.I name
+refers to the file to be opened.
+.PP
+.I type
+is a string that consists of one or more of the characters \*(QLrwa\*(QR,
+to indicate the mode of the string, as follows:
+.DS
+	\fBr\fR	Read; error if file not found
+	\fBw\fR	Write; truncate if found, create if not found
+.DE
+.DS
+	\fBa\fR	Append to end of file; no truncation, create if not found
+	\fBr+\fR	Read and write; no truncation, error if not found
+.DE
+.DS
+	\fBw+\fR	Write and read; truncate if found, create if not found
+	\fBa+\fR	Append and read; no truncation, create if not found
+.DE
+.PP
+The modes that contain \*(Qla\*(Qr
+set the seek pointer to point at the end of the file;
+all other modes set it to point at the beginning of the file.
+Modes that contain \*(Ql+\*(Qr both read and write; however,
+a program must call \fBfseek\fR or \fBrewind\fR before it switches
+from reading to writing or vice versa.
+.PP
+.SH Example
+This example copies
+.B argv[1]
+to
+.B argv[2]
+using STDIO routines.
+It demonstrates the functions
+.BR fopen() ,
+.BR fread() ,
+.BR fwrite() ,
+.BR fclose() ,
+and
+.BR feof() .
+.DM
+#include <stdio.h>
+#include <stdlib.h>
+/* BUFSIZ is defined in stdio.h */
+char buf[BUFSIZ];
+.DE
+.DM
+void fatal(message)
+char *message;
+{
+	fprintf(stderr, "copy: %s\en", message);
+	exit(1);
+}
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	register FILE *ifp, *ofp;
+	register unsigned int n;
+.DE
+.DM
+	if (argc != 3)
+		fatal("Usage: copy source destination");
+	if ((ifp = fopen(argv[1], "r")) == NULL)
+		fatal("cannot open input file");
+	if ((ofp = fopen(argv[2], "w")) == NULL)
+		fatal("cannot open output file");
+.DE
+.DM
+	while ((n = fread(buf, 1, BUFSIZ, ifp)) != 0) {
+		if (fwrite(buf, 1, n, ofp) != n)
+			fatal("write error");
+	}
+.DE
+.DM
+	if (!feof(ifp))
+		fatal("read error");
+	if (fclose(ifp) == EOF || fclose(ofp) == EOF)
+		fatal("cannot close");
+	exit(0);
+}
+.DE
+.SH "See Also"
+.Xr "fclose()," fclose
+.Xr "fdopen()," fdopen
+.Xr "freopen()," freopen
+.Xr "libc" libc
+.br
+\*(AS, \(sc7.9.5.3
+.br
+\*(PX Standard, \(sc8.1
+.SH Diagnostics
+.B fopen()
+returns NULL if it cannot allocate a
+.B FILE
+structure, if the
+.I type
+string is
+nonsense, or if the call to
+.B open()
+or
+.B creat()
+fails.
+.PP
+.II stdio.h
+.II FOPEN_MAX
+The header file
+.B stdio.h
+defines the manifest constant
+.BR FOPEN_MAX ,
+which sets the maximum number of
+.B FILE
+structures that you can allocate per program, including
+.BR stdin ,
+.BR stdout ,
+and
+.BR stderr .
+.II "FILE^maximum open at once"
+For release 4.2,
+.B FOPEN_MAX
+is set to 60.
+.SH Notes
+Many operating systems recognize a \*(Qlb\*(Qr modifier to the
+.I type
+argument; this indicates that the file contains binary information, and
+lets the operating system handle \*(QLfunny characters\*(QR correctly.
+\*(CO has no need of such a modifier, so if you append \*(Qlb\*(Qr to
+.IR type ,
+it will be ignored.
+This modifier, however, is recognized by numerous other operating systems,
+including \*(MD, OS/2, and GEMDOS.
+If you expect to port developed code to any of these operating systems, files
+should append the \*(Qlb\*(Qr to
+.IR type .

@@ -1,0 +1,362 @@
+bboooottiinngg -- Technical Information
+
+How booting works
+
+_B_o_o_t_i_n_g  is the  method by  which COHERENT  is loaded from  a hard  disk or
+floppy disk  and set into action.   The term comes from  the old expression
+about pulling one's self up by one's bootstraps.
+
+This  article  discusses  the events  that  take  place  while booting  the
+COHERENT system.  You do not need  to read this article to know how to boot
+COHERENT,  as all  booting details are  handled by  COHERENT automatically.
+However, if you are interested in the details, or want to tailor the system
+to your needs, it will help.
+
+Two I/O  devices are involved in  booting.  The first device  is called the
+_b_o_o_t  device; it  contains  the program  necessary to  invoke the  COHERENT
+system and start it running.  The  second device is called the _r_o_o_t device;
+it contains  the root  file system  after the system  is running.   In most
+cases, these two devices are the same physical device.
+
+_I_n_i_t_i_a_l _S_t_a_r_t_u_p
+When you boot from a hard  disk, your computer's BIOS loads the master boot
+from the first sector of your  hard disk into memory.  The master boot then
+loads  the secondary  boot from  the first sector  of your  boot partition.
+When you  boot from a  floppy disk, however,  the BIOS loads  the secondary
+boot directly.
+
+This program,  called the _b_o_o_t_s_t_r_a_p or _s_e_c_o_n_d_a_r_y _b_o_o_t,  is very small (only
+512 bytes), so it cannot do  very much.  Therefore,  its main purpose is to
+read in a larger, more complex program called the _t_e_r_t_i_a_r_y _b_o_o_t, or /ttbboooott.
+It is /ttbboooott that actually performs the work of loading the COHERENT system
+into memory.
+
+If the secondary boot does not find a file called /ttbboooott, it print a `?' to
+prompt for  the boot image  you want it  to load.  This  indicates a severe
+error because it means that the tertiary boot can not be found.
+
+If the  secondary boot finds  /ttbboooott, it loads  it into memory  and lets it
+take over booting.  The first thing /ttbboooott does is search for a file called
+/aauuttoobboooott  in the  root directory  of the device  being booted.   If /ttbboooott
+finds /aauuttoobboooott,  it first pauses  for five seconds,  so you can  abort the
+process and boot  another kernel if you wish.  If  you do not abort booting
+within five  seconds, /ttbboooott then loads /aauuttoobboooott into  memory and runs it.
+If, however, /ttbboooott cannot find /aauuttoobboooott,  it prompts you to type the name
+of the COHERENT image to boot, usually /ccoohheerreenntt. You can type the commands
+ddiirr or  llss if you do not  remember the name of the image  you wish to boot.
+Note that /aauuttoobboooott is usually a link to /ccoohheerreenntt.
+
+If  you need  to find  the  file name  of the  kernel you  are  now running
+(usually  /ccoohheerreenntt), use  the  program ffiiffoo(),  which is  kept in  library
+lliibbmmiisscc. See the Lexicon entry lliibbmmiisscc for details.
+
+After it loads the system image  /aauuttoobboooott from the root device, the system
+initializes all  devices, as well as starting the  _i_d_l_e process and program
+/eettcc/iinniitt. The idle process uses any leftover computer time.
+
+iinniitt controls  the operation of  the system from  this point on.   It first
+executes the command /eettcc/bbrrcc  (i.e., ``boot run commands''), which can run
+commands like  ffsscckk. bbrrcc can request a reboot,  remain in single-user mode,
+or  enter multi-user  mode  automatically.  iinniitt  then calls  the _s_h_e_l_l  to
+handle commands  from the system console.  The  shell responds by prompting
+with #,  and expects  regular commands.   At this point,  the system  is in
+_s_i_n_g_l_e-_u_s_e_r _m_o_d_e, which means that no other users can log in to the system.
+The  shell is  running in  superuser mode  and only  the console's  user is
+logged in.
+
+At this  point, you can enter  commands to the system  in a normal fashion.
+One difference  from normal, multi-user operation is that  the system is in
+single-user mode,  to allow special  processing to take  place before other
+users log in.   Being in single-user mode gives you  the opportunity to run
+ffsscckk to check the file system and perform other administrative tasks before
+other users log into the system.
+
+When  administrative activities  are  finished, you  should type  <ccttrrll-DD>.
+This terminates single-user operation;  iinniitt then opens the system to other
+users.
+
+The  file /eettcc/rrcc  contains shell  commands that  the system  executes just
+before making  the system  available to  other users.  This  file typically
+includes commands to delete temporary files and mount standard devices.  It
+also performs  any installation-specific  commands you require.   As system
+administrator,  you  maintain this  file.   You  must be  sure  that it  is
+properly updated and never removed.
+
+One  command  that  must  be  included  in /eettcc/rrcc  is  /eettcc/uuppddaattee,  which
+periodically calls ssyynncc() to update buffered data to the disk.
+
+iinniitt  also  maintains the  file  /eettcc/uuttmmpp, which  notes  users' login  and
+logout.
+
+_F_e_a_t_u_r_e_s _o_f _t_h_e _M_a_s_t_e_r _B_o_o_t_s_t_r_a_p
+The  COHERENT  master  bootstrap allows  you  to  boot different  operating
+systems from  different partitions of any hard drive.   It is more powerful
+than similar programs of other operating systems, and we strongly recommend
+that you use it.  If you  do not use the MWC bootstrap, you may have to use
+floppy disks to  boot up MS-DOS and COHERENT.  If  you have two hard drives
+and you  are placing  COHERENT on  the second drive,  you must use  the MWC
+bootstrap.
+
+The bootstrap can be configured in three ways:
+
+11. No  active partition.   With this configuration,  you have  the greatest
+   degree of flexibility.  When  you boot your system, the following prompt
+   appears on the screen:
+
+       Select Partition 0-7
+
+   This means  that you must press  the number key that  corresponds to the
+   partition that holds the root partition of the operating system you wish
+   to  boot.  (For  example, if  you  wish to  boot COHERENT  and its  root
+   partition is on partition 2, then  press the `2' key in response to this
+   prompt.) If  you have one  hard drive, only  partitions 0 through  3 are
+   relevant to  you.  The  bootstrap waits  indefinitely until you  tell it
+   what to boot.
+
+22. COHERENT is active partition.  Under this configuration, the system will
+   automatically  boot  COHERENT  unless  you  press  the number  key  that
+   represents the root partition of another operating system (e.g., MS-DOS)
+   while the A-drive light is on.
+
+33. MS-DOS (or  another operating system)  is active partition.   Under this
+   configuration, the system  automatically boots MS-DOS unless you hit the
+   number  key that  represents  the root  partition  of another  operating
+   system (e.g., COHERENT) while the A-drive light is on.
+
+Under  some hardware  configurations, particularly  faster  80386 machines,
+having an  active partition can cause  difficulties when you try  to boot a
+non-active  partition.  It  often  is difficult  to  press the  appropriate
+number key at the right time, and the right time itself can vary.  For this
+reason, the  default setting of the  master bootstrap is to  have no active
+partition.  If at any time you  wish to reconfigure the bootstrap, you need
+only to  run the ffddiisskk utility  under COHERENT and access  option 1 (Change
+active partition)  of the  option menu.  Make  the desired change  and then
+save the updated partition table.
+
+_F_i_l_e_s _U_s_e_d _D_u_r_i_n_g _S_t_a_r_t_u_p
+The following files are used when the system is in single-user mode:
+
+/eettcc/ddrrvvlldd  Load device drivers.
+
+/eettcc/iinniitt   Initiate  a process  on  each terminal  line,  call login  when
+            appropriate.
+
+/eettcc/bbrrcc    Shell commands for booting.
+
+/eettcc/cchheecckklliisstt
+            List of partitions for ffsscckk to check.
+
+/bbiinn/sshh     Bourne shell.
+
+/bbiinn/kksshh    Korn shell.
+
+The  following files  are needed  after the  system has  entered multi-user
+mode:
+
+/bbiinn/llooggiinn  This file holds the program that controls logging in.
+
+/eettcc/ggeettttyy  This file  holds the executable program that  permits a user to
+            log in on a port.
+
+/eettcc/llooggmmssgg This file holds the text of the login prompt.
+
+/eettcc/mmoottdd   This file holds the message of the day.
+
+/eettcc/mmoouunntt.aallll
+            Shell script to mount partitions.
+
+/eettcc/rrcc     This  file  holds  a series  of  shell  commands that  ccoohheerreenntt
+            executes when it enters multi-user startup.
+
+/eettcc/ttttyyss   This file  is holds information about  terminals.  Its contents
+            are  read by  ggeettttyy to  ensure  that it  sets the  port to  the
+            correct baud rate and terminal type.
+
+/eettcc/uuttmmpp   This file  holds information about who is  logged in right now.
+            It is read by the command wwhhoo.
+
+_B_u_i_l_d_i_n_g _a _B_o_o_t_a_b_l_e _F_l_o_p_p_y _D_i_s_k
+Building a bootable floppy disk for COHERENT requires a few more steps than
+are  required to  build a  bootable  floppy for  MS-DOS.  The  task is  not
+particularly painful, it simply requires a little more attention to detail.
+Before  beginning,  please  note that  the  commands  mmkkbbtt33.55 and  mmkkbbtt55.2255
+automatically build, respectively,  a bootable 3.5-inch or 5.25-inch floppy
+disk.
+
+The following  details the  steps required to  build a version  of COHERENT
+that can be booted off a floppy disk.  Note that the following describes an
+extremely  minimal configuration,  which can  be  used only  in single-user
+mode.
+
+11. Format the Floppy Disk
+     To begin, format the floppy disk with the command /eettcc/ffddffoorrmmaatt. After
+     you format the floppy disk, use the command /eettcc/mmkkffss command to write
+     a blank file system onto it.
+
+22. Write a Bootstrap to the Floppy Disk
+     To make the floppy disk bootable,  you must copy a special program, or
+     _b_o_o_t_s_t_r_a_p, to  the first  sector (or _b_o_o_t  _b_l_o_c_k) of the  floppy disk.
+     (This is  the same program  that is called  the _s_e_c_o_n_d_a_r_y _b_o_o_t  in the
+     above sections.) The boot block is the first sector of the floppy disk
+     read when a computer boots.  If a floppy disk is to be bootable, a set
+     of instructions must be present in the boot block that tell the system
+     the name of  the kernel -- that is, the  file on the floppy disk to be
+     loaded and executed.
+
+     To write  the bootstrap to  the floppy disk,  you must copy  it to the
+     _d_e_v_i_c_e that the floppy disk is in.  This ensures that the bootstrap is
+     copied to  the first sector, or  boot block, of the  floppy disk.  For
+     example,  to copy  the  bootstrap for  a 1.2-megabyte  floppy disk  in
+     floppy drive 0 (or A), type the command:
+
+         cp /conf/boot.fha /dev/fha0
+
+     To copy the bootstrap for  a 1.44-megabyte floppy disk to floppy drive
+     0, type the command:
+
+         cp /conf/boot.fva /dev/fva0
+
+     After  you have  copied the  boot  sector, you  must mount  the floppy
+     device and copy /ttbboooott to it.  To mount a 1.44-megabyte floppy disk to
+     floppy drive 0, type the command:
+
+         /etc/mount /dev/fva0 /f0
+
+     Copy /ttbboooott with the following command:
+
+         cp /tboot /f0
+
+     Warning: _N_e_v_e_r mount the floppy  disk before you copy the bootstrap to
+     it!
+
+     See the Lexicon  article on ffllooppppyy ddiisskkss for the  table of floppy disk
+     devices to use with the above commands.
+
+     For COHERENT, the bootstrap to be written to the floppy disk tell your
+     computer to look for /ttbboooott. If this file does not exist, the prompt
+
+         AT boot ?
+
+     appears; in response, you must type the name of the kernel for booting
+     to continue.   Note that you may  not be able to  load a kernel bigger
+     than 128 kilobytes in this case.
+
+     Note  that unlike  the routine  of booting  from the  hard-disk drive,
+     booting  from the  floppy-disk drive  involves  only three  steps, not
+     four: the master bootstrap  program is skipped, but everything else is
+     the same.
+
+     The directory /ccoonnff contains the bootstraps necessary for all sizes of
+     floppy disks, for hard-drive partitions, and for the master-boot block
+     of a hard  drive.  Choose the proper bootstrap for  your disk and copy
+     it to the floppy disk.
+
+33. Copy the Necessary Files
+     Once the bootstrap  is properly written to the floppy  disk, it is now
+     time to  mount the floppy disk and copy the essential files to it.  To
+     mount the floppy disk, type
+
+         mount fva0
+
+     if you have a 3.5-inch floppy-disk drive, or
+
+         mount fha0
+
+     if your floppy-disk drive is 5.25 inches.
+
+     Then type the following commands:
+
+         mkdir /f0/etc
+         mkdir /f0/dev
+         mkdir /f0/bin
+         mkdir /f0/tmp
+         cp /tboot /coherent /coherent.sym /f0
+         cp /etc/init /etc/drvld /etc/brc /etc/profile /f0/etc
+         cp /dev/* /f0/dev
+         cp /bin/sh /bin/sync /f0/bin
+
+     If you are using either of the loadable keyboard drivers nnkktt or vvttnnkkbb,
+     also execute the following commands:
+
+         mkdir /f0/drv
+         mkdir /f0/conf
+         mkdir /f0/conf/kbd
+         cp /etc/drvld.all /f0/etc
+         cp /drv/* /f0/drv
+         cp /conf/kbd/* /f0/conf/kbd
+
+     The above  files will let you run COHERENT  in single-user mode, which
+     is all that you need when you boot COHERENT from a floppy disk.
+
+     Note that  the files /eettcc/bbrrcc and /eettcc/ddrrvvlldd.aallll  are scripts that you
+     must modify  to suit your needs.   The file /eettcc/bbrrcc is  a key file in
+     the  booting process,  so  be prepared  to modify  its contents.   The
+     significance of this will be reviewed in depth in the next section.
+
+     _W_a_r_n_i_n_g: After  you have  finished copying  files to the  floppy disk,
+     execute the command uummoouunntt to unmount the floppy disk.  If you do not,
+     the files will be damaged or lost!
+
+44. The Boot Sequence, Modifications To Make the Disk Work
+     When the  computer system powers  up and accesses the  floppy disk, it
+     reads the  boot sector of the  disk, which in turn  looks for the file
+     /ttbboooott and executes it.   /ttbboooott looks for the kernel named /aauuttoobboooott,
+     reads  it,  and executes  it.   If /ttbboooott  cannot  find /aauuttoobboooott,  it
+     prompts you to type the name of the kernel to boot.
+
+     The kernel  loads and invokes /eettcc/iinniitt which, in  part, looks for and
+     executes the  statements in /eettcc/bbrrcc, which,  in turn, typically loads
+     loadable drivers and runs /eettcc/ffsscckk to check the file systems.  If you
+     wish to  run ffsscckk on the  floppy disk, you must copy  it from the hard
+     drive.
+
+     What is  truly important is the  _e_x_i_t _s_t_a_t_u_s of /eettcc/bbrrcc.  If its exit
+     status is  not zero, the  system remains in single-user  mode.  If its
+     exit status is zero, the system attempts to enter multiuser mode.
+
+     The above-listed  files are the bare minimum  for a single-user floppy
+     disk.   To build  a floppy  disk with the  minimum files  needed, your
+     /eettcc/bbrrcc file should look like this:
+
+         /etc/drvld.all
+         exit 1
+
+     This  forces an  exit status  of one  and causes  COHERENT to  spawn a
+     single-user shell, /bbiinn/sshh.
+
+     From  the shell  prompt, you  can do  whatever you  wish, but  you are
+     limited to the commands and functions copied to the floppy disk.
+
+     /eettcc/bbrrcc is not the only  file that may need modification.  The kernel
+     (/ccoohheerreenntt  or /aauuttoobboooott)  must have  the  values rroooottddeevv  and ppiippeeddeevv
+     patched for  the floppy disk's  major and minor  device numbers.  This
+     patching can be done with the commands /bbiinn/ddbb or /ccoonnff/ppaattcchh.
+
+     To patch the kernel on the floppy disk mounted on /ff00 for a 5.25-inch,
+     high-density disk as the root and pipe device, type:
+
+         /conf/patch /f0/coherent rootdev=makedev\(4,14\)
+         /conf/patch /f0/coherent pipedev=makedev\(4,14\)
+
+     For a 3.5-inch, high-density disk, type:
+
+         /conf/patch /f0/coherent rootdev=makedev\(4,15\)
+         /conf/patch /f0/coherent pipedev=makedev\(4,15\)
+
+Finally, note  that when you  boot your floppy  disk, the disk  must _n_o_t be
+write protected.  This is because  COHERENT must be able to write temporary
+files into directory /ttmmpp; if it cannot do so, booting will fail.
+
+_U_s_e_s _o_f _a _B_o_o_t_a_b_l_e _F_l_o_p_p_y _D_i_s_k
+A bootable floppy disk can be a lifesaver should something occur to corrupt
+the COHERENT file system on the hard drive.  A properly prepared floppy can
+be used to recover a damaged file system by running /eettcc/ffsscckk. You can also
+use it  to copy files from  the hard drive should  you decide to re-install
+COHERENT on the hard drive.
+
+Multiuser-mode floppy disks can also be  built for the fun of seeing such a
+system run from  a floppy disk.  The capacity of  such a system is limited,
+of course, but it can be done.
+
+_S_e_e _A_l_s_o
+AAddmmiinniisstteerriinngg CCOOHHEERREENNTT, bboooott, lliibbmmiisscc, ttbboooott

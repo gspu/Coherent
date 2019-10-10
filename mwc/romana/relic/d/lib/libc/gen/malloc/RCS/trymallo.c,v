@@ -1,0 +1,139 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @ * @;
+
+
+1.1
+date     91.04.22.18.11.53;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@initial version provided by stevesf 
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/* Test program for malloc errors are
+ * Error 1 area wrong after initialization
+ * Error 2 area wrong after realloc shrink
+ * Error 3 area wrong after realloc expand
+ * First number after error is what byte was expected
+ * Second number is what byte was found
+ * Third number is where
+ * Fourth number is size of area being looked at
+ */
+
+#define XSIZ 113
+#include <stdio.h>
+
+extern char *malloc();
+extern char *realloc();
+extern void  free();
+extern unsigned rand();
+
+static unsigned mct, mfail, rct, rfail, ect, count;
+
+static struct mloc {
+	char *area;
+	unsigned siz;
+} locs[XSIZ];
+
+unsigned
+vsiz()
+{
+	unsigned i;
+
+	i = rand() >> 4;
+	return(i ? i : 10);
+}
+		
+mkval(siz, loc)
+unsigned siz;
+char *loc;
+{
+	char fil=siz;
+
+	for(;siz>0; siz--)
+		*loc++=fil;
+}
+
+ckval(point, fill, siz, loc)
+unsigned point, fill, siz;
+char *loc;
+{
+	char fil=fill, chx, *xloc=loc;
+	unsigned  xsiz=siz;
+
+	for(;siz>0; siz--) {
+		if((chx=*loc++) != fil) {
+		   printf("Error: %d %x %x %d %d\n", 
+			   point, fil, chx, xsiz-siz, xsiz);
+		   ect++;
+		   return(1);
+		}
+	}
+	return(0);
+}
+
+churn(loc)
+struct mloc *loc;
+{
+	unsigned nsiz;
+	char *savp;
+
+	if(loc->area == NULL) {	/* build an area */
+		mct++;
+		if(NULL != (loc->area=malloc(loc->siz=vsiz())))
+			mkval(loc->siz, loc->area);
+		else
+			mfail++;
+		return;
+	}
+	ckval(1, loc->siz, loc->siz, loc->area);
+	if(rand() & (1<<10)) {	/* free or realloc */
+		free(loc->area);
+		loc->area=NULL;
+		count--;	/* frees don't count */
+	} else {
+		rct++;
+		if(NULL != (savp=realloc(loc->area, nsiz=vsiz()))) {
+			loc->area=savp;
+			ckval(2+(loc->siz<nsiz), /* 2=contract 3=expand */
+				 loc->siz,	 /* filler byte */
+				 loc->siz<nsiz ? loc->siz : nsiz, /* size */
+				 loc->area);	 /* area */
+			mkval(loc->siz=nsiz, loc->area);
+		}
+		else
+			rfail++;
+	}
+}
+
+main(argc, argv) int argc; char *argv[];
+{
+	if (argc > 1)
+		srand(atoi(argv[1]));
+
+	for(count=0; count < XSIZ; count++)
+		locs[count].area = NULL;
+
+	for(count=0; count<500; count++) {
+		churn(&locs[rand() % XSIZ]);
+		if(!memok())
+			printf("memok %d\n", count);
+	}
+
+	printf("%4d mallocs     %4d failed\n", mct, mfail);
+	printf("%4d reallocs    %4d failed\n", rct, rfail);
+	printf("%d errors reported\n", ect);
+}
+@

@@ -1,0 +1,769 @@
+/*
+ * To compile use
+ * cc cgrep.c -lmisc
+ * This uses libmisc.a and the misc.h header from libmisc.a.Z
+ */
+
+/*
+ * cgrep is egrep for c source programs.
+ * 	cgrep [-r new] [-clnsA] [pattern] [file ...]
+ *
+ * cgrep checks all c identifiers (cgrep considers if, etc to be
+ * identifiers) against an egrep type pattern for a full match.
+ *
+ * 	cgrep tmp *.c
+ * will find tmp as an identifier, but not tmpname, or tmp in a string or
+ * comment.
+ * 	cgrep "x|abc|d" *.c
+ * will find x, ab, or d. Note these are egrep style patterns with a
+ * surrounding ^( )$ Thus "reg*" will not match register but "reg.*"
+ * will.
+ *
+ * cgrep accumulates names with included . and -> for testing against the
+ * egrep pattern. Thus you can look for ptr->val with
+ * 	cgrep "ptr->val" x.c
+ * This will find ptr->val even if it contains spaces, comments or is
+ * spread across lines. If it is spread across lines it will be reported
+ * on the line containing the last token unless the -A option is used
+ * in which case it will be reported on the line containing the first
+ * token.
+ *
+ * For structure.member use
+ * 	cgrep "structure\.member" x.c
+ * because . has the egrep meaning any character. Do not include spaces
+ * in any pattern. Only identifiers and . or -> between identifiers are
+ * included in the tokens checked for pattern match.
+ *
+ * Where no files are given cgrep will read stdin. Options -lA require
+ * a file name. Where stdin is used with option -r a new file is written
+ * out stdout.
+ *
+ * Options.
+ *
+ * -l lists the files with hits not the lines.
+ *
+ * -n puts a line number on found lines.
+ *
+ * -s List all strings. This form takes no pattern.
+ *
+ * -c List all comments. This form takes no pattern.
+ *
+ * -A builds a tmp file and calls 'me' to process the file with the tmp file
+ *    as an "error" list like the -A option of cc. Each line of this list
+ *    shows the found pattern and where multiple patterns are found on a
+ *    line there are multiple lines, just like cc -A showing multiple
+ *    errors on a line. This is to allow emacs scripts to make systematic
+ *    changes. Where a patttern is split across multiple lines -A causes
+ *    it to be reported on the line with the first token, also to
+ *    simplify emacs scripts.
+ *
+ *    If cgrep -A is used to process a number of files it will search each
+ *    file for patttern matches and call 'me' only if the file has a hit. To
+ *    stop the process exit 'me' with <ctl-u><ctl-x><ctl-c>. See the new emacs
+ *    initialization macro feature for a way to process these files
+ *    automatically.
+ *
+ * -r Replaces all occurances of the pattern with "new". This form only matches
+ *    simple tokens, not things like "ptr->val". -r is incompatible with all
+ *    other options.
+ *
+ * -R Replaces all occurances of the pattern with a new after the following
+ *    substitutions. & is the whole pattern found. \1 is the first
+ *    parenthesized subexpression, \2 the second etc.
+ *
+ * -d token. Take following string and comment. For documentation extraction.
+ *    use the first char of the token as an output delimeter.
+ *
+ * -C token. Use token as delimeter -c option.
+ */
+#include <ctype.h>
+#include <stdio.h>
+#include <misc.h>
+
+/*
+ * Cgrep never runs out of room on lines or buffers until malloc fails
+ * these are buffer expanders.
+ */
+#define TROOM(buf, has, needs)	while ((needs) >= has) \
+ if (NULL == (buf = realloc(buf, sizeof(*buf) * (has += 10)))) \
+  fatal(outSpace)
+
+#define ROOM(buf, has, needs)	while ((needs) >= has) \
+ if (NULL == (buf = realloc(buf, has += 512))) \
+  fatal(outSpace)
+
+extern char *realloc();
+static char outSpace[] = "cgrep: out of space";
+
+struct token {	/* collected token array */
+	int start;	/* token index on buff */
+	int atline;	/* line number where token spotted */
+};
+
+enum fstate {	/* lexical processing state */
+	start,
+	slash,		/* slash encountered in normal state */
+	comment,	/* in comment */
+	cppcom,		/* in cpp comment */
+	star,		/* * in comment */
+	bsl,		/* back slash */
+	dquote,		/* double quote */
+	squote,		/* single quote */
+	token,		/* c word */
+	minus		/* - maybe -> */
+};
+
+enum wstate { /* word processing states */
+	word,	/* some c identifier */
+	dot,	/* . or -> */
+	other	/* anything else */
+};
+
+/* cgrep has no fixed size arrays only growable buffers */
+static char *buff = NULL;	/* accumulate stuff */
+static int buffLen;		/* buffer length */
+
+static struct token *tokens = NULL; /* token array */
+static int tokenLen;		/* size of token array */
+
+static char *line;		/* expandable input line */
+static int  lineLen;		/* current length of input line */
+
+static char lswitch;		/* list files found */
+static char aswitch;		/* call emacs with line list */
+static char dswitch;		/* special for docs */
+static char dtoken[80];		/* token copy for dswitch */
+static char nswitch;		/* print line number */
+static char sswitch;		/* print all strings */
+static char cswitch;		/* print all comments */
+static char rswitch;		/* replace found pattern */
+static char Rswitch;		/* do substition magic */
+
+static regexp *pat;		/* a compiled regular expression */
+
+static char *newstr;		/* The new string with rswitch */
+
+static char *filen = NULL;	/* the file currently being processed */
+static char *tname = NULL;	/* temp file name */
+static FILE *tfp;		/* tmp file pointer */
+
+static int lineno;		/* current line number */
+static int marked;		/* 1 if pattern found on line. */
+
+static int matched;		/* 1 if any match found. */
+
+/*
+ * Character types table
+ * for the ASCII character set modified to see _ as alpha.
+ * _ctype[0] is for EOF, the rest if indexed
+ * by the ascii values of the characters.
+ */
+static unsigned char _ctype[] = {
+	0,	/* EOF */
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _S|_C, _S|_C, _S|_C, _S|_C, _S|_C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_S|_X, _P, _P, _P, _P, _P, _P, _P,
+	_P, _P, _P, _P, _P, _P, _P, _P,
+	_N, _N, _N, _N, _N, _N, _N, _N,
+	_N, _N, _P, _P, _P, _P, _P, _P,
+	_P, _U, _U, _U, _U, _U, _U, _U,
+	_U, _U, _U, _U, _U, _U, _U, _U,
+	_U, _U, _U, _U, _U, _U, _U, _U,
+	_U, _U, _U, _P, _P, _P, _P, _L,
+	_P, _L, _L, _L, _L, _L, _L, _L,
+	_L, _L, _L, _L, _L, _L, _L, _L,
+	_L, _L, _L, _L, _L, _L, _L, _L,
+	_L, _L, _L, _P, _P, _P, _P, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C,
+	_C, _C, _C, _C, _C, _C, _C, _C
+};
+
+/*
+ * Report errors for public domain regexp package.
+ */
+void
+regerror(s)
+char *s;
+{
+	fatal("cgrep: pattern error %s\n", s);
+}
+
+/*
+ * Pattern found with -A mode. It is assumed that users of
+ * this mode will want to know about all hits on a line.
+ */
+static void
+emacsLine(found, atline)
+char *found;
+{
+	extern char *tempnam();
+
+	/* if tmp file not opened open it. */
+	if ((NULL == tname) &&
+	    ((NULL == (tname = tempnam(NULL, "cgr"))) ||
+             (NULL == (tfp = fopen(tname, "w")))))
+		fatal("cgrep: Cannot open tmp file");
+	fprintf(tfp, "%d: %s: found '%s'\n", atline, filen, found);
+}
+
+/*
+ * When we get a word, dot, arrow or other we come here.
+ *
+ * cgrep accumulates things like ptr->memb.x in buff.
+ * as these are accumulated it is nessisary to match buff
+ * against the regular expression one slice at a time
+ * that is when the x in ptr->memb.x was found cgrep would check
+ * ptr->memb.x then memb.x then x
+ * against the pattern. Thus memb.x matches ptr->memb.x
+ */
+static void
+gota(got, what)
+register enum wstate got;	/* what we have */
+char *what;		/* the string we have or NULL */
+{
+	static int tokenCt;	    /* number of tokens */
+	static enum wstate state;   /* current word processing state */
+	static int wlen, blen;	    /* strlen(what) and strlen(buff) + 1 */
+	int i;
+
+	if (sswitch || cswitch)
+		return;
+
+	if (rswitch) {	/* replace mode works on tokens only */
+		marked = (word == got) && regexec(pat, what);
+		matched |= marked;
+		return;
+	}
+
+	switch (got) {
+	case word:
+		wlen = strlen(what);
+		switch (state) {
+		case other:
+		case word:
+			/* store start and line number of token */
+			tokenCt = 1;
+			TROOM(tokens, tokenLen, tokenCt);
+			tokens[0].start = 0;
+			tokens[0].atline = lineno;
+
+			/* store token */
+			blen = wlen;
+			ROOM(buff, buffLen, blen);
+			strcpy(buff, what);
+			break;
+		case dot:
+			/* store start and line number of token */
+			TROOM(tokens, tokenLen, tokenCt);
+			tokens[tokenCt].start = blen;
+			tokens[tokenCt++].atline = lineno;
+
+			/* store token */
+			blen += wlen;
+			ROOM(buff, buffLen, blen);
+			strcat(buff, what);
+		}
+
+		/* Check the accumulated token for matches */
+		for (i = 0; i < tokenCt; i++) {
+			char *p;
+
+			if (regexec(pat, p = buff + tokens[i].start)) {
+				if (aswitch)
+					emacsLine(p, tokens[i].atline);
+				else {
+					marked = 1;
+					matched = 1;
+					if (dswitch) {
+						strcpy(dtoken, p);
+						cswitch = sswitch = 1;
+					}
+					break;
+				}
+			}
+		}
+
+		state = got;
+		break;
+
+	case dot:
+		if (word == state) {
+			blen += strlen(what);
+			ROOM(buff, buffLen, blen);
+			strcat(buff, what);
+			state = got;
+			break;
+		}
+	case other:
+		state = other;
+	}
+}
+
+/*
+ * call emacs with file and tmpfile.
+ */
+static void
+callEmacs()
+{
+#ifdef GEMDOS
+#include <path.h>
+	extern  char *path(), *getenv();
+	extern char **environ;
+	static char* cmda[5] = { NULL, "-e", NULL, NULL, NULL };
+#endif
+	int quit;
+
+	fclose(tfp);
+#ifdef MSDOS
+	sprintf(line, "-e %s %s", tname, filen);
+	if (0x7f == (quit = execall("me", line)))
+#endif
+#ifdef COHERENT
+	sprintf(line, "me -e %s %s ", tname, filen);
+	if (0x7f == (quit = system(line)))
+#endif
+#ifdef GEMDOS
+	cmda[2] = tname;
+	cmda[3] = filen;
+	if ((NULL == cmda[0]) &&
+	   (NULL == (cmda[0] = path(getenv("PATH"), "me.tos", 1))))
+		fatal("cgrep: Cannot locate me.tos\n");
+	else if ((quit = execve(cmda[0], cmda, environ)) < 0)
+#endif
+		fatal("cgrep: cannot execute 'me'");
+	unlink(tname);
+	free(tname);
+	tname = NULL;
+	if (quit)
+		exit(0);
+}
+
+/*
+ * find first word in a string excluding printf % constructs.
+ * make it lower case and return it.
+ */
+static char *
+firstWord(p)
+char *p;
+{
+	static char buf[80];
+	char *out, c;
+	enum state { start, pct, name } state;
+
+	out = NULL;
+	for (state = start; c = *p++;) {
+		switch(state) {
+		case start:
+			if (isalpha(c)) {
+				state = name;
+				out = buf;
+				*out++ = tolower(c);
+				continue;
+			}
+			if ('%' == c)
+				state = pct;
+			continue;
+
+		case pct:
+			if (isalpha(c) && 'l' != c)
+				state = start;
+			continue;
+
+		case name:
+			if (isalnum(c)) {
+				*out++ = tolower(c);
+				continue;
+			}
+			*out = '\0'; 
+			return (buf);
+		}
+	}			
+	if (NULL == out)
+		return ("???");
+	*out = '\0';
+	return (buf);
+}
+
+/*
+ * print a hit for options -s or -c. Option -d creates -s and -c.
+ */
+static void
+printx(s, sw)
+register char *s;
+{
+	register char c, *p;
+
+	if (aswitch)
+		emacsLine(s, lineno);
+	else if (cswitch > 1) {
+		for (p = s; (c = *p) && isspace(c); p++)
+			;
+		if ('*' == c)
+			s = p + 1;
+
+		printf("%s", s);
+		putchar(sw ? cswitch : '\n');
+	}
+	else if (dswitch) {
+		for (p = s; (c = *p) && isspace(c); p++)
+			;
+		if ('*' == c)
+			s = p + 1;
+
+		if (dtoken[0]) {
+			printf("%s%c%s%c%s",
+				firstWord(s), dswitch, s, dswitch, dtoken);
+			dtoken[0] = '\0';
+		}
+		else
+			printf("%s", s);
+		putchar(cswitch ? dswitch : '\n');
+	}
+	else {
+		if (NULL != filen)
+			printf("%s: ", filen);
+		if (nswitch)
+			printf("%4d: ", lineno);
+		printf("%s\n", s);
+	}
+}
+
+/*
+ * Lexically process a file.
+ */
+static void
+lex()
+{
+	int  c, i;
+	enum fstate state, pstate;
+	char *w, changed;
+	FILE *ifp, *tfp;
+
+	if (NULL == filen)
+		ifp = stdin;
+	else if (NULL == (ifp = fopen(filen, "r"))) {
+		fprintf(stderr, "cgrep: warning cannot open %s\n", filen);
+		return;
+	}
+
+	if (rswitch) {
+		changed = 0;	/* no changes so far */
+
+		if (NULL == filen)
+			tfp = stdout;
+		else if ((NULL == (tname = tempnam(NULL, "cse"))) ||
+			 (NULL == (tfp = fopen(tname, "w"))))
+		  	fatal("cgrep: Cannot open tmp file");
+	}
+
+	lineno = 1;
+	i = marked = 0;
+	gota(other, NULL);	/* initialize word machine */
+
+	for (state = start; ; ) {
+		line[i] = '\0';
+		c = fgetc(ifp);
+
+		switch (state) {
+		case minus:
+			if ('>' == c) {
+				gota(dot, "->");
+				state = start;
+				break;
+			}
+			goto isstart;
+		case token:
+			if (isalnum(c))
+				break;
+			gota(word, w);
+
+			/* we have a word to replace */
+			if (rswitch && marked) {
+				if(Rswitch) {
+					char buf[80];
+
+					regsub(pat, newstr, buf);
+					i += strlen(buf) - strlen(w);
+					ROOM(line, lineLen, i);
+					strcpy(w, buf);
+				} else {
+					i += strlen(newstr) - strlen(w);
+					ROOM(line, lineLen, i);
+					strcpy(w, newstr);
+				}
+				changed = 1;
+			}
+isstart:		state = start;
+		case start:
+			switch (c) {
+			case '.':
+				gota(dot, ".");
+				break;
+			case '-':
+				state = minus;
+				break;
+			case '/':
+				state = slash;
+				break;
+			case '\\':
+				pstate = state;
+				state = bsl;
+				break;
+			case '"':
+				w = line + i;
+				state = dquote;
+				break;
+			case '\'':
+				state = squote;
+				break;
+			default:
+				if (isalpha(c)) {
+					w = line + i;
+					state = token;
+				}
+				else if (!isspace(c))
+					gota(other, NULL);
+			}
+			break;
+
+		case slash:
+			switch (c) {
+			case '*':
+				state = comment;
+				w = line + i + 1;
+				break;
+			case '/':
+				state = cppcom;
+				w = line + i + 1;
+				break;
+			default:
+				goto isstart;
+			}
+			break;
+
+		case cppcom:
+			if ('\n' == c) {
+				if (cswitch) { /* report comment */
+					if (dswitch)
+						cswitch = 0;
+					line[i] = '\0';
+					printx(w, 0);
+					line[i] = '\n';
+				}
+				state = start;
+			}				
+			break;
+
+		case star:
+			if ('/' == c) {
+				if (cswitch) { /* report comment */
+					if (dswitch)
+						cswitch = 0;
+					line[i - 1] = '\0';
+					printx(w, 0);
+					line[i - 1] = '*';
+				}
+				state = start;
+				break;
+			}
+			state = comment;
+		case comment:
+			if ('*' == c)
+				state = star;
+			break;
+		case bsl:
+			state = pstate;
+			break;
+		case dquote:
+			switch (c) {
+			case '"':
+			case '\n':
+				state = start;
+				if (sswitch) {
+					if (dswitch)
+						sswitch = 0;
+					printx(w + 1, 0);
+				}
+				else
+					gota(other, NULL);
+				break;
+			case '\\':
+				pstate = state;
+				state  = bsl;
+				break;
+			}
+			break;
+		case squote:
+			switch (c) {
+			case '\'':
+			case '\n':
+				gota(other, NULL);
+				state = start;
+				break;
+			case '\\':
+				pstate = state;
+				state  = bsl;
+				break;
+			}
+			break;
+		}
+		if (('\n' != c) && (EOF != c)) {
+			line[i++] = c;
+			ROOM(line, lineLen, i);
+		}
+		else {	/* end of line */
+			if (rswitch) {
+				if (EOF == c) {
+					if (!i) /* null line */
+						break;
+				}
+				else
+					line[i++] = c;
+				ROOM(line, lineLen, i);
+				line[i] = 0;
+				fputs(line, tfp);
+				marked = 0;
+			}
+
+			if (cswitch && (comment == state)) {
+				printx(w, 1);
+				w = line;
+			}
+
+			if (marked && !dswitch) {
+				if (lswitch) {
+					printf("%s\n", filen);
+					break;
+				}
+				printx(line, 0);
+			}
+
+			lineno++;
+			marked = i = 0;
+			if (EOF == c)
+				break;
+		}
+	}
+
+	fclose(ifp);
+
+	if (rswitch) {
+		fclose(tfp);
+
+		if (NULL != filen) {	/* tmp file used */
+			if (changed) {
+				unlink(filen);
+				sprintf(line, "mv %s %s", tname, filen);
+				system(line);
+			}
+			else
+				unlink(tname);
+		}
+	}
+
+	if (aswitch && (NULL != tname)) /* tmp file opened for -A option */
+		callEmacs();
+}
+
+main(argc, argv)
+int argc;
+register char **argv;
+{
+	register char c;
+	int errsw = 0;
+	static char msg[] = 
+		"cgrep [-[rR] newStr] [-clnsA] [pattern] filename ...";
+	char *p, *q;
+	extern int optind;
+	extern char *optarg;
+
+	if (1 == argc)
+		usage(msg);
+
+	while (EOF != (c = getopt(argc, argv, "cC:d:slnA?r:R:V"))) {
+		switch (c) {
+		case 'V':
+			printf("cgrep version 1.2\n");
+			exit(0);
+		case 'C':
+			cswitch = *optarg;	/* get delimiter */
+			break;
+		case 'c':
+			cswitch = 1;	/* comments only */
+			break;
+		case 'd': /* report following string & comment */
+			dswitch = *optarg;
+			break;
+		case 's':
+			sswitch = 1;	/* strings only */
+			break;
+		case 'l':
+			lswitch = 1;	/* print filenames only */
+			break;
+		case 'n':
+			nswitch = 1;	/* print line numbers */
+			break;
+		case 'A':
+			aswitch = 1;	/* interact with emacs */
+			break;
+		case 'R':
+			Rswitch = 1;	/* do substitution magic */
+			for (p = optarg; *p; p++)
+				if('\\' == *p && (p[1] <= '8') && (p[1] > '0'))
+					p[1]++;
+		case 'r':
+			rswitch = 1;	/* replace hits */
+			newstr = optarg;
+			break;
+		default:
+			errsw = 1;
+		}
+	}
+
+	/* check unknown switches and rswitch goes with no other switches */
+	if (errsw || 
+	    (rswitch && (aswitch | nswitch | lswitch | cswitch | sswitch)))
+		usage(msg);
+
+	if (!sswitch && !cswitch) {	/* process pattern */
+		if (optind == argc)		/* no pattern */
+			usage(msg);
+
+		/* inclose pattern in ^(  )$ to force full match */
+		p = alloc(5 + strlen(q = argv[optind++]));
+		sprintf(p, "^(%s)$", q);
+		if (NULL == (pat = regcomp(p)))
+			fatal("cgrep: Illegal pattern\n");
+	}
+
+	ROOM(line, lineLen, 1);	/* get input line started */
+
+	if (optind == argc) {
+		if (aswitch | lswitch)
+			fatal("cgrep: -A and -l require a filename");
+		lex();
+	}
+	else {
+		while (optind < argc) {
+			filen = argv[optind++];
+			lex();
+		}
+	}
+	exit(! matched);
+}

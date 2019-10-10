@@ -1,0 +1,540 @@
+/*
+ * db/db1.c
+ * A debugger.
+ * Initialization and command line parsing.
+ */
+
+#include <stddef.h>
+#include <canon.h>
+#include <signal.h>
+#include <sys/core.h>
+#include <sys/uproc.h>
+#include "db.h"
+
+int
+main(argc, argv) int argc; char *argv[];
+{
+	signal(SIGINT, &arm_sigint);
+	signal(SIGQUIT, SIG_IGN);
+	initialize();
+	setup(argc, argv);
+	process();
+}
+
+/*
+ * Catch and flag interrupts (SIGINT).
+ */
+void
+arm_sigint()
+{
+	signal(SIGINT, &arm_sigint);
+	intflag++;
+}
+
+/*
+ * Canonicalize an l.out header.
+ */
+void
+canlout()
+{
+	register int i;
+
+	canint(ldh.l_magic);
+	canint(ldh.l_flag);
+	canint(ldh.l_machine);
+	canvaddr(ldh.l_entry);
+	for (i=0; i<NLSEG; i++)
+		cansize(ldh.l_ssize[i]);
+}
+
+/*
+ * Initialize segment formats, clear the breakpoint table,
+ * invalidate the child process register image.
+ */
+void
+initialize()
+{
+	init_mch();
+	strcpy(seg_format[DSEG], "w");		/* patched in set_prog() if COFF */
+	strcpy(seg_format[ISEG], "i");
+	strcpy(seg_format[USEG], "w");		/* patched in set_prog() if COFF */
+	bpt_init();
+	reg_flag = R_INVALID;
+}
+
+/*
+ * Leave.
+ */
+void
+leave()
+{
+	killc();
+	exit(0);
+}
+
+/*
+ * Open the given file.
+ * If 'rflag' is set, the file is opened for read only.
+ */
+FILE *
+openfile(name, rflag) char *name; int rflag;
+{
+	register FILE *fp;
+
+#if	__I386__
+again:
+#endif
+	if (!rflag && (fp = fopen(name, "r+w")) != (FILE *)NULL)
+		return fp;
+	else if ((fp = fopen(name, "r")) != (FILE *)NULL) {
+		if (!rflag)
+			printr("%s: opened read only", name);
+		return fp;
+	}
+#if	__I386__
+	if (strcmp(name, DEFLT_OBJ) == 0) {
+		name = DEFLT_OBJ2;	/* l.out not found, try a.out */
+		goto again;
+	}
+#endif
+	panic("Cannot open %s", name);
+}
+
+/*
+ * Set up segmentation for a core dump.
+ * The registers are also read.
+ * hal improved the core file format 4/93 for COHERENT V4.0.1r75.
+ * Compiling without -DOLD_CORE builds db which groks only the new format.
+ * Compiling with -DOLD_CORE builds db which groks both old and new formats.
+ * This hack should disappear when the old format becomes irrelevant.
+ */
+void
+set_core(name) char *name;
+{
+	struct ch_info ch_info;
+	long offset;
+	register unsigned i;
+	register char *cp;
+	register ADDR_T size;
+	register off_t offt;
+	ADDR_T regl;		/* an address, int * in <sys/uproc.h> */
+	int iflag, textflag;
+	int signo;
+	char ucomm[U_COMM_LEN+1];
+	SR usegs[NUSEG];
+
+	/* Open the core file. */
+	cfn = name;
+	cfp = openfile(name, rflag);
+
+	/* Read the core file header and set uproc offset. */
+	if (fread(&ch_info, sizeof ch_info, 1, cfp) != 1)
+		panic("Cannot read core file header");
+#if	!OLD_CORE
+	if (ch_info.ch_magic != CORE_MAGIC)
+		panic("Not a core file");
+	offset = ch_info.ch_info_len + ch_info.ch_uproc_offset;
+#else
+	if (ch_info.ch_magic == CORE_MAGIC)
+		offset = ch_info.ch_info_len + ch_info.ch_uproc_offset;
+	else
+		offset = (long)U_OFFSET;
+#endif
+
+	/* Read the file name from the core file. */
+	if (fseek(cfp, offset+offsetof(UPROC, u_comm[0]), SEEK_SET) != -1
+	 && (cp = lfn) != NULL
+	 && fread(ucomm, sizeof(ucomm), 1, cfp) == 1) {
+
+		/* Compare object filename to core filename. */
+		while (strchr(cp, '/') != NULL)
+			cp = strchr(cp, '/') + 1;	/* skip past '/' */
+		if (strncmp(cp, ucomm, sizeof(ucomm)) != 0) {
+			ucomm[U_COMM_LEN] = '\0';
+			printr("Core file name \"%s\" different from object file name \"%s\"",
+				ucomm, lfn);
+		}
+	}
+
+	/* Read the core file segment information. */
+	if (fseek(cfp, offset+offsetof(UPROC, u_segl[0]), SEEK_SET) == -1
+	 || fread(usegs, sizeof(usegs), 1, cfp) != 1)
+		panic("Bad core file");
+
+	/* Read the core file signal number and register pointer. */
+	if (fseek(cfp, offset+offsetof(UPROC, u_signo), SEEK_SET) == -1
+	 || fread(&signo, sizeof(signo), 1, cfp) != 1)
+		panic("cannot read signo");
+	dbprintf(("signo=%d\n", signo));
+	if (fread(&regl, sizeof(regl), 1, cfp) != 1)
+		panic("cannot read regl");
+	regl &= (NBPC - 1);
+#if	OLD_CORE
+	if (ch_info.ch_magic == CORE_MAGIC)
+		regl += ch_info.ch_info_len;
+#else
+	regl += ch_info.ch_info_len;
+#endif
+	dbprintf(("regl=%d\n", regl));
+
+#if	__I386__
+	/* Adjust the i386 stack segment base. */
+	usegs[SISTACK].sr_base -= usegs[SISTACK].sr_size;
+	dbprintf(("adjust usegs[SISTACK].sr_base to %x\n", usegs[SISTACK].sr_base));
+#endif
+
+	/*
+	 * The new core dump format might or might not include the text segment
+	 * but does not include a flag stating if it has been dumped (oops);
+	 * this decides if text is present/absent by adding up segment sizes.
+	 * Presumably it should be setting SRFDUMP flag correctly instead...
+	 */
+	textflag = 0;
+#if	OLD_CORE
+	if (ch_info.ch_magic == CORE_MAGIC) {
+#endif
+		offt = usegs[0].sr_size + ch_info.ch_info_len;
+		for (i=1; i<NUSEG; i++) {
+			if (usegs[i].sr_segp == (SEG *)NULL)
+				continue;
+			if ((~usegs[i].sr_flag) & (SRFDUMP|SRFPMAP))
+				continue;
+			offt += usegs[i].sr_size;
+		}
+		fseek(cfp, 0L, SEEK_END);
+		textflag = (ftell(cfp) != offt);
+		dbprintf(("cfp_len=%lx offt=%lx textflag=%d", ftell(cfp), offt, textflag));
+#if	OLD_CORE
+	}
+#endif
+
+	/* Set up segmentation. */
+	iflag = ISPACE == DSPACE;
+	map_set(USEG, MIN_ADDR, (ADDR_T)UPASIZE, (off_t)regl, MAP_CORE);
+	map_clear(DSEG, endpure);
+	offt = usegs[0].sr_size;
+#if	OLD_CORE
+	if (ch_info.ch_magic == CORE_MAGIC)
+		offt += ch_info.ch_info_len;
+#else
+	offt += ch_info.ch_info_len;
+#endif
+	if (textflag) {
+		/* Map the text segment. */
+		map_clear(ISEG, NULL);
+		size = usegs[SISTEXT].sr_size;
+		map_set(ISEG, (ADDR_T)usegs[SISTEXT].sr_base, size, offt, MAP_CORE);
+		offt += size;
+	}
+	for (i=1; i<NUSEG; i++) {
+		if (usegs[i].sr_segp == (SEG *)NULL)
+			continue;
+		if ((~usegs[i].sr_flag) & (SRFDUMP|SRFPMAP))
+			continue;
+		size = usegs[i].sr_size;
+		map_set(DSEG, (ADDR_T)usegs[i].sr_base, size, offt, MAP_CORE);
+		offt += size;
+	}
+	if (iflag)
+		ISPACE = DSPACE;
+	get_regs(R_ALL);			/* read the registers */
+	if (!rflag)
+		set_sig(signo);			/* correct signal number */
+}
+
+/*
+ * Set up segmentation for an ordinary file.
+ * This is really easy.
+ */
+void
+set_file(name) char *name;
+{
+	lfp = openfile(name, rflag);
+	map_set(DSEG, MIN_ADDR, MAX_ADDR, (off_t)0, MAP_PROG);
+	ISPACE = DSPACE;
+}
+
+/*
+ * Setup object file "name".
+ * The flag is bit mapped:
+ *	1 bit	read symbol table
+ *	2 bit	read segment information
+ */
+void
+set_prog(name, flag) char *name; int flag;
+{
+	dbprintf(("set_prog(%s, %d)\n", name, flag));
+	lfp = openfile(name, (flag&2) ? rflag : 1);
+	if (fread(&coff_hdr, sizeof(coff_hdr), 1, lfp) != 1)
+		panic("Cannot read object file header");
+	if (coff_hdr.f_magic == C_386_MAGIC) {
+		/* The object is a COFF file. */
+		dbprintf(("IS_COFF!\n"));
+		file_type = COFF_FILE;
+		addr_fmt = ADDR_FMT;
+		aop_size = 32;
+		strcpy(seg_format[DSEG], "l");
+		strcpy(seg_format[USEG], "l");
+	} else {
+		/* Not a COFF file, might be an l.out. */
+		if (fseek(lfp, 0L, SEEK_SET) == -1
+		 || fread(&ldh, sizeof(ldh), 1, lfp) != 1)
+			panic("Cannot read object file");
+		canlout();
+		if (ldh.l_magic != L_MAGIC)
+			panic("Bad object file");
+
+		/* The object is an l.out file. */
+		dbprintf(("IS_LOUT!\n"));
+		file_type = LOUT_FILE;
+		addr_fmt = ADDR16_FMT;
+		aop_size = 16;
+	}
+	if ((flag&1) != 0 && !sflag) {
+		sfp = lfp;
+		if (IS_LOUT) {
+			nsyms = ldh.l_ssize[L_SYM] / sizeof(struct ldsym);
+			if (nsyms != 0)
+				read_lout_sym((long) sizeof(ldh)
+					 + ldh.l_ssize[L_SHRI] + ldh.l_ssize[L_PRVI]
+					 + ldh.l_ssize[L_SHRD] + ldh.l_ssize[L_PRVD]);
+		} else {
+			if (coff_hdr.f_nsyms != 0)
+				read_coff_sym();
+		}
+	}
+	if ((flag&2) != 0) {
+		lfn = name;
+		if (IS_LOUT)
+			setloutseg();
+		else
+			setcoffseg();
+	}
+}
+
+/*
+ * Setup arguments.
+ */
+void
+setup(argc, argv) int argc; char *argv[];
+{
+	register char *cp;
+	register int c;
+	register int t;
+	register int u;
+	register int tflag;
+
+	t = '\0';
+	tflag = 0;
+
+	/* Process command line switches -[cdefkorstV]. */
+	for (; argc > 1; argc--, argv++) {
+		cp = argv[1];
+		if (*cp++ != '-')
+			break;
+		while ((c = *cp++) != '\0') {
+			switch (c) {
+			case 'c':
+			case 'd':
+			case 'e':
+			case 'f':
+			case 'k':
+			case 'o':
+				/* only one of [cdefko] is allowed */
+				if (t != '\0')
+					usage();
+				t = c;
+				continue;
+			case 'p':
+				if (argc < 3)
+					usage();
+				--argc;
+				prompt = argv[2];
+				++argv;
+				continue;
+			case 'r':
+				rflag = 1;
+				continue;
+			case 's':
+				sflag = 1;
+				continue;
+			case 't':
+				tflag = 1;
+				continue;
+			case 'V':
+				fprintf(stderr,
+					"db: " MCHNAME " "
+#if	DEBUG
+					"DEBUG "
+#endif
+#ifdef	NOCANON
+				/*	"NOCANON "	*/
+#endif
+#ifdef	NOFP
+					"NOFP "
+#endif
+					"V%s\n", VERSION);
+				continue;
+			default:
+				usage();
+			}
+		}
+	}
+	switch (t) {
+	case '\0':
+		switch (argc) {
+		case 1:
+			set_prog(DEFLT_OBJ, 3);
+			set_core(DEFLT_AUX);
+			break;
+		case 2:
+			set_prog(argv[1], 3);
+			break;
+		case 3:
+			set_prog(argv[1], 3);
+			set_core(argv[2]);
+			break;
+		default:
+			usage();
+		}
+		break;
+	case 'c':
+		switch (argc) {
+		case 1:
+			set_prog(DEFLT_OBJ, 3);
+			set_core(DEFLT_AUX);
+			break;
+		case 2:
+			set_core(argv[1]);
+			break;
+		case 3:
+			set_prog(argv[1], 3);
+			set_core(argv[2]);
+			break;
+		default:
+			usage();
+		}
+		break;
+	case 'd':
+		switch (argc) {
+		case 1:
+			set_prog("/coherent", 3);
+			setdump("/dev/dump");
+			break;
+		case 3:
+			set_prog(argv[1], 3);
+			setdump(argv[2]);
+			break;
+		default:
+			usage();
+		}
+		break;
+	case 'e':
+		if (argc < 2)
+			usage();
+		set_prog(argv[1], 3);
+		if (startc(&argv[1], NULL, NULL, 0) == 0)
+			leave();
+		break;
+	case 'f':
+		switch (argc) {
+		case 2:
+			set_file(argv[1]);
+			break;
+		case 3:
+			set_prog(argv[1], 1);
+			set_file(argv[2]);
+			break;
+		default:
+			usage();
+		}
+		break;
+	case 'k':
+		switch (argc) {
+		case 1:
+			set_prog("/coherent", 1);
+			setkmem("/dev/mem");
+			break;
+		case 2:
+			setkmem(argv[1]);
+			break;
+		case 3:
+			set_prog(argv[1], 1);
+			setkmem(argv[2]);
+			break;
+		default:
+			usage();
+		}
+		break;
+	case 'o':
+		switch (argc) {
+		case 1:
+			set_prog(DEFLT_OBJ, 3);
+			break;
+		case 2:
+			set_prog(argv[1], 3);
+			break;
+		case 3:
+			set_prog(argv[1], 1);
+			set_prog(argv[2], 2);
+			break;
+		default:
+			usage();
+		}
+	}
+	if (tflag) {
+		if ((u=open("/dev/tty", 2)) < 0)
+			panic("Cannot open /dev/tty");
+		dup2(u, 0);
+		dup2(u, 1);
+		dup2(u, 2);
+	}
+}
+
+/*
+ * Check for interrupts and clear flag.
+ */
+int
+testint()
+{
+	register int n;
+
+	if ((n = intflag) != 0) {
+		printf("Interrupted\n");
+		intflag = 0;
+	}
+	return n;
+}
+
+/*
+ * Generate a verbose usage message.
+ */
+void
+usage()
+{
+	panic(
+		"Usage: db [ -cdefkorst ] [ [ mapfile ] program ]\n"
+		"Options:\n"
+		"\t-c\tprogram is a core file\n"
+		"\t-d\tprogram is a system dump; mapfile defaults to /coherent\n"
+		"\t-e\tNext argument is object file and rest of command line is passed\n"
+		"\t\tto the child process\n"
+		"\t-f\tprogram is binary data (an ordinary file)\n"
+		"\t-k\tprogram is a kernel process; mapfile defaults to /coherent\n"
+		"\t-o\tprogram is an object file\n"
+		"\t-p str\tUse str as interactive command prompt (default: \"db: \")\n"
+		"\t-r\tAccess all files read-only\n"
+		"\t-s\tDo not load symbol table\n"
+		"\t-t\tPerform input and output via /dev/tty\n"
+		"\tmapfile defaults to a.out or l.out.\n"
+		"\tprogram defaults to core.\n"
+		"Examples:\n"
+		"\tdb prog\t\tExamine, patch, execute \"prog\" under db control\n"
+		"\tdb prog core\tExamine postmortem core dump \"core\",\n"
+		"\t\t\tusing symbol table from \"prog\"\n"
+		"\tdb -e prog *.c\tExecute \"prog\" under db control with args *.c\n"
+		"\tdb -f file\tExamine and patch \"file\" as stream of bytes\n"
+	);
+}
+
+/* end of db/db1.c */

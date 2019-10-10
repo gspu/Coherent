@@ -1,0 +1,1460 @@
+head     2.5;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.5;
+comment  @ * @;
+
+
+2.5
+date     93.08.09.13.35.29;  author bin;  state Exp;
+branches ;
+next     2.4;
+
+2.4
+date     93.07.20.11.10.49;  author bin;  state Exp;
+branches ;
+next     2.3;
+
+2.3
+date     93.07.13.15.31.30;  author root;  state Exp;
+branches ;
+next     2.2;
+
+2.2
+date     93.07.12.08.14.25;  author root;  state Exp;
+branches ;
+next     2.1;
+
+2.1
+date     93.07.07.10.45.44;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+2.5
+log
+@Kernel 82 changes
+@
+text
+@/* $Header: /ker/coh.386/RCS/fs1.c,v 2.2 93/07/26 15:19:00 nigel Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+ *
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Coherent.
+ * Filesystem (mostly handling of in core inodes).
+ *
+ * $Log:	fs1.c,v $
+ * Revision 2.2  93/07/26  15:19:00  nigel
+ * Nigel's R80
+ * 
+ * Revision 1.8  93/04/14  10:06:28  root
+ * r75
+ * 
+ * Revision 1.7  93/02/23  15:50:51  root
+ * after caddr_t change, before blclear
+ * 
+ * Revision 1.4  92/07/16  16:33:32  hal
+ * Kernel #58
+ * 
+ * Revision 1.3  92/02/06  17:55:36  vlad
+ * Fix typo in ialloc panic.
+ * 
+ * Revision 1.2  92/01/06  11:59:17  hal
+ * Compile with cc.mwc.
+ * 
+ * Revision 1.1	88/03/24  16:13:47	src
+ * Initial revision
+ * 
+ * 86/12/13	Allan Cornish		/usr/src/sys/coh/fs1.c
+ * isync() no longer updates the disk image of a character device inode.
+ *
+ * 86/11/19	Allan Cornish		/usr/src/sys/coh/fs1.c
+ * idirent() initializes the (new) (IO).io_flag field to 0.
+ */
+#include <sys/coherent.h>
+#include <sys/buf.h>
+#include <canon.h>
+#include <dirent.h>
+#include <sys/errno.h>
+#include <sys/filsys.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <sys/io.h>
+#include <sys/mount.h>>
+#include <sys/stat.h>
+#include <sys/file.h>
+
+/*
+ * Get character for `ftoi' depending on what space the characters are
+ * coming from.
+ */
+
+#define ftoic(p,seg)	((seg) == IOSYS ? * (p) : getubd (p))
+
+/*
+ * Map the given filename to an inode.  If an error is encountered,
+ * `u.u_error' is set.  `u.u_error' is always returned.  As this routine
+ * needs to set several things, depending on the type of access, `t',
+ * there are places in the processes' user area reserved for this routine
+ * to set.  These are defined in the user process structure.  The seek
+ * position is always set to the position of the directory entry of the
+ * child if the child exists or the first free position if it doesn't.
+ *  'r' =>  Reference.  A pointer to the child's inode is returned locked.
+ *  'c' =>  Create.  If the child exists, a pointer to the inode is returned
+ *          locked.  Otherwise if the parent directory exists, a pointer to
+ *          the parent directory is returned locked.  Otherwise, an error.
+ *  'u' =>  Unlink.  The parent directory is returned unlocked.  The child's
+ *          inode number is returned.  The seek position is also set.
+ */
+
+int
+ftoi (np, t, iop, dirent)
+char	      *	np;
+int		t;
+IO	      *	iop;
+struct direct *	dirent;
+{
+	return file_to_inode (np, t, 0, iop, dirent);
+}
+
+/*
+ * Does main ftoi job. Was created to solve the problem with rmdir.
+ * doRmdir is 0 for all cases except when called from rmdir.
+ */
+
+int
+file_to_inode (np, t, doRmdir, iop, dirent)
+char	      *	np;
+int		t;
+int		doRmdir;
+IO	      *	iop;
+struct direct *	dirent;
+{
+	register INODE *cip;
+	register char *cp;
+	register int c;
+	register struct direct *dp;
+	register BUF *bp;
+	off_t cseek, fseek, s;
+	int fflag, mflag;
+	dev_t dev;
+	ino_t ino;
+	daddr_t b;
+
+	u.u_cdirn = 0;
+	u.u_cdiri = NULL;
+	u.u_pdiri = NULL;
+
+	if ((c = ftoic (np ++, iop->io_seg)) != '/') {
+		cip = u.u_cdir;
+	} else {
+		c = ftoic (np ++, iop->io_seg);
+		cip = u.u_rdir;
+	}
+	while (c == '/')
+		c = ftoic (np ++, iop->io_seg);
+	ilock (cip);
+	cip->i_refc ++;
+
+	if (c == '\0') {
+		if (t == 'r') {
+			u.u_cdiri = cip;
+			return u.u_error;
+		}
+
+		idetach (cip);
+		return u.u_error = ENOENT;
+	}
+
+	for (;;) {
+		cp = dirent->d_name;
+		while (c != '/' && c != '\0') {
+			if (cp < & dirent->d_name [sizeof (dirent->d_name)])
+				* cp ++ = c;
+			c = ftoic (np ++, iop->io_seg);
+		}
+
+		while (c == '/')
+			c = ftoic (np ++, iop->io_seg);
+
+		while (cp < & dirent->d_name [sizeof (dirent->d_name)])
+			* cp ++ = '\0';
+
+		if ((cip->i_mode & IFMT) != IFDIR)
+			u.u_error = ENOTDIR;
+		else {
+			/* For rmdir we need only write */
+			if (doRmdir)
+				iaccess (cip, IPW);
+			else
+				iaccess (cip, IPE);
+		}
+
+		if (u.u_error) {
+			idetach (cip);
+			return u.u_error;
+		}
+
+		cp = dirent->d_name;
+
+		if (cip->i_ino == ROOTIN && cip->i_dev != rootdev &&
+		    * cp ++ == '.' && * cp ++ == '.' && * cp ++ == '\0')
+			cip = ftoim (cip);
+
+		b = 0;
+		fflag = 0;
+		mflag = 0;
+		cseek = 0;
+		s = cip->i_size;
+
+		while (s > 0) {
+			if ((bp = vread (cip, b ++)) == NULL) {
+				idetach (cip);
+				return u.u_error;
+			}
+
+			dp = bp->b_vaddr;
+			while (dp < bp->b_vaddr + BSIZE) {
+
+				if ((s -= sizeof (* dp)) < 0)
+					break;
+
+				if ((ino = dp->d_ino) == 0) {
+					if (fflag == 0) {
+						fflag++;
+						fseek = cseek;
+					}
+				} else if (direq (dp, dirent)) {
+					canino (ino);
+					mflag = 1;
+					s = 0;
+					break;
+				}
+				cseek += sizeof (* dp);
+				dp ++;
+			}
+			brelease (bp);
+		}
+
+		dev = cip->i_dev;
+		if (fflag == 0)
+			fseek = cseek;
+
+		if (mflag == 0) {
+			if (c == '\0' && t == 'c') {
+				u.u_pdiri = cip;
+				iop->io_seek = fseek;
+			} else {
+				u.u_error = ENOENT;
+				idetach (cip);
+			}
+			return u.u_error;
+		}
+
+		if (c == '\0') {
+			if (t == 'u') {
+				u.u_cdirn = ino;
+				u.u_pdiri = cip;
+				iop->io_seek = cseek;
+				return u.u_error;
+			}
+
+			idetach (cip);
+			u.u_cdiri = iattach (dev, ino);
+			return u.u_error;
+		}
+
+		idetach (cip);
+		if ((cip = iattach (dev, ino)) == NULL)
+			return u.u_error;
+	}
+}
+
+
+/*
+ * Given an inode which is the root of a file system, return the inode
+ * on which the file system was mounted.
+ */
+INODE *
+ftoim(ip)
+register INODE *ip;
+{
+	register MOUNT *mp;
+
+	for (mp = mountp ; mp != NULL ; mp = mp->m_next) {
+		if (mp->m_dev == ip->i_dev) {
+			idetach (ip);
+			ip = mp->m_ip;
+			ilock (ip);
+			ip->i_refc ++;
+			break;
+		}
+	}
+	return ip;
+}
+
+
+/*
+ * Compare the string in `u.u_direct.d_name' with the name in the
+ * given directory pointer.
+ */
+
+direq (dp1, dp2)
+struct direct *	dp1;
+struct direct * dp2;
+{
+	return dp1->d_ino == 0 ? 0 :
+		strncmp (dp1->d_name, dp2->d_name, sizeof (dp1->d_name)) == 0;
+}
+
+
+/*
+ * Make an inode of the given mode and device.  The parent directory,
+ * name and such stuff is set by ftoi.
+ */
+
+INODE *
+imake (mode, rdev, iop, dirent)
+unsigned mode;
+dev_t rdev;
+IO	      *	iop;
+struct direct *	dirent;
+{
+	register INODE *ip;
+
+	ip = NULL;
+	mode &= ~ u.u_umask;
+	if ((mode & ISVTXT) != 0 && super () == 0)
+		goto det;
+
+	if (iaccess (u.u_pdiri, IPW) == 0)
+		goto det;
+
+	if ((ip = ialloc (u.u_pdiri->i_dev, mode)) == NULL)
+		goto det;
+
+	ip->i_nlink = 1;
+	ip->i_a.i_rdev = rdev;
+	idirent (ip->i_ino, iop, dirent);
+	iamc (ip);	/* creat/mknod - atime/mtime/ctime */
+det:
+	idetach (u.u_pdiri);
+	return ip;
+}
+
+
+/*
+ * Write a directory entry out.  Everything necessary has been conveniently
+ * set by `ftoi', except the new inode number of this directory entry.
+ */
+
+idirent (ino, iop, dirent)
+IO	      *	iop;
+struct direct *	dirent;
+{
+	dirent->d_ino = ino;
+	canino (dirent->d_ino);
+
+	iop->io_ioc = sizeof (struct direct);
+	iop->io.vbase = dirent;
+	iop->io_seg = IOSYS;
+	iop->io_flag = 0;
+
+	iwrite (u.u_pdiri, iop);
+}
+
+
+/*
+ * Return a pointer to a locked inode in core containing the given
+ * inode number and device.
+ */
+
+INODE *
+iattach (dev, ino)
+{
+	register INODE *ip;
+	register INODE *fip;
+	register unsigned lrt;
+	register MOUNT *mp;
+
+	for (;;) {
+		fip = NULL;
+		for (ip = & inodep [NINODE - 1] ; ip >= inodep ; -- ip) {
+			if (ip->i_ino == ino && ip->i_dev == dev)
+				break;
+			if (ip->i_refc == 0) {
+				if (fip == NULL || ip->i_lrt < lrt) {
+					fip = ip;
+					lrt = ip->i_lrt;
+				}
+			}
+		}
+
+		if (ip < inodep) {
+			if ((ip = fip) == NULL) {
+				devmsg (dev, "Inode table overflow");
+				u.u_error = ENFILE;
+				return NULL;
+			}
+			ilock (ip);
+			if (ip->i_refc != 0) {
+				iunlock (ip);
+				continue;
+			}
+			ip->i_dev = dev;
+			ip->i_ino = ino;
+			ip->i_refc = 1;
+			ip->i_lrt = timer.t_time;
+			ip->i_lastblock = -1;
+			if (icopydm (ip) == 0) {
+				ip->i_ino = 0;
+				ip->i_refc = 0;
+				iunlock (ip);
+				return NULL;
+			}
+			return ip;
+		}
+		if ((ip->i_flag & IFMNT) != 0) {
+			for (mp = mountp ; mp != NULL ; mp = mp->m_next) {
+				if (mp->m_ip == ip) {
+					ino = ROOTIN;
+					dev = mp->m_dev;
+					break;
+				}
+			}
+			continue;
+		}
+		ilock (ip);
+		if (ip->i_ino != ino || ip->i_dev != dev) {
+			iunlock (ip);
+			continue;
+		}
+		if (ip->i_refc < 0)
+			panic ("iattach(%x)", ip);
+		ip->i_refc ++;
+		ip->i_lrt = timer.t_time;
+		return ip;
+	}
+}
+
+/*
+ * Given a locked inode, deaccess it.
+ */
+idetach(ip)
+register INODE *ip;
+{
+#if 0
+	if (ilocked (ip) == 0 || ip->i_refc <= 0)
+		panic("idetach(%p)", ip);
+#else
+	if (ilocked (ip) == 0) {
+		printf ("bad unlocked inode, dev=%x, ino=%d, flags=%x\n",
+			ip->i_dev, ip->i_ino, ip->i_flag);
+		panic ("idetach(%p)", ip);
+	}
+	if (ip->i_refc <= 0) {
+		printf ("negative refc, dev=%x, ino=%d, flags=%x, refc=%d\n",
+			ip->i_dev, ip->i_ino, ip->i_flag, ip->i_refc);
+		panic ("idetach(%p)", ip);
+	}
+#endif
+	if (-- ip->i_refc == 0) {
+#if	1
+		if (ip->i_rl)
+			panic ("idetach(%p) with locked records", ip);
+#endif
+		if ((ip->i_flag & (IFACC | IFMOD | IFCRT)) != 0 ||
+		    ip->i_nlink == 0)
+			icopymd (ip);
+	}
+	iunlock (ip);
+}
+
+/*
+ * Given a inode which isn't locked, lock it and then deaccess.
+ */
+ldetach(ip)
+register INODE *ip;
+{
+	ilock (ip);
+	idetach (ip);
+}
+
+/*
+ * A specialized routine for finding whether the given inode may be unlinked.
+ * Quite simple you say, but we already have an inode locked and could run
+ * into gating problems if we were to lock another.  So we look through the
+ * cache to see if the inode is there.  If it is, we can easily tell.  If it
+ * isn't, `icopydm' is called with a static.  This routine is only used by
+ * `uunlink'.
+ */
+iucheck(dev, ino)
+register dev_t dev;
+register ino_t ino;
+{
+	register INODE *ip;
+	INODE inode;
+
+	for (ip = & inodep [NINODE - 1] ; ip >= inodep; -- ip) {
+		if (ip->i_ino == ino && ip->i_dev == dev)
+			break;
+	}
+	if (ip < inodep) {
+		ip = & inode;
+		ip->i_dev = dev;
+		ip->i_ino = ino;
+		if (icopydm (ip) == 0)
+			return 0;
+	}
+	if ((ip->i_mode & IFMT) == IFDIR) {
+		if (super () == 0)
+			return 0;
+	}
+	return 1;
+}
+
+/*
+ * Copy an inode from disk to memory performing canonization.
+ */
+icopydm(ip)
+register INODE *ip;
+{
+	register struct dinode *dip;
+	register BUF *bp;
+	register ino_t ino;
+	struct dinode dinode;
+	caddr_t v;
+
+	ip->i_flag = 0;
+	ino = ip->i_ino;
+
+	if ((bp = bread (ip->i_dev, (daddr_t) iblockn (ino),
+			 BUF_SYNC)) == NULL)
+		return 0;
+
+	dip = & dinode;
+	v = (char *) ((struct dinode *) bp->b_vaddr + iblocko (ino));
+	memcpy (dip, v, sizeof (dinode));
+	brelease (bp);
+
+	ip->i_mode = dip->di_mode;
+	canshort (ip->i_mode);
+	ip->i_nlink = dip->di_nlink;
+	canshort (ip->i_nlink);
+	ip->i_uid = dip->di_uid;
+	canshort (ip->i_uid);
+	ip->i_gid = dip->di_gid;
+	canshort (ip->i_gid);
+	ip->i_size = dip->di_size;
+	cansize (ip->i_size);
+
+	switch (ip->i_mode & IFMT) {
+	case IFBLK:
+	case IFCHR:
+		ip->i_a.i_rdev = dip->di_a.di_rdev;
+		candev (ip->i_a.i_rdev);
+		break;
+
+	case IFREG:
+	case IFDIR:
+		l3tol (ip->i_a.i_addr, dip->di_a.di_addb, NADDR);
+		break;
+
+	case IFPIPE:
+		l3tol (ip->i_pipe, dip->di_addp, ND);
+		ip->i_pnc = dip->di_pnc;
+		canshort (ip->i_pnc);
+		ip->i_prx = dip->di_prx;
+		canshort (ip->i_prx);
+		ip->i_pwx = dip->di_pwx;
+		canshort (ip->i_pwx);
+		break;
+
+	default:
+		kclear (& ip->i_a, sizeof (ip->i_a));
+		break;
+	}
+
+	ip->i_atime = dip->di_atime;
+	cantime (ip->i_atime);
+	ip->i_mtime = dip->di_mtime;
+	cantime (ip->i_mtime);
+	ip->i_ctime = dip->di_ctime;
+	cantime (ip->i_ctime);
+	ip->i_rl = NULL;
+	return 1;
+}
+
+/*
+ * Copy an inode from memory back on to disk performing canonization.
+ */
+icopymd(ip)
+register INODE *ip;
+{
+	register struct dinode *dip;
+	register BUF *bp;
+	register ino_t ino;
+	struct dinode dinode;
+	caddr_t v;
+
+	if (getment (ip->i_dev, 0) == NULL)
+		return;
+
+	ino = ip->i_ino;
+	if (ip->i_refc == 0 && ip->i_nlink == 0 && ino != BADFIN &&
+	    ino != ROOTIN) {
+		iclear (ip);
+		ip->i_lrt = 0;
+		ip->i_mode = 0;
+	}
+
+	dip = & dinode;
+	dip->di_mode = ip->i_mode;
+	canshort (dip->di_mode);
+	dip->di_nlink = ip->i_nlink;
+	canshort (dip->di_nlink);
+	dip->di_uid = ip->i_uid;
+	canshort (dip->di_uid);
+	dip->di_gid = ip->i_gid;
+	canshort (dip->di_gid);
+	dip->di_size = ip->i_size;
+	cansize (dip->di_size);
+
+	switch (ip->i_mode & IFMT) {
+	case IFBLK:
+	case IFCHR:
+		dip->di_a.di_rdev = ip->i_a.i_rdev;
+		candev (dip->di_a.di_rdev);
+		break;
+
+	case IFREG:
+	case IFDIR:
+		ltol3 (dip->di_addr, ip->i_a.i_addr, NADDR);
+		break;
+
+	case IFPIPE:
+		ltol3 (dip->di_addp, ip->i_pipe, ND);
+		dip->di_pnc = ip->i_pnc;
+		canshort (dip->di_pnc);
+		dip->di_prx = ip->i_prx;
+		canshort (dip->di_prx);
+		dip->di_pwx = ip->i_pwx;
+		canshort (dip->di_pwx);
+		break;
+
+	default:
+		kclear (& dip->di_a, sizeof (dip->di_a));
+		break;
+	}
+
+	dip->di_atime = ip->i_atime;
+	cantime (dip->di_atime);
+	dip->di_mtime = ip->i_mtime;
+	cantime (dip->di_mtime);
+	dip->di_ctime = ip->i_ctime;
+	cantime (dip->di_ctime);
+
+	if ((bp = bread (ip->i_dev, (daddr_t) iblockn (ino),
+			 BUF_SYNC)) == NULL)
+		return;
+
+	v = (char *) ((struct dinode *) bp->b_vaddr + iblocko (ino));
+	memcpy (v, dip, sizeof (dinode));
+	bp->b_flag |= BFMOD;
+	brelease (bp);
+	ip->i_flag &= ~ (IFACC | IFMOD | IFCRT);
+	if (ip->i_refc == 0 && ip->i_nlink == 0 && ino != BADFIN &&
+	    ino != ROOTIN)
+		ifree (ip->i_dev, ino);
+}
+
+/*
+ * Copy all relevant inodes out on device `dev'.
+ */
+isync(dev)
+register dev_t dev;
+{
+	register INODE *ip;
+
+	for (ip = & inodep [NINODE - 1] ; ip >= inodep ; -- ip) {
+		if (ip->i_refc == 0)
+			continue;
+		if (ip->i_dev != dev)
+			continue;
+		if ((ip->i_mode & IFMT) == IFCHR)
+			continue;
+		if ((ip->i_flag & (IFACC | IFMOD | IFCRT)) == 0)
+			continue;
+		icopymd (ip);
+	}
+}
+
+/*
+ * Clear the given inode and all space associated with it.
+ */
+
+iclear (ip)
+register INODE *ip;
+{
+	register int n;
+	register daddr_t b;
+
+	switch (ip->i_mode & IFMT) {
+	case IFPIPE:
+		ip->i_pnc = ip->i_prx = ip->i_pwx = 0;
+		n = ND;
+		while (n > 0) {
+			if ((b = ip->i_pipe [-- n]) != 0)
+				bfree (ip->i_dev, b);
+		}
+		memset (ip->i_pipe, 0, sizeof (ip->i_pipe));
+		break;
+
+	case IFDIR:
+	case IFREG:
+		n = NADDR;
+		while (n > ND) {
+			if ((b = ip->i_a.i_addr [-- n]) != 0)
+				indfree (ip->i_dev, b, 1 + n - ND);
+		}
+		while (n > 0) {
+			if ((b = ip->i_a.i_addr [-- n]) != 0)
+				bfree (ip->i_dev, b);
+		}
+		memset (ip->i_a.i_addr, 0, sizeof (ip->i_a.i_addr));
+		break;
+
+	default:
+		return;
+	}
+	ip->i_size = 0;
+	iamc (ip);	/* creat/pipe - atime/mtime/ctime */
+}
+
+/*
+ * blclear(ip, lbn)  --  Clear all blocks in inode ip beginning with
+ * logical blocks number lbn.  Called from uchsize() in sys5.c
+ */
+blclear(ip, lbn)
+register INODE *ip;
+fsize_t lbn;
+{}
+
+/*
+ * Copy the appropriate information from the inode to the stat buffer.
+ */
+istat(ip, sbp)
+register INODE *ip;
+register struct stat *sbp;
+{
+	sbp->st_dev = ip->i_dev;
+	sbp->st_ino = ip->i_ino;
+	sbp->st_mode = ip->i_mode;
+	sbp->st_nlink = ip->i_nlink;
+	sbp->st_uid = ip->i_uid;
+	sbp->st_gid = ip->i_gid;
+	sbp->st_rdev = NODEV;
+	sbp->st_size = ip->i_size;
+	sbp->st_atime = ip->i_atime;
+	sbp->st_mtime = ip->i_mtime;
+	sbp->st_ctime = ip->i_ctime;
+
+	switch (ip->i_mode & IFMT) {
+	case IFBLK:
+	case IFCHR:
+		sbp->st_rdev = ip->i_a.i_rdev;
+		sbp->st_size = 0;
+		break;
+
+	case IFPIPE:
+		sbp->st_size = ip->i_pnc;
+		break;
+	}
+}
+
+/*
+ * See if it is possible to access the given inode with the bits in
+ * the given mode.
+ * If the mode includes writing, and i_refc is > 1, then check for
+ * shared text problems.
+ */
+iaccess(ip, mode)
+register INODE *ip;
+register int mode;
+{
+	/* Super user can do everything with directories */
+	if (((ip->i_mode & IFMT) != IFDIR) || u.u_uid)
+		if ((imode (ip, u.u_uid, u.u_gid) & mode) != mode) {
+			u.u_error = EACCES;
+			return 0;
+		}
+
+	if ((mode & IPW) != 0 && ip->i_refc > 1 && sbusy (ip)) {
+		u.u_error = ETXTBSY;
+		return 0;
+	}
+	return 1;
+}
+
+
+/*
+ * Get the maximum allowable mode on a file.
+ */
+
+imode(ip, uid, gid)
+register INODE *ip;
+{
+	if (uid == 0) {
+		/* Superuser can read or write anything. */
+		int ret = IPR | IPW;
+		/*
+		 * If superuser, say the file is executable if any
+		 * of the 'x' perm bits is set.
+		 */
+		if ((ip->i_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) != 0)
+			ret |= IPE;
+		return ret;
+	}
+	if (uid == ip->i_uid)
+		return (ip->i_mode & S_IRWXU) >> 6;
+	if (gid == ip->i_gid)
+		return (ip->i_mode & S_IRWXG) >> 3;
+	return ip->i_mode & S_IRWXO;
+}
+@
+
+
+2.4
+log
+@*** empty log message ***
+@
+text
+@d1 1
+a1 1
+/* $Header: /y/coh.386/RCS/fs1.c,v 1.8 93/04/14 10:06:28 root Exp $ */
+d20 3
+a63 1
+#define ftoic(p)	(u.u_io.io_seg==IOSYS ? *p : getubd(p))
+d65 2
+d82 7
+a88 3
+ftoi(np, t)
+char *np;
+int	t;
+d90 1
+a90 1
+	return file_to_inode(np, t, 0);
+d97 8
+a104 4
+file_to_inode(np, t, doRmdir)
+char	*np;
+int	t;
+int	doRmdir;
+d121 1
+a121 1
+	if ((c=ftoic(np++)) != '/') {
+d124 1
+a124 1
+		c = ftoic(np++);
+d128 3
+a130 3
+		c = ftoic(np++);
+	ilock(cip);
+	cip->i_refc++;
+d135 1
+a135 1
+			return (u.u_error);
+d137 3
+a139 3
+		u.u_error = ENOENT;
+		idetach(cip);
+		return (u.u_error);
+d141 1
+d143 5
+a147 5
+		cp = u.u_direct.d_name;
+		while (c!='/' && c!='\0') {
+			if (cp < &u.u_direct.d_name[DIRSIZ])
+				*cp++ = c;
+			c = ftoic(np++);
+d149 1
+d151 6
+a156 4
+			c = ftoic(np++);
+		while (cp < &u.u_direct.d_name[DIRSIZ])
+			*cp++ = '\0';
+		if ((cip->i_mode&IFMT) != IFDIR)
+d161 1
+a161 1
+				iaccess(cip, IPW);
+d163 1
+a163 1
+				iaccess(cip, IPE);
+d167 2
+a168 2
+			idetach(cip);
+			return (u.u_error);
+d170 7
+a176 4
+		cp = u.u_direct.d_name;
+		if (cip->i_ino==ROOTIN && cip->i_dev!=rootdev)
+			if (*cp++=='.' && *cp++=='.' && *cp++=='\0')
+				cip = ftoim(cip);
+d182 1
+d184 3
+a186 3
+			if ((bp=vread(cip, b++)) == NULL) {
+				idetach(cip);
+				return (u.u_error);
+d188 1
+d190 3
+a192 2
+			while (dp < bp->b_vaddr+BSIZE) {
+				if ((s-=sizeof(*dp)) < 0)
+d194 2
+a195 1
+				if ((ino=dp->d_ino) == 0) {
+d200 5
+a204 7
+				} else {
+					if (direq(dp)) {
+						canino(ino);
+						mflag = 1;
+						s = 0;
+						break;
+					}
+d206 2
+a207 2
+				cseek += sizeof(*dp);
+				dp++;
+d209 1
+a209 1
+			brelease(bp);
+d211 1
+d215 1
+d217 1
+a217 1
+			if (c=='\0' && t=='c') {
+d219 1
+a219 1
+				u.u_io.io_seek = fseek;
+d222 1
+a222 1
+				idetach(cip);
+d224 1
+a224 1
+			return (u.u_error);
+d226 1
+d231 2
+a232 2
+				u.u_io.io_seek = cseek;
+				return (u.u_error);
+d234 4
+a237 3
+			idetach(cip);
+			u.u_cdiri = iattach(dev, ino);
+			return (u.u_error);
+d239 4
+a242 3
+		idetach(cip);
+		if ((cip=iattach(dev, ino)) == NULL)
+			return (u.u_error);
+d246 1
+d257 1
+a257 1
+	for (mp=mountp; mp!=NULL; mp=mp->m_next) {
+d259 1
+a259 1
+			idetach(ip);
+d261 2
+a262 2
+			ilock(ip);
+			ip->i_refc++;
+d266 1
+a266 1
+	return (ip);
+d269 1
+d274 4
+a277 2
+direq(dp)
+struct direct *dp;
+d279 3
+a281 2
+	register char *cp1, *cp2;
+	register unsigned n;
+d283 1
+a283 12
+	if (dp->d_ino == 0)
+		return 0;
+	cp1 = dp->d_name;
+	cp2 = u.u_direct.d_name;
+	n = DIRSIZ;
+	do {
+		if (*cp1++ != *cp2++)
+			return 0;
+	} while (--n);
+	return 1;
+}
+
+d288 1
+d290 1
+a290 1
+imake(mode, rdev)
+d293 2
+d299 2
+a300 2
+	mode &= ~u.u_umask;
+	if ((mode&ISVTXT)!=0 && super()==0)
+d302 2
+a303 1
+	if (iaccess(u.u_pdiri, IPW) == 0)
+d305 2
+a306 1
+	if ((ip=ialloc(u.u_pdiri->i_dev, mode)) == NULL)
+d308 1
+d311 2
+a312 2
+	idirent(ip->i_ino);
+	iamc(ip);	/* creat/mknod - atime/mtime/ctime */
+d314 2
+a315 2
+	idetach(u.u_pdiri);
+	return (ip);
+d318 1
+d323 4
+a326 1
+idirent(ino)
+d328 9
+a336 7
+	u.u_direct.d_ino = ino;
+	canino(u.u_direct.d_ino);
+	u.u_io.io_ioc  = sizeof (struct direct);
+	u.u_io.io.vbase = &u.u_direct;
+	u.u_io.io_seg  = IOSYS;
+	u.u_io.io_flag = 0;
+	iwrite(u.u_pdiri, &u.u_io);
+d339 1
+d344 1
+d346 1
+a346 1
+iattach(dev, ino)
+d355 2
+a356 2
+		for (ip=&inodep[NINODE-1]; ip>=inodep; --ip) {
+			if (ip->i_ino==ino && ip->i_dev==dev)
+d359 1
+a359 1
+				if (fip==NULL || ip->i_lrt<lrt) {
+d365 1
+d367 2
+a368 2
+			if ((ip=fip) == NULL) {
+				devmsg(dev, "Inode table overflow");
+d370 1
+a370 1
+				return (NULL);
+d372 1
+a372 1
+			ilock(ip);
+d374 1
+a374 1
+				iunlock(ip);
+d382 1
+a382 1
+			if (icopydm(ip) == 0) {
+d385 2
+a386 2
+				iunlock(ip);
+				return (NULL);
+d388 1
+a388 1
+			return (ip);
+d390 2
+a391 2
+		if ((ip->i_flag&IFMNT) != 0) {
+			for (mp=mountp; mp!=NULL; mp=mp->m_next) {
+d400 3
+a402 3
+		ilock(ip);
+		if (ip->i_ino!=ino || ip->i_dev!=dev) {
+			iunlock(ip);
+d406 2
+a407 2
+			panic("iattach(%x)", ip);
+		ip->i_refc++;
+d409 1
+a409 1
+		return (ip);
+d420 1
+a420 1
+	if (ilocked(ip)==0 || ip->i_refc<=0)
+d423 2
+a424 2
+	if (ilocked(ip)==0) {
+		printf("bad unlocked inode, dev=%x, ino=%d, flags=%x\n",
+d426 1
+a426 1
+		panic("idetach(%p)", ip);
+d428 2
+a429 2
+	if (ip->i_refc<=0) {
+		printf("negative refc, dev=%x, ino=%d, flags=%x, refc=%d\n",
+d431 1
+a431 1
+		panic("idetach(%p)", ip);
+d434 1
+a434 1
+	if (--ip->i_refc == 0) {
+d437 1
+a437 1
+			panic("idetach(%p) with locked records", ip);
+d439 3
+a441 3
+		if ((ip->i_flag&(IFACC|IFMOD|IFCRT))
+		 || ip->i_nlink == 0)
+			icopymd(ip);
+d443 1
+a443 1
+	iunlock(ip);
+d452 2
+a453 2
+	ilock(ip);
+	idetach(ip);
+d471 2
+a472 2
+	for (ip=&inodep[NINODE-1]; ip>=inodep; --ip) {
+		if (ip->i_ino==ino && ip->i_dev==dev)
+d476 1
+a476 1
+		ip = &inode;
+d479 1
+a479 1
+		if (icopydm(ip) == 0)
+d482 2
+a483 2
+	if ((ip->i_mode&IFMT) == IFDIR) {
+		if (super() == 0)
+d504 2
+a505 1
+	if ((bp=bread(ip->i_dev, (daddr_t)iblockn(ino), 1)) == NULL)
+d508 5
+a512 4
+	dip = &dinode;
+	v = (char *)((struct dinode *)bp->b_vaddr + iblocko(ino));
+	kkcopy( v, dip, sizeof(dinode));
+	brelease(bp);
+d514 1
+a514 1
+	canshort(ip->i_mode);
+d516 1
+a516 1
+	canshort(ip->i_nlink);
+d518 1
+a518 1
+	canshort(ip->i_uid);
+d520 1
+a520 1
+	canshort(ip->i_gid);
+d522 1
+a522 1
+	cansize(ip->i_size);
+d524 1
+a524 1
+	switch (ip->i_mode&IFMT) {
+d528 1
+a528 1
+		candev(ip->i_a.i_rdev);
+d530 1
+d533 1
+a533 1
+		l3tol(ip->i_a.i_addr, dip->di_a.di_addb, NADDR);
+d535 1
+d537 1
+a537 1
+		l3tol(ip->i_pipe, dip->di_addp, ND);
+d539 1
+a539 1
+		canshort(ip->i_pnc);
+d541 1
+a541 1
+		canshort(ip->i_prx);
+d543 1
+a543 1
+		canshort(ip->i_pwx);
+d545 1
+d547 1
+a547 1
+		kclear(&ip->i_a, sizeof(ip->i_a));
+d552 1
+a552 1
+	cantime(ip->i_atime);
+d554 1
+a554 1
+	cantime(ip->i_mtime);
+d556 1
+a556 1
+	cantime(ip->i_ctime);
+d586 1
+a586 1
+	canshort(dip->di_mode);
+d588 1
+a588 1
+	canshort(dip->di_nlink);
+d590 1
+a590 1
+	canshort(dip->di_uid);
+d592 1
+a592 1
+	canshort(dip->di_gid);
+d594 1
+a594 1
+	cansize(dip->di_size);
+d596 1
+a596 1
+	switch (ip->i_mode&IFMT) {
+d600 1
+a600 1
+		candev(dip->di_a.di_rdev);
+d602 1
+d605 1
+a605 1
+		ltol3(dip->di_addr, ip->i_a.i_addr, NADDR);
+d607 1
+d609 1
+a609 1
+		ltol3(dip->di_addp, ip->i_pipe, ND);
+d611 1
+a611 1
+		canshort(dip->di_pnc);
+d613 1
+a613 1
+		canshort(dip->di_prx);
+d615 1
+a615 1
+		canshort(dip->di_pwx);
+d617 1
+d619 1
+a619 1
+		kclear(&dip->di_a, sizeof(dip->di_a));
+d624 1
+a624 1
+	cantime(dip->di_atime);
+d626 1
+a626 1
+	cantime(dip->di_mtime);
+d628 1
+a628 1
+	cantime(dip->di_ctime);
+d630 2
+a631 1
+	if ((bp = bread (ip->i_dev, (daddr_t) iblockn (ino), 1)) == NULL)
+d634 1
+a634 1
+	v = (char *)((struct dinode *)bp->b_vaddr + iblocko(ino));
+d734 2
+a735 1
+	switch (ip->i_mode&IFMT) {
+d741 1
+d760 1
+a760 1
+		if ((imode(ip, u.u_uid, u.u_gid)&mode) != mode) {
+d765 1
+a765 1
+	if ((mode & IPW) && ip->i_refc > 1 && sbusy(ip)) {
+d772 1
+d776 1
+d787 1
+a787 1
+		if (ip->i_mode & 0111)
+d792 1
+a792 1
+		return ((ip->i_mode>>6) & 07);
+d794 2
+a795 2
+		return ((ip->i_mode>>3) & 07);
+	return (ip->i_mode & 07);
+@
+
+
+2.3
+log
+@First Nigel/Vlad merge
+@
+text
+@d1 14
+d16 2
+a17 1
+ * coh.386/fs1.c
+d19 21
+a39 1
+ * Coherent filesystem (mostly handling of in core inodes).
+d41 2
+a42 1
+ * Revised: Mon Jul 12 08:15:06 1993 CDT
+d108 2
+a109 1
+	if ((c=ftoic(np++)) != '/')
+d111 1
+a111 1
+	else {
+d119 1
+d149 1
+d533 1
+a533 1
+	if (getment(ip->i_dev, 0) == NULL)
+d537 3
+a539 2
+	if (ip->i_refc==0 && ip->i_nlink==0 && ino!=BADFIN && ino!=ROOTIN) {
+		iclear(ip);
+d544 1
+a544 1
+	dip = &dinode;
+d587 1
+a587 1
+	if ((bp=bread(ip->i_dev, (daddr_t)iblockn(ino), 1)) == NULL)
+d591 1
+a591 1
+	kkcopy(dip, v, sizeof(dinode));
+d593 5
+a597 4
+	brelease(bp);
+	ip->i_flag &= ~(IFACC|IFMOD|IFCRT);
+	if (ip->i_refc==0 && ip->i_nlink==0 && ino!=BADFIN && ino!=ROOTIN)
+		ifree(ip->i_dev, ino);
+d608 1
+a608 1
+	for (ip=&inodep[NINODE-1]; ip>=inodep; --ip) {
+d613 1
+a613 1
+		if ( (ip->i_mode & IFMT) == IFCHR )
+d615 1
+a615 1
+		if ((ip->i_flag&(IFACC|IFMOD|IFCRT)) == 0)
+d617 1
+a617 1
+		icopymd(ip);
+d624 2
+a625 1
+iclear(ip)
+d631 1
+a631 1
+	switch (ip->i_mode&IFMT) {
+d636 2
+a637 2
+			if ((b=ip->i_pipe[--n]) != 0)
+				bfree(ip->i_dev, b);
+d639 1
+a639 1
+		kclear(ip->i_pipe, sizeof(ip->i_pipe));
+d641 1
+d646 2
+a647 2
+			if ((b=ip->i_a.i_addr[--n]) != 0)
+				indfree(ip->i_dev, b, 1+n-ND);
+d650 2
+a651 2
+			if ((b=ip->i_a.i_addr[--n]) != 0)
+				bfree(ip->i_dev, b);
+d653 1
+a653 1
+		kclear(ip->i_a.i_addr, sizeof(ip->i_a.i_addr));
+d655 1
+d660 1
+a660 1
+	iamc(ip);	/* creat/pipe - atime/mtime/ctime */
+@
+
+
+2.2
+log
+@From Nigel
+@
+text
+@d1 2
+a2 8
+/* $Header: /y/coh.386/RCS/fs1.c,v 1.8 93/04/14 10:06:28 root Exp $ */
+/* (lgl-
+ *	The information contained herein is a trade secret of Mark Williams
+ *	Company, and  is confidential information.  It is provided  under a
+ *	license agreement,  and may be  copied or disclosed  only under the
+ *	terms of  that agreement.  Any  reproduction or disclosure  of this
+ *	material without the express written authorization of Mark Williams
+ *	Company or persuant to the license agreement is unlawful.
+d4 1
+a4 30
+ *	COHERENT Version 2.3.37
+ *	Copyright (c) 1982, 1983, 1984.
+ *	An unpublished work by Mark Williams Company, Chicago.
+ *	All rights reserved.
+ -lgl) */
+/*
+ * Coherent.
+ * Filesystem (mostly handling of in core inodes).
+ *
+ * $Log:	fs1.c,v $
+ * Revision 1.8  93/04/14  10:06:28  root
+ * r75
+ * 
+ * Revision 1.7  93/02/23  15:50:51  root
+ * after caddr_t change, before blclear
+ * 
+ * Revision 1.4  92/07/16  16:33:32  hal
+ * Kernel #58
+ * 
+ * Revision 1.3  92/02/06  17:55:36  vlad
+ * Fix typo in ialloc panic.
+ * 
+ * Revision 1.2  92/01/06  11:59:17  hal
+ * Compile with cc.mwc.
+ * 
+ * Revision 1.1	88/03/24  16:13:47	src
+ * Initial revision
+ * 
+ * 86/12/13	Allan Cornish		/usr/src/sys/coh/fs1.c
+ * isync() no longer updates the disk image of a character device inode.
+d6 1
+a6 2
+ * 86/11/19	Allan Cornish		/usr/src/sys/coh/fs1.c
+ * idirent() initializes the (new) (IO).io_flag field to 0.
+d44 1
+d46 12
+d104 7
+a110 2
+		else
+			iaccess(cip, IPE);
+d668 7
+a674 4
+	if ((imode(ip, u.u_uid, u.u_gid)&mode) != mode) {
+		u.u_error = EACCES;
+		return 0;
+	}
+@
+
+
+2.1
+log
+@Last Pre-STREAMS kernel
+@
+text
+@d48 1
+a48 1
+#include <errno.h>
+d55 1
+d325 1
+@

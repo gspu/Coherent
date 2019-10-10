@@ -1,0 +1,132 @@
+.TH localtime() "" "" "Time Function (libc)"
+.PC "Convert system time to calendar structure"
+.B "#include <time.h>"
+.B "#include <sys/types.h>"
+\fBstruct tm *localtime(\fItimep\fB)\fR
+\fBtime_t *\fItimep\fB;\fR
+.PP
+.B localtime()
+converts \*(CO's internal time into the form described in the structure
+.BR tm ,
+which is defined in the header file
+.BR <time.h> .
+.PP
+.I timep
+points to the system time.
+It is of type
+.BR time_t ,
+which is defined in the header file
+\fB<sys/types.h>\fR.
+.PP
+.B localtime()
+returns a pointer to the structure
+.BR tm .
+The function
+.B asctime()
+turns
+.B tm
+into an ASCII string.
+.PP
+Unlike its cousin
+.BR gmtime() ,
+.B localtime()
+returns the local time,
+including conversion to daylight saving time, if applicable.
+The daylight-saving time flag
+indicates whether daylight saving time is now in effect,
+.I not
+whether it is in effect during some part of the year.
+Note, too, that the time zone is set by
+.B localtime()
+every time the value returned by
+.DM
+	getenv("TIMEZONE")
+.DE
+.PP
+changes.
+See the Lexicon entry for \fBTIMEZONE\fR for more information on
+how \*(CO handles time zone settings.
+.SH Example
+The following example recreates the function
+.BR asctime() .
+It builds a string somewhat different from that returned by
+.B asctime()
+to demonstrate how to manipulate the \fBtm\fR structure.
+.DM
+#include <time.h>
+#include <sys/types.h>
+.DE
+.DM
+char *month[] = {
+	"January", "February", "March", "April",
+	"May", "June", "July", "August", "September",
+	"October", "November", "December"
+};
+.DE
+.DM
+char *weekday[] = {
+	"Sunday", "Monday", "Tuesday", "Wednesday",
+	"Thursday", "Friday", "Saturday"
+};
+.DE
+.DM
+main()
+{
+	char buf[20];
+	time_t tnum;
+	struct tm *ts;
+	int hour = 0;
+.DE
+.DM
+	time(&tnum);	/* get time from system */
+.sp \n(pDu
+	/* convert time to tm struct */
+	ts=localtime(&tnum);
+.DE
+.DM
+	if (ts->tm_hour == 0)
+		sprintf(buf,"12:%02d:%02d A.M.",
+			ts->tm_min, ts->tm_sec);
+.DE
+.DM
+	else
+		if(ts->tm_hour>=12) {
+			hour=ts->tm_hour-12;
+			if (hour==0)
+				hour=12;
+			sprintf(buf,"%02d:%02d:%02d P.M.",
+				hour, ts->tm_min,ts->tm_sec);
+.DE
+.DM
+		} else
+			sprintf(buf,"%02d:%02d:%02d A.M.", ts->tm_hour,
+				ts->tm_min,ts->tm_sec);
+.DE
+.DM
+	printf("\en%s %d %s 19%d %s\en",
+		weekday[ts->tm_wday], ts->tm_mday,
+		month[ts->tm_mon], ts->tm_year, buf);
+.DE
+.DM
+	printf("Today is the %d day of 19%d\en",
+		ts->tm_yday, ts->tm_year);
+.DE
+.DM
+	printf("Daylight Saving Time %s in effect\en",
+		ts->tm_isdst ? "is" : "is not");
+}
+.DE
+.SH "See Also"
+.Xr "gmtime()," gmtime
+.Xr "libc," libc
+.Xr "time [overview]," time.a
+.Xr "TIMEZONE" timezone
+.br
+\*(AS, \(sc7.12.3.4
+.br
+\*(PX Standard, \(sc8.1
+.SH Notes
+.B localtime()
+returns a pointer
+to a statically allocated data area that is
+overwritten by successive calls.

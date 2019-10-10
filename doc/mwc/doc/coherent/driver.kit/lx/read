@@ -1,0 +1,103 @@
+.TH read "" "" "Entry-Point Routine"
+.PC "Read data from a device"
+.sp \n(pdu
+Internal-Kernel Interface:
+.B "#include <sys/types.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/uio.h>"
+.B "#include <sys/cred.h>"
+\fBint \fIprefix\fBread(\fIdevice\^\fB, \fIuioptr\^\fB, \fIcredptr\fB, \fIprivate\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; IO *\fIioptr\^\fB; cred_t *\fIcredptr\^\fB; void *\fIprivate\fR
+.sp \n(pdu
+DDI/DKI or \*(ST:
+.B "#include <sys/types.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/uio.h>"
+.B "#include <sys/cred.h>"
+\fBint \fIprefix\fBread(\fIdevice\^\fB, \fIuioptr\^\fB, \fIcredptr\fB)\fR
+\fBdev_t \fIdevice\^\fB; uio_t *\fIuioptr\^\fB; cred_t *\fIcredptr\^\fB;\fR
+.PP
+A driver's
+.B read
+routine moves data from
+.I device
+into the user's data area.
+An application can invoke it via the \*(CO system call
+.BR read() .
+.SH "Internal-Kernel Interface"
+Under the internal-kernel interface to a driver, field
+.B c_read
+in the driver's
+.B CON
+structure holds the address of this routine.
+It is customary to name the
+.B read
+routine with the word
+.B read
+prefixed by a unique identifier for your driver; but this is not required.
+.PP
+.I device
+is a
+.B dev_t
+that identifies the device to be read.
+.PP
+.I ioptr
+points to the
+.B IO
+structure that manages communication with
+.IR device .
+.PP
+Finally,
+.I private
+points to a data element that is private to your driver.
+Note that many drivers do not use this argument.
+.SH "DDI/DKI or STREAMS"
+The rest of this article describes how to invoke this function under
+the DDI/DKI or \*(ST interfaces.
+To invoke it, the kernel calls function \fIprefix\fBread()\fR, where
+.I prefix
+is the unique prefix for this driver.
+.PP
+.PP
+.I uioptr
+holds the address of structure
+.BR uio ,
+whose contents set where the data can be written, and how many can be written.
+Function
+.B uiomove()
+provides a convenient way to use the
+.B uio
+structure to manage the copying of data.
+.PP
+.I credptr
+points to the user's credential structure.
+The driver can read that structure to see if the user can read privileged
+information, should the driver provide access to any.
+.PP
+The
+.B read
+routine returns zero for success, or an appropriate error number.
+.SH "See Also"
+.B
+CON,
+drv_priv(),
+entry-point routines,
+errno,
+kernel routines,
+strategy,
+uio,
+uiomove(),
+ureadc(),
+write
+.R
+.br
+\*(CO Lexicon:
+.B
+read()
+.R
+.SH Notes
+This entry point is optional.
+.PP
+The
+.B read
+routine has user context and can sleep.

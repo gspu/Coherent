@@ -1,0 +1,148 @@
+/*
+ * db/db4.c
+ * A debugger.
+ * Breakpoints.
+ */
+
+#include "db.h"
+
+/*
+ * Delete a breakpoint.
+ * If 'r' is set, it is a return breakpoint.
+ * If 's' is set, it is a :sc breakpoint.
+ */
+int
+bpt_del(t, addr) int t; ADDR_T addr;
+{
+	register int f;
+	register BPT *bp;
+
+	switch (t) {
+	case 'b':	f = BBPT;	break;
+	case 'r':	f = BRET;	break;
+	case 's':	f = BSIN;	break;
+	}
+
+	for (bp = &bpt[0]; bp < &bpt[NBPT]; bp++) {
+		if ((bp->b_flag & f) == 0 || bp->b_badd != addr)
+			continue;
+		bp->b_flag &= ~f;
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * Initialize the breakpoint table.
+ */
+void
+bpt_init()
+{
+	register BPT *bp;
+
+	for (bp = &bpt[0]; bp < &bpt[NBPT]; bp++) {
+		bp->b_flag = 0;
+		bp->b_bcom = bp->b_rcom = NULL;
+	}
+}
+
+/*
+ * Display breakpoints.
+ */
+void
+bpt_display()
+{
+	register BPT *bp;
+
+	for (bp = &bpt[0]; bp < &bpt[NBPT]; bp++) {
+		if (testint())
+			return;
+		if ((bp->b_flag&BBPT) != 0)
+			bpt_print(' ', bp->b_badd, bp->b_bcom);
+		if (testint())
+			return;
+		if ((bp->b_flag&BRET) != 0)
+			bpt_print('r', bp->b_badd, bp->b_rcom);
+		if (testint())
+			return;
+		if ((bp->b_flag&BSIN) != 0)
+			bpt_print('s', bp->b_badd, "");
+	}
+}
+
+/*
+ * Print a breakpoint address, type and command.
+ */
+void
+bpt_print(t, addr, cmd) int t; ADDR_T addr; register char *cmd;
+{
+	register int c;
+
+	printx(addr_fmt, addr);
+	printx("%c (", t);
+	putaddr(ISEG, addr);
+	printx(") ");
+	while ((c = *cmd++) != '\0') {
+		if (c == '\n') {
+			printx("\\n");
+			continue;
+		}
+		if (c == '\\') {
+			printx("\\\\");
+			continue;
+		}
+		putx(c);
+	}
+	putx('\n');
+}
+
+/*
+ * Set a breakpoint.
+ */
+int
+bpt_set(f, addr, fp, cmd) int f; ADDR_T addr, fp; char *cmd;
+{
+	register BPT *bp;
+	int bits;
+
+	dbprintf(("bpt_set(%d, 0x%lX, 0x%lX, %s)\n", f, addr, fp, cmd));
+
+	/* Make sure "addr" is a valid text address. */
+	add = addr;
+	if (getb(ISEG, (char *)&bits, sizeof(bits)) == 0)
+		return 0;
+
+	/* Look for existing breakpoint at same address. */
+	for (bp = &bpt[0]; bp < &bpt[NBPT]; bp++)
+		if (bp->b_flag && bp->b_badd == addr)
+			goto out;
+
+	/* Look for unused breakpoint. */
+	for (bp = &bpt[0]; bp < &bpt[NBPT]; bp++)
+		if (bp->b_flag == 0)
+			goto out;
+	return 0;
+
+out:
+	dbprintf(("setting bpt[%d]\n", bp - bpt));
+	if (f != BBPT && (bp->b_flag&f) != 0)
+		return 0;		/* already set, ignore */
+	bp->b_flag |= f;
+	bp->b_badd = addr;
+	bp->b_bins[0] = bits & 0xFF;	/* store original contents */
+	switch (f) {
+	case BBPT:
+		bp->b_bcom = save_cmd(bp->b_bcom, cmd);
+		break;
+	case BRET:
+		bp->b_rfpt = fp;
+		bp->b_rcom = save_cmd(bp->b_rcom, cmd);
+		break;
+	case BSIN:
+		bp->b_sfpt = fp;
+		break;
+	}
+	return 1;
+}
+
+/* end of db/db4.c */

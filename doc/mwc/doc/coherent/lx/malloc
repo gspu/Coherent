@@ -1,0 +1,125 @@
+.TH malloc() "" "" "General Function (libc)"
+.PC "Allocate dynamic memory"
+.B "#include <stdlib.h>"
+\fBchar *malloc(\fIsize\^\fB) unsigned \fIsize\^\fB;\fR
+.PP
+.B malloc()
+helps to manage a program's free-space arenas.
+It uses a circular, first-fit algorithm to select an unused block
+of at least
+.I size
+bytes, marks the portion it uses, and returns a pointer to it.
+The function
+.B free()
+returns allocated memory to the free memory pool.
+.PP
+Each arena allocated by
+.B malloc()
+is rounded up to the nearest even number and preceded by an
+.B "unsigned int"
+that contains the true length.
+Thus, if you ask for three bytes you get four, and the
+.B unsigned
+that precedes the newly allocated arena is set to four.
+.PP
+When an arena is freed, its low order bit
+is turned on; consolidation occurs when
+.B malloc()
+passes over an arena as it searches for space.
+The end of each arena contains
+a block with a length of zero, followed by a pointer to the
+next arena.
+Arenas point in a circle.
+.PP
+The most common problem with
+.B malloc()
+occurs when a program modifies more space than it allocates with
+.BR malloc() .
+This can cause later
+.BR malloc() s
+to crash with a message that indicates that the arena has been corrupted.
+You can use the function
+.B memok()
+to isolate these problems.
+.SH Example
+This example reads from the standard input
+up to
+.I NITEMS
+items, each of which is up to
+.I MAXLEN
+long, sorts them, and writes the sorted list onto the standard output.
+It demonstrates the functions
+.BR qsort() ,
+.BR malloc() ,
+.BR free() ,
+.BR exit() ,
+and
+.BR strcmp() .
+.DM
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define NITEMS 512
+#define MAXLEN 256
+char *data[NITEMS];
+char string[MAXLEN];
+.DE
+.DM
+main()
+{
+	register char **cpp;
+	register int count;
+	extern int compare();
+.DE
+.DM
+	for (cpp = &data[0]; cpp < &data[NITEMS]; cpp++) {
+		if (gets(string) == NULL)
+			break;
+		if ((*cpp = malloc(strlen(string) + 1)) == NULL)
+			exit(1);
+		strcpy(*cpp, string);
+	}
+.DE
+.DM
+	count = cpp - &data[0];
+	qsort(data, count, sizeof(char *), compare);
+.DE
+.DM
+	for (cpp = &data[0]; cpp < &data[count]; cpp++) {
+		printf("%s\en", *cpp);
+		free(*cpp);
+	}
+	exit(0);
+}
+.DE
+.DM
+compare(p1, p2)
+register char **p1, **p2;
+{
+	extern int strcmp();
+	return(strcmp(*p1, *p2));
+}
+.DE
+.SH "See Also"
+.Xr "alloca()," alloca
+.Xr "arena," arena
+.Xr "calloc()," calloc
+.Xr "free()," free
+.Xr "libc," libc
+.Xr "memok()," memok
+.Xr "realloc()," realloc
+.Xr "setbuf()," setbuf
+.Xr "stdlib.h" stdlib.h
+.br
+\*(AS, \(sc7.10.3.3
+.br
+\*(PX Standard, \(sc8.1
+.SH Diagnostics
+.B malloc()
+returns NULL if insufficient memory is available.
+.SH Notes
+The function
+.B alloca()
+allocates space on the stack.
+The space so allocated does not need to be freed when the function that
+allocated the space exits.

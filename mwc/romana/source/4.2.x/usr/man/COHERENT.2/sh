@@ -1,0 +1,857 @@
+sshh -- Command
+
+The Bourne shell
+sshh [-cceeiikknnssttuuvvxx] _t_o_k_e_n ...
+
+The COHERENT  system offers two command interpreters:  kksshh, the Korn shell;
+and sshh, the Bourne shell.   sshh is the default COHERENT command interpreter.
+The tutorial included in this manual describes the Bourne shell in detail.
+
+As you will  see from the following description, a  shell is both a command
+interpreter and a programming language  in its own right.  Taking some time
+to learn the rudiments of  your shell's programming language will pay great
+benefits in taking command of your COHERENT system.
+
+_C_o_m_m_a_n_d_s
+A  _c_o_m_m_a_n_d consists of  one or  more _t_o_k_e_n_s.  A _t_o_k_e_n is  a string  of text
+characters (i.e., one or more alphabetic characters, punctuation marks, and
+numerals) delineated by spaces, tabs, or newlines.
+
+A _s_i_m_p_l_e _c_o_m_m_a_n_d  consists of the command's name, followed  by zero or more
+tokens that  represent represent arguments to the  command, names of files,
+or shell operators.  A _c_o_m_p_l_e_x _c_o_m_m_a_n_d will use shell constructs to execute
+one  or more  commands conditionally.   In effect, a  complex command  is a
+mini-program  that  is  written  inthe  shell's  programming  language  and
+interpreted by sshh.
+
+_S_h_e_l_l _O_p_e_r_a_t_o_r_s
+The shell  includes a number  of operators that form  pipes, redirect input
+and output to commands, and  let you define conditions under which commands
+are executed.
+
+_c_o_m_m_a_n_d | _c_o_m_m_a_n_d
+     The _p_i_p_e operator: let the output of one command serve as the input to
+     a  second.  You  can combine  commands with `|'  to form  _p_i_p_e_l_i_n_e_s. A
+     pipeline passes the standard output of the first (leftmost) command to
+     the  standard  input  of the  second  command.   For  example, in  the
+     pipeline
+
+         sort customers | uniq | more
+
+     sshh invokes ssoorrttB to sort the contents of file ccuussttoommeerrss.  It pipes the
+     output of ssoorrtt  to the command uunniiqq, which outputs  one unique copy of
+     the text that  is input into it.  sshh then  pipes the output of uunniiqq to
+     the command mmoorree, which displays  it on your terminal one screenful at
+     a time.   Note that under COHERENT, unlike  MS-DOS, pipes are executed
+     concurrently: that  is, ssoorrtt does  not have to finish  its work before
+     uunniiqq and mmoorree can begin to receive input and get to to work.
+
+_c_o_m_m_a_n_d ; _c_o_m_m_a_n_d
+     Execute commands  on a command line sequentially.   The command to the
+     left of the `;' executes to  completion; then the command to the right
+     of it executes.  For example, in the command line
+
+         a | b ; c | d
+
+     first executes  the pipeline aa  | bb then,  when aa and  bb are finished,
+     executes the pipeline cc | dd.
+
+_c_o_m_m_a_n_d &
+     Execute a  command in the  background.  This operator  must follow the
+     command,  not precede  it.  It  prints the  process identifier  of the
+     command on  the standard output,  so you can  use the kkiillll  command to
+     kill that  process should something go wrong.   This operator lets you
+     execute  more  than  one  command  simultaneously.  For  example,  the
+     command
+
+         fdformat -v /dev/fha0 &
+
+     formats a  high-density, 5.25-inch  floppy disk  in drive 0  (that is,
+     drive  A); but  while  the disk  is  being formatted,  sshh returns  the
+     command line  prompt so you can immediately  enter another command and
+     begin to work.  If you did  not use the `&' in this command, you would
+     have  to wait  until formatting  was finished  before you  could enter
+     another command.
+
+_c_o_m_m_a_n_d && _c_o_m_m_a_n_d
+     Execute a command upon  success.  sshh executes the command that follows
+     the token  `&&' only if the  commands that precedes it  returns a zero
+     exit status, which signifies success.  For example, the command
+
+     cd /etc
+     fdformat -v /dev/fha0 && badscan -o proto /dev/fha0 2400
+
+     formats  a  floppy  disk,  as  described  above.  If  the  format  was
+     successful, it  then invokes the command bbaaddssccaann to  scan the disk for
+     bad blocks; if it was not successful, however, it does nothing.
+
+_c_o_m_m_a_n_d || _c_o_m_m_a_n_d
+     Execute a  command upon failure.  This is  identical to operator `&&',
+     except that the second command is executed if the first returns a non-
+     zero status, which signifies failure.  For example, the command
+
+         /etc/fdformat -v /dev/fha0 || echo "Format failed!"
+
+     formats a  floppy disk.  If  formatting failed, it  echoes the message
+     FFoorrmmaatt ffaaiilleedd!  on your terminal; however,  if formatting succeeds, it
+     does nothing.
+
+     Note that the tokens newline, `;'  and `&' bind less tightly than `&&'
+     and `||'.   sshh parses command  lines from left to  right if separators
+     bind equally.
+
+>_f_i_l_e
+     Redirect output.   The _s_t_a_n_d_a_r_d  _i_n_p_u_t, _s_t_a_n_d_a_r_d _o_u_t_p_u_t,  and _s_t_a_n_d_a_r_d
+     _e_r_r_o_r  streams are  normally connected  to  the terminal.   A pipeline
+     attaches the  output of one  command to the input  of another command.
+     In addition,  sshh includes a  set of operators that  redirect input and
+     output into files rather than other commands.
+
+     The  operator `>'  redirects  output into  a file.   For example,  the
+     command
+
+         sort customers >customers.sort
+
+     sorts  file   ccuussttoommeerrss  and  writes  the   sorted  output  into  file
+     ccuussttoommeerrss.ssoorrtt. It  creates ccuussttoommeerrss.ssoorrtt if  it does not  exist, and
+     destroys its previous contents if it does exist.
+
+>>_f_i_l_e
+     Redirect output into a file, and  append.  If the file does not exist,
+     this operator  creates it; however,  if the file  already exists, this
+     operator  appends  the  output to  that  file's  contents rather  than
+     destroying those contents.  For example, the command
+
+         sort customers.now | uniq >>customers.all
+
+     sorts  file ccuussttoommeerrss.nnooww,  pipes its  output  to command  uunniiqq, which
+     throws away duplicate lines of  input, and appends the results to file
+     ccuussttoommeerrss.aallll.
+
+<_f_i_l_e
+     Redirect input.   Here, sshh reads the contents of  a file and processes
+     them as  if you had typed  them from your keyboard.   For example, the
+     command
+
+         ed textfile <edit.script
+
+     invokes  the line-editor  eedd  to edit  tteexxttffiillee;  however, instead  of
+     reading editing  commands from your keyboard, the  shell passes eedd the
+     contents  of  eeddiitt.ssccrriipptt.   This command  would  let  you prepare  an
+     editing  script that  you could execute  repeatedly upon  files rather
+     than having to type the same commands over and over.
+
+<< _t_o_k_e_n
+     Prepare  a  ``here  document''.   This  operator  tells sshh  to  accept
+     standard input from the shell input  until it reads the next line that
+     contains only _t_o_k_e_n. For example, the command
+
+         cat >FOO <<\!
+             Here is some text.
+         !
+
+     redirects all text between `<<\!' and `!' to the ccaatt command.  The `>'
+     in  turn redirects  the  output of  ccaatt  into file  FFOOOO.  sshh  performs
+     parameter substitution  on the here document  unless the leading _t_o_k_e_n
+     is quoted; parameter substitution and quoting are described below.
+
+_c_o_m_m_a_n_d 22> _f_i_l_e
+     Redirect  the standard  error stream  into a  file.  For  example, the
+     command
+
+         nroff -ms textfile >textfile.p 2>textfile.err
+
+     invokes  the command  nnrrooffff to  format the  contents of  tteexxttffiillee.  It
+     redirects  the  output  of  nnrrooffff  (i.e.,  the standard  output)  into
+     tteexxttffiillee.pp;  it  also  redirects any  error  messages  that nnrrooffff  may
+     generate into file tteexxttffiillee.eerrrr.
+
+     Note in passing that a command  may use up to 20 streams.  By default,
+     stream 0 is  the standard input; stream 1 is  the standard output; and
+     stream 2  is the standard  error.  sshh lets  you redirect any  of these
+     streams individually into files, or combine streams into each other.
+
+<&_n  sshh can redirect the standard  input and output to duplicate other file
+     descriptors.  (See the  Lexicon article ffiillee ddeessccrriippttoorr for details on
+     what these are.) This operator duplicates the standard input from file
+     descriptor _n.
+
+>&_n  Duplicate the standard output from file descriptor _n.  For example,
+
+         2>&1
+
+     redirects file descriptor 2  (the standard error) to file descriptor 1
+     (the standard output).
+
+<&-  Close the standard input.
+
+>&-  Close the standard output.
+
+Note that  each command executed as a foreground  process inherits the file
+descriptors  and signal  traps  (described below)  of  the invoking  shell,
+modified  by any  specified redirection.   Background processes  take input
+from the  null device /ddeevv/nnuullll  (unless redirected), and  ignore interrupt
+and quit signals.
+
+_F_i_l_e _N_a_m_e _P_a_t_t_e_r_n_s
+The  shell  interprets an  input  token  that contain  any  of the  special
+characters `?', `*', or `[' as a file name _p_a_t_t_e_r_n.
+
+?  Match any single character except newline.  For example, the command
+
+       ls name?
+
+   will print  the name of any  file that consists of  the string nnaammee plus
+   any one character.  If nnaammee is followed by no characters, or is followed
+   by two or more characters, it will not be printed.
+
+*  Match a string of non-newline characters of any length (including zero).
+
+       ls name*
+
+   will  print the  name of  any  file that  begins with  the string  nnaammee,
+   regardless of whether it is followed by any other characters.  Likewise,
+   the command
+
+       ls name?*
+
+   will  print the  name  of any  file  that consists  of  the string  nnaammee
+   followed  by at  least one  character.  Unlike  nnaammee*, the  token nnaammee?*
+   insists that  be followed by  at least one  character before it  will be
+   printed.
+
+[!_x_y_z]
+   Exclude characters _x_y_z from the string search.  For example, the command
+
+       ls [!abc]*
+
+   prints all  files in the current directory except  those that begin with
+   aa, bb, or cc.
+
+[_C-_c]
+   Enclose  alternatives  to  match  a  single  character.   A  hyphen  `-'
+   indicates a range of characters.  For example, the command
+
+       ls name[ABC]
+
+   will  print the  names of  files nnaammeeAA, nnaammeeBB,  and nnaammeeCC  (assuming, of
+   course, that those files exist in the current directory).  The command
+
+       ls name[A-K]
+
+   prints the names of files nnaammeeAA through nnaammeeKK (again, assuming that they
+   exist in the current directory).
+
+When  sshh reads  a  token that  contains  one of  the  above characters,  it
+replaces the  token in the command  line with an alphabetized  list of file
+names that match the pattern.  If  it finds no matches, it passes the token
+unchanged to the command.  For example, when you enter the command
+
+    ls name[ABC]
+
+sshh replaces  the token  nnaammee[AABBCC] with nnaammeeAA,  nnaammeeBB, and nnaammeeCC  (again, if
+they exist in the current directory), so the command now reads:
+
+    ls nameA nameB nameC
+
+It then passes this second, transformed  version of the command line to the
+command llss.
+
+Note that the  slash `/' and leading period `.'  must be matched explicitly
+in a pattern.  The slash, of course, separates the elements of a path name;
+while  a period  at  the begin  of  a file  name usually  (but not  always)
+indicates that that file has special significance.
+
+_P_a_t_t_e_r_n _M_a_t_c_h_i_n_g _i_n _P_r_e_f_i_x_e_s _a_n_d _S_u_f_f_i_c_e_s
+Special constructs let you match patterns in the prefixes and suffices of a
+string:
+
+{#_p_a_r_a_m_e_t_e_r}
+     This operator gives the number of characters _p_a_r_a_m_e_t_e_r. For example:
+
+         foo=BAZZ
+         echo ${#foo} -> 4
+
+{_p_a_r_a_m_e_t_e_r%_w_o_r_d}
+     This  returns the  shortest string  in which  the prefix  of _p_a_r_a_m_e_t_e_r
+     matches  _w_o_r_d. For  example, given  that xxyyzzzzyy=uussrr/bbiinn/ccppiioo,  then the
+     command
+
+         echo ${xyzzy%/*}
+
+     echoes the string uussrr/bbiinn.
+
+{_p_a_r_a_m_e_t_e_r%%_w_o_r_d}
+     This  returns the  longest  string in  which the  suffix of  _p_a_r_a_m_e_t_e_r
+     matches  _w_o_r_d. For  example, given  that xxyyzzzzyy=uussrr/bbiinn/ccppiioo,  then the
+     command
+
+         echo ${xyzzy%/*}
+
+     echoes the string uussrr.
+
+{_p_a_r_a_m_e_t_e_r#_w_o_r_d}
+     This  returns the  shortest string  in which  the prefix  of _p_a_r_a_m_e_t_e_r
+     matches _w_o_r_d. For example, given that pplluugghh=uussrr/bbiinn/ccppiioo, the command
+
+         echo ${plugh#*/}
+
+     echoes bbiinn/ccppiioo.
+
+{_p_a_r_a_m_e_t_e_r##_w_o_r_d}
+     This  returns the  longest  string in  which the  prefix of  _p_a_r_a_m_e_t_e_r
+     matches _w_o_r_d. For example, given that pplluugghh=uussrr/bbiinn/ccppiioo, the command
+
+         echo ${plugh##*/}
+
+     echoes ccppiioo.
+
+The following  shows how to use these expressions  to implement the command
+bbaasseennaammee:
+
+    basename () {
+        set $(echo ${1##*/}) $2
+        echo ${1%$2}
+    }
+
+_Q_u_o_t_i_n_g _T_e_x_t
+From time  to time, you  will want to  ``turn off'' the  special meaning of
+characters.  For  example, you  may wish  to pass a  token that  contains a
+literal asterisk to  a command; to do so, you need  a way to tell sshh not to
+expand the  token into a  list of file  names.  Therefore, sshh  includes the
+qquuoottaattiioonn ooppeerraattoorrss  `\', `"', and  `''; these ``turn off''  (or _q_u_o_t_e) the
+special meaning of operators.
+
+The backslash `\' quotes the following character.  For example, the command
+
+    ls name\*
+
+lists a file named nnaammee*, and no other.
+
+The shell  ignores a backslash immediately followed by  a newline, called a
+_c_o_n_c_e_a_l_e_d _n_e_w_l_i_n_e. This lets you give more arguments to a command than will
+fit on one line.  For example, the command
+
+    cc -o output file1.c file2.c file3.c \
+        file4.c file5.c file19.c
+
+invokes the C compiler cccc to  compile a set of C source files, the names of
+which extend  over more than one  line of input.  You will  find this to be
+extremely helpful, especially when you write scripts and mmaakkeeffiillees, to help
+you write neat, easily read commands.
+
+A pair of apostrophes ' ' prevents  interpretation of any  enclosed special
+characters.  For example, the command
+
+    find . -name '*.c' -print
+
+finds and prints the name of any C-source file in the current directory and
+any  subdirectory.   The   command  ffiinndd  interprets  the  `*'  internally;
+therefore, you  want to  suppress the  shell's expansion of  that operator,
+which is accomplished by enclosing that token between apostrophes.
+
+A pair of quotation marks " "  has the  same  effect.  Unlike  apostrophes,
+however,  sshh   will  perform  parameter   substitution  and  command-output
+substitution (described below) within quotation marks.
+
+_E_n_v_i_r_o_n_m_e_n_t_a_l _V_a_r_i_a_b_l_e_s
+Environmental variables  are names that can be assigned  string values on a
+command line, in the form
+
+    _n_a_m_e=_v_a_l_u_e
+
+The name  must begin with  a letter, and  can contain letters,  digits, and
+underscores `_'.  In shell input, `$_n_a_m_e' or `${_n_a_m_e}' represents the value
+of the variable.  For example:
+
+    TEXT=mytext
+
+    nroff -ms $TEXT >$TEXT.out
+
+Here,  sshh  expands  $TTEEXXTT  before  it  executes the  nnrrooffff  command.   This
+technique is very useful in large, complex scripts: by using variables, you
+can change  the behavior  of the  script by editing  one line,  rather than
+having to edit numerous variables throughout the script.
+
+Note that if an assignment precedes a command on the same command line, the
+effect of the assignment is local to that command; otherwise, the effect is
+permanent.  For example,
+
+    kp=one testproc
+
+assigns variable  kkpp the  value oonnee  only for the  execution of  the script
+tteessttpprroocc.
+
+sshh sets the following environmental variables by default:
+
+#  The number of actual positional parameters given to the current command.
+
+@  The list of positional parameters ``$1 $2 ...''.
+
+*  The list  of positional parameters ``$1'' ``$2'' ...   (the same as `$@'
+   unless quoted).
+
+-  Options set in the invocation of the shell or by the sseett command.
+
+?  The exit status returned by the last command.
+
+!  The process number of the last command invoked with `&'.
+
+$  The process number of the current shell.
+
+sshh also references the following variables:
+
+CCWWDD     Current working  directory: this  is the name  of the  directory in
+        which you are now  working.  Note that this  variable is not common
+        to other  implementations  of sshh.  Code  that uses  it  may not  be
+        portable to other operating systems.
+
+HHOOMMEE    Initial working directory;  usually specified in  the password file
+        /eettcc/ppaasssswwdd.
+
+IIFFSS     Delimiters for tokens; usually space, tab and newline.
+
+LLAASSTTEERRRROORR
+        Name of last command returning nonzero exit status.
+
+MMAAIILL    Checked at  the end  of each  command.  If  file specified  in this
+        variable is  new since  last command, the  shell prints  ``You have
+        mail.'' on the user's terminal.
+
+PPAATTHH    Colon-separated list of directories searched for commands.
+
+PPSS11     First prompt string.  By default, this is `$'.
+
+PPSS22     Second prompt string.  By default, this  is `>'.  sshh prints it when
+        it expects more input, such as when an open quotation-mark has been
+        typed but a  close quotation-mark has  not been typed,  or within a
+        shell construct.
+
+Beginning  with release  4.2, the  COHERENT  implementation of  sshh performs
+word-expansion on  the values  of the variables  PPSS11 and PPSS22.  For example,
+setting the variables
+
+    export SITE=$(uname -s)
+    PS1="$SITE $USER $(pwd) > "
+
+create a prompt that consists of your site name, your login identifier, and
+your current working directory.
+
+The special forms `${_n_a_m_e_C_t_o_k_e_n}' perform conditional parameter substition:
+_C is  one of the  characters `-', `=',  `+', or `?'.  sshh  replaces the form
+`${_n_a_m_e-_t_o_k_e_n}' by the value of _n_a_m_e  if it is set, and by _t_o_k_e_n otherwise.
+It handles the `=' form in the same way, but also sets the value of _n_a_m_e to
+_t_o_k_e_n if it  was not set previously.  sshh replaces  the `+' form by _t_o_k_e_n if
+the given  _n_a_m_e is set.  It  replaces the `?' form by the  value of _n_a_m_e if
+set, and otherwise prints _t_o_k_e_n and exits from the shell.
+
+To unset an environmental variable, use the command uunnsseett.
+
+_C_o_m_m_a_n_d _O_u_t_p_u_t _S_u_b_s_t_i_t_u_t_i_o_n
+sshh can  use the output of  a command as shell  input (as command arguments,
+for example) by enclosing the command in grave characters ` `.          For
+example, to  list the contents of  the directories named in  file ddiirrss, use
+the command
+
+    ls -l `cat dirs`
+
+_C_o_n_s_t_r_u_c_t_s
+sshh lets  you control execution  of commands by the  constructs bbrreeaakk, ccaassee,
+ccoonnttiinnuuee, ffoorr, iiff, uunnttiill, and wwhhiillee.  It recognizes each reserved word only
+if it occurs unquoted as the first token of a command.  This implies that a
+separator must precede each  reserved word in the following constructs; for
+example, newline or `;' must precede ddoo in the ffoorr construct.
+
+bbrreeaakk [_n]
+     Exit from ffoorr, uunnttiill, or wwhhiillee. If _n is given, exit from _n levels.
+
+ccaassee _t_o_k_e_n iinn [ _p_a_t_t_e_r_n [ | _p_a_t_t_e_r_n ] ...) _s_e_q_u_e_n_c_e;; ] ... eessaacc
+     Check _t_o_k_e_n against each _p_a_t_t_e_r_n, and execute _s_e_q_u_e_n_c_e associated with
+     the first matching _p_a_t_t_e_r_n.
+
+ccoonnttiinnuuee [_n]
+     Branch to the end of the _nth enclosing ffoorr, uunnttiill, or wwhhiillee construct.
+
+ffoorr _n_a_m_e [ iinn _t_o_k_e_n ... ] ddoo _s_e_q_u_e_n_c_e ddoonnee
+     Execute _s_e_q_u_e_n_c_e  once for each  _t_o_k_e_n. On each  iteration, _n_a_m_e takes
+     the  value of  the next  _t_o_k_e_n.  If the  iinn clause  is omitted,  $@ is
+     assumed.  For example, to list all files ending with .cc:
+
+         for i in *.c
+         do
+             cat $i
+         done
+
+
+iiff _s_e_q_1 tthheenn _s_e_q_2 [ eelliiff _s_e_q_3 tthheenn _s_e_q_4 ] ... [ eellssee _s_e_q_5 ] ffii
+     Execute  _s_e_q_1. If  the  exit status  is  zero, execute  _s_e_q_2; if  not,
+     execute the  optional _s_e_q_3 if  given.  If the  exit status of  _s_e_q_3 is
+     zero, then execute _s_e_q_4, and so  on.  If the exit status of all tested
+     sequences is nonzero, execute _s_e_q_5.
+
+uunnttiill _s_e_q_u_e_n_c_e_1 [ ddoo _s_e_q_u_e_n_c_e_2 ] ddoonnee
+     Execute _s_e_q_u_e_n_c_e_2 until the  execution of _s_e_q_u_e_n_c_e_1 results in an exit
+     status of zero.
+
+wwhhiillee _s_e_q_u_e_n_c_e_1 [ ddoo _s_e_q_u_e_n_c_e_2 ] ddoonnee
+     Execute _s_e_q_u_e_n_c_e_2 as long as  the execution of _s_e_q_u_e_n_c_e_1 results in an
+     exit status of zero.
+
+(_s_e_q_u_e_n_c_e
+)    Execute _s_e_q_u_e_n_c_e  within a subshell.   This allows _s_e_q_u_e_n_c_e  to change
+     the  current directory,  for  example, and  not  affect the  enclosing
+     environment.  Note  that the closing `)' must appear  on the line that
+     follows _s_e_q_u_e_n_c_e.
+
+$(( ))
+     Perform  arithmetic expansion,  as described  in POSIX  Standard.  The
+     expression  syntax  is that  of  C,  but the  only  values are  signed
+     integers,  and   there  are  no  side-effects   (i.e.,  no  increment,
+     decrement, or assignment  operators).  The expression given inside the
+     this form  is first processed  for further expansions,  then evaluated
+     according to the  C rules for arithmetic; the result  is placed on the
+     output command  line.  This is  most useful when used  with rreettuurrnn and
+     eexxiitt to form return values from functions and scripts.
+
+     To use $(()) you must use some indirection.  For example:
+
+         val () {
+             return $((! ($*)))
+         }
+
+     Or:
+
+         val $(($# < 5)) && {
+             echo Not enough arguments
+             exit 1
+         }
+
+     Or:
+
+         val $((${#foo} > 8)) {
+             echo $foo is too long; use 8 characters, maximum.
+             exit 2
+         }
+
+{_s_e_q_u_e_n_c_e
+}    Braces  simply enclose  a  _s_e_q_u_e_n_c_e. Note  that the  closing `}'  must
+     appear on the line that follows _s_e_q_u_e_n_c_e.
+
+_S_p_e_c_i_a_l _C_o_m_m_a_n_d_s
+sshh  usually executes  commands  with the  ffoorrkk system  call, which  creates
+another process.  However, sshh  executes the commands in this section either
+directly or with  an eexxeecc system call.  See the  Lexicon articles on ffoorrkk()
+and eexxeecc for details on these calls.
+
+. _s_c_r_i_p_t
+     Read and  execute commands from _s_c_r_i_p_t.  Positional parameters are not
+     allowed.   sshh  searches the  directories  named  in the  environmental
+     variable PPAATTHH to find the given _s_c_r_i_p_t.
+
+: [_t_o_k_e_n ...]
+     A colon `:' indicates  a ``partial comment''.  sshh normally ignores all
+     commands on  a line that  begins with a colon,  except for redirection
+     and such symbols as $, {, ?, etc.
+
+#    A complete comment: if # is  the first character on a line, sshh ignores
+     all text that follows on that line.
+
+ccdd _d_i_r
+     Change the  working directory to _d_i_r. If no  argument is given, change
+     to the home directory.
+
+ddiirrss sshh  lets you  maintain a  ``directory  stack'', or  stack of  names of
+     directories.  You can push, pop, and otherwise manipulate the contents
+     of this stack, which you can use for any purpose for which you need to
+     access a  number of directory names quickly.   The command ddiirrss prints
+     the contents of the directory stack.  The commands ppuusshhdd and ppooppdd also
+     manipulate the directory stack.
+
+     Please  note   that  these  commands   are  unique  to   the  COHERENT
+     implementation of  sshh, and are  not portable to  other shells.  _C_a_v_e_a_t
+     _u_t_i_l_i_t_o_r.
+
+eevvaall [_t_o_k_e_n ...]
+     Evaluate each _t_o_k_e_n and treat the result as shell input.
+
+eexxeecc [_c_o_m_m_a_n_d]
+     Execute _c_o_m_m_a_n_d directly  rather than performing ffoorrkk. This terminates
+     the current shell.
+
+eexxiitt [_s_t_a_t_u_s]
+     Set  the exit  status  to _s_t_a_t_u_s,  if given;  otherwise, the  previous
+     status is unchanged.  If the shell is not interactive, terminate it.
+
+eexxppoorrtt [_n_a_m_e ...]
+     sshh executes each command in an _e_n_v_i_r_o_n_m_e_n_t, which is essentially a set
+     of shell variable  names and corresponding string values.  It inherits
+     an  environment  when   invoked,  and  normally  it  passes  the  same
+     environment  to each  command it invokes.   eexxppoorrtt specifies  that the
+     shell  should  pass the  modified  value  of each  given  _n_a_m_e to  the
+     environment of subsequent commands.   When no _n_a_m_e is given, sshh prints
+     the name and value of each variable marked for export.
+
+ggeettooppttss _o_p_t_s_t_r_i_n_g _n_a_m_e [_a_r_g ...]
+     Parse  the _a_r_gs  to _c_o_m_m_a_n_d.  See  the Lexicon  entry for  ggeettooppttss for
+     details.
+
+ppooppdd [_N ...]
+     Pop the  directory stack.  When used without an  argument, it pops the
+     stack once.   When used with one or more  numeric arguments, ppooppdd pops
+     the specified  items from the stack;  item 0 is the  top of the stack.
+     (For information on the directory stack, see the entry for the command
+     ddiirrss, above.)
+
+ppuusshhdd [_d_i_r_0 ... _d_i_r_N]
+     Push  _d_i_r_0  through _d_i_r_N  onto  the directory  stack,  and change  the
+     current directory  to the last directory pushed  onto the stack.  When
+     called  without  an  argument,  ppuusshhdd  exchanges  the  two  top  stack
+     elements.  (For information on  the directory stack, see the entry for
+     the command ddiirrss, above.)
+
+rreeaadd _n_a_m_e ...
+     Read a line from the standard input and assign each token of the input
+     to the corresponding shell  variable _n_a_m_e. If the input contains fewer
+     tokens than the _n_a_m_e list,  assign the null string to extra variables.
+     If the input contains more  tokens, assign the last _n_a_m_e the remainder
+     of the input.
+
+rreeaaddoonnllyy [_n_a_m_e ...]
+     Mark each  shell variable  _n_a_m_e as  a read only  variable.  Subsequent
+     assignments to  read only  variables will  not be permitted.   With no
+     arguments, print the name and value of each read only variable.
+
+sseett [-cceeiikknnssttuuvvxx [_n_a_m_e ...] ]
+     Set listed  flag.  If _n_a_m_e list is provided,  set shell variables _n_a_m_e
+     to values of positional parameters beginning with $11.
+
+sshhiifftt
+     Rename positional parameter 11 to current value of $22, and so on.
+
+ttiimmeess
+     Print the total user and system times for all executed processes.
+
+ttrraapp [_c_o_m_m_a_n_d] [_n ...]
+     Execute _c_o_m_m_a_n_d if sshh receives  signal _n. If _c_o_m_m_a_n_d is omitted, reset
+     traps to  original values.   To ignore a  signal, pass null  string as
+     _c_o_m_m_a_n_d. With  _n zero, execute _c_o_m_m_a_n_d when the  shell exits.  With no
+     arguments, print the current trap settings.
+
+uummaasskk [_n_n_n]
+     Set user file creation mask to _n_n_n. If no argument is given, print the
+     current file creation mask.
+
+wwaaiitt [_p_i_d]
+     Hold execution  of further commands until  process _p_i_d terminates.  If
+     _p_i_d  is omitted,  wait for  all child processes.   If no  children are
+     active, this command finishes immediately.
+
+_S_h_e_l_l _F_u_n_c_t_i_o_n_s
+Beginning with COHERENT release 4.2, sshh lets you declare and use functions.
+In effect, a function is a script that you load permanently into memory.
+
+A function takes the form
+
+    function() {
+        command $1 $2
+        other_function $3 $4
+    }
+
+A function begins with its name.  A pair of parentheses after the name tell
+sshh that this is a function.
+
+The body  of the function is  enclosed within braces.  A  function can call
+any  command,  plus any  other  function.  Arguments  are  passed into  the
+function using the syntax $11, $22, etc., just as with a shell script.
+
+sshh keeps an internal list of the functions that you have declared.  When it
+reads  an identifier,  it  first searches  its  list of  functions; if  the
+identifier is not  a function, sshh then assumes that  the identifier names a
+command, and it  attempts to find that command in  the directories you have
+named in your environmental variable PPAATTHH. Thus, if you give a function the
+same name as  that of an existing command, sshh  will always use the function
+and never find the command.
+
+The following example function copies one file into another:
+
+    copyfile(){
+        if [ $# -eq 1 ]; then
+            cat $1
+        else
+            cp $1 $2
+        fi
+    }
+
+_S_h_e_l_l _L_i_b_r_a_r_y
+The file /uussrr/lliibb/sshheellll_lliibb.sshh holds a library of shell functions.  You can
+import these library with the `.' command.
+
+This library holds the following functions:
+
+bbaasseennaammee "_p_a_t_h_n_a_m_e" [ "_s_u_f_f_i_x" "_p_r_e_f_i_x" ]
+     This function  behaves the same  as the command  bbaasseennaammee, except that
+     you can include an option _p_r_e_f_i_x to strip as well as a _s_u_f_f_i_x.
+
+ffiillee_eexxiissttss "_f_i_l_e_n_a_m_e"
+     Return ttrruuee if file _f_i_l_e_n_a_m_e exists.
+
+ffiinndd_ffiillee "_f_i_l_e_n_a_m_e" "_p_a_t_h" "ppaatthh" ...
+     Seek _f_i_l_e in every directory named in a _p_a_t_h.
+
+hhaass_pprreeffiixx "_s_t_r_i_n_g" "_p_r_e_f_i_x"
+     Return ttrruuee if _s_t_r_i_n_g is prefixed with the string _p_r_e_f_i_x.
+
+iiss_eemmppttyy "_a_r_g"
+     Return true if _a_r_g is null.
+
+iiss_eeqquuaall "_a_r_g_1" "_a_r_g_2"
+     Return true if _a_r_g_1 and _a_r_g_2 are equal.
+
+iiss_nnuummeerriicc "_a_r_g_u_m_e_n_t"
+     Return ttrruuee if _a_r_g_u_m_e_n_t is numeric, or ffaallssee if it is not.
+
+iiss_yyeess "_a_r_g"
+     Return true if  _a_r_g matches `Y', `y', ``YES'', or  ``yes''; one if the
+     argument  matches  `N', `n',  ``NO'',  or ``no'';  two  if it  matches
+     anything else.
+
+ppaarreenntt_ooff "_f_i_l_e" [ "_p_r_e_f_i_x" "_s_u_f_f_i_x" ]
+     By default,  write the path  name of _f_i_l_e.  _p_r_e_f_i_x and _s_u_f_f_i_x  are the
+     prefix and suffix of a command run with the output path name.
+
+rreeaadd_iinnppuutt "_p_r_o_m_p_t" "_v_a_r_i_a_b_l_e" "_d_e_f_a_u_l_t" "_v_a_l_i_d_a_t_e"
+     Echo _p_r_o_m_p_t onto the screen.  Write what the user types into _v_a_r_i_a_b_l_e.
+     If the user does not respond,  set _v_a_r_i_a_b_l_e to _d_e_f_a_u_l_t. If _v_a_l_i_d_a_t_e is
+     set, have the user re-enter his response to validate it.
+
+rreeqquuiirree_yyeess_oorr_nnoo "aarrgg"
+     This is  the validation function for rreeaadd_iinnppuutt.  Check whether _a_r_g is
+     properly affirmative or negative.
+
+ssoouurrccee_ppaatthh "_s_c_r_i_p_t" [ "_c_o_m_m_a_n_d " ]
+     Echo the  name of the  directory that contains  _s_c_r_i_p_t. Normally, this
+     function is  called with the  $00 of _s_c_r_i_p_t.  It pipes its  output into
+     _c_o_m_m_a_n_d  if this  argument is  set;  if it  is not,  it writes  to the
+     standard output.
+
+sspplliitt_ppaatthh "_s_t_r_i_n_g" "_p_r_e_f_i_x" "_s_u_f_f_i_x"
+     This function  dissects _s_t_r_i_n_g, which must  consist of colon-separated
+     elements,   such  as   a  PPAATTHH  string.    _p_r_e_f_i_x  and   _s_u_f_f_i_x  give,
+     respectively, the  prefix and  suffix of the  command that is  run for
+     every component of _s_t_r_i_n_g.
+
+vvaall "_e_x_p_r_e_s_s_i_o_n"
+     Return the  negated value of _e_x_p_r_e_s_s_i_o_n. You can  use this function to
+     turn shell arithmetic expressions into test results.
+
+_S_c_r_i_p_t_s
+Shell commands can be stored in a file, or _s_c_r_i_p_t. The command
+
+    sh _s_c_r_i_p_t [ _p_a_r_a_m_e_t_e_r ... ]
+
+executes the commands in _s_c_r_i_p_t with a new subshell sshh. Each _p_a_r_a_m_e_t_e_r is a
+value for a positional parameter, as described below.  If you have used the
+command cchhmmoodd to make _s_c_r_i_p_t executable, you may omit the sshh command.
+
+To ensure that a script is executed by sshh, begin the script with the line:
+
+    #!/bin/sh
+
+Parameters  of the  form  `$_n' represent  command-line  arguments within  a
+script.  _n  can range from zero  through nine; $00 always  gives the name of
+the script.  These parameters are also called _p_o_s_i_t_i_o_n_a_l _p_a_r_a_m_e_t_e_r_s.
+
+If  no corresponding  parameter is  given  on the  command line,  the shell
+substitutes the null string for that parameter.  For example, if the script
+ffoorrmmaatt contains the following line:
+
+    nroff -ms $1 >$1.out
+
+then invoking ffoorrmmaatt with the command line:
+
+    format mytext
+
+invokes the command nnrrooffff to format  the contents of mmyytteexxtt, and writes the
+output into file mmyytteexxtt.oouutt.  If, however, you invoke this command with the
+command line
+
+    format mytext yourtext
+
+the script will format mmyytteexxtt but ignore yyoouurrtteexxtt altogether.
+
+Reference $*  represents all command-line  arguments.  If, for  example, we
+change the contents of script ffoorrmmaatt to read
+
+    nroff -ms $* >$1.out
+
+then the command
+
+    format mytext yourtext
+
+will invoke nnrrooffff to format the  contents of mmyytteexxtt and yyoouurrtteexxtt, and write
+the output into file mmyytteexxtt.oouutt.
+
+Commands in  a script can  also be executed  with the .  (dot) command.  It
+resembles  the  sshh  command, but  the  current  shell  executes the  script
+commands without  creating a new subshell or  a new environment; therefore,
+you cannot use command-line arguments.
+
+_C_o_m_m_a_n_d-_l_i_n_e _O_p_t_i_o_n_s
+
+-cc _s_t_r_i_n_g
+    Read shell commands from _s_t_r_i_n_g.
+
+-ee  Exit  on any  error  (command not  found or  command returning  nonzero
+    status) if the shell is not interactive.
+
+-ii  The shell is  interactive, even if the terminal is  not attached to it;
+    print prompt strings.  For a shell reading a script, ignore the signals
+    SSIIGGTTEERRMM and SSIIGGIINNTT.
+
+-kk  Place all keyword  arguments into the environment.  Normally, sshh places
+    only  assignments   to  variables   preceding  the  command   into  the
+    environment.
+
+-nn  Read commands but do not execute them.
+
+-ss  Read commands  from the  standard input and  write shell output  to the
+    standard error.
+
+-tt  Read and execute one command rather than the entire file.
+
+-uu  If  the actual  value of  a shell  variable is  blank, report  an error
+    rather than substituting the null string.
+
+-vv  Print each line as it is read.
+
+-xx  Print each command and its arguments as it is executed.
+
+-   Cancel the -xx and -vv options.
+
+If the  first character  of argument  0 is `-',  sshh reads and  executes the
+scripts /eettcc/pprrooffiillee and  $HHOOMMEE/.pprrooffiillee before reading the standard input.
+/eettcc/pprrooffiillee is a  convenient place for initializing system-wide variables,
+such as TTIIMMEEZZOONNEE.
+
+_F_i_l_e_s
+/eettcc/pprrooffiillee -- System-wide initial commands
+$HHOOMMEE/.pprrooffiillee -- User-specific initial commands
+/ddeevv/nnuullll -- For background input
+/ttmmpp/sshh* -- Temporary files
+/uussrr/lliibb/sshheellll_lliibb.sshh -- Library of shell functions
+
+_S_e_e _A_l_s_o
+ccoommmmaannddss, dduupp(),  eennvviirroonn, eexxeecc, ffoorrkk(), ggeettooppttss,  kksshh, llooggiinn, nneewwggrrpp, sseett,
+ssiiggnnaall(), tteesstt, UUssiinngg CCOOHHEERREENNTT, vvsshh
+
+For  a list  of all  commands  associated with  sshh, see  the section  SShheellll
+CCoommmmaannddss in the ccoommmmaannddss Lexicon article.
+
+_I_n_t_r_o_d_u_c_t_i_o_n _t_o _s_h, _t_h_e _B_o_u_r_n_e _S_h_e_l_l, tutorial
+
+_D_i_a_g_n_o_s_t_i_c_s
+sshh  notes on  the standard  error all  syntax errors  in commands,  and all
+commands which it cannot  find.  Syntax errors cause a noninteractive shell
+to  exit.  It  gives error  messages if I/O  redirection is  incorrect.  sshh
+returns  the  exit  status of  the  last  command  executed  or the  status
+specified by an eexxiitt command.

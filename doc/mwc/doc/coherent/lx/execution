@@ -1,0 +1,193 @@
+.TH "execution" "" "" "Definition"
+.PC
+.PP
+.II "program execution"
+.II "load-module execution"
+Program execution under \*(CO is governed by
+the various forms of the \*(CO system call
+.BR exec() .
+This call allows a process to execute another executable
+.I file
+(or load module).
+This is described in
+.BR coff.h .
+.PP
+The code, data and stack of
+.I file
+replace those of the requesting process.
+The new stack contains the command arguments and its environment,
+in the format given below.
+Execution starts at the entry point of
+.IR file .
+.PP
+During a successful call to
+.BR exec() ,
+the system deactivates profiling,
+.\" closes any files
+.\" marked by
+.\" .B ioctl
+.\" to be automatically closed on
+.\" .BR exec ,
+and resets any caught signals to
+.B SIG_DFL.
+.PP
+Every process has a real-user id, an effective-user id, a saved-effective
+user id; and a real-group id, an effective-group id, and a saved-effective
+group id.
+These identifiers are defined in the Lexicon entries for, respectively,
+.BR setuid()
+and
+.BR setgid() .
+For most load modules,
+.B exec()
+does not change any of these.
+However, if the
+.I file
+is marked with the
+set user id or set group id bit
+(see
+.BR stat() ),
+.B exec()
+sets the effective-user id (effective-group id)
+of the process to the user id (group id) of the
+.I file
+owner.
+In effect,
+this changes the file access privilege level from that of the
+real id to that of the effective id.
+The owner of
+.I file
+should be careful to limit its abilities, to avoid compromising file security.
+.PP
+.B exec()
+initializes
+the new stack of the process to contain a list of strings,
+which are command arguments.
+.BR execl() ,
+.BR execle() ,
+.BR execlp() ,
+and
+.B execlpe()
+specify arguments individually, as a
+NULL-terminated list of
+.I arg
+parameters.
+.BR execv() ,
+.BR execve() ,
+.BR execvp() ,
+and
+.B execvpe()
+specify arguments as a single
+NULL-terminated array
+.B argv
+of parameters.
+.PP
+The
+.B main()
+function of a C program is invoked in the following way:
+.DM
+	main(argc, argv, envp)
+	int argc;
+	char *argv[], *envp[];
+.DE
+.PP
+.B argc
+is the number of command arguments passed through
+.BR exec() ,
+and
+.B argv
+is an array of the actual argument strings.
+.B envp
+is an array of strings that comprise the process environment.
+By convention, these strings are of the form
+.IR "variable=value" ,
+as described in the Lexicon entry
+.BR environ .
+Typically,
+each
+.I variable
+is an
+.BR export ed
+shell variable with the given
+.IR value .
+.PP
+.B execl()
+and
+.B execv()
+simply
+pass the old environment, referenced by the external pointer
+.BR environ .
+.PP
+.BR execle() ,
+.BR execlpe() ,
+.BR execve() ,
+and
+.B execvpe()
+pass a new environment
+.I env
+explicitly.
+.PP
+.BR execlp() ,
+.BR execlpe() ,
+.BR execvp() ,
+and
+.B execvpe()
+search for
+.I file
+in each of the directories indicated by the shell variable
+.BR $PATH ,
+in the same way that the shell searches for a command.
+These calls execute a shell command
+.IR file . 
+Note that
+.B execlpe()
+and
+.B execvpe()
+search the current
+.BR PATH ,
+not the
+.B PATH
+contained within the environment pointed to by
+.IR env .
+.SH Files
+\fB/bin/sh\fR \(em To execute command files
+.SH "See Also"
+.Xr "environ," environ
+.Xr "exec()," exec
+.Xr "execl()," execl
+.Xr "execle()," execle
+.Xr "execlp()," execlp
+.Xr "execlpe()," execlpe
+.Xr "execv()," execv
+.Xr "execve()," execve
+.Xr "execvp()," execvp
+.Xr "execvpe()," execvpe
+.Xr "fork()," fork
+.Xr "ioctl()," ioctl
+.Xr "Programming COHERENT," programmi
+.Xr "signal()," signal
+.Xr "stat()," stat
+.Xr "xargs" xargs
+.SH Diagnostics
+None of the
+.B exec()
+routines returns if successful.
+Each returns \-1 for an error, such as if
+.I file
+does not exist, is not accessible with execute permission,
+has a bad format, or is too large to fit in memory.
+.SH Notes
+.II "#!"
+Each
+.B exec()
+routine now examines the beginning of an executable file for the token
+.BR #! .
+If found, it invokes the program named on that line and passes it the rest
+of the file.
+For example, if you wish to ensure that a given script is executed by the
+by the Bourne shell
+.BR /bin/sh ,
+begin the script with the line:
+.DM
+	#!/bin/sh
+.DE

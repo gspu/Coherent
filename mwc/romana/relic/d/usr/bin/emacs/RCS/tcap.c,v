@@ -1,0 +1,461 @@
+head     1.6;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.6;
+comment  @ * @;
+
+
+1.6
+date     91.10.04.06.54.58;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     91.07.29.14.17.19;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     91.04.29.17.40.26;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.03.28.15.23.02;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.02.07.15.50.03;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.06.20.16.44;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@src pulled from 310 ship disk
+@
+
+
+1.6
+log
+@cef update: fixed tcap not setting pad char and term. output speed
+for termcap
+@
+text
+@/*
+ * Screen control routines for termcap.
+ * A good example of how to use termcap.
+ * For more information get
+ *	Termcap & Terminfo
+ *	O'Reilly & Associates, Inc.
+ *	ISBN 0-93717522-6
+ */
+#include <stdio.h>
+#include <sgtty.h>
+#include "ed.h"
+
+#if TERMCAP
+
+#define NROW	24	/* default rows on the screen */
+#define NCOL	80	/* default columns on the screen */
+#define BEL	0x07
+#define ESC	0x1B
+
+#define TERMBUF 1024	/* the largest buffer termcap can use */
+
+extern int	ttopen();
+extern int	ttgetc();
+extern int	ttputc();
+extern int	ttflush();
+extern int 	ttclose();
+extern int 	tcapmove();
+extern int 	tcapeeol();
+extern int	tcapeeop();
+extern int	tcapbeep();
+extern int	tcapopen();
+extern int	tcapstand();
+extern int	tput();
+extern char	*tgoto();
+extern char	*tgetstr();
+extern char	*realloc();
+
+/* pointers to various tcap strings */
+static char	*CM, *CE, *CL, *SO, *SE;
+static uchar	*ptr;	/* pointer to first free spot in termcap buffer */
+
+
+TERM term = {
+	NROW-1,
+	NCOL,
+	tcapopen,
+	ttclose,
+	ttgetc,
+	ttputc,
+	ttflush,
+	tcapmove,
+	tcapeeol,
+	tcapeeop,
+	tcapbeep,
+	tcapstand
+};
+
+/*
+ * Get a required termcap string or exit with a message.
+ */
+static uchar *
+qgetstr(ref)
+register uchar *ref;
+{
+	register uchar *tmp;
+
+	if (NULL == (tmp = tgetstr(ref, &ptr))) {
+		printf("/etc/termcap must have a '%s' entry\n", ref);
+		exit(1);
+	}
+	return (tmp);
+}
+
+/*
+ * Get termcap information for this terminal type
+ */
+tcapopen()
+{
+	 /* buffer for the strings we need to keep */
+	static uchar 	*tcapbuf = NULL;
+	uchar tcbuf[TERMBUF];	/* address saved by termcap for tgetstr */
+
+	if (NULL != tcapbuf) {	/* we've been here before */
+		ttopen();
+		return;
+	}
+
+	/*
+	 * Set up termcap type.
+	 */
+	{
+		extern char *getenv();
+		uchar *tv_stype;
+
+		if ((tv_stype = getenv("TERM")) == NULL) {
+			puts("Environment variable TERM not defined!");
+			exit(1);
+		}
+
+		if (tgetent(tcbuf, tv_stype) != 1) {
+			printf("Unknown terminal type %s!\n", tv_stype);
+			exit(1);
+		}
+	}
+
+	/*
+	 * Get termcap entries for later use.
+	 */
+	{
+		extern short ospeed;	/* termcap's device speed */
+		extern char PC;		/* termcap's pad character */
+		char *p;
+		struct sgttyb tty;
+
+		ospeed = 0;	/* set terminal output speed */
+		if (isatty(fileno(stdout))) {
+			gtty(fileno(stdout), &tty);
+			ospeed = tty.sg_ospeed;
+		}
+
+		/* get far too much space and shrink later */
+		if (NULL == (ptr = tcapbuf = malloc(TERMBUF)))
+			abort();
+
+		/*
+		 * Get required entries. There must be cd= clear after cursor
+		 * or cl= clear screen
+		 */
+		if (NULL == (CL = tgetstr("cl", &ptr)))
+			CL = qgetstr("cd");
+	
+		CM = qgetstr("cm");	/* move cursor to row, col */
+		CE = qgetstr("ce");	/* clear to end of line */
+
+		/* Get optional entries. */
+		SO = tgetstr("so", &ptr); /* begin standout mode */
+		SE = tgetstr("se", &ptr); /* end standout mode */
+
+		/* set termcap's pad char */
+		PC = ((NULL == (p = tgetstr("pc", &ptr))) ? 0 : *p);
+
+		/*
+		 * check that realloc truncates buffer in place.
+		 */
+		if (tcapbuf != realloc(tcapbuf, (unsigned)(ptr - tcapbuf)))
+		{
+			puts("Buffer not shrunk in place!\n");
+			exit(1);
+		}
+	}
+
+	/*
+	 * Get the number of lines and collumns for the terminal.
+	 * Leave NCOL and NROW if data is not there.
+	 */
+	{
+		int i;
+		extern int tgetnum();
+
+		if (0 < (i = tgetnum("co")))
+			term.t_ncol = i;
+		if (0 < (i = tgetnum("li")))
+			term.t_nrow = i - 1;
+	}
+
+	ttopen();
+}
+
+/*
+ * Move to row and collum.
+ */
+tcapmove(row, col)
+register int row, col;
+{
+	putpad(tgoto(CM, col, row));
+}
+
+/*
+ * Clear to end of line.
+ */
+tcapeeol()
+{
+	putpad(CE);
+}
+
+/*
+ * Clear screen. The CL command may contain either clear screen cl=
+ * or clear from cursor to end of screen cd=.
+ */
+tcapeeop()
+{
+	tcapmove(0, 0);
+	putpad(CL);
+}
+
+/*
+ * Say beep.
+ */
+tcapbeep()
+{
+	ttputc(BEL);
+}
+
+/*
+ * output string, set padding to one line affected.
+ */
+putpad(str)
+uchar	*str;
+{
+	tputs(str, 1, ttputc);
+}
+
+/*
+ * if (f)
+ *	Put terminal in standout, if possible.
+ * else
+ *	Take terminal out of standout, if possible.
+ *
+ * Used for status line standout mode.
+ */
+tcapstand(f)
+{
+	register char *msg;
+
+	if (NULL != (msg = (f ? SO : SE)))
+		putpad(msg);
+}
+#endif TERMCAP
+@
+
+
+1.5
+log
+@changes by cef
+@
+text
+@d10 1
+d110 11
+d139 3
+@
+
+
+1.4
+log
+@modified by cef to prevent core dumps from system calls from within emacs
+@
+text
+@d148 1
+a148 1
+			term.t_nrow = i;
+@
+
+
+1.3
+log
+@cef modified for 8 bit char support
+@
+text
+@d41 1
+d78 2
+d81 6
+a86 1
+	
+a108 2
+		uchar *tcapbuf;	/* buffer for the strings we need to keep */
+
+d117 1
+a117 1
+		if (NULL == (CL = tgetstr("cl")))
+d119 1
+@
+
+
+1.2
+log
+@emacs updated by cef for 8 bit character support
+@
+text
+@d1 8
+d14 2
+a15 2
+#define NROW	24
+#define NCOL	80
+d19 2
+d33 3
+a35 1
+extern uchar	*tgoto();
+d37 3
+a39 1
+#define TCAPSLEN 315
+a40 10
+uchar tcapbuf[TCAPSLEN];
+char	PC,
+	*CM,
+	*CL,
+	*CE,
+	*UP,
+	*CD,
+	*SO,
+	*SE;
+
+d56 8
+a63 1
+tcapopen()
+d65 2
+a66 10
+{
+	uchar *getenv();
+	uchar *t, *p, *tgetstr();
+	uchar tcbuf[1024];
+	uchar *tv_stype;
+	uchar err_str[72];
+
+	if ((tv_stype = getenv("TERM")) == NULL)
+	{
+		puts("Environment variable TERM not defined!");
+d69 2
+d72 10
+a81 1
+	if((tgetent(tcbuf, tv_stype)) != 1)
+d83 12
+a94 3
+		sprintf(err_str, "Unknown terminal type %s!", tv_stype);
+		puts(err_str);
+		exit(1);
+d97 5
+a101 4
+	p = tcapbuf;
+	t = tgetstr("pc", &p);
+	if(t)
+		PC = *t;
+d103 3
+a105 4
+	CD = tgetstr("cd", &p);
+	CM = tgetstr("cm", &p);
+	CE = tgetstr("ce", &p);
+	UP = tgetstr("up", &p);
+d107 8
+a114 2
+	SO = tgetstr("so", &p);
+	SE = tgetstr("se", &p);
+d116 12
+a127 4
+	if(CD == NULL || CM == NULL || CE == NULL || UP == NULL)
+	{
+		puts("Incomplete termcap entry\n");
+		exit(1);
+d130 4
+a133 1
+	if (p >= &tcapbuf[TCAPSLEN])
+d135 7
+a141 2
+		puts("Terminal description too big!\n");
+		exit(1);
+d143 1
+d147 3
+d156 3
+d164 4
+d170 2
+a171 1
+	putpad(CD);
+d174 3
+d182 3
+d191 9
+a199 2
+putnpad(str, n)
+uchar	*str;
+d201 4
+a204 1
+	tputs(str, n, ttputc);
+a205 12
+
+tcapstand(f)			/* put terminal in standout, if possible */
+{				/* used for status line standouts	*/
+	if (f) {
+		if (SO != NULL)
+			putpad(SO);
+	} else {
+		if (SE != NULL)
+			putpad(SE);
+	}
+}
+
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d23 1
+a23 1
+extern char	*tgoto();
+d27 1
+a27 1
+char tcapbuf[TCAPSLEN];
+d55 5
+a59 5
+	char *getenv();
+	char *t, *p, *tgetstr();
+	char tcbuf[1024];
+	char *tv_stype;
+	char err_str[72];
+d123 1
+a123 1
+char	*str;
+d129 1
+a129 1
+char	*str;
+@

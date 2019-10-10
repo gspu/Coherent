@@ -1,0 +1,744 @@
+head     1.11;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.11;
+comment  @ * @;
+
+
+1.11
+date     93.07.30.14.55.35;  author bin;  state Exp;
+branches ;
+next     1.10;
+
+1.10
+date     93.03.15.09.23.15;  author bin;  state Exp;
+branches ;
+next     1.9;
+
+1.9
+date     93.02.15.08.55.37;  author bin;  state Exp;
+branches ;
+next     1.8;
+
+1.8
+date     93.02.10.08.10.46;  author bin;  state Exp;
+branches ;
+next     1.7;
+
+1.7
+date     93.02.09.12.28.48;  author bin;  state Exp;
+branches ;
+next     1.6;
+
+1.6
+date     93.01.25.14.17.29;  author bin;  state Exp;
+branches ;
+next     1.5;
+
+1.5
+date     92.12.09.07.40.48;  author bin;  state Exp;
+branches ;
+next     1.4;
+
+1.4
+date     92.04.24.13.41.08;  author bin;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.03.21.14.55.50;  author bin;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.03.12.20.43.35;  author bin;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.02.04.14.27.51;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@initial version checked into src admin system. Provided by Steve Ness.
+@
+
+
+1.11
+log
+@steve: changed OLDSTYLE to DF_OLD
+@
+text
+@/*
+ * df.c
+ * 7/28/93
+ * Usage: df [-fitv] [directory ...] [filesystem ...]
+ *    or: df [-ait] [directory ...] [filesystem ...]     (if DF_OLD is set)
+ * Print information regarding the
+ * remaining space available on a file system.
+ * This command also considers a directory
+ * to represent the filesystem.
+ *
+ * 4-24-92 Fixed minor bug for looking /etc/mtab table. Vlad
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/filsys.h>
+#include <sys/stat.h>
+#include <sys/dir.h>
+#include <mnttab.h>
+#include <canon.h>
+#if 1
+#include <mtab.h>
+#endif
+
+#define	NMOUNT	64			/* Maximum mounted file systems */
+
+/* New format options */
+int	fflag;				/* supress information on i-nodes */
+int	vflag;				/* Print % blocks used */
+int	tflag;				/* Print total device size */
+int	iflag;				/* Print information on i-nodes */
+
+/* Old format options  - also -t and -i are valid */
+int	aflag;				/* Print for each mounted fs */
+int	oflag;				/* switch to old style */
+
+char	buf[BSIZE];			/* Basic file system reading buffer */
+struct	mnttab	m_tab[NMOUNT];
+struct	mnttab	*emtabp;
+int	noarg;				/* Was df called without any options */
+
+char	*devname();
+
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	register char *ap;
+	register int i;
+	register int estat = 0;
+	char *s;
+
+	if ((s = getenv("DF_OLD")) != NULL && strcmp(s, "0") != 0)
+		oflag++;
+
+	while (argc > 1 && *argv[1] == '-') {
+		for (ap = &argv[1][1]; *ap != '\0'; ap++)
+			switch (*ap) {
+			case 'a':
+				if (oflag)
+					aflag++;
+				else
+					usage("illegal option -a");
+				break;
+
+			case 'f':
+				if (!oflag)
+					fflag++;
+				else
+					usage("illegal option -f");
+				break;
+
+			case 'i':
+				iflag++;
+				break;
+
+			case 't':
+				tflag++;
+				break;
+
+			case 'v':
+				vflag++;
+				break;
+
+			default:
+				usage("illegal option");
+			}
+		argc--;
+		argv++;
+	}
+
+	if (!oflag)
+	{
+		if (vflag && iflag)
+			usage("Cannot use -v with -i");
+		else if (vflag)
+                	printf("Mount Dir      Filesystem                blocks    "
+						 " used      free     %%used\n");
+		else if (iflag)
+			printf("Mount Dir      Filesystem                 iused     i"
+	 					   "free    itotal   %%iused\n");
+	}
+	minit();
+	sync();
+	if (argc < 2) {
+		if (!oflag || aflag)
+			estat = dfmtab();
+		else {
+			noarg = 1;
+			estat = df(".", NULL);
+                }
+	} else {
+		for (i = 1; i < argc; i++)
+			estat |= df(argv[i], NULL);
+		if (aflag)
+			estat |= dfmtab();
+	}
+	exit(estat);
+}
+
+/*
+ * Read the mount table, looking for file systems
+ * to run df on.
+ */
+dfmtab()
+{
+	register struct mnttab *mp;
+	int estat;
+	int name[MNAMSIZ + 10];
+
+	estat = 0;
+	for (mp = m_tab; mp < emtabp; mp++) {
+		if (mp->mt_dev[0]=='\0' || mp->mt_filsys[0]=='\0')
+			continue;
+		sprintf(name, "/dev/%s", mp->mt_filsys);
+		estat |= df(name, mp->mt_dev);
+	}
+	return (estat);
+}
+
+/*
+ * Look at the file system
+ * and find out free space.
+ */
+df(fs, name)
+register char *fs, *name;
+{
+	register struct filsys *sbp;
+	struct stat sb;
+	int fd;
+	long	btotal;
+	long	bfree;
+	long	itotal;
+	long	ifree;
+	long 	percent;
+	char	*nfs = fs;
+
+
+	if (stat(fs, &sb) < 0) {
+		cmsg("cannot stat '%s'", fs);
+		return (1);
+	}
+	switch (sb.st_mode & S_IFMT) {
+	case S_IFDIR:
+	{
+		if ((nfs = devname(sb.st_dev)) == NULL) {
+			cmsg("no file system device found for directory '%s'",
+			    fs);
+			return (1);
+		}
+		if (noarg)
+			fs = nfs;
+		break;
+	}
+
+	case S_IFBLK:
+	case S_IFCHR:
+		break;
+
+	default:
+		cmsg("unknown file type '%s'", fs);
+		return (1);
+	}
+	if ((fd = open(nfs, 0)) < 0) {
+		cmsg("cannot open '%s'", nfs);
+		return (1);
+	}
+	lseek(fd, (long)BSIZE * SUPERI, 0);
+	if (read(fd, buf, BSIZE) != BSIZE) {
+		cmsg("read error on '%s'", nfs);
+		close(fd);
+		return (1);
+	}
+	close(fd);
+	sbp = &buf[0];
+	canf(sbp);
+	if (tstf(sbp) == 0) {
+		cmsg("badly formed super block on '%s'", nfs);
+		return (1);
+	}
+
+	bfree = sbp->s_tfree;
+	btotal = sbp->s_fsize - sbp->s_isize;
+	itotal = (sbp->s_isize-INODEI)*INOPB;
+	ifree = sbp->s_tinode;
+
+
+        if (!oflag)
+	{
+		printf("%-12s   (%-20s): ", name == NULL ? fs : name, nfs);
+		if (vflag)
+		{
+                	percent = ((btotal - bfree) * 1000L) / btotal;
+			printf(" %7lu   %7lu   %7lu    %2ld.%1ld%%", btotal,
+			      btotal - bfree, bfree, percent/10L, percent%10L);
+        	}
+		else if (iflag)
+		{
+                	percent = ((itotal - ifree) * 1000L) / itotal;
+			printf(" %7lu   %7lu   %7lu    %2ld.%1ld%%",
+  		         itotal-ifree, ifree, itotal, percent/10L, percent%10L);
+		}
+		else
+                {
+			printf(" %7lu blocks", bfree);
+			if (!fflag)
+				printf("   %7lu inodes", ifree);
+			if (tflag)
+			{
+				printf("\n\t\t\t\tTotal:\t%7lu blocks", btotal);
+				if (!fflag)
+					printf("   %7lu inodes", itotal);
+			}
+		}
+	}
+	else
+	{
+		printf("%-11s", nfs);
+		report(bfree, btotal);
+		if (iflag)
+		{
+			printf(", ");
+			report(ifree, itotal);
+		}
+		if (tflag)
+			printf(", %lu", sbp->s_fsize);
+	}	
+	printf("\n");
+	return (0);
+}
+
+report(free, total)
+long free;
+long total;
+{
+	long percent;
+
+	printf(" %6lu", free);
+	percent = (free * 1000L) / total;
+	printf("/%6lu = %2ld.%1ld%%", total , percent/10L, percent%10L);
+}
+
+/*
+ * Initialise mount table
+ * in memory.
+ */
+minit()
+{
+	register int fd;
+	register int n;
+
+	emtabp = &m_tab[0];
+	if ((fd = open("/etc/mnttab", 0)) >= 0) {
+		if ((n = read(fd, (char *)&m_tab[0], sizeof m_tab)) > 0)
+			emtabp = (char *)(&m_tab[0]) + n;
+		close(fd);
+		return;
+	}
+#if 1
+	if ((fd = open("/etc/mtab", 0)) >= 0) {
+		while (read(fd, (char *)emtabp, sizeof(struct mtab))
+						== sizeof(struct mtab))
+			emtabp++;
+		close(fd);
+	}
+#endif
+}
+
+/*
+ * Return the name of the block special file
+ * (in directory '/dev') which corresponds to
+ * the device given in argument.
+ */
+char *
+devname(dev)
+dev_t dev;
+{
+	register struct direct *dp;
+	register int n;
+	int fd;
+	static char name[25];
+	struct stat sb;
+
+	if ((fd = open("/dev", 0)) < 0)
+		return (NULL);
+	while ((n = read(fd, buf, sizeof buf)) > 0) {
+		for (dp = &buf[0]; dp < &buf[n]; dp++) {
+			canino(dp->d_ino);
+			if (dp->d_ino == 0)
+				continue;
+			strcpy(name, "/dev/");
+			strncat(name, dp->d_name, DIRSIZ);
+			if (stat(name, &sb) < 0)
+				continue;
+			if ((sb.st_mode & S_IFMT) != S_IFBLK)
+				continue;
+			if (sb.st_rdev != dev)
+				continue;
+			close(fd);
+			return (name);
+		}
+	}
+	close(fd);
+	return (NULL);
+}
+
+/*
+ * Canonicalize and check superblock for consistency.
+ */
+canf(fp)
+register struct filsys *fp;
+{
+	register daddr_t *dp;
+	register ino_t *ip;
+
+	canshort(fp->s_isize);
+	candaddr(fp->s_fsize);
+	canshort(fp->s_nfree);
+	for (dp = &fp->s_free[0]; dp < &fp->s_free[NICFREE]; dp += 1)
+		candaddr(*dp);
+	canshort(fp->s_ninode);
+	for (ip = &fp->s_inode[0]; ip < &fp->s_inode[NICINOD]; ip += 1)
+		canino(*ip);
+	candaddr(fp->s_tfree);
+	canino(fp->s_tinode);
+}
+
+tstf(fp)
+register struct filsys *fp;
+{
+	register daddr_t *dp;
+	register ino_t *ip;
+	register ino_t maxinode;
+
+	maxinode = (fp->s_isize - INODEI) * INOPB + 1;
+	if (fp->s_isize >= fp->s_fsize)
+		return (0);
+	if (fp->s_tfree < fp->s_nfree
+	 || fp->s_tfree >= fp->s_fsize - fp->s_isize + 1)
+		return (0);
+	if (fp->s_tinode < fp->s_ninode
+	 || fp->s_tinode >= maxinode-1)
+		return (0);
+	for (dp = &fp->s_free[0]; dp < &fp->s_free[fp->s_nfree]; dp += 1)
+		if (*dp < fp->s_isize || *dp >= fp->s_fsize)
+			return (0);
+	for (ip = &fp->s_inode[0]; ip < &fp->s_inode[fp->s_ninode]; ip += 1)
+		if (*ip < 1 || *ip > maxinode)
+			return (0);
+	return (1);
+}
+
+
+/*
+ * Errors and warnings.
+ */
+/* VARARGS */
+cerr(arg)
+char *arg;
+{
+	fprintf(stderr, "df: %r\n", &arg);
+	exit(1);
+}
+
+/* VARARGS */
+cmsg(arg)
+char *arg;
+{
+	fprintf(stderr, "df: %r\n", &arg);
+}
+
+usage(str)
+char *str;
+{
+
+       	fprintf(stderr, "df: %s\n", str);
+	fprintf(stderr, "Usage: df [-%s] [directory ...] [filesystem ...]\n",
+		oflag ? "ait" : "fitv");
+	exit(1);
+}
+
+/* end of df.c */
+@
+
+
+1.10
+log
+@michael: fixes formatting problem
+@
+text
+@d2 5
+a6 1
+ * df: print out information regarding the
+d15 1
+d51 1
+d53 1
+a53 1
+	if (!strcmp(getenv("OLDSTYLE"), "TRUE"))
+d396 3
+a398 5
+	if (oflag)
+		fprintf(stderr, "Usage: df [-ait] [directory ...] [filesystem ...]\n");
+	else
+		fprintf(stderr, "Usage: df [-fitv] [directory ...] [filesystem ...]\n");
+       	fprintf(stderr, "\ndf: %s\n", str);
+d401 2
+@
+
+
+1.9
+log
+@yest another Michael update for SysV compatibility
+@
+text
+@d86 6
+a91 4
+	if (vflag && iflag)
+		usage("Cannot use -v with -i");
+	else if (vflag)
+                printf("Mount Dir      Filesystem                blocks    "
+d93 2
+a94 2
+	else if (iflag)
+		printf("Mount Dir      Filesystem                 iused     i"
+d96 1
+a96 1
+
+@
+
+
+1.8
+log
+@michael's second attempt with SysV df
+@
+text
+@d102 1
+a102 1
+			estat = df(".");
+d106 1
+a106 1
+			estat |= df(argv[i]);
+d128 1
+a128 1
+		estat |= df(name);
+d137 2
+a138 2
+df(fs)
+register char *fs;
+d202 1
+a202 1
+		printf("%-12s   (%-20s): ", fs, nfs);
+d387 5
+a391 1
+	fprintf(stderr, "Usage: df [-ait] [directory ...] [filesystem ...]\n");
+@
+
+
+1.7
+log
+@michael: made output look more like SysV for Lotus installation
+,
+@
+text
+@d22 4
+a25 1
+int	aflag;				/* Print for each mounted fs */
+a26 2
+int	tflag;				/* Print total device size */
+int	oflag;				/* Print in old (incompatible) format */
+d28 4
+d47 3
+d54 4
+a57 1
+				aflag++;
+d60 7
+d75 2
+a76 2
+			case 'o':
+				oflag++;
+d80 1
+a80 1
+				usage();
+a84 2
+	if (!strcmp(getenv("OLDSTYLE"), "TRUE"))
+		oflag++;
+d86 9
+d98 1
+a98 1
+		if (aflag)
+d147 1
+d203 24
+a226 4
+		printf(" %7lu blocks   %7lu inodes", bfree, ifree);
+		if (tflag)
+			printf("\n\t\t\t\tTotal:\t%7lu blocks   %7lu inodes",
+								btotal, itotal);
+d384 2
+a385 1
+usage()
+d388 1
+@
+
+
+1.6
+log
+@norm: added a space to one of the printfs tp keep fixed length fields
+from colliding.
+@
+text
+@d25 1
+d30 1
+d57 4
+d67 3
+d75 2
+a76 1
+		else
+d78 1
+d118 5
+a122 2
+	long	total;
+	long	free;
+d124 1
+a131 2
+		char *nfs;
+
+d137 2
+a138 1
+		fs = nfs;
+d150 2
+a151 2
+	if ((fd = open(fs, 0)) < 0) {
+		cmsg("cannot open '%s'", fs);
+d156 1
+a156 1
+		cmsg("read error on '%s'", fs);
+d164 1
+a164 1
+		cmsg("badly formed super block on '%s'", fs);
+d167 14
+a180 9
+	printf("%-11s", fs);
+	free = sbp->s_tfree;
+	total = sbp->s_fsize - sbp->s_isize;
+	report(free, total);
+	if (iflag) {
+		printf(", ");
+		total = (sbp->s_isize-INODEI)*INOPB;
+		free = sbp->s_tinode;
+		report(free, total);
+d182 12
+a193 2
+	if (tflag)
+		printf(", %lu", sbp->s_fsize);
+d204 1
+a204 1
+	printf(" %6lu/%6lu = ", free, total);
+d206 1
+a206 1
+	printf("%2ld.%1ld%%", percent/10L, percent%10L);
+d227 2
+a228 2
+		while (read(fd, (char *)emtabp, sizeof(struct mtab)) 
+						== sizeof(struct mtab)) 
+@
+
+
+1.5
+log
+@bobh: changed %U to $lu and %D to %ld
+@
+text
+@d175 1
+a175 1
+	printf("%6lu/%6lu = ", free, total);
+@
+
+
+1.4
+log
+@update by vlad for 386 coherent (conditionalized for 286)
+@
+text
+@d164 1
+a164 1
+		printf(", %U", sbp->s_fsize);
+d175 1
+a175 1
+	printf("%6U/%6U = ", free, total);
+d177 1
+a177 1
+	printf("%2D.%1D%%", percent/10L, percent%10L);
+@
+
+
+1.3
+log
+@updated after problems installing on hp
+@
+text
+@d6 2
+d14 1
+a15 1
+#include <mnttab.h>
+d27 1
+a27 1
+struct	mnttab	mtab[NMOUNT];
+d40 1
+a40 1
+	while (argc>1 && *argv[1]=='-') {
+d69 1
+a69 1
+		for (i=1; i<argc; i++)
+d85 1
+a85 1
+	int name[MNAMSIZ+10];
+d88 1
+a88 1
+	for (mp = mtab; mp < emtabp; mp++) {
+d189 1
+a189 1
+	emtabp = &mtab[0];
+d191 2
+a192 2
+		if ((n = read(fd, (char *)&mtab[0], sizeof mtab)) > 0)
+			emtabp = (char *)(&mtab[0]) + n;
+d198 2
+a199 3
+		register struct mtab *mp;
+
+		while (read(fd, (char *)emtabp, sizeof(*mp)) == sizeof(*mp))
+@
+
+
+1.2
+log
+@updated version provided by stevesf for v311
+@
+text
+@d139 1
+a139 1
+	if (read(fd, buf, sizeof(struct filsys)) != sizeof(struct filsys)) {
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@@

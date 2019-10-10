@@ -1,0 +1,65 @@
+
+# COHERENT executes this script when it boots
+# after installing the first update disk.
+# If the exit status is 0, it goes multiuser immediately.
+# This version invokes /etc/install
+# to complete the installation of COHERENT.
+
+# Use the following when pipedev is set to /dev/ram1:
+# /etc/mkfs /dev/ram1 384
+# /etc/mount /dev/ram1 /tmp.pipe
+
+# Set the date from the system clock.
+. /etc/timezone
+/bin/date -s `/etc/ATclock` >/dev/null
+
+# Load loadable drivers.
+/etc/drvld.all
+
+# Trap in case interrupted.
+trap 'echo; echo Aborted...; exit 1' 1 2 3
+
+# Move any files named in /conf/upd_mv from root to /old_coh
+
+if [ -f /conf/upd_mv ]; then
+
+	if [ ! -d /old_coh ]; then
+		mkdir /old_coh
+	fi
+
+	cat /conf/upd_mv | while read MOVE_ME; do
+		case "$MOVE_ME" in
+		"#*"|"")
+			continue
+			;;
+		*)
+			if [ -f "/$MOVE_ME" ]; then
+				mv /$MOVE_ME /old_coh/$MOVE_ME
+			fi
+			;;
+		esac
+	done
+fi
+
+# Run install binary.
+if /etc/install -u __PRODUCT __BOOT_DEV __NDISKS
+then
+	sync
+	/etc/coh_intro
+	echo Checking filesystems, please wait...
+	if /etc/fsck
+	then
+		echo You are now running single user COHERENT \(as root\).
+		echo Type \<Ctrl-D\> if you wish to go multiuser.
+		sync
+		exit 1
+	else
+		echo System rebooting automatically, please wait...
+		/etc/reboot
+		exit 1
+	fi
+else
+	echo The COHERENT system installation failed, please reboot and try again.
+fi
+sync
+exit 1

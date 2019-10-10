@@ -1,0 +1,122 @@
+.TH cmn_err() "" "" "DDI/DKI Kernel Routine"
+.PC "Handle an error"
+.B "#include <sys/cmn_err.h>"
+\fBvoid cmn_err(\fIlevel\^\fB, \fIformat\^\fB, ...)\fR
+\fBint \fIlevel\^\fB; char *\fIformat\^\fB, ...;\fR
+.PP
+.B cmn_err()
+handles error conditions.
+.II putbuf
+It can display a message on the system console, or store the message
+within the kernel buffer
+.BR putbuf .
+It can also panic the system.
+.PP
+.I level
+gives the severity of error, as follows:
+.IP \fBCE_CONT\fR 0.75i
+Continue a previous message,
+or display a informative message that does not necessarily describe an error.
+This level tells
+.B cmn_err()
+to suppress the newline character that it normally adds to the end of
+the message it constructs; thus, this level permits you to build
+long messages.
+You can use messages of this type to help debug your driver,
+among other things;
+note, however, that using
+.B cmn_err()
+for this may change your system's timing.
+.IP \fBCE_NOTE\fR
+Display a message that begins with the string
+.BR NOTICE: .
+Use messages of this type to report events that may not require action,
+but should interest the system administrator.
+.IP \fBCE_WARN\fR
+Display a messsage that begins with the string
+.BR WARNING: .
+Use messages of this type to report
+events that require immediate action by the system administrator.
+.IP \fBCE_PANIC\fR
+Display a message that begins with the string
+.BR PANIC: ,
+and panic the system.
+Use this level only for errors so severe that the system
+must not continue to function.
+.PP
+.I format
+gives the message to be displayed.
+It can contain the conversion specifiers
+.BR %d ,
+.BR %o ,
+.BR %s ,
+.BR %u ,
+and
+.BR %x .
+These specifiers work much the same as they under the \*(CO function
+.BR printf() ,
+except that
+.B cmn_err()
+does not recognize length specifications.
+.I format
+can be followed by zero or more arguments (indicated above by an ellipsis)
+that give the variables whose values are to be displayed.
+.B cmn_err()
+relates each argument to the corresponding format specifier within the string
+.IR format ,
+again just as
+.B printf()
+does.
+.PP
+By default,
+.B cmn_err()
+writes the message both onto the system console and
+into the kernel buffer
+.BR putbuf .
+If the first character in
+.I format
+is an exclamation point `!',
+.B cmn_err()
+writes the message only into
+.BR putbuf ;
+whereas if the first character in
+.I format
+is a circumflex `^',
+it writes the message only onto the console.
+.II putbufsz
+Kernel variable
+.B putbufsz
+sets the size of
+.BR putbuf .
+.SH "See Also"
+.B
+DDI/DKI kernel routines
+.br
+\fICOHERENT Lexicon:
+.B
+db,
+printf(),
+tr (driver)
+.R
+.SH Notes
+.B cmn_err()
+does not sleep.
+.PP
+If
+.I level
+is anything other than
+.BR CE_PANIC ,
+the calling function can hold
+driver-defined basic locks, read/write locks, and sleep locks
+across a call to this function.
+If
+.I level
+is
+.BR CE_PANIC ,
+however, locks cannot be held \(em not that it matters,
+as the system is going down.
+.PP
+This function is equivalent to, and a replace for, the internal-kernel routines
+.B printf()
+and
+.BR devmsg() .

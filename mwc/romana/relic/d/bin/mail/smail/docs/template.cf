@@ -1,0 +1,329 @@
+############################################################
+#
+#	SENDMAIL CONFIGURATION FILE
+#
+#	supports internet style addressing
+#	over UUCP and ethernet links.
+#
+#	A product of the UUCP Project.
+#
+#	@(#)template.cf	2.5 (smail) 9/15/87
+#
+############################################################
+
+
+############################################################
+#
+#  Local configuration options - HINTS
+#
+# Host name and domain name macros.
+#
+#	Dw sets $w
+#	DD sets $D
+#	CD sets $=D
+#
+# $D and $=D list all domains in which this host sits.
+# $D goes into outbound addresses, i.e. "user@$w.$D".
+# $A is another domain for which this host is 'authoritative'
+# it will will be turned into $D.
+
+CF_HOST
+CF_DOMAIN
+CF_AUTHORITY
+CF_DCLASS
+
+# Preemptive ether connections.  We prefer these connections 
+# over both designated transport mechanisms and the general depository.
+# You can add more classes (here and in S0).
+
+# /etc/hosts.smtp might be a link to /etc/hosts
+#
+CF_SMTP
+
+# Mock top-level domain names.  These name designate a transport mechanism
+# and appear internally only, set in S3, used in S0, and removed in S4 and
+# (possibly) the ruleset for the particular mailer.  
+
+CTETHER UUX
+
+# Relay host.  Used at the end of S0 as the general depository for 
+# addresses which didn't resolve locally.  
+
+DRrelay
+
+#
+#  End Local configuration options
+#
+############################################################
+
+############################################################
+#
+#	General configuration information
+#
+############################################################
+
+DVsmail2.5/CF_DATE
+
+##########################
+#     Special macros     #
+##########################
+
+# official hostname
+Dj$w.$D
+# my name
+DnMAILER-DAEMON
+# UNIX header format
+DlFrom $g  $d
+# delimiter (operator) characters
+Do.:%@!^=/[]
+# format of a total name
+Dq$g$?x ($x)$.
+# SMTP login message
+De$j Sendmail $v/$V ready at $b
+
+
+###################
+#     Options     #
+###################
+
+# location of alias file
+OA/usr/lib/aliases
+# default delivery mode (deliver in background)
+Odbackground
+# (don't) connect to "expensive" mailers
+#Oc
+# temporary file mode
+OF0644
+# default GID
+Og1
+# location of help file
+OH/usr/lib/sendmail.hf
+# log level
+OL9
+# default messages to old style
+Oo
+# queue directory
+OQ/usr/spool/mqueue
+# read timeout -- violates protocols
+Or2h
+# status file
+OS/usr/lib/sendmail.st
+# queue up everything before starting transmission
+Os
+# default timeout interval
+OT3d
+# time zone names (V6 only)
+OtPST,PDT
+# default UID
+Ou1
+# wizard's password
+OWvoidpasswords
+
+###############################
+#     Message precedences     #
+###############################
+
+Pfirst-class=0
+Pspecial-delivery=100
+Pjunk=-100
+
+#########################
+#     Trusted users     #
+#########################
+
+Troot
+Tdaemon
+Tuucp
+Tnetwork
+
+#############################
+#     Format of headers     #
+#############################
+
+#H?P?Return-Path: <$g>
+HReceived: $?sfrom $s 
+	$.by $j ($v/$V)
+	id $i; $b
+H?D?Resent-Date: $a
+H?D?Date: $a
+H?F?Resent-From: $q
+H?F?From: $q
+H?x?Full-Name: $x
+HSubject:
+# HPosted-Date: $a
+# H?l?Received-Date: $b
+H?M?Resent-Message-Id: <$t.$i@$j>
+H?M?Message-Id: <$t.$i@$j>
+
+############################################################
+#
+#		REWRITING RULES
+#
+
+
+###########################
+#			  #
+#  Name Canonicalization  #
+#			  #
+###########################
+S3
+
+# basic textual canonicalization
+R<>			$@@				turn into magic token
+R$*<$+>$*		$2				basic RFC821/822 parsing
+R$+ at $+		$1@$2				"at" -> "@" for RFC 822
+R$*<$*>$*		$1$2$3				in case recursive
+
+# handle route-addr <@a,@b,@c:user@d> 
+R@$+,$+			@$1:$2				change all "," to ":"
+R@$+:$+			$@<@$1>:$2			handle <route-addr>
+R$+:$*;@$+		$@$1:$2;@$3			list syntax
+
+# Rewrite address into a domain-based address.  Any special mock domain names 
+# (like UUX) should be defined on the CT line and removed (if necessary) 
+# in S4.  You can use them in S0 for designated transport mechanisms.
+
+# Delimiters with precedence over @.  Add yours here.
+
+# The @ delimiter.  Leave this alone.
+R$+@$+			$:$1<@$2>			focus on domain
+R$+<$+@$+>		$1$2<@$3>			move gaze right
+R$+<@$+>		$@$1<@$2>			already canonical
+
+# Delimiters with precedence below @.  Add yours here.
+R$+^$+			$1!$2				convert ^ to !
+R$-!$+			$@$2<@$1.UUX>			resolve uucp names
+R$+.!$+			$@$2<@$1>			domain.!host
+R$+!$+			$@$2<@$1>			domain!host
+
+# % is a low precedence @.
+R$*%$*			$@$>3$1@$2			%->@ and retry
+
+############################################################
+#
+#    		RULESET ZERO PREAMBLE
+#
+############################################################
+
+S0
+
+# first make canonical
+R$*<$*>$*		$1$2$3				defocus
+R$+			$:$>3$1				make canonical
+
+# handle special cases.....
+R@			$#local$:MAILER-DAEMON		handle <> form
+R$*<@[$+]>$*		$#ether$@[$2]$:$1@[$2]$3	numeric internet spec
+
+# strip local stuff
+R$*<@$-.$w.$D>$*	$1<@$2>$3			thishost.mydom
+CF_GATEWAYR$*<@$-.$D>$*	$1<@$2>$3			mydom
+R$*<@$-.$w.$=D>$*	$1<@$2>$4			thishost.anydom
+R$*<@$-.$w.$A>$*	$1<@$2>$3			thishost.anotherdom
+R$*<@$-.$A>$*		$1<@$2>$3			anotherdom
+R$*<@$-.$w.$=T>$*	$1<@$2>$4			thishost.mockdom
+CF_GATEWAYR$*<$*$w>$*	$1<$2>$3			thishost
+R$*<$*.>$*		$1<$2>$3			drop trailing dot
+R<@>:$+			$@$>0$1				strip null route, retry
+R$+<@>			$@$>0$1				strip null addr, retry
+
+
+###############################################
+#    Machine dependent part of ruleset zero   #
+###############################################
+
+# Preemption: for a host on a known link turn the domain spec into a
+# mock domain indicating the link.  One set of these rules for each of 
+# the F classes listed in the local configuration options.
+
+R$*<$*$=E.$D>$*			$:$1<$2$3.ETHER>$4	etherhost.mydomain
+R$*<$*$=E.$=D>$*		$:$1<$2$3.ETHER>$5	etherhost.anydomain
+R$*<$*$=E.$A>$*			$:$1<$2$3.ETHER>$4	etherhost.anotherdomain
+R$*<$*$=E.$=T>$*		$:$1<$2$3.ETHER>$5	etherhost.mock-domain
+R$*<$*$=E>$*			$:$1<$2$3.ETHER>$4	etherhost
+
+# Designated delivery: use the indicated transport mechanism.  One of
+# these rules for each of the mock domains defined in $=T.  You can
+# remove these if you just want general disposition.  HINTS.
+
+# Designated delivery:
+R$*<@$=U.UUX>$*		$#uux$@$2$:$1$3			known uucphost
+R$*<@$=E$+.ETHER>$*	$#ether$@$2$:$1@$2$4		known etherhost
+R$*<@$+.ETHER>$*	$#ether$@$2$:$1@$2$3		etherhost
+
+# throw out mock domain name now
+R$*<$*.$=T>$*		$1<$2>$4
+
+# General disposition of remote mail (comment out all but one).  You
+# might add to this list, if you have other "smarter" mailers.  HINTS.
+
+R$*<@$->:$+		$#uux$@$2$:$1$3			forward to $2
+R$*<@$*>$*		$#uux$@$2$:$1$3			hand to uucp
+#R$*<@$*>$*		$#uux$@$R$:$1@$2$3		hand to uucp relay
+#R$*<@$*>$*		$#ether$@$R$:$1@$2$3		hand to ether relay
+#R$*<$*>$*		$#error$:unknown address $1$2$3	don't hand anywhere
+
+# local delivery
+R$+			$#local$:$1			user
+
+############################################################
+#
+# 		Local and Program Mailer specification
+#
+############################################################
+
+CF_SVMAILMlocal, P=CF_LOCALMAIL, F=lsDFMhumSU, S=10, R=20, A=rmail $u
+CF_BSMAILMlocal, P=CF_LOCALMAIL, F=rlsDFMmn, S=10, R=20, A=mail -d $u
+Mprog,	P=/bin/sh,   F=lsDFMe,   S=10, R=20, A=sh -c $u
+
+S10
+R@			MAILER-DAEMON	errors to mailer-daemon
+CF_HIDDENHOSTSR$+<@$+.$j>$*		$1<@$j>$3	hide anydom.$j under $j
+
+S20
+
+############################################################
+#
+#    		UUCP Mailer specification
+#
+############################################################
+
+Muux,	P=/bin/smail, F=sDFMhum, S=14, R=24, M=100000,
+	A=smail -vH$j $h!$u
+
+S14
+R$+<@$=E>		$1			user@etherhost -> user
+R$*<@$+>$*		$@$1<@$2>$3		already ok
+CF_HIDDENHOSTSR$+<@$+.$j>$*		$1<@$j>$3		hide anydom.$j under $j
+R$+			$@$1<@$j>		add our full address
+
+S24
+
+############################################################
+#
+#    		SMTP ethernet mailer
+#
+############################################################
+
+Mether,	P=[IPC], F=msDFMuCXP, S=11, R=21, A=IPC $h
+
+S11
+R$*<@$+>$*		$@$1<@$2>$3		already ok
+R$+			$@$1<@$w>		add our hostname
+
+S21
+
+#################################
+#  Final Output Post-rewriting  #
+#################################
+
+# This rewrites the internal $=T mock domains into their external form.
+# The default is to replace the mock domain name with $D.
+# The last two lines are stock.
+
+S4
+R@			$@				handle <> error addr
+R$+<@$-.UUX>		$2!$1				u@host.UUX => host!u
+R$*<$*$=T>$*		$:$1<$2$D>$4			change local info
+R$*<$+>$*		$1$2$3				defocus
+R@$+:$+:$+		@$1,$2:$3			<route-addr> canonical

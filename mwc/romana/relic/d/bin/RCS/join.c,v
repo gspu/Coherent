@@ -1,0 +1,420 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.14.42.53;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init version. prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Join -- relational database join operation.
+ */
+
+#include <stdio.h>
+
+#define	NREC	512			/* Maximum record length */
+#define	NFIELD	200			/* Maximum number of fields */
+#define	NOFIELD	150			/* Maximum fields in output list */
+
+typedef	unsigned char	uchar;
+
+/*
+ * A record that has been split into
+ * fields.
+ */
+typedef	struct	RECORD {
+	char	r_record[NREC];		/* The text for the whole record */
+	FILE	*r_fp;			/* File stream pointer of input */
+	int	r_jfield;		/* Join field number */
+	int	r_eof;			/* EOF flag */
+	unsigned r_nfield;		/* Number of fields */
+	char	*r_fields[NFIELD];	/* Field pointers */
+}	RECORD;
+
+/*
+ * The indicator for what field is to be
+ * printed upon output.
+ * Whhen there is no `-o' list, then
+ * the default of the key field followed
+ * by all fields in file1 followed by all
+ * other fields in file2 is used.
+ */
+typedef	struct	FIELD {
+	char	f_fileno;		/* File number (1,2,or3) */
+	uchar	f_fieldno;		/* Field number */
+}	FIELD;
+
+RECORD	rec1;
+RECORD	rec2;
+FIELD	fields[NOFIELD];
+FIELD	*efp = &fields[0];
+
+char	usemsg[] = "\
+Usage: join [-a[f]] [-e s] [-j[f] n] [-o f.n ...] [-tc] file1 file2\n\
+";
+
+char	tabc;				/* Tab character -- if null, default */
+char	otabc = ' ';			/* Output separator character */
+int	unpair;				/* Print unpairable records in these */
+int	tflag;				/* Set when -t given */
+char	*empty = "";			/* Put out for empty fields */
+FILE	*jopen();
+
+main(argc, argv)
+int argc;
+char *argv[];
+{
+	register char *ap;
+	register int n;
+	register FIELD *ep = fields;
+
+	rec1.r_jfield = rec2.r_jfield = 1;
+	while (argc>1 && *argv[1]=='-') {
+		ap = &argv[1][1];
+		if (*ap == '\0')
+			break;
+		switch (*ap) {
+		case 'a':
+			if (ap[1] == '\0')
+				unpair = 01|02;
+			else {
+				if (ap[2] != '\0')
+					usage();
+				if (ap[1] == '1')
+					unpair = 01;
+				else if (ap[1] == '2')
+					unpair = 02;
+				else
+					fnusage("-a");
+			}
+			break;
+
+		case 'e':
+			if (argc<2 || ap[1]!='\0')
+				usage();
+			argv++;
+			argc--;
+			empty = argv[1];
+			break;
+
+		case 'j':
+			if (argc < 2)
+				usage();
+			argv++;
+			argc--;
+			if ((n = atoi(argv[1])) == 0)
+				usage();
+			if (ap[1] == '\0')
+				rec1.r_jfield = rec2.r_jfield = n;
+			else if (ap[1] == '1')
+				rec1.r_jfield = n;
+			else if (ap[1] == '2')
+				rec2.r_jfield = n;
+			else
+				fnusage("-j");
+			break;
+
+		case 'o':
+			ep = efp;
+			while (argc > 2) {
+				if (!addlist(argv[2]))
+					break;
+				argv++;
+				argc--;
+			}
+			if (ep==efp || ap[1]!='\0')
+				usage();
+			break;
+
+		case 't':
+			tflag++;
+			if ((tabc = otabc = ap[1]) == '\0')
+				usage();
+			break;
+
+		default:
+			usage();
+		}
+		argv++;
+		argc--;
+	}
+	if (argc != 3)
+		usage();
+	rec1.r_fp = jopen(argv[1]);
+	rec2.r_fp = jopen(argv[2]);
+	if (rec1.r_fp==stdin && rec2.r_fp==stdin)
+		cerr("both files are `-'");
+	join();
+	exit(0);
+}
+
+/*
+ * Add a new element to the output list for `join'.
+ * Check for two many elements on the list.
+ * Return 0 if this isn't a list element type argument.
+ * Return 1 if added element.
+ */
+addlist(s)
+register char *s;
+{
+	register int n;
+	register int fn;
+
+	fn = 3;
+	for (n=0; *s>='0' && *s<='9'; )
+		n = n*10 + *s++-'0';
+	if (*s == '.') {
+		s++;
+		fn = n;
+		for (n=0; *s>='0' && *s<='9'; )
+			n = n*10 + *s++-'0';
+	}
+	if (*s!='\0' || fn<1 || fn>3)
+		return (0);
+	if (efp >= &fields[NOFIELD-1])
+		cerr("too many elements for `-o' list");
+	efp->f_fileno = fn;
+	efp->f_fieldno = n;
+	efp++;
+	return (1);
+}
+
+/*
+ * Open one of join's input files.
+ * Check for the special filename `-'.
+ */
+FILE	*
+jopen(fn)
+register char *fn;
+{
+	register FILE *fp;
+
+	if (fn[0]=='-' && fn[1]=='\0')
+		fp = stdin;
+	else if ((fp = fopen(fn, "r")) == NULL)
+		cerr("cannot open input `%s'", fn);
+	return (fp);
+}
+
+/*
+ * Do the work of joining two files
+ * containing relations.
+ * The files should be ordered on
+ * the selected primary keys.
+ */
+join()
+{
+	jread(&rec1);
+	jread(&rec2);
+	while (!rec1.r_eof && !rec2.r_eof) {
+		switch (jcmp()) {
+		case 0:
+			jwrite(03);
+			jread(&rec2);
+			break;
+
+		case -1:	/* file1 < file2 */
+			if (unpair & 01)
+				jwrite(01);
+			jread(&rec1);
+			break;
+
+		case 1:		/* file2 < file1 */
+			if (unpair & 02)
+				jwrite(02);
+			jread(&rec2);
+			break;
+		}
+	}
+	while (!rec2.r_eof) {
+		if (unpair & 02)
+			jwrite(02);
+		jread(&rec2);
+	}
+
+	while (!rec1.r_eof) {
+		if (unpair & 01)
+			jwrite(01);
+		jread(&rec1);
+	}
+}
+
+/*
+ * Read a record and divide it into fields.
+ * The argument is a record pointer.
+ */
+jread(rp)
+register RECORD *rp;
+{
+	register char *cp;
+	register int c;
+	register int nf = 0;
+
+	rp->r_nfield = 0;
+	if (fgets(rp->r_record, NFIELD, rp->r_fp) == NULL) {
+		rp->r_eof++;
+		return;
+	}
+	cp = rp->r_record;
+	if (tflag) {
+		for (nf=0; ; nf++) {
+			if (nf >= NFIELD)
+				cerr("too many fields in input");
+			rp->r_fields[nf] = cp;
+			while ((c = *cp)!='\n' && c!='\0' && c!=tabc)
+				cp++;
+			*cp++ = '\0';
+			if (c != tabc)
+				break;
+		}
+		rp->r_nfield = nf+1;
+	} else {
+		nf = 0;
+		for (;;) {
+			while ((c = *cp)==' ' || c=='\t')
+				cp++;
+			if (c=='\n' || c=='\0') {
+				*cp = '\0';
+				break;
+			}
+			if (nf >= NFIELD)
+				cerr("too many field in input");
+			rp->r_fields[nf++] = cp;
+			while ((c = *cp)!=' ' && c!='\t' && c!='\n' && c!='\0')
+				cp++;
+			if (c != '\0')
+				*cp++ = '\0';
+		}
+		rp->r_nfield = nf;
+	}
+}
+
+/*
+ * Output a record for the given file numbers.
+ * Numbers can be 1, 2, or 3 (for both files).
+ */
+jwrite(fn)
+int fn;
+{
+	register int i;
+
+	if (efp > &fields[0]) {
+		register FIELD *fp;
+
+		for (fp = &fields[0]; fp < efp; fp++) {
+			switch (fn & fp->f_fileno) {
+			case 1:
+				jpfield(&rec1, fp->f_fieldno);
+				break;
+
+			case 2:
+				jpfield(&rec2, fp->f_fieldno);
+				break;
+
+			case 3:
+				jpfield(&rec1, fp->f_fieldno);
+				jpfield(&rec2, fp->f_fieldno);
+				break;
+			}
+		}
+	} else {
+		register int jf;
+
+		if (fn & 01) {
+			jf = rec1.r_jfield;
+			jpfield(&rec1, jf);
+			for (i=1; i<=rec1.r_nfield; i++)
+				if (i != jf)
+					jpfield(&rec1, i);
+		}
+		if (fn & 02) {
+			jf = rec2.r_jfield;
+			if (fn != 03)
+				jpfield(&rec2, jf);
+			for (i=1; i<=rec2.r_nfield; i++)
+				if (i != jf)
+					jpfield(&rec2, i);
+		}
+	}
+	jpfield(NULL, 0);
+}
+
+/*
+ * Print out a field.
+ * When asked to print from record
+ * `NULL', this signifies the reset at end
+ * of line.
+ * Don't print fields that are out of range
+ * (perhaps these should be considered as NULL fields).
+ */
+jpfield(rp, fieldno)
+register RECORD *rp;
+int fieldno;
+{
+	static int first;
+	register char *fp;
+
+	if (rp == NULL) {
+		putchar('\n');
+		first = 0;
+		return;
+	}
+	if (fieldno > rp->r_nfield)
+		return;
+	if (first++ != 0)
+		putchar(otabc);
+	fp = rp->r_fields[fieldno-1];
+	if (*fp == '\0')
+		fp = empty;
+	fputs(fp, stdout);
+}
+
+/*
+ * Do a comparison of the join fields.
+ * This has the same return values as
+ * strcmp.  If the field is missing, complain.
+ */
+jcmp()
+{
+	if (rec1.r_jfield>rec1.r_nfield || rec2.r_jfield>rec2.r_nfield)
+		cerr("join field is missing in input");
+	return (strcmp(rec1.r_fields[rec1.r_jfield-1],
+			rec2.r_fields[rec2.r_jfield-1]));
+}
+
+fnusage(opt)
+char *opt;
+{
+	fprintf(stderr, "join: `%s' file number must be 1 or 2\n", opt);
+	usage();
+}
+
+usage()
+{
+	fprintf(stderr, usemsg);
+	exit(1);
+}
+
+/* VARARGS */
+cerr(x)
+{
+	fprintf(stderr, "join: %r\n", &x);
+	exit(1);
+}
+@

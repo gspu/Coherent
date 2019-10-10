@@ -1,0 +1,121 @@
+.TH uio "" "" "DDI/DKI Data Structure"
+.PC "Structure to organize scatter/gather I/O requests"
+.B "#include <sys/file.h>"
+.B "#include <sys/types.h>"
+.B "#include <sys/uio.h>"
+.PP
+.II "scatter/gather I/O"
+.II "I/O^scatter/gather"
+The structure
+.B uio
+describes an I/O request that is split across more than one
+data-storage area (also called \fIscatter/gather I/O\^\fR).
+It describes the request and contains the address of an array of
+.B iovec
+structures that, in turn, indicate where the data are to be read or written.
+An
+.BR iovec ,
+in turn, can point either into user space or kernel space.
+.PP
+A
+.B uio
+can be created either by the kernel or by the driver.
+The rules by which an
+.B uio
+is manipulated differ depending upon its origin (and therefore, upon the
+entity that ``owns'' it).
+These are described below.
+.PP
+The kernel passes the contents of
+.B uio
+to the driver through the driver's entry-point routines.
+The driver should never change them.
+Functions
+.BR uiomove() ,
+.BR ureadc() ,
+and
+.B uwritec()
+maintain
+.BR uio .
+Function
+.B physiock()
+also helps maintain
+.BR uio ;
+a block driver can call it to perform unbuffered I/O.
+.PP
+A driver that creates its own
+.B uio
+for a data transfer must initialize it to zero before
+it initializes the fields that are accessible to it.
+Thereafter the driver must not change its
+.BR uio :
+the DDI/DKI functions maintain it.
+.PP
+A driver can read the following fields within
+.BR uio :
+.IP "\fBiovec_t *uio_iov\fR" 1.25i
+The address of the array of
+.B iovec
+structures that describe where the data are stored.
+If a driver creates a private
+.B uio
+for a data transfer, it must also create an array of
+.B iovec
+structures.
+.IP "\fBint uio_iovcnt\fR"
+The number of
+.B iovec
+structures in the array to which
+.B uio_iov
+points.
+.IP "\fBoff_t uio_offset\fR"
+The starting address on the device to/from which the data are to be
+transferred.
+This field applies to every device that is randomly accessed
+(e.g., a floppy-disk drive),
+but not to every device that is sequentially accessed (e.g., a tape drive).
+.IP "\fBshort uio_segflg\fR"
+This flag gives the space within memory from/to whence the data are to
+be transferred.
+.B UIO_SYSSPACE
+indicates kernel space;
+.B UIO_USERSPACE
+indicates that data are split between kernel space and user space.
+.IP "\fBshort uio_fmode\fR"
+Flags that give the access mode of the data transfer.
+The following gives the legal values for this field:
+.RS
+.IP \fBFNDELAY\fR 1.0i
+If the requested data transfer cannot occur immediately,
+terminate the request without indicating that an error occurred.
+.IP \fBFNONBLOCK\fR
+If the requested data transfer cannot occur immediately,
+terminate the request and return error
+.BR EAGAIN .
+.RE
+.IP "\fBint uio_resid\fR"
+The number of bytes not yet been transferred to/from from the data area.
+If the driver creates the
+.B uio
+structure for a data transfer, it must initialize this field to the
+number of bytes to be transferred.
+.SH "See Also"
+.B
+data structures,
+iovec,
+physiock(),
+read,
+uiomove(),
+ureadc(),
+uwritec()
+write
+.SH Notes
+The DDI/DKI does not have a special function with which a driver can
+create a
+.B uio
+or
+.B iovec
+structure.
+Therefore, it should use either
+.B kmem_zalloc()
+or allocate them statically.

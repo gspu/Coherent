@@ -1,0 +1,306 @@
+head     1.4;
+branch   ;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.4
+date     91.12.06.18.01.26;  author piggy;  state Exp;
+branches ;
+next     1.3;
+
+1.3
+date     91.11.06.15.09.36;  author piggy;  state Exp;
+branches ;
+next     1.2;
+
+1.2
+date     91.10.16.15.39.25;  author piggy;  state Exp;
+branches ;
+next     1.1;
+
+1.1
+date     91.10.16.14.45.27;  author piggy;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@Follow a file pointer indirection.
+@
+
+
+1.4
+log
+@Everything (including int and void functions) is now declared in tboot.h.
+Include files are sought in their final homes (<sys/*>).
+@
+text
+@/*
+ * Handle the indirections in Unix-style file system.
+ *
+ * Uses a recursive scheme to follow up indirections.
+ *
+ * Needs optimization.  A good place to start would be caching of
+ * lookup tables.
+ *
+ * La Monte H. Yarroll <piggy@@mwc.com>, September 1991
+ */
+
+#include <sys/types.h>
+#include <sys/buf.h>
+#include <sys/ino.h>
+#include <sys/inode.h>
+#include <canon.h>
+#include <sys/ptypes.h>
+
+extern BUF *bread();
+daddr_t vmap();
+daddr_t indirect();
+daddr_t ind_lookup();
+uint16 ind_index();
+
+/* Convert the given virtual block to a physical block for the given inode.
+ * ip points to the in-core inode for a file.
+ * vblockno is a block number relative to the start of that file.
+ */
+daddr_t
+vmap(ip, vblockno)
+	struct inode *ip;
+	daddr_t vblockno;
+{
+	uint16 ind_level;
+	daddr_t ind_table;
+	daddr_t vbno;
+
+	if (vblockno < (daddr_t) ND){
+		/* Direct block.  */
+		return(ip->i_a.i_addr[vblockno]);
+	} else if (vblockno < (daddr_t) (ND + NBN)) {
+		/* Single indirect block.  */
+		ind_level = 1;
+		ind_table = ip->i_a.i_addr[ND];
+		vbno = vblockno - ND;	/* Skip over direct blocks.  */
+	} else if (vblockno < (daddr_t) (ND + (NBN*NBN))) {
+		/* Double indirect block.  */
+		ind_level = 2;
+		ind_table = ip->i_a.i_addr[ND+1];
+		vbno = vblockno - (ND + NBN);	/* Skip over direct
+						 * and indirect blocks.
+						 */
+		
+	} else {
+		/* Triple indirect block.  */
+		ind_level = 3;
+		ind_table = ip->i_a.i_addr[ND+2];
+		/* Skip over direct, indirect blocks,
+		 * and double indirect blocks.
+		 */
+		vbno = vblockno - (ND + NBN + NBN*NBN);
+	}
+
+	return(indirect(ind_level, ind_table, vbno));
+} /* vmap() */
+
+/* indirect(uint16 ind_level, daddr_t ind_table_ptr, daddr_t vblockno)
+ * Recursively follow an indirection for a given virtual block number
+ * vblockno.
+ * ind_level must be the level of indirection still un-resolved.
+ * ind_table is the physical block number of the next indirection.
+ */
+daddr_t
+indirect(ind_level, ind_table_ptr, vblockno)
+	uint16 ind_level;
+	daddr_t ind_table_ptr;
+	daddr_t vblockno;
+{
+	BUF *bp;
+	daddr_t *my_block;
+	daddr_t next_ptr;
+
+	/* Base case.  Direct block.  */
+	if (0 == ind_level) {
+		/* At this point, the block number in ind_table_ptr
+		 * is exactly the physical block number we've been
+		 * looking for.
+		 */
+		return(ind_table_ptr);
+	}
+
+	/* Recursive case.  Some level of indirection.  */
+
+	/* Read the next table.  */
+	bp = bread(ind_table_ptr);
+	
+	/* Pick out the actual disk block.  */
+	my_block = (daddr_t *) bp->b_paddr;
+	
+	/* Fetch the next indirection.  */
+	next_ptr = ind_lookup(ind_level, my_block, vblockno);
+
+	/* Canonicalize it.  */
+	candaddr(next_ptr);
+
+#if 0
+	/* Normally, buffers containing indirection blocks should not
+	 * be brelease()'d.  This is how we try to assure that they
+	 * do not need to be read off of disk too often.
+	 */
+	sanity_check("indirect() about to brelease() and recurse");
+	brelease(bp);	/* DEBUG */
+#endif
+
+	indirect(ind_level - 1,
+		 next_ptr,
+		 vblockno);
+} /* indirect() */
+
+/* ind_lookup(uint16 ind_level, daddr_t *ind_table, daddr_t vblockno)
+ * Look up the next level of block in table ind_table, for virtual
+ * block number vblockno.
+ * Note that this table is in DISK CANNONICAL format.  If the local
+ * notion of daddr_t is a different size from DISK CANONICAL daddr_t
+ */
+daddr_t
+ind_lookup(ind_level, ind_table, vblockno)
+	uint16 ind_level;
+	daddr_t *ind_table;
+	daddr_t vblockno;
+{
+	return(ind_table[ind_index(ind_level, vblockno)]);
+}
+
+/* uint16 ind_index(uint16 ind_level, daddr_t vblockno);
+ * Calculate the index needed for virtual block vblockno into
+ * a table of the given indirection level.
+ */
+#define SEVENONES 0x7f	/* Mask of address bits for table lookups.
+			 * NBN = 128 entries = 7 bit address.
+			 */
+uint16
+ind_index(ind_level, vblockno)
+	uint16 ind_level;
+	daddr_t vblockno;
+{
+	/* Move the appropriate 7 bits to the lowest position,
+	 * and return them.
+	 */
+	return((vblockno >> (7 * (ind_level - 1))) & SEVENONES);
+}
+@
+
+
+1.3
+log
+@All types are now uint8-uint32 as needed.
+Adjusted to use the new buffer caching system.
+@
+text
+@d17 1
+a17 1
+#include "ptypes.h"
+@
+
+
+1.2
+log
+@Stunning optimization to cut disk reads substantially.
+@
+text
+@d1 2
+a2 1
+/* Handle the indirections in Unix-style file system.
+d13 1
+d17 1
+d19 1
+d23 1
+a23 1
+unsigned int ind_index();
+d34 1
+a34 1
+	int ind_level;
+d67 1
+a67 1
+/* indirect(int ind_level, daddr_t ind_table_ptr, daddr_t vblockno)
+d75 1
+a75 1
+	int ind_level;
+d79 3
+a81 1
+	int i;
+a82 12
+	/* This is a place to remember what the contents of local_table are.
+	 * Note that -1 should be an impossible block number.
+	 */
+	static daddr_t local_table_ptr = (daddr_t *)-1;
+
+	/* This is a table of block numbers.  */
+	static daddr_t local_table[NBN]; /* Static is OK, because indirect()
+					 * tail recurses.  It is done with
+					 * the table by the time it recurses.
+					 */
+	
+
+d94 16
+a109 3
+	/* We only read the block if we don't already have it.
+	 * For sequential reads, this generally means we have to go out to
+	 * disk for indirect blocks only about once per 128 blocks.
+d111 3
+a113 2
+	if (local_table_ptr != ind_table_ptr) {
+		bread(ind_table_ptr, (char *)local_table);
+a114 9
+		/* Canonicalize it.  */
+		for (i = 0; i < NBN; ++i) {
+			candaddr(local_table[i]);
+		}
+
+		/* Remember what we just read for next time.  */
+		local_table_ptr = ind_table_ptr;
+	}
+
+d116 1
+a116 1
+		 ind_lookup(ind_level, local_table, vblockno),
+d120 1
+a120 1
+/* ind_lookup(int ind_level, daddr_t *ind_table, daddr_t vblockno)
+d123 2
+d128 1
+a128 1
+	int ind_level;
+d135 1
+a135 1
+/* int ind_index(int ind_level, daddr_t vblockno);
+d142 1
+a142 1
+unsigned int
+d144 1
+a144 1
+	int ind_level;
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d76 8
+a83 1
+	static daddr_t localtable[NBN]; /* Static is OK, because indirect()
+d87 1
+d99 15
+a113 5
+	/* Read the table into memory.  */
+	bread(ind_table_ptr, (char *)localtable);
+	/* Canonicalize it.  */
+	for (i = 0; i < NBN; ++i) {
+		candaddr(localtable[i]);
+d117 1
+a117 1
+		 ind_lookup(ind_level, localtable, vblockno),
+@

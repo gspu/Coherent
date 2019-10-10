@@ -1,0 +1,262 @@
+.TH open() "" "" "System Call (libc)"
+.PC "Open a file"
+.B "#include <fcntl.h>"
+\fBint open(\fIfile\^\fB, \fItype\^\fB[, \fImode\^\fB])\fR
+\fBchar *\fIfile\^\fB; \fBint \fItype\^\fB; [\fBint \fImode\^\fB;]\fR
+.PP
+.B open()
+opens a
+.I file
+to receive data, or to have its data read.
+When it opens
+.IR file ,
+.B open()
+returns a file descriptor, which is a small, positive integer
+that identifies the open
+.I file
+for subsequent calls to
+.BR read() ,
+.BR write() ,
+.BR close() ,
+.BR dup() ,
+.BR dup2() ,
+or
+.BR lseek() .
+After
+.I file
+is opened, reading or writing begins at
+byte 0.
+.PP
+The second argument,
+.IR type ,
+determines how the file is opened.
+It is a bitwise OR of flag bits taken from the following list
+(as defined in the header file
+.BR <fcntl.h> ):
+.DS
+.ta 0.5i 1.5i
+	\fBO_RDONLY\fR	Read only
+	\fBO_WRONLY\fR	Write only
+	\fBO_RDWR\fR	Read and write
+.DE
+.PP
+One, and only one, of the above three bit values must be
+set in
+.IR flag .
+The following bit values can be used to describe further how the file
+can be opened:
+.DS
+.ta 0.5i 1.5i
+	\fBO_NDELAY\fR	Non-blocking I/O
+	\fBO_APPEND\fR	Append (writes guaranteed at the file's end)
+.DE
+.DS
+.ta 0.5i 1.5i
+	\fBO_SYNC\fR	Sync on every write
+	\fBO_TRACE\fR	For file system debugging (\fInon-standard\^\fR)
+	\fBO_NONBLOCK\fR	Non-blocking I/O
+.DE
+.DS
+.ta 0.5i 1.5i
+	\fBO_CREAT\fR	Open with file create (third argument)
+	\fBO_TRUNC\fR	Open with truncation
+	\fBO_EXCL\fR	Exclusive open
+	\fBO_NOCTTY\fR	Do not assign a controlling tty
+.DE
+.PP
+The remaining bit values are used to how you wish to manipulate
+.IR file :
+.IP \fBO_APPEND\fR
+Precede every write with an automatic seek to end of
+.IR file .
+.IP \fBO_CREAT\fR
+If
+.I file
+does not exist, create it.
+If this flag is set the third argument,
+.IR mode ,
+sets the mode on the file.
+Note that this mode will be masked by
+.BR umask() .
+See the Lexicon article on the command
+.B chmod
+for details on what the various values of
+.I mode
+mean.
+.IP \fBO_EXCL\fR
+Exclusive open:
+this flag is meaningful only if
+.B O_CREAT
+is also used.
+In that case,
+.B open()
+fails with error value
+.B EEXIST
+if
+.I file
+already exists.
+.IP \fBO_NDELAY\fR
+No delay in writing to disk.
+Please note the following caveats when using this flag:
+.RS
+.IP "\fIIf set:\fR
+Opening a FIFO with \fBO_RDONLY\fR returns without delay.
+Opening a FIFO with \fBO_WRONLY\fR returns an error if no process has the
+file open for reading.
+Opening a file associated with a communication line returns without waiting
+for a carrier signal.
+.IP "\fIIf not set:\fR"
+Opening a FIFO with \fBO_RDONLY\fR blocks until a process opens the file
+for writing.
+Opening a FIFO with \fBO_WRONLY\fR blocks until a process opens the file for
+reading.
+Opening a file associated with a communication line blocks until a carrier
+signal is present.
+.RE
+.IP \fBO_NOCTTY\fR
+If
+.I file
+names a terminal device, do not set it
+to be the controlling terminal for the process.
+.IP \fBO_SYNC\fR
+All writes to
+.I file
+will be synchronous to disk.
+This means that
+.B write()
+will not return until the data have been physically written to disk.
+.IP \fBO_TRUNC\fR
+If
+.I file
+exists, truncate it to zero length.
+You must have write permissions on
+.I file
+to use this flag.
+.PP
+The third argument,
+.IR mode ,
+is significant only if
+.B O_CREAT
+is specified in the second argument and if
+.I file
+did not exist before the call to
+.BR open() .
+In that case,
+.I mode
+specifies the access permissions of the new file,
+in exactly the manner that the system call
+.B creat()
+uses its
+.I mode
+argument to set permissions.
+The value of
+.I mode
+is typically given as either an octal constant or bitwise OR
+of permission-bit values as defined in header file
+.BR <sys/stat.h> .
+.SH Example
+This example copies
+the file named in
+.B argv[1]
+to
+the one named in
+.B argv[2]
+by using system calls.
+It demonstrates
+.B open()
+plus the system calls 
+.BR close() ,
+.BR read() ,
+.BR write() ,
+and
+.BR creat() .
+.DM
+#include <stdio.h>
+#include <fcntl.h>
+#define BUFSIZE (20*512)
+char buf[BUFSIZE];
+.DE
+.DM
+void fatal(s)
+char *s;
+{
+	fprintf(stderr, "copy: %s\en", s);
+	exit(1);
+}
+.DE
+.DM
+main(argc, argv)
+int argc; char *argv[];
+{
+	register int ifd, ofd;
+	register unsigned int n;
+.DE
+.DM
+	if (argc != 3)
+		fatal("Usage: copy source destination");
+	if ((ifd = open(argv[1], O_RDONLY)) == -1)
+		fatal("cannot open input file");
+	if ((ofd = open(argv[2], O_CREAT | O_RDWR | O_TRUNC, 0666)) == -1)
+		fatal("cannot open output file");
+	/* For COHERENT 286, use creat() instead of open():
+	 * if ((ofd = creat(argv[2], 0666)) == -1)
+	 */
+.DE
+.DM
+	while ((n = read(ifd, buf, BUFSIZE)) != 0) {
+		if (n == -1)
+			fatal("read error");
+		if (write(ofd, buf, n) != n)
+			fatal("write error");
+	}
+.DE
+.DM
+	if (close(ifd) == -1 || close(ofd) == -1)
+		fatal("cannot close");
+	exit(0);
+}
+.DE
+.SH "See Also"
+.Xr "fopen()," fopen
+.Xr "file descriptor," file_desc
+.Xr "close()," close
+.Xr "libc" libc
+.br
+\*(AS, \(sc4.9.3
+.br
+\*(PX Standard, \(sc5.3.1
+.SH Diagnostics
+.B open()
+returns \-1 if the file does not exist, if the caller lacks permission,
+or if a system resource is exhausted.
+.SH Notes
+.B open()
+is a low-level call that passes data directly to \*(CO.
+It should not be mixed with high-level calls,
+such as
+.BR fread() ,
+.BR fwrite() ,
+or
+.BR fopen() .
+.PP
+Code that uses the third argument to
+.B open()
+cannot be ported to \*(CO 286.
+.PP
+\*(CO release 4.2.10 changes some of the behaviors triggered by flags
+.B O_EXCL
+and
+.BR O_NDELAY .
+In previous release of \*(CO, flag
+.B O_EXCL
+\*(CO would handle blocking subsequent
+.BR open() s.
+This is no longer the case \(em the device driver must handle it.
+In previous release of \*(CO, when flag
+.B O_NDELAY
+was used to open a character driver, the I/O flag
+.B IONDLY
+would be set.
+Now, the I/O flag
+.B IONONBLOCK
+is set instead.

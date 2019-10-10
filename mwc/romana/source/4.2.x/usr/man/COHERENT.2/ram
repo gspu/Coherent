@@ -1,0 +1,86 @@
+rraamm -- Device Driver
+
+Driver for manipulating RAM
+
+The COHERENT rraamm devices let  you allocate and use the random-access memory
+(RAM) of  the computer system directly.   A typical use is  for a RAM disk,
+which is a COHERENT file system kept in memory rather than on a floppy disk
+or hard disk.
+
+The  COHERENT RAM  device driver  has major  number 8.   You can  access it
+either as  a block-special  device or  as a character-special  device.  The
+high-order bit of the minor number gives the RAM device number (0 or 1); as
+you can see, you can have no more than two RAM devices in memory at any one
+time.   The low-order  seven  bits give  the device's  size in  64-kilobyte
+chunks.
+
+The  first call to  ooppeenn() on  a RAM  device with nonzero  size (1  to 127)
+allocates memory  for the device; ooppeenn() fails if  sufficient memory is not
+available.  Accessing a RAM device  with a minor number that specifies size
+zero frees  the allocated  memory, provided  all earlier ooppeenn()  calls have
+been closed.
+
+Initially, COHERENT  includes two block-special devices  for RAM disks: the
+512-kilobyte device /ddeevv/rraamm00  (8, 8) and the 192-kilobyte device /ddeevv/rraamm11
+(8,  131).   It  also  includes  the  devices  /ddeevv/rraamm00cclloossee  (8,  0)  and
+/ddeevv/rraamm11cclloossee (8,  128).  You  should resize the  RAM devices to  suit the
+amount of memory available on your system.
+
+_E_x_a_m_p_l_e_s
+The  following  example  formats and  mounts  a  512-kilobyte  RAM disk  on
+directory /ffaasstt.
+
+    mkdir /fast
+    /etc/mkfs /dev/ram0 1024
+    /etc/mount /dev/ram0 /fast
+
+When the RAM disk is no longer needed, its allocated memory can be freed as
+follows:
+
+    /etc/umount /dev/ram0
+    cat /dev/null >/dev/rram0close
+
+The next example replaces  the default /ddeevv/rraamm00 with a one-megabyte device
+that contains  a COHERENT file  system.  The minor number  16 specifies RAM
+device 0 and a size of one megabyte (i.e., 16 chunks of 64 kilobytes each).
+The new RAM device contains 2,048 blocks of 512 bytes each.
+
+    rm /dev/ram0
+    /etc/mknod /dev/ram0 b 8 16
+    /etc/mknod /dev/rram0 c 8 16
+    /etc/mkfs /dev/ram0 2048
+    chmod ugo=rw /dev/ram0
+    chmod ugo=rw /dev/rram0
+
+The command cchhmmoodd is necessary to make the new RAM drive accessible.
+
+_F_i_l_e_s
+/ddeevv/rraamm*
+
+_S_e_e _A_l_s_o
+ccoommpprreessss, ddeevviiccee  ddrriivveerrss, ffsscckk, mmkkffss, mmoouunntt,  rraammddiisskk, uummoouunntt, uunnccoommpprreessss,
+zzccaatt
+
+_N_o_t_e_s
+Moving frequently used  commands or files to a RAM  disk can improve system
+performance substantially.  However, the  contents of a RAM device are lost
+if  the system  loses power,  reboots, or  crashes.  Therefore,  you should
+frequently back up files from the RAM disk to a more permanent medium.
+
+If a RAM  device uses most but not all  available system memory, its ooppeenn()
+call  will succeed  but subsequent commands  may fail  because insufficient
+memory remains for the system.
+
+The COHERENT installation program /eettcc/bbuuiilldd uses RAM device /ddeevv/rraamm11 as a
+RAM  disk during  installation.  Commands  ccoommpprreessss, uunnccoommpprreessss,  zzccaatt, and
+ffsscckk sometimes  use /ddeevv/rraamm11 as a temporary  storage device.  Users should
+avoid  using  /ddeevv/rraamm11  as a  RAM  disk  because  of  these programs.   In
+addition, users  of ccoommpprreessss, uunnccoommpprreessss,  and zzccaatt may have  to change the
+size of /ddeevv/rraamm11 from the default  size of 192 to 512 kilobytes, to handle
+files compressed to 16 bits.   The following script makes this change; note
+that it must be run by the superuser rroooott:
+
+    cat /dev/null >/dev/rram1close
+    rm /dev/ram1 /dev/rram1
+    mknod /dev/ram1  b 8 136
+    mknod /dev/rram1 c 8 136

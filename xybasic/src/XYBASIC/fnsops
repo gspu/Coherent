@@ -1,0 +1,911 @@
+;FNSOPS 11/05/80
+;XYBASIC Interpreter Source Module
+;Copyright (C) 1978, 1979, 1980 by Mark Williams Company, Chicago
+;arithmetic and control function and op routines
+
+;auxilliary functions called by fn / op routines
+
+;READP reads the port # given in C.
+	if	not wild
+readp:	call	isbyt
+	mov	a,c
+rdp1:	sta	rport+1		;set port #
+	jmp	rport		;read the port and return
+	endif
+
+;STBIT sets bit # [(E) and (D)] of DE.
+;Retn:	A,HL	clobbered
+;	BC	preserved
+;	DE	bit # [(E) and (D)] set, others reset
+	if	not wild
+stbt0:	mvi	d,0FH
+stbit:	mov	a,e
+	ana	d		;(E) masked by (D) to A, carry reset
+	lxi	d,1		;set bit 0 of DE
+stbi1:	rz			;done if (A) = 0
+	xchg
+	dad	h		;move bit left in HL
+	xchg
+	dcr	a
+	jmp	stbi1
+	endif
+
+;SNFIX replaces (BC) and (DE) by their abs values, sets sign bit
+;of TEMP iff exactly one of them was < 0.
+;SNFX0 does SNFIX, returns Carry if (DE) = 0.
+snfx0:	mov	a,d
+	ora	e
+	stc
+	rz			;return Carry if DE=0, else do SNFIX
+snfix:	mov	a,b
+	xra	d		;desired sign to A7
+	sta	temp		;and saved
+	call	iabs		;replace BC by abs(BC)
+	rc
+	mov	a,d
+	ora	a
+	cm	cplde		;replace DE by -(DE) if negative
+	ret
+
+;MULTY multiplies nonnegative integers in A and DE, leaves HL + product in HL.
+;NB MULTY is used by RND to produce (HL) + (A) * (DE) mod 2 ^ 16 exactly, even
+;on overflow, and is therefore more complicated than it would otherwise be.
+;Call:	A	nonnegative multiplier
+;	DE	nonnegative multiplicand
+;Retn:	A	zero unless overflow
+;	BC	preserved
+;	DE	clobbered
+;	HL	(HL) + (A) * (DE), mod 2 ^ 16 if overflow
+;	Carry	set iff overflow
+;MULBD multiplies unsigned values in BC and DE, returns result in HL.
+mulbd:	call	cmbdu
+	cnc	bcde		;force BC <= DE
+	mov	a,b
+	ora	a
+	stc
+	rnz			;overflow if both args >= 2 ^ 8
+	mov	a,c		;multiplier to A and fall though to MULT0
+mult0:	lxi	h,0
+multy:	push	b
+	mvi	b,0		;keep track of overflow in B
+mult1:	ora	a		;clear carry
+	rar			;get next bit of multiplier in carry
+	jnc	mult2
+	dad	d		;add multiplicand to partial product
+	cc	ovset		;overflow
+mult2:	ora	a
+	jz	mult3		;done when no more bits on
+	xchg
+	dad	h		;shift multiplicand left one
+	xchg
+	cc	ovset		;overflow
+	jmp	mult1
+mult3:	mov	a,b
+	pop	b
+	ral			;carry set iff overflow
+	ret
+
+;DIVD0 does the work of division.
+;Call:	BC	nonnegative dividend
+;	DE	nonnegative nonzero divisor
+;Retn:	DE	remainder
+;	HL	quotient
+;The dividend starts in HL and is shifted bit by bit into DE as quotient bits
+;are shifted into HL.  At DIVD1, we have [0 bits : current dividend] in DE,
+;[dividend bits : quotient bits] in HL.
+;A tells us how many bits are left of : in the above description.
+divd0:	mov	h,b
+	mov	l,c		;dividend to HL
+	call	umind		;- divisor to BC
+	lxi	d,0		;current dividend 0
+	mvi	a,16		;count to A
+	ora	a		;first quotient bit 0
+divd1:	push	psw		;save quotient bit
+	dad	h		;shift HL left
+	push	psw		;save high bit of dividend
+	xchg
+	dad	h		;shift DE left
+	pop	psw
+	cc	inxh		;add in dividend bit
+	pop	psw
+	jnc	divd3
+	inx	d		;add in quotient bit
+divd3:	push	h		;save current dividend
+	dad	b		;try subtracting divisor
+	jnc	divd4		;too big, retain old one
+	xthl			;ok, keep new one
+divd4:	pop	h		;carry set iff subtraction worked
+	xchg
+	dcr	a
+	jnz	divd1		;keep going
+	aci	0		;zero set iff carry reset
+	dad	h		;shift quotient one more time
+	rz
+inxh:	inx	h		;add in last quotient bit
+	ret
+
+;AMBOP is called during execution of an ambiguous binary op
+;(namely + - * / and relations).  The args are forced to
+;match and are fetched, and the type is returned in the status bits.
+;In addition, the arg1 pointer is saved in TEMP2 for RETRY if integer.
+;Call:	BC,DE	arg1, arg2 pointers
+;Retn:	BC,DE	arg1, arg2 values if integer
+;	CDE,BHL	arg1, arg2 values if string
+;	FACC,HL	arg1 value, arg2 pointer if floating
+;	Carry	set iff string
+;	Zero	set iff integer
+ambop:	xchg			;arg2 addr to HL
+	ldax	b		;fetch arg1 type
+ambo1:	cmp	m		;RETRY entry point
+	cnz	ambty		;force types to agree
+	push	b		;save arg1 pointer
+	call	fetch		;arg2 pointer to HL
+	iftyp	ambof, ambos	;branch if noninteger
+	pop	h		;arg1 pointer to HL
+	push	b		;save arg2 value
+	call	fetch		;fetch arg1 value to BC
+	pop	d		;arg2 value to DE
+	ret
+	if	strng
+ambos:	pop	h		;arg1 pointer to HL
+	mov	b,c		;arg2 length to B
+	push	d		;save arg2 loc
+	call	fetch		;arg1 to CDE
+	pop	h		;arg2 loc to HL
+	ret
+	endif
+	if	float
+ambof:	xthl			;save arg2 pointer, arg1 pointer to HL
+	call	fetch		;fetch arg1
+	pop	h
+	inx	h		;point to arg2 value with HL
+	ret
+	endif
+;AMBTY forces both args to floating.
+ambty:	if	float
+	call	cnvtf		;float arg2
+	push	b
+	xthl
+	call	cnvrt		;float arg1
+	xthl
+	pop	b
+	ret
+	else
+	jmp	tmerr		;fatal TM error if nonfloating version
+	endif
+
+;CMPAR does the work of comparing two args for relation routines.
+;Call:	BC, DE	arg pointers
+;Retn:	BC	0
+;	Carry, Zero	set as for CMBDS
+cmpar:	call	ambop		;fetch args, set status bits
+	iftyp	cmpaf, cmpas	;branch if noninteger
+	call	cmbds		;compare integer arg1 to arg2, signed
+	lxi	b,0
+	ret
+	if	strng
+cmpas:	call	cmstr		;compare string arg1 to arg2
+	lxi	b,0
+	ret
+	endif
+	if	float
+cmpaf:	call	cmpfl		;perform floating compare
+	lxi	b,0
+	rp			;arg1 > arg2, return Carry reset
+	rz			;arg1 = arg2, return Zero set
+	stc			;arg1 < arg2, return Carry set
+	ret
+
+;ETEST tests the significance value in E.  If the result is
+;insignificant it is replaced by a floating zero.
+	if	(not f9511) and (not fpbcd)
+etest:	mov	h,a		;save A
+	mov	a,e
+	adi	80H
+	cpi	(80H-sindx) and 255	;compare to desired significance index
+	mov	a,h		;restore A
+	rnc			;result significant
+	cpi	83H-sindx	;compare exponent to see if small
+	rnc			;not small, take computed value
+	jmp	fzro		;result insignificant, take 0. instead
+	endif
+
+;CMPFL compares two FP numbers, returns Sign and Zero set as for FTEST.
+	if	f9511
+cmpfl:	mvi	a,xch95
+	call	o9511		;exchange order of args
+cmpf0:	call	fsub0		;subtract args -- BDTST entry point
+	in	c9511		;read result status
+	ani	zer95		;check Zero bit
+	jnz	cmpf1		;result is 0
+	in	c9511
+	ral			;sign status to bit A7
+	ani	80H		;mask to sign bit
+	ori	1		;reset Zero, set Sign appropriately
+	ret
+cmpf1:	xra	a		;set Zero, reset Sign
+	ret
+	else			;NOT F9511
+	if	fpbcd
+cmpfl:	call	fsub		;subtract
+ftest:	lda	facc		;fetch result sign/exponent byte
+	ora	a
+	ret			;Zero set iff equal, else sign set
+	else
+cmpfl:	xchg			;arg2 exp address to DE
+	lxi	h,acce		;arg1 (in FACC) exponent address to HL
+	mov	a,m
+	ora	a		;Zero set iff exp(arg1) = 0
+	ldax	d		;fetch exp(arg2)
+	jz	cmpf5
+	ora	a		;Zero set iff exp(arg2) = 0
+	inx	h
+	jz	cmpf7
+	inx	d
+	ldax	d		;fetch sign(arg2)
+	xra	m		;compare to sign(arg1)
+	jp	cmpf6		;signs not equal
+	dcx	h
+	dcx	d
+	ldax	d		;fetch exp(arg2) again
+	sub	m		;compare to exp(arg1)
+	jnz	cmpf2		;exponents not equal
+	inx	h
+	inx	h
+	inx	d
+	ldax	d		;fetch mmsb(arg2)
+	ori	80H		;restore hidden bit
+	cmp	m		;compare to msb(arg1)
+	jnz	cmpf4		;msb of fraction not equal
+	inx	h
+	inx	d
+	ldax	d		;fetch byte2(arg2)
+	cmp	m		;compare to byte2(arg1)
+	jnz	cmpf4		;byte2 of fraction not equal
+	dcx	d
+	dcx	d		;readdress exp(arg2)
+cmpf1:	xchg			;arg2 pointer to HL
+	call	fsub		;arg1-arg2
+	call	etest		;check if almost 0
+	jmp	ftest		;set status bits and return
+cmpf2:	dcr	a
+	jz	cmpf3		;exponents differ by 1
+	inr	a
+	inr	a
+	jnz	cmpf4		;exponents differ by more than 1
+cmpf3:	inx	h
+	inx	h
+	inx	d
+	ldax	d		;fetch msb(arg2)
+	xra	m		;msb(arg2) xor msb(arg1)
+	dcx	d
+	inr	a		;Zero set if near exponent boundary
+	jz	cmpf1		;in which case do the subtraction
+	dcx	h
+	dcx	h
+	ldax	d		;fetch exp(arg2)
+	cmp	m		;Carry set if exp(arg2) < exp(arg1)
+cmpf4:	rar			;Carry to A7
+	lxi	h,accs		;address arg1 sign
+	xra	m		;complement unless negative
+	ori	1		;assure Zero reset
+	ret
+cmpf5:	ora	a
+	rz			;both args 0, hence equal
+	inx	d
+cmpf6:	xchg			;sign(arg2) will give result
+cmpf7:	mov	a,m
+	xri	80H		;complemented sign(arg1) gives result
+	ori	1		;assure Zero reset
+	ret
+	endif			;end of NOT FPBCD conditional
+	endif			;end of NOT F9511 conditional
+
+retry:	lhld	argad		;arg1 pointer to HL
+	mov	b,h
+	mov	c,l		;and then to BC
+	lxi	h,vbyts+2
+	dad	b		;arg2 pointer to HL
+	xra	a		;to assure nonzero CMP at AMBO1
+	jmp	ambo1		;convert to floating and refetch
+rtry1:	lhld	argad		;recover arg pointer
+cnvtf:	mvi	a,sngst
+	jmp	cnvrt		;float it and return
+	endif
+
+fcern:	error	n, F, C		;issue nonfatal FC error
+	ret			;and return
+fcerf:	error	f, F, C		;fatal FC error
+
+
+;routines for fn and op execution
+
+;ambiguous arithmetic ops
+;AOP is a macro for executing ambiguous ops, namely + - * ABS and unary -.
+;IOP, FOP and SOP are addresses of integer, floating and string routines.
+;UNARY is a flag, TRUE if unary and FALSE if binary.
+;SGNIF is a flag for significance checking, TRUE for + and -.
+;FCERF is fatal FC error for string arg to arithmetic routine
+aop	macro	iop,fop,sop,unary,sngif
+	local	exfop
+	if	unary		;;first fetch args and set status bits
+	call	fetbc		;;fetch one arg from BC if unary
+	else
+	call	ambop		;;fetch two agreeing args if binary
+	endif
+	iftyp	exfop, sop	;;branch if noninteger
+	call	iop		;;execute integer op
+	mvi	a,intst		;;return type integer
+	rnc			;;done unless overflow
+	if	float
+	if	unary
+	call	rtry1		;;recover arg and float it
+	else
+	call	retry		;;recover args and float them
+	endif
+exfop:	call	fop		;;execute floating op
+	if	f9511
+	call	fet95		;;fetch result if 9511 op
+	else
+	if	sngif and not fpbcd
+	call	etest		;;test value in E for significance if SGNIF
+	endif
+	endif
+	mov	e,a		;;save A
+	mvi	a,sngst		;;return type floating
+	ret
+	else
+	jmp	iover		;;integer OV error if not floating version
+	endif
+	endm
+
+;Addition(+): {<integer>|<floating>|<string>} x {<integer>|<floating>|<string>}
+;	--> {<integer>|<floating>|<string>}
+aadd:	aop	iadd,fadd,sadd,false,true
+
+;Subtraction (-): {<integer>|<floating>} x {<integer>|<floating>}
+;	--> {<integer>|<floating>}
+asub:	aop	isub,fsub,fcerf,false,true
+
+;Multiplication (*): {<integer>|<floating>} x {<integer>|<floating>}
+;	--> {<integer>|<floating>}
+amul:	aop	imul,fmul,fcerf,false,false
+
+;Unary minus (-): {<integer> | <floating>} --> {<integer> | <floating>}
+aumin:	aop	iumin,fchs,fcerf,true,false
+
+;ABS: {<integer> | <floating>} --> {<integer> | <floating>}
+aabs:	aop	iabs,fabs,fcerf,true,false
+
+;Integer ABS, unary minus: <integer> --> <integer>
+;IABS and IUMIN preserve DE and HL.
+iabs:	mov	a,b
+iabs1:	ora	a		;sign set iff (BC) <0
+	rp			;return if > 0, otherwise perform unary minus
+iumin:	call	bcde		;arg to DE, DE to BC
+umind:	call	cplde		;complement it
+;BCDE exchanges BC and DE.
+bcde:	push	b
+	mov	b,d
+	mov	c,e
+	pop	d
+	ret
+
+;Integer addition and subtraction: <integer> x <integer> --> <integer>
+isub:	call	cplde		;complement and add
+	rc
+iadd:	mov	a,d
+	xra	b		;sign (BC) xor sign (DE) to sign
+	mov	a,b		;sign of BC to A7 in case agree
+	xchg			;arg2 to HL
+	dad	b
+	mov	b,h
+	mov	c,l		;(BC) + (DE) to BC
+	jm	retnc		;result ok if signs differ, return Carry reset
+	xra	b		;compare actual & desired result signs
+	rp			;return if no overflow
+stcr:	stc
+	ret
+
+;Integer multiplication: <integer> x <integer> --> <integer>
+imul:	call	snfix		;force BC, DE >= 0 and save desired result sign
+	rc
+	call	mulbd		;BC * DE to HL
+	rc
+imul1:	mov	b,h		;divid entry point
+	mov	c,l		;result to BC
+	dad	h
+	rc			;overflow if >= 2 ^ 15
+	lda	temp
+	jmp	iabs1		;return according to desired sign
+
+;Integer division (\): <integer> x <integer> --> <integer>
+idivd:	call	snfx0		;force BC >= 0, DE > 0
+	jc	iover		;integer overflow if DE=0
+	call	divd0		;quotient to HL, remainder to DE
+	jmp	imul1		;fix sign of result and return
+
+;MOD: <integer> x <integer> --> <integer>
+;X mod Y = sign(X) * [abs(X) mod abs(Y)], so X = [(X/Y)*Y] + [X mod Y].
+opmod:	mov	h,b		;save desired result sign in H
+	call	snfx0		;force BC >= 0, DE > 0
+	rc
+	mov	a,h
+	sta	temp		;desired result sign to TEMP
+	call	divd0		;remainder to DE
+	xchg			;result to HL
+	jmp	imul1		;and return according to desired sign
+
+;Relations: {<integer>|<floating>|<string>} x {<integer>|<floating>|<string>}
+;	--> <integer>
+;Relations call CMPAR to set status bits and return 0 in BC.  The status
+;bits are used to return if false (0), or decrement BC if true (-1).
+equal:	call	cmpar		;compare and zero BC
+	rnz			;false iff zero reset
+	dcx	b		;true
+	ret
+neq:	call	cmpar
+	rz			;false iff zero set
+	dcx	b
+	ret
+lthan:	call	cmpar
+	rnc			;false iff carry reset
+	dcx	b
+	ret
+geq:	call	cmpar
+	rc			;false iff carry set
+	dcx	b
+	ret
+leq:	call	cmpar
+	jc	leq1
+	rnz			;false iff carry reset and zero reset
+leq1:	dcx	b
+	ret
+gthan:	call	cmpar
+	rz			;false if zero set
+	rc			;false if carry set
+	dcx	b
+	ret
+
+;LOGOP is a macro to perform logical ops on B and D, and on C and E.
+logop	macro	linst
+	mov	a,b
+	linst	d		;;apply logical instruction to B and D
+	mov	b,a		;;and result to B
+	mov	a,c
+	linst	e		;;apply logical instruction to C and E
+	mov	c,a		;;and result to C
+	ret
+	endm
+
+;NOT, XOR: <integer> --> <integer>
+opnot:	lxi	d,-1		;not is xor with -1
+opxor:	logop	xra
+
+;AND, RESET: <integer> x <integer> --> <integer>
+	if	not wild
+reset:	call	stbt0
+	call	cpld1		;reset bit #(E) mod 16 of DE, then AND
+	endif
+opand:	logop	ana
+
+;OR, SET: <integer> x <integer> --> <integer>
+	if	not wild
+setfn:	call	stbt0		;set bit #(E) mod 16 of DE, then OR
+	endif
+opor:	logop	ora
+
+;JOIN: <integer> x <integer> --> <integer>
+	if	not wild
+join:	call	isbyt		;check (B) = 0
+	mov	b,d
+	call	isbyt		;check (D) = 0
+	mov	b,c
+	mov	c,e
+	ret
+	endif
+
+	if	float and not f9511
+;INT: <floating> --> {<integer> | <floating>}
+int:	if	fpbcd
+	lxi	h,ftemp
+	call	fstor		;save arg in FTEMP in case IINT fails
+	endif
+	call	iint		;try to convert to integer
+	mvi	a,intst		;result type = integer
+	rnc			;return if successful conversion to integer
+	if	fpbcd
+	lxi	h,ftemp
+	call	fload		;restore arg to FACC
+	call	fint		;truncate arg
+	dcr	e
+	jnz	int1		;no digits truncated, done
+	lda	facc
+	ora	a
+	jp	int1		;truncated and positive, done
+	lxi	h,fpone
+	call	fsub		;truncated and negative, subract one for result
+	else			;NOT FPBCD
+	call	flint		;get integer part of floating value
+	mov	e,a
+	endif			;end of NOT FPBCD conditional
+int1:	mvi	a,sngst		;result type = floating
+	ret
+
+;IINT fixes a floating value to a two-byte integer value.
+	if	not fpbcd	;IINT is same as FFIX in FPBCD version
+iint:	mvi	e,16
+	call	ffix		;fix floating point value
+	rc			;cannot fix to integer, return Carry
+	mov	c,b
+	mov	b,a		;result to BC
+	ret
+	endif			;end of NOT FPBCD conditional
+
+;UNS: <integer> --> <floating>
+	if	fpbcd
+	if	not wild
+unsfn:	mov	a,b
+	ora	a
+	push	psw		;save arg sign
+	call	fflot		;float the arg
+	pop	psw
+	rp			;arg was positive, done
+	lxi	h,unsmax
+	jmp	fadd		;else result is 65536 + arg
+unsmax:	db	45H, 65H, 53H, 60H, 0, 0
+	endif
+	else			;NOT FPBCD
+unsfn:	xra	a		;0 to A
+	lxi	d,24		;0 to D, 24 to E
+	jmp	fflot		;float ABCD and return
+
+flint:	mvi	e,32
+	call	ffix		;try fixing to 3-byte integer
+	mvi	e,32		;scale factor to E
+	jnc	fflot		;float the fixed value
+	jmp	ftest		;fetch the floating value
+	endif			;end of NOT FPBCD conditional
+	endif
+
+;FIRST, LAST: --> <integer>
+	if	romsq and (not wild)
+first:	lhld	sourc
+	dcx	h		;HL points to cr preceding source
+	mov	b,h
+	mov	c,l		;to BC
+	ret
+	else
+first	equ	exerr		;EX error in non-ROMSQ versions
+	endif
+	if	romsq		;LAST must be defined in WILD versions
+last:	lxi	d,-1
+	call	findl		;find line 65535
+	mov	e,m
+	mvi	d,0		;length to DE
+	jmp	fre2		;last addr to BC
+	else
+last	equ	exerr
+	endif
+
+;MSBYTE, LSBYTE: <integer> --> <integer>
+	if	not wild
+msbyt:	mov	c,b		;move ms to ls byte
+lsbyt:	mvi	b,0		;zero ms byte
+	ret
+	endif
+
+;BCD: <integer> --> <integer>
+	if	not wild
+bcd:	xra	a
+	call	cvtis		;convert integer to string, no leading char
+	cpi	5
+	jnc	fcer0		;length >= 5, nonfatal FC error and return 0
+	lxi	h,0		;embryo value to HL
+bcd1:	ldax	d		;fetch next char of string
+	inx	d		;and point to next
+	sui	'0'		;subtract ASCII bias
+	dad	h
+	dad	h
+	dad	h
+	dad	h		;result left one nibble
+	ora	l
+	mov	l,a		;and new nibble ORed in
+	dcr	c		;count down length
+	jnz	bcd1		;more chars in string
+	mov	b,h
+	mov	c,l		;result to BC
+	ret
+	endif			;end of NOT WILD conditional
+fcer0:	call	fcern		;issue nonfatal FC error
+	lxi	b,0
+	mvi	a,intst		;and return integer 0 as result
+	ret
+
+;BIN: <integer> --> <integer>
+	if	not wild
+bin:	lxi	h,0		;embryo value to HL
+	call	bin1		;sum high order byte
+	mov	b,c
+	call	bin1		;sum low order byte
+	mov	b,h
+	mov	c,l		;result to BC
+	ret
+bin1:	mov	a,b
+	rar
+	rar
+	rar
+	rar			;ms four bits to A3-A0
+	call	bin2		;add to sum
+	mov	a,b		;ls four bits to A3-A0
+bin2:	ani	0FH		;mask off other bits
+	cpi	0AH
+	jnc	fcerf		;not a bcd digit, FC error
+	mov	d,h
+	mov	e,l		;copy value to DE
+	endif			;end of NOT WILD conditional
+;HL10A replaces (HL) with 10*(HL)+(A), and is called by GTDEC.
+;Call:	DE,HL	value to multiply by 10
+;	A	value to add to product
+;Retn:	BC	preserved
+;	DE	clobbered
+;	HL	result
+hl10a:	dad	h		; * 2
+	dad	h		; * 4
+	dad	d		; * 5
+	dad	h		; * 10
+	rc			;for GTDEC, never happens from BIN
+	mov	e,a
+	mvi	d,0		;next value to DE
+	dad	d		;and added also
+	ret
+
+;GET, GET$: --> {<integer> | <string>}
+get:	lda	gchar		;value for GET is in GCHAR
+	mov	c,a
+	xra	a
+	mov	b,a		;value to BC
+	sta	gchar		;clear GCHAR
+	if	strng
+	mvi	d,'$'
+	call	gtd		;look for $
+	mvi	a,intst		;return type integer
+	rc			;integer GET
+	mov	a,c		;else string GET$
+	mvi	c,0
+	ora	a		;Zero set iff no char in GET
+	cnz	chrs1		;copy char to string space
+	mvi	a,strst		;and return type string
+	ret
+	else			;NOT STRNG
+	mvi	a,intst		;return type integer
+	ret
+	endif
+
+;IOBYTE: --> <integer>
+	if	(not camac) and (not wild)
+iobyf:	lda	iobyt
+	jmp	peek1		;return IOBYTE value in BC
+	endif
+
+;PEEK: <integer> --> <integer>
+	if	not wild
+peek:	ldax	b		;fetch the byte
+	endif			;peek1 is needed for POS
+peek1:	mvi	b,0		;zero the MSbyte
+	mov	c,a		;return value in BC
+	ret
+
+;POS: --> <integer>
+	if	not camac
+pos:	lda	colum
+	jmp	peek1		;return current column in BC
+	endif
+
+;TEST: <integer> x <integer> --> <integer>
+	if	not wild
+test:	call	stbt0		;set bit # (E) mod 16 of DE
+	call	opand		;AND with (BC) -- returns (C) in A
+	ora	b		;zero set iff (BC) = 0
+test1:	lxi	b,0		;return 0 if zero set
+	rz
+	inx	b		;return 1 if zero reset
+	ret
+	endif
+
+;SGN: {<integer> | <floating>} --> <integer>
+sgn:	call	fetbc		;fetch arg
+	iftyp	fsgn,fcerf	;branch if noninteger
+	mov	a,b
+	ora	c		;Zero set iff (BC)=0
+	rz			;and result is 0
+	mov	a,b
+	ori	1		;Zero reset, minus set iff (BC) < 0
+sgn1:	lxi	b,-1
+	rm			;< 0, return -1
+	inx	b
+	rz			;= 0, return 0
+	inx	b
+	ret			;else > 0, return 1
+	if	float and not f9511
+fsgn:	call	ftest		;set status bits
+	jmp	sgn1		;and return as above
+	endif
+
+;IN: <integer> --> <integer>
+	if	not wild
+inp:	call	readp		;read the port
+	mov	c,a		;and return value read in BC
+	ret
+	endif
+
+;SENSE: <integer> x <integer> --> <integer>
+	if	not wild
+sense:	mvi	d,7
+	call	stbit		;set bit # (E) mod 8 of E
+	call	readp		;read port
+	ana	e
+	jmp	test1		;return zero iff bit reset
+	endif
+
+;FRE, FRE$: --> <integer>
+frefn:	if	strng
+	mvi	d,'$'
+	call	gtd		;look for $
+	jc	fre		;not FRE$, just return FRE
+	call	garbg		;garbage collect to compact string space
+	jmp	fre1		;and continue as below
+	endif
+fre:	lhld	cstkp
+	xchg			;address of control stack top to DE
+	inx	d		;CSTKP + 1
+	lhld	symta		;symbol table address to HL
+fre1:	call	cplde		;- CSTKP - 1
+fre2:	dad	d		;top - [bottom + 1] = available
+	mov	b,h		;NB 'subtraction', so carry reset iff borrow
+	mov	c,l		;result to BC
+	ret
+
+;LSHIFT: <integer> x <integer> --> <integer>
+	if	not wild
+lshft:	mov	a,e		;shift (BC) left by (E) mod 16 places
+	ani	0FH
+	mov	d,b
+	mov	e,c		;BC to DE for STBI1
+	call	stbi1		;shift (DE) left (A) bits
+	mov	b,d
+	mov	c,e
+	ret
+	endif
+
+;RSHIFT, ROTATE: <integer> x <integer> --> <integer>
+	if	not wild
+rshft:	mvi	d,0		;shift (BC) right by (E) mod 16 places
+	db	21H		;lxi h, to skip ensuing two bytes
+rotat:	mvi	d,80H		;rotate / shift (BC) right by (E) mod 16 places
+	mov	a,e		;entry point for rshft with (D) = 0
+	ani	0FH		;mask E and clear carry
+	rz			;done if zero
+	mov	e,a		;(E) mod 16 to E
+rota1:	mov	a,b
+	jnc	rota2
+	ora	d		;turn on high bit if rotating and carry
+rota2:	rar
+	mov	b,a		;carry now has high bit for C
+	mov	a,c
+	rar			;carry now has high bit for B if rotating
+	mov	c,a
+	dcr	e
+	jnz	rota1		;keep rotating
+	rnc			;done unless carry
+	mov	a,b
+	ora	d		;turn on high bit if rotating
+	mov	b,a
+	ret
+	endif			;end of NOT WILD conditional
+
+	if	realt
+;TIME:  <integer> --> <integer>
+;TIME (0) returns current real time clock ticks in 20ths,
+;TIME (1) returns current seconds,
+;TIME (2) returns current minutes, and
+;TIME (3) returns current hours.
+;TIME (n) for any other n gives nonfatal FC error and returns 0.
+timec:	db	20, 60, 60, 24	;TIMEX offsets
+time:	lxi	d,4
+	call	cmbdu
+	jnc	fcer0		;nonfatal FC error if arg not 0 - 3
+	lxi	h,timex
+	dad	b		;address desired TIMEX component
+	mov	a,m		;and fetch current value
+	lxi	h,timec
+	dad	b		;address offset
+	add	m		;current value + offset = correct current count
+	mov	c,a		;result to BC
+	ret
+	endif
+
+;RND: --> <integer> [if nonFLOATing version]
+;RND: <floating> --> <floating> [if FLOATing version]
+;RND generates the next pseudorandom 16-bit integer
+;	RANDX = (RANDA * RANDX + RANDC) mod 2 ^ 16, and returns the 15-bit
+;	pseudorandom integer RANDX / 2.  Cf. Knuth Ch. 3, esp. pp. 155-6.
+	if	not wild
+rnd:	if	float
+	inx	b
+	push	b		;save pointer to arg
+	if	f9511
+	ldax	b		;fetch first byte of arg
+	ora	a		;Zero set iff arg is 0
+	else
+	call	ftest
+	endif
+	jnz	rnd1		;nonzero arg, take it for multiplier
+	lxi	h,fpone		;zero arg, take 1 instead
+	xthl
+	endif
+rnd1:	lhld	randx
+	push	h
+	xchg			;(RANDX) to DE
+	mvi	a,randa shr 8	;ms bits of RANDA to A
+	call	mult0		;ms(RANDA) * (RANDX) to HL
+	mov	h,l
+	mvi	l,0		;and then * 2 ^ 8
+	lxi	d,randc
+	dad	d		; + RANDC
+	pop	d		;(RANDX) to DE again
+	mvi	a,randa and 255	;ls bits of RANDA to A
+	call	multy		;(RANDA) * (RANDX) + RANDC to HL
+	shld	randx		;and to RANDX
+	if	float
+	if	f9511
+	mov	a,l
+	out	d9511		;low order to 9511 stack
+	mov	a,h
+	out	d9511		;high order to stack
+	xra	a
+	out	d9511
+	out	d9511		;two high order 0s to stack
+	mvi	a,fld95
+	call	o9511		;float 32 bit integer
+	in	d9511		;read sign/exponent byte
+	ora	a		;check if 0
+	jz	rnd2
+	sui	16		;fudge exponent
+	ani	7FH
+rnd2:	out	d9511		;replace fudged sign and exponent
+	pop	h
+	call	lod95		;load the multiplier
+	jmp	fmul		;multiply and return
+	else			;NOT F9511
+	mov	b,h
+	mov	c,l		;value to BC
+	if	fpbcd
+	call	fflot		;float to value -32768 to 32767
+	lxi	h,intmn
+	call	fsub		;subtract -32768, giving 0 to 65535
+	lxi	h,unsmax
+	call	fdiv		;divide by 65536, giving range [0, 1)
+	else			;NOT FPBCD
+	lxi	d,8		;0 to D, scale factor = 8 to E
+	mov	a,d		;0 to A
+	call	fflot		;float to random value in range [0,1)
+	endif			;end of NOT FPBCD conditional
+	pop	h		;arg to HL
+	jmp	fmul		;result = arg * rnd and return
+	endif			;end of F9511 conditional
+	else			;NOT FLOAT
+	ora	a
+	mov	a,h
+	rar
+	mov	b,a
+	mov	a,l
+	rar
+	mov	c,a		;return RANDX / 2
+	ret
+	endif
+	endif			;end of NOT WILD conditional
+
+
+;end of FNSOPS
+	page

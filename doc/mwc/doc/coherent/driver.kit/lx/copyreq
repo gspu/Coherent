@@ -1,0 +1,87 @@
+.TH copyreq "" "" "STREAMS Data Structure"
+.PC "Structure for a request for a STREAMS transparent ioctl copy"
+.B "#include <sys/stream.h>"
+.PP
+The structure
+.B copyreq
+holds information used to process transparent
+.BR ioctl s.
+A driver creates this structure by overlaying a \*(ST message of type
+.B M_IOCTL
+or
+.B M_IOCDATA
+and converting it into an
+.B M_COPYIN
+or
+.B M_COPYOUT
+message; thus, the driver lays
+.B copyreq
+upon the structures
+.B ioctl
+or
+.BR copyresp .
+The stream head guarantees that the message is large enough to contain all
+of the structures.
+.PP
+The following fields within
+.B copyreq
+are available to drivers:
+.IP "\fBint cq_cmd\fR" 1.3i
+This gives the
+.B ioctl
+command, as copied from field
+.B ioc_cmd
+in structure
+.BR iocblk .
+.IP "\fBcred_t *cq_cr\fR"
+This points to the user's credentials.
+It is copied from field
+.B ioc_cr
+within structure
+.BR iocblk .
+.IP "\fBuint_t cq_id\fR"
+This gives the
+.BR ioctl 's
+identifier, as copied from the field
+.B ioc_id
+within structure
+.BR iocblk .
+.IP "\fBcaddr_t cq_addr\fR"
+If the message is of type
+.BR M_COPYIN ,
+.B cq_addr
+contains the address within user space from which the data are
+copied; if the message is
+.BR M_COPYOUT ,
+it contains the address in user space to which the data are copied.
+.IP "\fBuint_t cq_size\fR"
+The number of bytes to copy, regardless of the direction of copying.
+.IP "\fBint cq_flag\fR"
+This field is reserved for future use.
+The driver should initialize it to zero.
+.IP "\fBmblk_t *cq_private\fR"
+This field is reserved for the driver,
+which can use it to hold the information it needs to process the
+.BR ioctl .
+The contents of this field are copied into field
+.B cp_private
+of the resulting
+.B M_IOCDATA
+message.
+.SH "See Also"
+.B
+datab,
+DDI/DKI data structures,
+iocblk,
+msgb
+.R
+.SH Notes
+When a message of type
+.B M_COPYIN
+or
+.B M_COPYOUT
+is freed, \*(ST does
+.I not
+free any message to which
+.B cq_private
+refers; the \*(ST module or driver must free these messages.

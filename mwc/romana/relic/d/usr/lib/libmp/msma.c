@@ -1,0 +1,59 @@
+#include "mprec.h"
+#include <assert.h>
+
+
+/*
+ *	Msma takes the mint pointed to by "to" and adds to it (in place)
+ *	the product of the following :
+ *		1. the mint pointed to by "from".
+ *		2. the int "fac" (it is assumed that 0 <= fac < 2 * BASE).
+ *		3. BASE raised to the "shift" power.
+ *	Note that it is assumed that the length of "to" is big enough to
+ *	hold the result.
+ *	It is also assumed that "from" and "to" are distinct.
+ */
+
+void
+msma(from, fac, shift, to)
+mint *from, *to;
+int fac;
+unsigned shift;
+{
+	register int carry;
+	register char *fp, *tp;
+	register unsigned count;
+	int mifl;
+
+	assert(0 <= fac && fac < 2 * BASE);
+
+	/* general case needs fac != 0, so handle fac == 0 */
+	if (fac == 0)
+		return;
+
+	/* find out sign of "from" */
+	mifl = ispos(from);
+
+	/* do the multiply assuming "from" is positive */
+	fp = from->val;
+	tp = to->val + shift;
+	carry = 0;
+	count = from->len;
+	if (!mifl)
+		--count;
+	assert(tp + count <= to->val + to->len);
+	while (count-- != 0) {
+		carry += *tp + *fp++ * fac;
+		*tp++ = carry % BASE;
+		carry >>= L2BASE;
+	}
+
+	/* propogate carry or borrow */
+	count = to->val + to->len - tp;
+	if (!mifl)
+		carry -= fac;
+	while (count-- != 0 && carry != 0) {
+		carry += *tp + BASE;
+		*tp++ = carry % BASE;
+		carry = (carry >> L2BASE) - 1;
+	}
+}

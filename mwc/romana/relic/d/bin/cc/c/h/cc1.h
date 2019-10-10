@@ -1,0 +1,399 @@
+/*
+ * This header file contains the
+ * definitions, macros, structures and
+ * types that are used by the portable
+ * code generator.
+ */
+#include <stdio.h>
+#include <setjmp.h>
+#ifdef   vax
+#include "INC$LIB:mch.h"
+#include "INC$LIB:host.h"
+#include "INC$LIB:cc1mch.h"
+#include "INC$LIB:ops.h"
+#include "INC$LIB:var.h"
+#include "INC$LIB:varmch.h"
+#include "INC$LIB:opcode.h"
+#include "INC$LIB:stream.h"
+#else
+#include "mch.h"
+#include "host.h"
+#include "cc1mch.h"
+#include "ops.h"
+#include "var.h"
+#include "varmch.h"
+#include "opcode.h"
+#include "stream.h"
+#endif
+
+/*
+ * Table sizes, etc.
+ */
+#define	NSTORE	20			/* # of entries in storelist */
+#define	NNSW	16			/* Nested switches */
+#define	NTNODE	350			/* Tree nodes */
+#define	NSHASH	64			/* Symbol hash buckets */
+#define	SHMASK	077			/* Mask for above */
+
+/*
+ * This structure is used to
+ * buffer the case constants and the
+ * case labels.
+ */
+typedef	struct	cases	{
+	ival_t	c_val;			/* Value */
+	int	c_lab;			/* Label */
+}	CASES;
+
+/*
+ * Code patterns.
+ * There is an array of these for
+ * most of the operators.
+ * The 'pat' table holds a pointer
+ * to the first one and the number
+ * of entries.
+ */
+typedef	struct	pat	{
+	INDEX	p_flag;			/* Some flags */
+	INDEX	p_ntype;		/* Node type */
+	REGNAME	p_ntemp;		/* Temp. spec. */
+	REGNAME	p_ltemp;		/* Left. spec. */
+	REGNAME	p_rtemp;		/* Right spec. */
+	REGNAME	p_result;		/* Result spec. */
+	INDEX	p_lflag;		/* Flags for left subtree */
+	INDEX	p_ltype;		/* Types for left subtree */
+	INDEX	p_rflag;		/* Flags for right subtree */
+	INDEX	p_rtype;		/* Types for right subtree */
+	char	*p_macro;		/* The macro */
+#if !TINY
+	int	p_fname;		/* Pattern file name */
+	int	p_fline;		/* Pattern file line */
+#endif
+}	PAT;
+
+/*
+ * Pattern index.
+ * The 'pat' table (one of these)
+ * is indexed by operator number to
+ * get the patterns for the op.
+ */
+typedef	struct	patx	{
+	PAT	*px_pp;			/* Pointer to patterns */
+	int	px_npat;		/* # of patterns */
+}	PATX;
+
+/* Flags */
+#define	PEFFECT	((PATFLAG)0x0001)	/* Effect */
+#define	PLVALUE	((PATFLAG)0x0002)	/* Lvalue load */
+#define	PRVALUE	((PATFLAG)0x0004)	/* Rvalue load */
+#define	PFNARG	((PATFLAG)0x0008)	/* Function argument */
+#define	PEQ	((PATFLAG)0x0010)	/* Conditionals */
+#define	PNE	((PATFLAG)0x0020)
+#define	PGT	((PATFLAG)0x0040)
+#define	PGE	((PATFLAG)0x0080)
+#define	PLE	((PATFLAG)0x0100)
+#define	PLT	((PATFLAG)0x0200)
+#define	PUGT	((PATFLAG)0x0400)
+#define	PUGE	((PATFLAG)0x0800)
+#define	PULE	((PATFLAG)0x1000)
+#define	PULT	((PATFLAG)0x2000)
+
+#define	P_SLT	((PATFLAG)0x4000)	/* Share left temp */
+#define	P_SRT	((PATFLAG)(unsigned)0x8000)	/* Share right temp */
+#define	P_SHR	(P_SLT|P_SRT)		/* Any share */
+
+/*
+ * Macros.
+ */
+#define	M_ORG	200			/* Origin of non opcodes */
+
+#define	M_END	200			/* End of macro */
+#define	M_OP0	201			/* Op 0 */
+#define	M_OP1	202			/* Op 1 */
+#define	M_OP2	203			/* Op 2 */
+#define	M_AL	204			/* Address, left */
+#define	M_AR	205			/* Address, right */
+#define	M_RL	206			/* Register, left */
+#define	M_RR	207			/* Register, right */
+#define	M_R	208			/* Temp. register */
+#define	M_HI	209			/* Hi prefix */
+#define	M_LO	210			/* Lo prefix */
+#define	M_EMASK	211			/* Field extract mask */
+#define	M_LAB	212			/* Label */
+#define	M_LAB0	213			/* Generate label 0 */
+#define	M_LAB1	214			/* Generate label 1 */
+#define	M_NSE	215			/* No side effects prefix */
+#define	M_IFR	216			/* If relational */
+#define	M_IFV	217			/* If value */
+#define	M_CMASK	218			/* Field clear mask */
+#define	M_SIZE	219			/* Size */
+#define	M_BITL	220			/* Extract bit # left  side */
+#define	M_BITR	221			/* Extract bit # right side */
+#define	M_ENDIF	222			/* End if */
+#define	M_DLAB0	223			/* Define label 0 */
+#define	M_DLAB1	224			/* Define label 1 */
+#define	M_ICON	225			/* Ival_t constant */
+#define	M_REGNO	226			/* Register */
+#define M_AN	227			/* Address form of node */
+#define M_TOS	228			/* Top of stack address */
+#define M_STAR	229			/* Indirection on address */
+#define	M_GID	230			/* Global name for calling routines */
+#define	M_IFE	231			/* If effect */
+#define	M_REL0	232			/* Rel. 0 */
+#define	M_REL1	233			/* Rel. 1 */
+#define	M_LREL0	234			/* Long rel. 0 */
+#define	M_LREL1	235			/* Long rel. 1 */
+#define	M_LREL2	236			/* Long rel. 2 */
+#define	M_CALL	237			/* Call opcode */
+#define	M_LCON	238			/* Lval_t constant */
+#define	M_TN	239			/* Type of node op */
+#define	M_TR	240			/* Type of right */
+#define	M_TL	241			/* Type of left */
+#define	M_SSIZE	242			/* Stack size */
+#define M_JMP1	243			/* One byte jump */
+#define M_JMP2	244			/* Two byte jump */
+#define M_JMPB	245			/* One byte jump back relative */
+
+/*
+ * Symbol structure.
+ */
+typedef	struct	sym	{
+	struct	sym	*s_fp;		/* Hash link */
+	char	s_id[];			/* Name */
+}	SYM;
+
+/*
+ * This is the tree node structure. All
+ * nodes are the same size; this makes it much easier
+ * for the modify phases to make a node of one type into a
+ * node of any other type. Note the use of fully qualified
+ * references into the structure; this makes the structure
+ * compile correctly under either Bell or UCB structure
+ * member rules. Noce names for the members is provided
+ * by the block of #define's at the end of the declaration.
+ */
+typedef	struct	tree	{
+	int     t_op;			/* Operation */
+	TYPE    t_type;			/* Type */
+	COST	t_cost;			/* Cost of evaluation */
+	PAT	*t_patp;		/* Pattern */
+	int	t_size;			/* Size */
+	FLAG	t_flag;			/* Flags */
+	REGNAME	t_treg;			/* Temp reg */
+	REGNAME	t_rreg;			/* Result reg */
+	PREGSET	t_used;			/* Used */
+	union	{
+		struct	{
+			struct  tree	*t_xlp;
+			union	{
+				struct	tree	*t_xrp;
+				struct	{
+					char	t_xfw;
+					char	t_xfb;
+				} 	t_1;
+			} 	t_2;
+		} 	t_3;
+		ival_t	t_xival;
+		lval_t	t_xlval;
+		dval_t  t_xdval;
+		struct	{
+			sizeof_t t_xoffs;
+			int	t_xseg;
+			union	{
+				int	t_xlab;
+				SYM	*t_xsp;
+			}	t_4;
+		}	t_5;
+		int	t_xreg;
+	}	t_6;
+}	TREE;
+
+#define	t_lp	t_6.t_3.t_xlp		/* Left tree */
+#define	t_rp	t_6.t_3.t_2.t_xrp	/* Right tree */
+#define	t_width	t_6.t_3.t_2.t_1.t_xfw	/* Width of field in bits */
+#define	t_base	t_6.t_3.t_2.t_1.t_xfb	/* Base bit */
+#define	t_ival	t_6.t_xival		/* ICON value */
+#define	t_lval	t_6.t_xlval		/* LCON value */
+#define	t_dval	t_6.t_xdval		/* DCON value */
+#define	t_offs	t_6.t_5.t_xoffs		/* Offset from label */
+#define t_seg	t_6.t_5.t_xseg		/* Segment of label */
+#define	t_label	t_6.t_5.t_4.t_xlab	/* Local label */
+#define	t_sp	t_6.t_5.t_4.t_xsp	/* Global symbol */
+#define	t_reg	t_6.t_xreg		/* REG register number */
+
+/*
+ * Register table.
+ */
+typedef	struct	reg	{
+	KIND	r_lvalue;		/* Kinds in lvalue sense */
+	KIND	r_rvalue;		/* Kinds in rvalue sense */
+	int	r_goal;			/* Goal for TREG loading */
+	REGNAME	r_enpair;		/* Enclosing pair name */
+	REGNAME	r_hihalf;		/* Hi half */
+	REGNAME	r_lohalf;		/* Lo half */
+	PREGSET	r_phys;			/* Physical regs */
+}	REGDESC;
+
+/*
+ * Per type info.
+ */
+typedef	struct	pertype	{
+	REGNAME	p_frreg;		/* Function return reg */
+	char	p_frcxt;		/* Return context */
+	char	p_size;			/* Size of temp, function arg */
+	char	p_incr;			/* Real size */
+	TYPESET	p_type;			/* Match type bits */
+	KIND	p_kind;			/* Kind of register needed */
+	KIND	p_pair;			/* Kind for a pair */
+}	PERTYPE;
+
+/*
+ * Contexts.
+ * Used to indicate the context of a computation.
+ * Passed to all (modify, selection, output) phases of
+ * the code generator. 
+ */
+#define	MEFFECT	0			/* Effect only */
+#define	MLVALUE	1			/* Left value context */
+#define	MRVALUE	2			/* Right value context */
+#define	MFNARG	3			/* Function argument */
+#define	MLADDR	4			/* Address, left side */
+#define	MRADDR	5			/* Address, right side */
+#define	MRETURN	6			/* Return value of function */
+#define	MSWITCH	7			/* Switch value */
+#define	MINIT	8			/* Initialisor */
+#define	MFLOW	9			/* Flow of control */
+#define	MPASSED	10			/* For modify3.c tables */
+#define	MJUNK	11			/* Ditto */
+#define	MHARD	12			/* Ditto */
+#define	MEQ	13			/* == */
+#define	MNE	14			/* != */
+#define	MGT	15			/* >  signed */
+#define	MGE	16			/* >= signed */
+#define	MLE	17			/* <= signed */
+#define	MLT	18			/* <  signed */
+#define	MUGT	19			/* >  unsigned */
+#define	MUGE	20			/* >= unsigned */
+#define	MULE	21			/* <= unsigned */
+#define	MULT	22			/* <  unsigned */
+
+/*
+ * Macros.
+ */
+#define	isleaf(x)	((x) < MIOBASE)
+#define isbool(x)       (x==ANDAND || x==OROR || x==NOT || (x>=EQ && x<=ULT))
+#define snap(tp)	snaptree((tp), 0)
+#define isrelop(x)      ((x)>=EQ && (x)<=ULT)
+#define isurelop(x)     ((x)>=UGT && (x)<=ULT)
+#define	isncon(x)	((x)<LID)
+#define iscon(x)        ((x)<LID || (x)==ADDR)
+#define	isconvert(op)	((op)==CONVERT || (op)==CAST)
+#define	isrealreg(r)	((r) < NRREG)
+#define	binit()		(curbusy = regbusy)
+#define	islvadr(pflag)	((pflag&(T_ADR|T_LV))==(T_ADR|T_LV))
+#define	isrvadr(pflag)	((pflag&(T_ADR|T_LV))==T_ADR)
+#define	isadr(flag)	((flag&T_ADR) != 0)
+#define	isofs(flag)	((flag&T_OFS) != 0)
+#define	isind(flag)	((flag&T_INDIR) != 0)
+#define	ishlvadr(pflag)	((pflag&(T_ADR|T_LV|T_INDIR))==(T_ADR|T_LV))
+#define	isflow(op)	(op==NOT || op==ANDAND || op==OROR)
+
+/*
+ * These bit packing macros are used
+ * to pack the subgoal table used by the
+ * leaf insert routines.
+ */
+#define	ndown(l,r)	(((l)<<5) | (r))
+#define	getri(n)	((n)&037)
+#define	getli(n)	(((n)>>5)&037)
+
+/*
+ * Functions and variables.
+ */
+#if	!YATC
+extern	int	ldtab[];
+extern	PATFLAG	patcache[];
+extern	TYPESET	typecache[];
+extern	FLAG	flagcache[];
+extern	ival_t	ivalcache[];
+extern	lval_t	lvalcache[];
+extern	char	*gidcache[];
+#if !TINY
+extern char	*namecache[];
+#endif
+extern	SYM	*hash1[];
+extern	char	id[];
+extern	SYM	*gidpool();
+extern	TREE	*findoffs();
+extern	unsigned char optab[][3];
+extern	CASES	*cases;
+extern	TREE	*alocnode();
+extern	TREE	*talloc();
+extern	TREE	*ivalnode();
+extern	TREE	*lvalnode();
+extern	TREE	*gvalnode();
+extern	TREE	*copynode();
+extern	TREE	*leafnode();
+extern	TREE	*tempnode();
+extern	TREE	*makenode();
+extern	TREE	*leftnode();
+extern	TREE	*basenode();
+extern	lval_t	grabnval();
+extern	TREE	*modify();
+
+extern	TREE	*findoffs();
+extern	TREE	*fold1();
+extern	TREE	*foldaddr();
+extern	TREE	*modargs();
+extern	TREE	*modcall();
+extern	TREE	*modefld();
+extern	TREE	*modfold();
+extern	TREE	*modleaf();
+extern	TREE	*modlfld();
+extern	TREE	*modmul();
+extern	TREE	*modoper();
+extern	TREE	*modsasg();
+extern	TREE	*modtree();
+extern	TREE	*modtruth();
+extern	TREE	*modxfun();
+extern	TREE	*ripout();
+extern	TREE	*treeget();
+extern	TREE	*treeget1();
+
+extern	char	fliprel[];
+extern	char	otherel[];
+#if !TINY
+extern	int	mflag;
+extern	int	sflag;
+extern	int	oflag;
+#endif
+extern  int	snapf();
+extern	int	amd();
+extern	REGDESC	reg[];
+extern	PERTYPE	pertype[];
+extern	int	maxauto;
+extern	int	maxtemp;
+extern	int	curtemp;
+extern	PATX	patx[];
+extern	char	macros[];
+extern	int	nstorelist;
+extern	TREE	*storelist[];
+extern	char	wtype[];
+#endif
+
+extern	int	oldseg;
+extern	FILE	*ifp;
+#if	!YATC
+extern	FILE	*ofp;
+extern	int	labgen;
+#endif
+extern	int	nerr;
+extern	char	*passname;
+#if	!YATC
+extern	char	module[];
+extern	char	file[];
+extern	int	line;
+#endif
+#if OVERLAID
+extern	jmp_buf	death;
+#endif

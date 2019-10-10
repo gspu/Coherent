@@ -1,0 +1,1225 @@
+head     2.3;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:2.3;
+comment  @ * @;
+
+
+2.3
+date     93.08.09.13.45.21;  author bin;  state Exp;
+branches ;
+next     2.2;
+
+2.2
+date     93.07.20.11.21.30;  author bin;  state Exp;
+branches ;
+next     2.1;
+
+2.1
+date     93.07.07.11.10.23;  author root;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+2.3
+log
+@Kernel 82 changes
+@
+text
+@/***********************************************************************
+ *  Module: haiscsi.c
+ *
+ *  This is the interface between the Coherent kernel, the host
+ *  adapter module and the SCSI device modules. It's just a simple
+ *  dispatcher that determines which routine to call based upon the
+ *  calling device's Target ID.  The target ID should be set in bits
+ *  4-6 of the device's minor number.  
+ *
+ *  Copyright (c) 1993, Christopher Sean Hilton, All Rights Reserved.
+ *
+ *  Last Modified: Sat Jul 24 08:08:28 1993 by [chris]
+ */
+
+#include <stddef.h>
+#include <sys/coherent.h>
+#include <sys/con.h>
+#include <sys/buf.h>
+#include <sys/io.h>
+#include <sys/sched.h>
+#include <sys/stat.h>
+
+#include <sys/uproc.h>
+#include <errno.h>
+
+#include <sys/haiscsi.h>
+#include <sys/haiioctl.h>
+
+/*
+ *  Constants.
+ */
+#define GROUPMASK   0xe0
+#define GROUP0	  0x00		/* SCSI-1/2 */
+#define GROUP1	  0x20		/* SCSI-1/2 */
+#define GROUP2	  0x40		/* SCSI-2 */
+#define GROUP5	  0xa0		/* SCSI-1/2 */
+
+/* Configurable variables - see /etc/conf/hai/Space.c. */
+extern int HAI_DISK;
+extern int HAI_TAPE;
+
+extern int nonedev();	   /* Set error and exit. */
+extern int nulldev();	   /* Do nothing and exit. */
+
+/*
+ * Device type entry points.
+ */
+extern dca_t    sddca;		/* Fixed disk control routines */
+extern dca_t    ctdca;		/* Cartridge tape control routines */
+extern dca_t	haict3600;	/* Cartridge tape (Tandberg TDC3600) */
+
+dca_t  mdca[MAXDEVS];		/* Initialized by setup_mdca(). */
+
+static void scsi_open();	/* Open dispatcher */
+static void scsi_close();	/* Close dispatcher */
+static void scsi_block();	/* Block dispatcher */
+static void scsi_read();	/* Read dispatcher */
+static void scsi_write();	/* Write dispatcher */
+static void scsi_ioctl();	/* I/O Control dispatcher */
+static int scsi_load();		/* Load driver */
+static int scsi_unload();	/* Unload driver */
+
+static void setup_mdca();	/* Put device handlers into SCSI id table. */
+
+CON scsicon = {
+	DFBLK | DFCHR,
+	SCSIMAJOR,
+	scsi_open,		/* Open entry point */
+	scsi_close,		/* Close entry point */
+	scsi_block,		/* Block entry point. */
+	scsi_read,		/* Read Entry point */
+	scsi_write,		/* write entry point */
+	scsi_ioctl,		/* IO control entry point */
+	nulldev,		/* No powerfail entry (yet?) */
+	hatimer,		/* timeout entry point */
+	scsi_load,		/* Load entry point */
+	scsi_unload,		/* Unload entry point */
+	nulldev			/* No poll entry yet either. */
+};
+
+static char *errstr[] = {
+	"No sense",
+	"Recovered error",
+	"Not ready",
+	"Medium error",
+	"Hardware error",
+	"Illegal request",
+	"Unit attention",
+	"Data protect",
+	"Blank check",
+	"Vendor unique error",
+	"Copy Aborted",
+	"Aborted command",
+	"Equal",
+	"Volume overflow",
+	"Miscompare",
+	"Reserved"
+};
+
+char iofailmsg[] = "%s: status(0x%x)";
+int  HAI_HAID	= 7;
+
+extern int hapresent;		/* Provided/Controled by host adapter module */
+extern dca_p mdca[MAXDEVS];	/* See haicfg.c */
+
+/***********************************************************************
+ *  int scsi_open(dev_t dev, int mode)
+ *
+ *  Open a device on the SCSI bus at target ID: tid(dev). This is
+ *  Accomplished by calling the open routine at mdca[tid(dev)]->d_open
+ */
+
+static void scsi_open(dev, mode)
+register dev_t   dev;
+int mode;
+{
+	register dca_p d = mdca[tid(dev)];
+
+	if (!hapresent || !d)
+		u. u_error = EINVAL;
+	else
+		(*(d->d_open))(dev, mode);
+}   /* scsi_open() */
+
+/***********************************************************************
+ *  void scsi_close()
+ *
+ *  Close entry point for all devices at major index SCSIMAJOR.
+ */
+
+static void scsi_close(dev)
+register dev_t dev;
+{
+	register dca_p d = mdca[tid(dev)];
+
+	if (!hapresent || !d)
+		u. u_error = EINVAL;
+	else
+		(*(d->d_close))(dev);
+}   /* scsi_close() */
+
+/***********************************************************************
+ *  void scsi_block()
+ *
+ *  Block Entry point.
+ */
+
+static void scsi_block(bp)
+register BUF *bp;
+{
+	register dca_p d = mdca[tid(bp->b_dev)];
+
+	if (!hapresent || !d) {
+		bp->b_resid = bp->b_count;
+		bp->b_flag |= BFERR;
+		bdone(bp);
+	}
+	else
+		(*(d->d_block))(bp);
+}   /* scsi_block() */
+
+/***********************************************************************
+ *  void scsi_read()
+ *
+ *  Read entry point.
+ */
+
+void scsi_read(dev, iop)
+register dev_t  dev;
+register IO  *iop;
+{
+	register dca_p d = mdca[tid(dev)];
+	if (!hapresent || !d)
+		u. u_error = EINVAL;
+	else
+		(*(d->d_read))(dev, iop);
+}   /* scsi_read() */
+
+/***********************************************************************
+ *  int scsi_write()
+ *
+ *  Write entry point.
+ */
+
+void scsi_write(dev, iop)
+register dev_t  dev;
+IO  *iop;
+{
+	register dca_p d = mdca[tid(dev)];
+	if (!hapresent || !d)
+		u. u_error = EINVAL;
+	else
+		(*(d->d_write))(dev, iop);
+}   /* scsi_write() */
+
+/***********************************************************************
+ *  scsi_ioctl()
+ *
+ *  IO Control entry point.
+ */
+
+static void scsi_ioctl(dev, cmd, vec)
+register dev_t  dev;
+int			 cmd;
+char			*vec;
+{
+	register dca_p d = mdca[tid(dev)];
+
+	if (!hapresent || !d)
+		u. u_error = EINVAL;
+	else
+		(*(d->d_ioctl))(dev, cmd, vec);
+}   /* scsi_ioctl() */
+
+/***********************************************************************
+ *  scsi_load()
+ *
+ *  Load Entry point.
+ */
+
+static int scsi_load()
+
+{
+	register int	id;
+	register dca_p  d;
+
+	printf("Host Adapter Independent SCSI Driver v1.1\n");
+	hainit();
+	if (!hapresent)
+		printf("Host Adapter Initialization failed.\n");
+
+	setup_mdca();
+
+	for (id = 0; id < MAXDEVS; ++id) {
+		if ((d = mdca[id]) && d->d_load) {
+			printf("ID %d: ", id);
+			if (!(*(d->d_load))(id))
+				printf("\tLoad() failed.\n");
+		}
+	}
+	return;
+}   /* scsi_load() */
+
+/***********************************************************************
+ *  scsi_unload()
+ *
+ *  SCSI unload routine.
+ */
+
+int scsi_unload()
+
+{
+	register int	id;
+	register dca_p  d;
+
+	for (id = 0; id < MAXDEVS; ++id)
+		if ((d = mdca[id]) && d->d_unload)
+			(*(d->d_unload))(id);
+}   /* scsi_unload() */
+
+/***********************************************************************
+ *  Utility Routines
+ */
+
+/***********************************************************************
+ *  char *swapbytes()
+ *
+ *  Swap bytes in an object from big to little endian or vice versa.
+ */
+
+char *swapbytes(mem, size)
+char	*mem;
+size_t  size;
+
+{
+	register char *p = mem;
+	register char *q = p + size - 1;
+
+	while (q > p) {
+		*p ^= *q;
+		*q ^= *p;
+		*p ^= *q;
+		p++;
+		q--;
+	}
+	return mem;
+}   /* swapbytes() */
+
+/***********************************************************************
+ *  cpycdb()
+ *
+ *  Copy a SCSI Command/Data Block. Return the number of bytes copied.
+ */
+
+int cpycdb(dst, src)
+register cdb_p dst;
+register cdb_p src;
+{
+		switch (src->g0. opcode & GROUPMASK) {
+		case GROUP0:
+			memcpy(dst, src, sizeof(g0cmd_t));
+			return sizeof(g0cmd_t);
+		case GROUP1:
+		case GROUP2:
+			memcpy(dst, src, sizeof(g1cmd_t));
+			return sizeof(g1cmd_t);
+		case GROUP5:
+			memcpy(dst, src, sizeof(g5cmd_t));
+			return sizeof(g5cmd_t);
+		default:
+			return 0;
+	}
+}   /* cpycdb() */
+
+/***********************************************************************
+ *  dumpmem()
+ *
+ *  Dump memory from (p) for (s) bytes.
+ */
+
+static char hexchars[] = "0123456789abcdef",
+			linebuf[] = "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................\n";
+
+void dumpmem(m, p, s)
+char m[];
+register unsigned char *p;
+register size_t s;
+{
+	register int i;
+	char *l;
+
+	if (m)
+		printf(m);
+	printf(" (0x%x)\n", (unsigned) p);
+	memset(linebuf, ' ', sizeof(linebuf) - 2);
+	linebuf[48] = '|';
+	l = linebuf;
+	for (i = 0; i < s; ++i, ++p) {
+		*l++ = hexchars[(*p >> 4) & 0x0f];
+		*l++ = hexchars[*p & 0x0f];
+		*l++ = ' ';
+		linebuf[50 + (i & 15)] = (*p >= ' ' && *p <= '~') ? *p : '.';
+		if ((i & 15) == 15) {
+			printf(linebuf);
+			memset(linebuf, ' ', sizeof(linebuf) - 2);
+			linebuf[48] = '|';
+			l = linebuf;
+		}
+	}
+	if ((s & 15) != 0)
+		printf(linebuf);
+}   /* dumpmem() */
+
+/***********************************************************************
+ *  scsidone()
+ *
+ *  Wake up processes sleeping on SRB (r).
+ */
+
+static int scsidone(r)
+register srb_p	r;
+{
+	wakeup(&(r->status));
+}
+
+/***********************************************************************
+ *  reqsense()
+ *
+ *  Issue a request sense command device loaded into the target/lun
+ *  fields of the given srb r.  Uses v_sleep().
+ */
+
+void reqsense(r)
+register srb_p r;
+{
+	int			 s;
+	unsigned short  status;
+	unsigned short  tries;
+	unsigned short  timeout;
+	bufaddr_t	   buf;
+	unsigned short  xferdir;
+	int			 (*cleanup)();
+	cdb_t		   cdb;
+
+	if (r->status == ST_CHKCOND) {
+		status = ST_CHKCOND;
+		tries = r->tries;
+		timeout = r->timeout;
+		memcpy(&buf, &(r->buf), sizeof(bufaddr_t));
+		xferdir = r->xferdir;
+		cleanup = r->cleanup;
+		memcpy(&cdb, &(r->cdb), sizeof(cdb_t));
+
+		r->timeout = 4;
+		r->buf. space = KRNL_ADDR;
+		r->buf. addr. caddr = (caddr_t) r->sensebuf;
+		r->buf. size = sizeof(r->sensebuf);
+		r->xferdir = DMAREAD;
+		r->cleanup = &scsidone;
+		memset(&(r->cdb), 0, sizeof(cdb_t));
+		r->cdb. g0. opcode = 0x03;
+		r->cdb. g0. lun_lba = (r->lun << 5);
+		r->cdb. g0. xfr_len = r->buf. size;
+		s = sphi();
+		startscsi(r);
+		while (r->status == ST_PENDING) {
+			if (x_sleep(&(r->status), pritape, slpriSigCatch, "reqsense")) {
+				u. u_error = EINTR;
+				status = ST_USRABRT;
+				break;
+			}
+		}
+		spl(s);
+
+		r->tries = tries;
+		r->timeout = timeout;
+		memcpy(&(r->buf), &buf, sizeof(bufaddr_t));
+		r->xferdir = xferdir;
+		r->cleanup = cleanup;
+		memcpy(&(r->cdb), &(cdb), sizeof(cdb_t));
+		r->status = status;
+	}
+}   /* reqsense() */
+
+/***********************************************************************
+ *  doscsi()
+ *
+ *  An alternative to startscsi() which handles everything including
+ *  any request sense commands necessary if the command failed.  All
+ *  information is returned in given srb.  Note:  you can only use
+ *  this routine when the u structure for a process is available (from
+ *  an open, close, read, write, or ioctl routine).  Since this calls
+ *  sleep it will screw things up something fierce if you call it from
+ *  a load, unload, block, timer or interrupt routine.  Also note
+ *  that some host adapters do the sense part this automatically.
+ */
+
+void doscsi(r, retrylimit, schedPri, sleepPri, reason)
+register srb_p  r;
+int			 retrylimit;
+int			 schedPri;
+int			 sleepPri;
+char			reason[];
+{
+	int	 s;
+
+	r->cleanup = &scsidone;
+	for (r->tries = 0; r->tries < retrylimit; ) {
+		if (startscsi(r)) {
+			s = sphi();
+			while (r->status == ST_PENDING) {
+				if (x_sleep(&(r->status), schedPri, sleepPri, reason)) {
+					abortscsi(r);
+					r->status = ST_USRABRT;
+					u. u_error = EINTR;
+				}
+			}
+			spl(s);
+			if (r->status == ST_GOOD)
+				return;
+
+			if (r->status == ST_CHKCOND)
+				reqsense(r);
+		}
+		else
+			r->status = ST_TIMEOUT;
+	}
+}   /* doscsi() */
+
+/***********************************************************************
+ *  printsense()
+ *
+ *  Print out the results in the given sense buffer.  This is done
+ *  in English, almost.
+ */
+
+void printsense(dev, msg, e)
+register dev_t	  dev;
+register char	   *msg;
+register extsense_p e;
+{
+	long info;
+	if ((e->errorcode & 0x70) != 0x70)
+		devmsg(dev, "%s: Bad sensekey", msg);
+	else {
+		if ((e->errorcode & 0x80) != 0x80)
+			devmsg(dev,
+				   "%s: %s - key: (0x%x)",
+				   msg,
+				   errstr[e->sensekey & 0x0f],
+				   (e->sensekey & 0xe0));
+		else {
+			info = (long) e->info;
+			flip(info);
+			devmsg(dev,
+				   "%s: %s - addr: %d key: (0x%x)",
+				   msg,
+				   errstr[e->sensekey & 0x0f],
+				   info,
+				   (e->sensekey & 0xe0));
+		}
+	}
+}   /* printsense() */
+
+/***********************************************************************
+ *  printerror()
+ *  
+ *  Print an error after command completion.  Be silent if the command
+ *  was aborted by the user.
+ */
+
+int printerror(r, msg)
+register srb_p r;
+register char *msg;
+{
+	if (r->status == ST_USRABRT)
+		return 0;
+	else {
+		if (r->status != ST_CHKCOND)
+			devmsg(r->dev, iofailmsg, msg, r->status);
+		else
+			printsense(r->dev, msg, r->sensebuf);
+		return 1;
+	}
+}   /* printerror() */
+
+/***********************************************************************
+ *  haiioctl()  --	  I/O Controls common to all devices.
+ *  
+ *  This function provides I/O Control functions common to all SCSI
+ *  devices.  The chain of operation should be as follows:
+ *  
+ *  You:
+ *	  1)  Make sure that the device is in an appropriate state to
+ *		  perform the I/O Control.  (It might not be a good idea to
+ *		  format the disk drive with the root partition).
+ *  
+ *	  2)  Call haiioctl() with your srb and cmd from I/O Control.
+ */
+
+void haiioctl(r, cmd, vec)
+register srb_p  r;			  /* Device's srb */
+register int	cmd;			/* Command to do */
+register char   *vec;		   /* Additional information (if needed) */
+{
+	haiusercdb_t h;
+	
+	switch (cmd) {
+	case HAIINQUIRY:
+	case HAIMDSNS0:
+	case HAIMDSLCT0:
+	case HAIMDSNS2:
+	case HAIMDSLCT2:
+		u. u_error = ENXIO;
+		return;
+	case HAIUSERCDB:
+		if (super()) {
+			if (!ukcopy(vec, &h, sizeof(haiusercdb_t)))
+				return;
+			r->buf. space = USER_ADDR;
+			r->buf. addr. caddr = vec + sizeof(haiusercdb_t);
+			r->buf. size = h. buflen;
+			r->xferdir = h. xferdir;
+			r->timeout = h. timeout;
+			memcpy(&(r->cdb), &(h. cdb), sizeof(cdb_t));
+			doscsi(r, 1, pritty, slpriSigCatch, "haiioctl");
+			if (!kucopy(r->sensebuf, ((haiusercdb_p) vec)->sensebuf, SENSELEN))
+				return;
+		}
+		return;
+	default:
+		u. u_error = ENXIO;
+		return;
+	}
+	return;
+}   /* haiioctl() */
+
+/***********************************************************************
+ *  hainonblk()	 --  Block entry point for devices that shouldn't
+ *					  have block entry points.
+ *  
+ *  Since this is a multiplexing driver and some devices behind it
+ *  will have block entry points and some shouldn't.  ALL do.
+ */
+
+void hainonblk(bp)
+register BUF	*bp;
+{
+	bp->b_flag |= BFERR;
+	bdone(bp);
+}   /* hainonblk() */
+
+/*
+ * setup_mdca
+ *
+ * Load mdca table based on globals HAI_DISK and HAI_TAPE.
+ */
+void
+setup_mdca()
+{
+	int id, mask;
+	extern dca_t sddca;
+	extern dca_t ctdca;
+
+	for (id = 0; id < 8; id ++) {
+		mask = 1 << id;
+		if (HAI_DISK & mask)
+			mdca[id] = & sddca;
+		if (HAI_TAPE & mask)
+			mdca[id] = & ctdca;
+	}
+}
+
+/* End of file */
+@
+
+
+2.2
+log
+@*** empty log message ***
+@
+text
+@d8 1
+a8 1
+ *  4-6 of the device's minor number.
+d12 1
+a12 3
+ *  Last Modified: Sun Jun 27 16:41:41 1993 by [chris]
+ *
+ *  $Id: haiscsi.c,v 1.0 93/06/27 18:23:44 chris Exp Locker: chris $
+a14 14
+/***********************************************************************
+ *  Compile time configuration options are:
+ *
+ *  DEBUG   --  add dumpmem routine for outside modules to use so that
+ *              we can see what's up with the results are in structures
+ *              and buffers.
+ *
+ *  CONFIG  --  make a self configuration driver.  this driver won't
+ *              be able to access devices through anything but the
+ *              ioctl system call so no device modules will be needed.
+ *              a program will be able to do ioctls to figure out what
+ *              types of devices are available on the bus.
+ */
+
+d27 1
+d29 2
+a30 2
+/***********************************************************************
+ *  Constants/patchable variables
+d32 5
+d38 3
+a40 8
+#define GROUPMASK   0xe0
+#define GROUP0	    0x00	/* SCSI-1/2 */
+#define GROUP1	    0x20	/* SCSI-1/2 */
+#define GROUP2	    0x40	/* SCSI-2 */
+#define GROUP5	    0xa0	/* SCSI-1/2 */
+
+extern int nonedev();		/* Set error and exit. */
+extern int nulldev();		/* Do nothing and exit. */
+d42 12
+d60 1
+a60 1
+static int scsi_load(); 	/* Load driver */
+d63 2
+d69 2
+a70 2
+	scsi_close, 		/* Close entry point */
+	scsi_block, 		/* Block entry point. */
+d72 2
+a73 2
+	scsi_write, 		/* write entry point */
+	scsi_ioctl, 		/* IO control entry point */
+d78 1
+a78 1
+	nulldev 		/* No poll entry yet either. */
+d101 1
+a101 1
+int  HAI_HAID	 = 7;
+d114 1
+a114 1
+register dev_t	 dev;
+d169 1
+a169 1
+register dev_t	dev;
+d186 1
+a186 1
+register dev_t	dev;
+d203 3
+a205 3
+register dev_t	dev;
+int		cmd;
+char		*vec;
+d225 1
+a225 1
+	register dca_p	d;
+d227 1
+a227 1
+	printf("\nHost Adapter Independent SCSI Driver v1.1\n");
+d232 2
+d254 1
+a254 1
+	register dca_p	d;
+d273 1
+a273 1
+size_t	size;
+a314 1
+#ifdef DEBUG
+d322 1
+a322 1
+	    linebuf[] = "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................\n";
+a352 1
+#endif
+d361 1
+a361 1
+register srb_p	  r;
+d376 8
+a383 8
+	int 		s;
+	unsigned short	status;
+	unsigned short	tries;
+	unsigned short	timeout;
+	bufaddr_t	buf;
+	unsigned short	xferdir;
+	int 		(*cleanup)();
+	cdb_t		cdb;
+d396 1
+a396 1
+		r->buf. addr. vaddr = (vaddr_t) r->sensebuf;
+d407 1
+a407 2
+			if (x_sleep(&(r->status), pridisk, slpriSigCatch,
+				  "reqsense")) {
+d438 6
+a443 10
+/* void doscsi(r, retrylimit, schedPri, sleepPri, reason) */
+/* register srb_p  r; */
+/* int             retrylimit; */
+/* int             schedPri; */
+/* int             sleepPri; */
+/* char            reason[]; */
+void doscsi(r, retrylimit, m)
+register srb_p	r;
+int		retrylimit;
+char		m[];
+d445 1
+a445 1
+	int 	s;
+d452 1
+a452 2
+				if (x_sleep(&(r->status), pridisk,
+				  slpriSigCatch, m)) {
+d478 2
+a479 2
+register dev_t	    dev;
+register char	    *msg;
+d488 4
+a491 4
+			       "%s: %s - key: (0x%x)",
+			       msg,
+			       errstr[e->sensekey & 0x0f],
+			       (e->sensekey & 0xe0));
+d496 5
+a500 5
+			       "%s: %s - addr: %d key: (0x%x)",
+			       msg,
+			       errstr[e->sensekey & 0x0f],
+			       info,
+			       (e->sensekey & 0xe0));
+d507 1
+a507 1
+ *
+d527 87
+@
+
+
+2.1
+log
+@Last Pre-STREAMS kernel
+@
+text
+@d8 1
+a8 1
+ *  4-6 of the device's minor number.  
+d12 3
+a14 1
+ *  Last Modified: Thu Jun  3 20:55:19 1993 by [chris]
+d17 14
+a43 2
+#define DEBUG       1   /* Adds dumpmem() routine. */
+
+d49 4
+a52 3
+#define GROUP0      0x00
+#define GROUP1      0x20
+#define GROUP5      0xa0
+d54 2
+a55 2
+extern int nonedev();       /* Set error and exit. */
+extern int nulldev();       /* Do nothing and exit. */
+d57 8
+a64 6
+/***********************************************************************
+ *  Host Adapter routines.
+ *
+ *  These must be defined by the host adapter module.  For each individual
+ *  routine's functionality see the host adapter module aha154x.c.
+ */
+a65 16
+extern int haintr();                /* Interrupt handler */
+extern int hainit();                /* Initialization routine */
+extern int hatimer();               /* Timeout counter/handler */
+extern int startscsi();             /* Start a command from an srb */
+extern void abortscsi();            /* Abort the command from an srb */
+extern int resetdevice();           /* Reset device on the scsi bus */
+
+static void scsi_open();
+static void scsi_close();
+static void scsi_block();
+static void scsi_read();
+static void scsi_write();
+static void scsi_ioctl();
+static int scsi_load();
+static int scsi_unload();
+
+d67 13
+a79 13
+    DFBLK | DFCHR,
+    SCSIMAJOR,
+    scsi_open,                      /* Open entry point */
+    scsi_close,                     /* Close entry point */
+    scsi_block,                     /* Block entry point. */
+    scsi_read,                      /* Read Entry point */
+    scsi_write,                     /* write entry point */
+    scsi_ioctl,                     /* IO control entry point */
+    nulldev,                        /* No powerfail entry (yet?) */
+    hatimer,                        /* timeout entry point */
+    scsi_load,                      /* Load entry point */
+    scsi_unload,                    /* Unload entry point */
+    nulldev                         /* No poll entry yet either. */
+d83 16
+a98 16
+    "No sense",
+    "Recovered error",
+    "Not ready",
+    "Medium error",
+    "Hardware error",
+    "Illegal request",
+    "Unit attention",
+    "Data protect",
+    "Blank check",
+    "Vendor unique error",
+    "Copy Aborted",
+    "Aborted command",
+    "Equal",
+    "Volume overflow",
+    "Miscompare",
+    "Reserved"
+d102 1
+d104 2
+a105 3
+extern dca_t sddca;             /* SCSI Hard Disks - see sd.c */
+extern dca_t ctdca;             /* Tape Drives - see ct.c */
+/* extern dca_t cdromdca; */    /* CD-ROM Drives - see cdrom.c (not yet written) */
+a107 18
+ *  To Configure the SCSI Driver just patch the correct device type
+ *  into the mdca array.  Each entry in mdca tells the drive how or
+ *  how not to handle the device at each particular id. This entry
+ *  can be patched after the kernel has been built.
+ */
+
+dca_p mdca[MAXDEVS] = {
+    &sddca,             /* ID 0: Fixed Disk */
+    NULL,               /* ID 1: No Device  */
+    &ctdca,             /* ID 2: Tape drive */
+    NULL,               /* ID 3: No Device  */
+    NULL,               /* ID 4: No Device  */
+    NULL,               /* ID 5: No Device  */
+    NULL,               /* ID 6: No Device  */
+    NULL                /* ID 7: No Device  */
+};
+
+/***********************************************************************
+d115 1
+a115 1
+register dev_t   dev;
+d118 1
+a118 1
+    register dca_p d = mdca[tid(dev)];
+d120 4
+a123 4
+    if (!d)
+        u. u_error = EINVAL;
+    else
+        (*(d->d_open))(dev, mode);
+d135 1
+a135 1
+    register dca_p d = mdca[tid(dev)];
+d137 4
+a140 4
+    if (!d)
+        u. u_error = EINVAL;
+    else
+        (*(d->d_close))(dev);
+d152 1
+a152 1
+    register dca_p d = mdca[tid(bp->b_dev)];
+d154 7
+a160 7
+    if (!d) {
+        bp->b_resid = bp->b_count;
+        bp->b_flag |= BFERR;
+        bdone(bp);
+    }
+    else
+        (*(d->d_block))(bp);
+d170 1
+a170 1
+register dev_t  dev;
+d173 5
+a177 5
+    register dca_p d = mdca[tid(dev)];
+    if (!d)
+        u. u_error = EINVAL;
+    else
+        (*(d->d_read))(dev, iop);
+d187 1
+a187 1
+register dev_t  dev;
+d190 5
+a194 5
+    register dca_p d = mdca[tid(dev)];
+    if (!d)
+        u. u_error = EINVAL;
+    else
+        (*(d->d_write))(dev, iop);
+d204 3
+a206 3
+register dev_t  dev;
+int             cmd;
+char            *vec;
+d208 1
+a208 1
+    register dca_p d = mdca[tid(dev)];
+d210 4
+a213 4
+    if (!d)
+        u. u_error = EINVAL;
+    else
+        (*(d->d_ioctl))(dev, cmd, vec);
+d225 2
+a226 2
+    register int    id;
+    register dca_p  d;
+d228 4
+a231 6
+    printf("\nCoherent Host Adapter Independent SCSI Driver v1.0.0 beta\n");
+    if (!hainit()) {
+        printf("Host Adapter Initialization failed\n");
+        if (major(rootdev) == SCSIMAJOR)
+            panic("Root Device cannot be opened press <Ctrl-Alt-Del>\n");
+    }
+d233 8
+a240 8
+    for (id = 0; id < MAXDEVS; ++id) {
+        if ((d = mdca[id]) && d->d_load) {
+            printf("ID %d: ", id);
+            if (!(*(d->d_load))(id))
+                printf("Load() failed.\n");
+        }
+    }
+    return;
+d252 2
+a253 2
+    register int    id;
+    register dca_p  d;
+d255 3
+a257 3
+    for (id = 0; id < MAXDEVS; ++id)
+        if ((d = mdca[id]) && d->d_unload)
+            (*(d->d_unload))(id);
+d271 2
+a272 2
+char    *mem;
+size_t  size;
+d275 2
+a276 2
+    register char *p = mem;
+    register char *q = p + size - 1;
+d278 8
+a285 8
+    while (q > p) {
+        *p ^= *q;
+        *q ^= *p;
+        *p ^= *q;
+        p++;
+        q--;
+    }
+    return mem;
+d298 14
+a311 13
+        switch (src->g0. opcode & GROUPMASK) {
+        case GROUP0:
+            memcpy(dst, src, sizeof(g0cmd_t));
+            return sizeof(g0cmd_t);
+        case GROUP1:
+            memcpy(dst, src, sizeof(g1cmd_t));
+            return sizeof(g1cmd_t);
+        case GROUP5:
+            memcpy(dst, src, sizeof(g5cmd_t));
+            return sizeof(g5cmd_t);
+        default:
+            return 0;
+    }
+d314 1
+a314 1
+#if DEBUG
+d322 1
+a322 1
+            linebuf[] = "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................\n";
+d329 2
+a330 2
+    register int i;
+    char *l;
+d332 20
+a351 20
+    if (m)
+        printf(m);
+    printf(" (0x%x)\n", (unsigned) p);
+    memset(linebuf, ' ', sizeof(linebuf) - 2);
+    linebuf[48] = '|';
+    l = linebuf;
+    for (i = 0; i < s; ++i, ++p) {
+        *l++ = hexchars[(*p >> 4) & 0x0f];
+        *l++ = hexchars[*p & 0x0f];
+        *l++ = ' ';
+        linebuf[50 + (i & 15)] = (*p >= ' ' && *p <= '~') ? *p : '.';
+        if ((i & 15) == 15) {
+            printf(linebuf);
+            memset(linebuf, ' ', sizeof(linebuf) - 2);
+            linebuf[48] = '|';
+            l = linebuf;
+        }
+    }
+    if ((s & 15) != 0)
+        printf(linebuf);
+d362 1
+a362 1
+register srb_p    r;
+d364 1
+a364 1
+    wakeup(&(r->status));
+d377 8
+a384 7
+    int             s;
+    unsigned short  tries;
+    unsigned short  timeout;
+    bufaddr_t       buf;
+    unsigned short  xferdir;
+    int             (*cleanup)();
+    cdb_t           cdb;
+d386 8
+a393 7
+    if (r->status == ST_CHKCOND) {
+        tries = r->tries;
+        timeout = r->timeout;
+        memcpy(&buf, &(r->buf), sizeof(bufaddr_t));
+        xferdir = r->xferdir;
+        cleanup = r->cleanup;
+        memcpy(&cdb, &(r->cdb), sizeof(cdb_t));
+d395 21
+a415 20
+        r->timeout = 4;
+        r->buf. space = KRNL_ADDR;
+        r->buf. addr. vaddr = (caddr_t) r->sensebuf;
+        r->buf. size = sizeof(r->sensebuf);
+        r->xferdir = DMAREAD;
+        r->cleanup = &scsidone;
+        memset(&(r->cdb), 0, sizeof(cdb_t));
+        r->cdb. g0. opcode = 0x03;
+        r->cdb. g0. lun_lba = (r->lun << 5);
+        r->cdb. g0. xfr_len = r->buf. size;
+        s = sphi();
+        startscsi(r);
+#if defined(V_SLEEP)
+        while (r->status == ST_PENDING)
+            v_sleep(&(r->status), CVTTIN, IVTTIN, SVTTIN, "reqsense");
+#else
+        while (r->status == ST_PENDING)
+            x_sleep(&(r->status), pridisk, slpriSigCatch, "reqsense");
+#endif
+        spl(s);
+d417 8
+a424 8
+        r->tries = tries;
+        r->timeout = timeout;
+        memcpy(&(r->buf), &buf, sizeof(bufaddr_t));
+        r->xferdir = xferdir;
+        r->cleanup = cleanup;
+        memcpy(&(r->cdb), &(cdb), sizeof(cdb_t));
+        r->status = ST_CHKCOND;
+    }
+d440 10
+a449 14
+#if defined(V_SLEEP)
+void doscsi(r, retrylimit, cv, iv, sv, m)
+register srb_p  r;
+int             retrylimit;
+int             cv;
+int             iv;
+int             sv;
+char            m[];
+#else
+void doscsiX(r, retrylimit, m)
+register srb_p  r;
+int             retrylimit;
+char            * m;
+#endif
+d451 1
+a451 1
+    int     s;
+d453 15
+a467 19
+    r->cleanup = &scsidone;
+    for (r->tries = 0; r->tries < retrylimit; ) {
+        if (startscsi(r)) {
+            s = sphi();
+            while (r->status == ST_PENDING) {
+#if defined(V_SLEEP)
+                v_sleep(&(r->status), cv, iv, sv, m);
+#else
+                x_sleep(&(r->status), pridisk, slpriSigCatch, m);
+#endif
+                if (nondsig()) {
+                    abortscsi(r);
+                    r->status = ST_USRABRT;
+                    u. u_error = EINTR;
+                }
+            }
+            spl(s);
+            if (r->status == ST_GOOD)
+                return;
+d469 6
+a474 6
+            if (r->status == ST_CHKCOND)
+                reqsense(r);
+        }
+        else
+            r->status = ST_TIMEOUT;
+    }
+d485 2
+a486 2
+register dev_t      dev;
+register char       *msg;
+d489 21
+a509 21
+    long info;
+    if ((e->errorcode & 0x70) != 0x70)
+        devmsg(dev, "%s: Bad sensekey", msg);
+    else {
+        if ((e->errorcode & 0x80) != 0x80)
+            devmsg(dev,
+                   "%s: %s - key: (0x%x)",
+                   msg,
+                   errstr[e->sensekey & 0x0f],
+                   (e->sensekey & 0xe0));
+        else {
+            info = (long) e->info;
+            flip(info);
+            devmsg(dev,
+                   "%s: %s - addr: %d key: (0x%x)",
+                   msg,
+                   errstr[e->sensekey & 0x0f],
+                   info,
+                   (e->sensekey & 0xe0));
+        }
+    }
+d514 1
+a514 1
+ *  
+d523 8
+a530 8
+    if (r->status == ST_USRABRT)
+        return 0;
+    else {
+        if (r->status != ST_CHKCOND)
+            devmsg(r->dev, iofailmsg, msg, r->status);
+        else
+            printsense(r->dev, msg, r->sensebuf);
+        return 1;
+@

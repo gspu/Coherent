@@ -1,0 +1,81 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1; strict;
+comment  @ * @;
+
+
+1.1
+date     91.08.01.08.26.21;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@provided by hal, used for mwcbbs login to check serial numbers.
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * chk_srlno.c
+ *
+ * serial number checker for BBS version of login
+ *
+ * perform 2 checks:
+ *   use algorithm to verify validity
+ *   make sure password is NOT in exclusion list
+ *
+ * "exclusion list" is a file (EXCL_FILE below) within with each
+ *   line begins with a serial number, followed by an optional comment
+ *   Any serial number appearing in the file is to be considered invalid.
+ *
+ * return 1 if serial number is valid, 0 if not
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include "unumber.h"
+
+#define SRLNUM_LEN	9
+#define LBUF_LEN	20
+#define EXCL_FILE	"/etc/noaccess"
+
+int chk_srlno(s)
+char *s;
+{
+	int c, susp, suspen;
+	int ret;
+	char lbuf[LBUF_LEN];
+	FILE *fp;
+
+	ret = (strlen(s) == SRLNUM_LEN);
+	if (ret)
+		ret = (sscanf(s, "%1d%3d%5d", &c, &susp, &suspen) == 3);
+	if (ret)
+		ret = (c >= 1 && c <= VERSIONS);
+	if (ret) {
+		c--;
+		ret = (((suspen ^ magic3[c]) % magic2[c])
+			== (susp ^ magic1[c]));
+	}
+	if (ret) {
+		if (fp = fopen(EXCL_FILE, "r")) {
+			while (fgets(lbuf, LBUF_LEN, fp)) {
+				if (strncmp(lbuf, s, SRLNUM_LEN) == 0) {
+					ret = 0;
+					break;
+				}
+			}
+			fclose(fp);
+		}
+	}
+	return ret;
+}
+@

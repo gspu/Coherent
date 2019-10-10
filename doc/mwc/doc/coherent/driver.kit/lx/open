@@ -1,0 +1,269 @@
+.TH open "" "" "Entry-Point Routine"
+.PC "Open a device"
+.sp \n(pDu
+Internal Kernel Interface:
+.B "#include <sys/cred.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/open.h>"
+.B "#include <sys/types.h>"
+\fBint \fIprefix\fBopen(\fIdevice\^\fB, \fImode\^\fB, \fIflags\^\fB, \fIcredentials\^\fB, \fIinodep\^\fB)\fR
+\fBdev_t \fIdevice\^\fB; int \fImode\^\fB, \fIflags\^\fB; cred_t *\fIcredentials\^\fB; struct inode *\fIinodep\^\fB;\fR
+.sp \n(pDu
+DDI/DKI:
+.B "#include <sys/cred.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/open.h>"
+.B "#include <sys/types.h>"
+\fBint \fIprefix\fBopen(\fIdevice\^\fB, \fIoflag\^\fB, \fIotype\^\fB, \fIcredentials\^\fB)\fR
+\fBdev_t *\fIdevice\^\fB; int \fIoflag\^\fB, \fIotype\^\fB; cred_t *\fIcredentials\^\fB;\fR
+.sp \n(pDu
+\*(ST:
+.B "#include <sys/cred.h>"
+.B "#include <sys/errno.h>"
+.B "#include <sys/file.h>"
+.B "#include <sys/stream.h>"
+.B "#include <sys/types.h>"
+\fBint \fIprefix\fBopen(\fIqueue\^\fB, \fIdevice\^\fB, \fIoflag\^\fB, \fIsflag\^\fB, \fIcredentials\^\fB)\fR
+\fBqueue_t *\fIqueue\^\fB;\fR \fBdev_t *\fIdevice\^\fB; int \fIoflag\^\fB, \fIsflag\^\fB; cred_t *\fIcredentials\^\fB;\fR
+.PP
+A driver's
+.B open
+routine prepares a device to be manipulated.
+Every driver must have this entry point.
+An application invokes it via the \*(CO system call
+.BR open() .
+For details on this system call, see its entry in the \*(CO Lexicon.
+.PP
+The
+.B open
+routine returns zero on success, or an appropriate error number.
+See the entry for
+.B errno
+in this manual for a list of error numbers.
+The driver determines how to react to an error.
+.PP
+The following describes the
+.B open
+routine for each flavor of driver-kernel interface.
+.SH "Internal-Kernel Interface"
+Under the internal-kernel interface to a driver, field
+.B c_open
+in the driver's
+.B CON
+structure holds the address of this routine.
+It is customary to name the
+.B open
+routine with the word
+.B open
+prefixed by a unique identifier for your driver; but this is not required.
+.PP
+.I device
+is a
+.B dev_t
+that identifies the device to be opened.
+.PP
+.I mode
+and
+.I flags
+give, respectively, the mode into which
+.I device
+should be opened, and additional information about how it should be opened.
+See the article for the system call
+.B open()
+in the \*(CO Lexicon for a table of the legal values of these arguments.
+.PP
+.I credentials
+points to the credentials of the current user.
+If it wishes, your driver can read this structure to check the user's
+permissions before it opens
+.IR device .
+Note that many drivers do not use this argument.
+.PP
+Finally,
+.I inodep
+points to a structure that holds information about the i-node that is
+current being manipulated.
+Note that many drivers do not use this argument.
+.SH "DDI/DKI Interface"
+To invoke the
+.B open
+routine under the DDI/DKI interface, the kernel
+calls the function \fIprefix\fBopen()\fR, where
+.I prefix
+is the unique prefix for this driver.
+The function takes the following arguments:
+.IP \fIdevice\fR
+The address of the
+.B dev_t
+structure that identifies this device.
+.IP \fIoflag\fR
+Flag that indicate how
+.I device
+is to be opened.
+The
+.B open
+routine must recognize the following values:
+.RS
+.IP \fBFEXCL\fR
+Open the device in a driver-dependent manner.
+.IP \fBFNDELAY\fR
+Open the device and return immediately, even if a problem occurs.
+.IP \fBFNONBLOCK\fR
+Same as
+.BR FNDELAY .
+.IP \fBFREAD\fR
+Open
+.I device
+for reading.
+.IP \fBFWRITE\fR
+Open
+.I device
+for writing.
+.RE
+.IP \fIotype\fR
+The type of interface into which
+.I device
+is to be opened.
+The
+.B open
+routine can recognize the following values:
+.RS
+.IP \fBOTYP_BLK\fR
+Open into a block interface.
+.IP \fBOTYP_CHR\fR
+Open into a character (raw) interface.
+.IP \fBOTYP_LYR\fR
+Open into a layered interface.
+.RE
+.IP \fIcredentials\fR
+The address of the user's credentials.
+.PP
+The
+.B open
+routine has user context and can sleep.
+.SH "STREAMS Interface"
+To invoke the
+.B open
+routine under the \*(ST interface, the kernel
+calls the function \fIprefix\fBopen()\fR, where
+.I prefix
+is the unique prefix for this driver.
+The function takes the following arguments:
+.IP \fIqueue\fR
+The address of the queue into the driver's read side.
+.IP \fIdevice\fR
+The address of the
+.B dev_t
+structure that identifies this device.
+For modules,
+.I device
+identifies the device of the driver that is at the end of the stream.
+.IP \fIoflag\fR
+Flag that indicate how
+.I device
+is to be opened.
+The
+.B open
+routine must recognize the same values as those given above for the
+DDI/DKI interface.
+.IP \fIsflag\fR
+\*(ST flag.
+The
+.B open
+routine must recognize the following values:
+.RS
+.IP \fBCLONEOPEN\fR
+A ``clone'' open.
+If the driver supports cloning, it must alter the value of
+.I device
+to that of the ``clone'' device.
+Cloning is discussed below.
+.IP \fBMODOPEN\fR
+Open a module, not a driver.
+.IP \fB0\fR
+Open
+.I device
+directly, without cloning.
+.RE
+.IP \fIcredentials\fR
+The address of the user's credentials.
+.PP
+Before it returns, the
+.B open
+routine of a \*(ST driver or module must call
+.B qprocson()
+to enable its
+.B put
+and
+.B srv
+routines \(em
+but only after it has allocated and intialized all resources upon which the
+.B put
+and
+.B service
+routines depend.
+
+.PP
+Only one instance of the
+.B open
+routine can be running at any given time for a given queue.
+The
+.B open
+routine has user context and can sleep.
+.SH Cloning
+.II "cloning^definition"
+.I Cloning
+is the process by which a driver selects an unused device for a user.
+This spares the user the bother of polling many devices as he looks
+for one that is not being used.
+When an applications opens the clone driver, that driver
+calls the
+.B open
+routine of the real driver with
+.I sflag
+set to
+.BR CLONEOPEN .
+This spares a driver from having to reserve special minor numbers as
+entry points for clones.
+.PP
+There are two common methods of cloning.
+The first does not use the flag
+.BR CLONEOPEN ;
+the second does.
+.IP \fB1.\fR 0.3i
+The driver reserves special minor numbers for clones.
+When a user opens one of these,
+the driver searches for an unused device and,
+if it finds one, sets
+.I device
+to identify the unused device it has discovered.
+.IP \fB2.\fR
+When it sees the flag
+.BR CLONEOPEN ,
+the driver can invoke a special ``cloning'' driver to find and open
+a clone device.
+Here,
+.IR device 's
+major number identifies the cloning driver, and its minor number
+the driver to be cloned.
+.PP
+Multiple clone opens can run concurrently.
+Support of cloning is optional, so a driver should react rationally
+if does not support cloning but is asked to clone a driver.
+.SH "See Also"
+.B
+close,
+CON,
+drv_priv(),
+entry-point routines,
+errno,
+qprocson(),
+queue
+.R
+.br
+COHERENT Lexicon:
+.B
+open()
+.R

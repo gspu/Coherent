@@ -1,0 +1,41 @@
+/*
+ * setfpe - turn 80x87 support on/off
+ *
+ * All this program really does is tell the kernel to set or
+ * clear bit 2 of cr0.
+ *
+ * Usage:  setfpe {off|on}
+ *
+ * When "off", floating poing instructions will cause trap #7 (DNA),
+ * with signal 8 (SIGFPE).
+ */
+#include <stdio.h>
+#include <sys/param.h>
+
+char * cmd;
+
+main(argc, argv)
+int argc;
+char ** argv;
+{
+	int a2, res;
+
+	cmd = argv[0];
+	if (argc != 2)
+		usage();
+	if (strcmp(argv[1], "on") == 0)
+		a2 = 1;
+	else if (strcmp(argv[1], "off") == 0)
+		a2 = 0;
+	else
+		usage();
+	res = cohcall(COH_SETFPE, a2);
+	if (res == -1)
+		perror("setfpe");
+}
+
+usage()
+{
+	fprintf(stderr, "Usage: %s {off|on}\n", cmd);
+	exit(1);
+}

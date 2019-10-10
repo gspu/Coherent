@@ -1,0 +1,222 @@
+.TH semget() "" "" "General Function (libc)"
+.PC "Create or get a set of semaphores"
+.B "#include <sys/types.h>"
+.B "#include <sys/ipc.h>"
+.B "#include <sys/sem.h>"
+\fBsemget(\fIsemkey\^\fB, \fInumber\^\fB, \fIflag\^\fB)\fR
+\fBkey_t \fIsemkey\^\fB; int \fInumber\^\fB, \fIflag\^\fB;\fR
+.PP
+.II "semaphores^semget()"
+.B semget()
+creates a set of semaphores plus its associated data structure and
+identifier, links them to the identifier
+.IR semkey ,
+and returns the identifier that it has associated with
+.IR semkey .
+.PP
+.I semkey
+is an identifier that your application generates to identify
+its semaphores.
+.PP
+.I number
+gives the of semaphores you want
+.B shmget()
+to create.
+.PP
+.I flag
+can be bitwise OR'd to include the following constants:
+.IP \fBIPC_ALLOC\fR 1.0i
+This process already has a set of semaphores; please fetch it.
+.IP \fBIPC_CREAT\fR
+If this process does not have a set of semaphores, please create one.
+.IP \fBIPC_EXCL\fR
+Fail if this process already has a set of semaphores.
+.IP \fBIPC_NOWAIT\fR
+Fail if the process must wait to obtain a set of semaphores.
+.PP
+When it creates a set of semaphores,
+.B semget()
+also creates a copy of structure
+.BR semid_ds ,
+which the header file
+.B <sys/sem.h>
+defines as follows:
+.DM
+.ta 0.5i 2.75i
+struct semid_ds {
+	struct ipc_perm sem_perm;	/* operation permission struct */
+	struct sem *sem_base;	/* pointer to first semaphore in set */
+	unsigned short sem_nsems;	/* # of semaphores in set */
+	time_t sem_otime;	/* last semop time */
+	time_t sem_ctime;	/* last change time */
+};
+.DE
+.PP
+Field
+.B sem_base
+points the semaphores themselves.
+Each semaphore is a structure of type
+.BR sem ,
+which header file
+.B <sys/sem.h>
+defines as follows:
+.DM
+.ta 0.5i 2.75i
+struct sem {
+	unsigned short semval;	/* semaphore text map address */
+	short sempid;	/* pid of last operation */
+	unsigned short semncnt;	/* # awaiting semval > cval */
+	unsigned short semzcnt;	/* # awaiting semval = 0 */
+};
+.DE
+.PP
+Field
+.B sem_perm
+is a structure of type
+.BR ipc_perm ,
+which header file
+.B <sys/ipc.h>
+defines as follows:
+.DM
+.ta 0.5i 2.75i
+struct ipc_perm {
+	unsigned short uid;	/* owner's user id */
+	unsigned short gid;	/* owner's group id */
+	unsigned short cuid;	/* creator's user id */
+	unsigned short cgid;	/* creator's group id */
+	unsigned short mode;	/* access modes */
+	unsigned short seq;	/* slot usage sequence number */
+	key_t key;	/* key */
+};
+.DE
+.PP
+.B semget()
+initializes
+.B semid_ds
+as follows:
+.IP \(bu 0.3i
+It sets the fields
+.BR sem_perm.cuid ,
+.BR sem_perm.uid ,
+.BR sem_perm.cgid ,
+and
+.B sem_perm.gid
+to, respectively, the effective user and group identifiers
+of the calling process.
+.IP \(bu
+It sets the low-order nine bits of
+.B sem_perm.mode
+to the low-order nine bits of
+.IR flag .
+These nine bits define access permissions:
+the top three bits give the owner's
+access permissions (read, write, execute),
+the middle three bits the owning group's access permissions,
+and the low three bits access permissions for others.
+.IP \(bu
+It sets
+.B sem_nsems
+to
+.IR number .
+This gives the number of semaphores to which
+.B sem_base
+points.
+.IP \(bu
+It sets field
+.B sem_otime
+to zero, and field
+.B sem_ctime
+to the current time.
+.PP
+.B semget()
+fails if any of the following are true:
+.IP \(bu 0.3i
+.I number
+is less than one and the set of semaphores identified by
+.I semkey
+does not exist.
+.B semget()
+sets
+.B errno
+to
+.BR EINVAL .
+.IP \(bu
+.I number
+exceeds the system-imposed limit (\fBEINVAL\fR).
+.IP \(bu
+A semaphore identifier exists for
+.IR semkey ,
+but permission, as specified
+.BR flag 's
+low-order nine bits,
+is not granted (\fBEACCES\fR).
+.IP \(bu
+A semaphore identifier exists for
+.IR semkey ,
+but the number of semaphores in its set is less than
+.IR number ,
+and
+.I number
+does not equal zero (\fBEINVAL\fR).
+.IP \(bu
+A semaphore identifier does not exist for
+.I semkey
+and (\fIflag\fR & \fBIPC_CREAT\fR) is false (\fBENOENT\fR).
+.IP \(bu
+.B semget()
+tried to create a set of semaphores, but could not because
+the maximum number of sets allowable by the system
+.\" whatever that is
+always exists
+(\fBENOSPC\fR).
+.IP \(bu
+A semaphore identifier already exists for
+.I semkey
+but
+.I flag
+requests that
+.B semget()
+create an exclusive set for it \(em i.e.
+.DM
+	( (\fIflag\fP & IPC_CREAT) && (\fIflag\fP & IPC_EXCL) )
+.DE
+.IP
+is true (\fBEEXIST\fR).
+.PP
+If all goes well,
+.B semget()
+returns a semaphore identifier, which is always a non-negative integer.
+Otherwise, it returns \-1 and sets \fBerrno\fR to an appropriate value.
+.SH Files
+.B
+/usr/include/sys/ipc.h
+.br
+/usr/include/sys/sem.h
+.R
+.SH "See Also"
+.Xr "ftok()," ftok
+.Xr "ipcrm," ipcrm
+.Xr "ipcs," ipcs
+.Xr "libc," libc
+.Xr "libsocket," libsocket
+.Xr "semctl()," semctl
+.Xr "semop()" semop
+.SH Notes
+Prior to release 4.2, \*(CO implemented semaphores through the
+driver
+.BR sem .
+In release 4.2, and subsequent releases, \*(CO has implemented
+semaphores as a set of functions that conform in large part to the \*(UN
+System-V standard.
+.PP
+The kernel variables
+.B SEMMNI
+and
+.B SHMMNS
+set, respectively, the maximum number of identifiers that can exist
+at any given time and the maximum number of semaphores that a set can hold.
+Daredevil system operators who have large amounts of memory at their
+disposal may wish to change
+these variables to increase the system-defined limits.
+For details on how to do so, see the Lexicon entry
+.BR mtune .

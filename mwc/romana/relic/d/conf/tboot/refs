@@ -1,0 +1,1482 @@
+/ Startup.s -- initilization code for any tertiary boot program.
+/
+/ La Monte H. Yarroll <piggy@mwc.com>, September 1991
+/
+/ RBOOTS is set exactly 128K below the top of 640K.
+/ One day, RBOOTS should be dynamicly determined based on the size of
+/ available memory.
+	RBOOTS	= 0x8000		/ New segement for boot program.
+	JMPF	= 0xEA			/ jump far, direct
+	SEGSIZ	= 0xffff		/ Size of a whole segment.
+	NSTK	= 0x2000		/ # of bytes of stack.
+	BLOCK	= 0x200			/ # of bytes in a disk block
+	DIRSIZE	= 14			/ Size of a file name.
+	SIZEOFSDAT = 23			/ sizeof(seconddat)
+	SECONDDAT = 0x01E7		/ Offset of useful data in secondary boot.
+	CR	= 0x0d			/ Carriage return
+	LF	= 0x0a			/ Line Feed
+	NUL	= 0x00			/ NUL (for terminating strings)
+	/ Interrupts.
+	MON	= 0x00		/ Invoke BIOS monitor.
+	KEYBD	= 0x16		/ Keyboard software interrupt.
+	REBOOT	= 0x19		/ Reboot through BIOS.
+	
+	
+	NTRK	= 40		/ Number of tracks on a floppy.
+	NSPT	= 9		/ Number of sectors per track on a floppy.
+	NHD	= 1		/ Number of heads per drive on a floppy.
+	.bssd
+stack:	.blkb	NSTK	/ Local Stack
+	.shri
+	.blkb	0x100	/ Symbol "begin" must be at offset 0x100 from
+begin:			/ the beginning of the code segment--secondary
+			/ boot jumps here.
+	/ Upon entry ds points at the secondary boot data segment,
+	/ si points at the data we want,
+	/ and es points at our data segment.
+	mov	di, $seconddat
+	mov	cx, $SIZEOFSDAT
+	cld
+	rep
+	movsb	/ Copy disk configuration information to our own segment.
+	/ Create a nice, safe stack.
+	mov	bp, $stack+NSTK
+	mov	ax, es
+	mov	ss, ax
+	mov	sp, bp
+	
+	push	es	/ Save location of data segment from secondary boot.
+	/ Move the tertiary boot to high memory.
+	call	moveme
+	
+	add	sp, $2	/ Throw away old data segment.
+	/ Set up the new stack.
+	mov	bp, $stack+NSTK
+	mov	ax, es
+	mov	ss, ax
+	mov	sp, bp
+	.byte	JMPF		/ Jump to the relocated code.
+	.word	entry
+	.word	RBOOTS
+entry:	call	main_
+/ Aargh!  main() returned!  Wait for a keystroke and then reboot.
+	push	$keymsg
+	call	puts_
+0:	movb	ah, $1	/	while (!iskey()) {};
+	int 	KEYBD	/		/* Read the key.  */
+	movb	ah, $1	/	} while (iskey())
+	int 	KEYBD	/		/* Scan the keyboard for another key. */
+	jne	1b	/	
+	int	REBOOT	/ Reboot through the BIOS. 
+	.shrd
+keymsg:	
+	.byte	CR
+	.byte	LF
+	.ascii	"Press any key to reboot."
+	.byte	CR
+	.byte	LF
+	.byte	NUL
+////////
+/
+/ Move tertiary boot to high memory.
+/ Take one parameter--a word on the stack pointing to the current
+/ data segment.
+/
+/ As a side effect, this sets ds to the new data segment in high memory.
+/
+////////
+	.shri
+moveme:
+	mov	bp, sp	/ For parameter lookups.
+	/ Move the code segment.
+	push	cs
+	pop	ds
+	xor	si, si		/ Point ds:si at loaded code segment.
+	mov	ax, $RBOOTS
+	mov	es, ax
+	xor	di, di		/ Point es:di at where we want to be.
+	mov	cx, $SEGSIZ	/ Move a maximal segment.
+	cld
+	rep
+	movsb
+	/ Calculate location of new data segment.
+	mov	ax, 2(bp)
+	push	cs		/ Fetch the code segment.
+	pop	bx
+	sub	ax, bx		/ Calculate offset to data segment.
+	add	ax, $RBOOTS	/ Calculate the new data segment.
+	
+	/ Move the data segment.
+	mov	ds, 2(bp)
+	xor	si, si		/ Point ds:si at loaded data segment
+	mov	es, ax
+	xor	di, di		/ Point es:di at where we want to be.
+	mov	cx, $SEGSIZ	/ Move a maximal segment.
+	cld
+	rep
+	movsb
+	/ Set the new data segment appropriately.
+	push	es
+	pop	ds
+	mov	myds_, ds
+	ret	/ routine moveme
+/ Shared data segment (initialized)
+	.shrd
+	.globl	myds_
+myds_:	.word	0	/ Place to communicate ds to C programs.
+/ Variables nbuf, traks, sects, and heads MUST appear in this order.
+	.globl	seconddat
+seconddat:	/ Data extracted from secondary boot data segment.
+	.globl	nbuf_
+nbuf_:
+nbuf:	.blkb	DIRSIZE
+/ Defaults for all the following parameters match a floppy disk.
+	.globl	traks
+	.globl	traks_
+traks_:
+traks:	.word	NTRK	/ Number of cylinders on drive we're booting off of.
+	.globl	sects
+	.globl	sects_
+sects_:
+sects:	.byte	NSPT	/ Number of sectors per track for our drive.
+	.globl	heads
+	.globl	heads_
+heads_:
+heads:	.byte	NHD	/ Number of heads on drive we're booting off of.
+	.globl	drive
+	.globl	drive_
+drive_:
+drive:	.byte	0	/ Drive our partition resides upon.
+	.globl	first
+	.globl	first_
+first_:
+first:	.word	0	/ First block of our partition (?)
+	.word	0
+/*
+ * Determine whether or not a given argument exists on the command line
+ * passed into the kernel.
+ *
+ * Takes a pointer to a NUL terminated string that is the name of
+ * the desired argument.
+ */
+extern typed_space boot_gift;
+int
+arg_exist(arg)
+{
+} /* arg_exist() */
+/*
+ * Looks for the string "astring" in the fifo "afifo".
+ * Returns TRUE if it find the string.
+ */
+int
+fifo_find_str(afifo, astring)
+	typed_space *afifo;
+	char *astring;
+{
+} /* fifo_find_str() */
+/*
+ * bio.c -- buffer handling code.
+ *
+ * This code REALLY assumes single-threaded execution.  All locks are
+ * advisory only and may be revoked without notice.
+ *
+ * See also bread() in diskio.c.
+ */
+static BUF bufl[NBUF];	/* Buffer structures.  */
+static char blockp[NBUF * BLOCK];	/* The blocks themselves.  */
+static int buf_inited = (1==2);		/* Has bufinit been called?  */
+/*
+ * Initialise buffer headers.
+ */
+void
+bufinit()
+{
+} /* bufinit() */
+/*
+ * Claim a buffer for a block.
+ * Finds the buffer if it has already been accessed, otherwise,
+ * picks another buffer.
+ */
+BUF *
+bclaim(block)
+	daddr_t block;
+{
+} /* bclaim() */
+/*
+ * Pick the next buffer for allocation.
+ * Uses a round-robin scheme of buffer allocation, skipping over
+ * locked buffers.  If all buffers are locked, they are forcibly
+ * unlocked and the first one is picked.
+ */
+BUF *
+bpick()
+{
+} /* bpick() */
+/*
+ * Release a buffer for a block.
+ */
+void
+brelease(bp)
+	BUF *bp;
+{
+} /* brelease() */
+/*
+ * Attempt to lock the gate 'g'.
+ * Return TRUE on success, FALSE if it was already locked.
+ */
+int
+gate_lock(g)
+	GATE g;
+{
+} /* gate_lock() */
+/*
+ * Check to see if the gate 'g' is locked.
+ */
+int
+gate_locked(g)
+	GATE g;
+{
+} /* gate_locked() */
+/*
+ * Unlock the gate 'g'.
+ */
+void
+gate_unlock(g)
+	GATE g;
+{
+} /* gate_unlock() */
+/*
+ * Sanity checker.
+ * Prints contents of "message" if something is amiss and dumps you
+ * into the monitor.
+ *
+ * Add tests and messages as needed.
+ */
+void
+sanity_check(message)
+	char *message;
+{
+} /* sanity_check() */
+////////
+/
+/ I/O library for use with boot programs.  Uses the BIOS.
+/
+/ La Monte H. Yarroll <piggy@mwc.com>, September 1991
+/
+////////
+////////
+/
+/ Magic constants.
+/
+////////
+	RETF	= 0xCB			/ Far return
+	VIDEO	= 0x10			/ video swi
+	DISK	= 0x13			/ disk io swi
+	KEYBD	= 0x16			/ keyboard swi
+	MON	= 0x00			/ Monitor swi
+	READ1	= 0x0201		/ read 1 sector
+	
+	BUFSIZE	= 0x200		/ Size of a physical disk block.
+	
+	NTRK	= 40		/ Number of tracks on a floppy.
+	NSPT	= 9		/ Number of sectors per track on a floppy.
+	NHD	= 1		/ Number of heads per drive on a floppy.
+	FIRST	= 8		/ Relative start of partition.
+	.shri	/ Shared code segment, initialized.
+////////
+/
+/ Read a block from disk, relative to the start of the boot partition,
+/ using the code in the IBM firmware.
+/
+/ It takes two parameters:
+/	daddr_t	blockno;	/* 32 bit block number.  */
+/	char *buff;	/* Must point to a 512 byte buffer.  */
+/
+/ The buffer must not cross a 4K boundry.  Disk input should generally
+/ be done through the C routine bread(), which calls _bread() with an
+/ aligned buffer.
+/
+////////
+	.globl	_bread_
+_bread_:
+	push	es			/ Save registers
+	push	si
+	push	di
+	push	bp
+	push	dx
+	push	ds
+	pop	es			/ Set es:bp to address of the buffer.
+	mov	bp, sp
+	mov	ax, 12(bp)		/ Get low word of block number.
+	mov	dx, 14(bp)		/ Get high word of block number.
+	mov	bx, 16(bp)		/ Get a buffer to put it in.
+	mov	bp, bx
+	mov	di, bp			/ Blast the buffer contents.
+	mov	cx, $BUFSIZE		/ For block 0, this fills the buffer
+	rep				/ with zeros.
+	stosb
+	/ Block #0 is the sparse block--it means a block of all zeros.
+	test	ax, ax			/ if block 0, return zeroed buffer
+	jnz	3f
+	test	dx, dx
+	jnz	3f
+	movb	al, $1			/ Say that we read 1 block.
+	jmp	2f
+	/ Translate block number into cylinder, head, and sector.
+3:	add	ax, first		/ add first block
+	adc	dx, first+2		/ add rest
+	mov	bx, ax			/ save block number
+	movb	al, heads		/ get number of heads
+	movb	cl, sects		/ get number of sectors
+	mulb	cl			/ calculate sectors per cylinder
+	xchg	bx,ax			/ swap block/sectors
+	div	bx			/ calculate track
+	xchg	dx, ax			/ put track in DX
+	divb	cl			/ calculate head/sector
+	movb	cl, ah			/ set sector
+	inc	cx			/ sectors start at 1 [incb cl]
+	
+	cmp	dx, traks		/ check for second side
+	jb	0f
+	sub	dx, traks		/ fold track
+	inc	ax			/ next head [incb al]
+0:	rorb	dh, $1			/ rotate track(low) into
+	rorb	dh, $1			/  msbits of DX
+	orb	cl, dh			/ set track(high)
+	movb	ch, dl			/ set track(low)
+	movb	dh, al			/ set head
+	movb	dl, drive		/ set drive
+	mov	bx, bp			/ set offset [bbuf]
+	mov	ax, $READ1		/ Read, 1 sector.
+	int	DISK			/ Disk I/O.
+	jnc	2f			/ Jump if no error.
+	mov	ax, $READ1		/ try again
+	int	DISK
+	jc	berror
+2:
+	/ al contains the number of blocks read (should be 1).
+	pop	dx			/ restore registers.
+	pop	bp
+	pop	di
+	pop	si
+	pop	es
+	ret				/ return.
+berror:	/ error handling for _bread.
+	xorb	al, al	/ ah contains an error code.
+	jmp	2b
+////////
+/
+/ Write the character in "al" out to
+/ the display, using routines in the ROM.
+/ Like most calls to the ROM, this routine spends
+/ most of its time saving and restoring the
+/ registers.
+/
+////////
+	.globl	putchar_
+putchar_:	push	si			/ Save registers.
+	push	di
+	push	bp
+	mov	bp, sp
+	mov	ax, 8(bp)		/ Fetch the single argument.
+	mov	bx, $0x0007		/ Page 0, white on black
+	movb	ah, $0x0E		/ Write TTY.
+	int	VIDEO			/ Call video I/O in ROM.
+	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+////////
+/
+/ Fetch character from keyboard, using
+/ routines in the ROM.
+/
+////////
+	.globl	getchar_
+getchar_:
+	push	si			/ Save registers.
+	push	di
+	push	bp
+	movb	ah, $0x00		/ Read keystroke.
+	int	KEYBD
+	movb	ah, $0x00
+	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+////////
+/
+/ Check for a pending keystroke using
+/ routines in the ROM.
+/
+////////
+	.globl	iskey_
+iskey_:
+	push	si			/ Save registers.
+	push	di
+	push	bp
+	movb	ah, $0x01		/ Check for keystroke.
+	int	KEYBD
+	jne	0f
+	xor	ax, ax			/ Set false.
+	jmp	1f
+0:	xor	ax, ax
+	inc	ax			/ Set true.
+1:	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+////////
+/
+/ Goto a far address
+/ Takes two integer arguments: an offset, and a segment, in that order.
+/
+////////
+	.globl gotofar_
+gotofar_:
+	add	sp, $2
+	.byte	RETF
+////////
+/
+/ Goto a kernel.
+/ Takes three integer arguments: an offset, a segment, and a new data segment
+/ in that order.
+/
+////////
+	.globl gotoker_
+gotoker_:
+	mov	bp, sp
+	mov	es, 6(bp)	/ Point es at the new data segment.
+	mov	si, $seconddat	/ Point ds:si at useful data.
+	add	sp, $2
+	.byte	RETF
+////////
+/
+/ Initilize hard disk parameters
+/
+////////
+	.globl	hdinit_
+hdinit_:
+	push	si			/ Save registers.
+	push	di
+	push	bp
+	mov	si, bp			/ set si to partition table
+	movb	dl, (si)		/ get drive number
+	movb	ah, $8			/ get drive parameters
+	int	DISK
+	jc	1f			/ abort on error (just return)
+	movb	al, ch			/ fetch cyl(lo)
+	movb	ah, cl			/ move cyl(hi), sects
+	rolb	ah, $1			/ shift cylinder high to
+	rolb	ah, $1			/ the least sig bits
+	andb	ah, $3			/ mask out cylinder bits
+	mov	di, $traks		/ point to drive
+	stosw				/ set number of tracks
+	movb	al, $0x3F		/ sector mask
+	andb	al, cl			/ mask sector
+	stosb				/ set sector
+	movb	al, dh			/ get max head
+	inc	ax			/ change to # of heads (incb al)
+	stosb				/ set number of heads
+	movsb				/ set drive
+	add	si, $FIRST-1		/ point to first block
+	movsw				/ fetch first block
+	movsw
+1:	pop	bp			/ Restore registers.
+	pop	di
+	pop	si
+	ret
+////////
+/
+/ Invoke the native monitor.
+/ Useful for debugging.
+/
+////////
+	.globl	intmon_
+intmon_:
+	int	MON
+	ret
+////////
+/
+/ void _ffcopy(from_fp, to_fp, count)
+/ faddr_t from_fp, to_fp;
+/ int count;
+/
+/ Copy count bytes from from_fp to to_fp.
+/
+/ Here is the stack after initial "push bp":
+/
+/	12(bp)	count
+/	10(bp)	FP_SEL(to_fp)
+/	8(bp)	FP_OFF(to_fp)
+/	6(bp)	FP_SEL(from_fp)
+/	4(bp)	FP_OFF(from_fp)
+/	2(bp)	return IP
+/	0(bp)	old bp
+/
+////////
+	.globl	_ffcopy_
+_ffcopy_:
+	push	bp
+	mov	bp, sp
+	push	es
+	push	di
+	push	ds
+	push	si
+	lds	si, 4(bp)	/ from_fp  to DS:SI
+	les	di, 8(bp)	/ to_fp to ES:DI
+	mov	cx, 12(bp)	/ rep count to CX
+	rep
+	movsb
+	pop	si
+	pop	ds
+	pop	di
+	pop	es
+	pop	bp
+	ret		/ return from _ffcopy()
+////////
+/
+/ Read a block from disk, relative to start of disk,
+/ using the code in the IBM firmware.
+/
+/ It takes two parameters:
+/	daddr_t	blockno;	/* 32 bit block number.  */
+/	char *buff;	/* Must point to a 512 byte buffer.  */
+/
+/ The buffer must not cross a 4K boundry.  Disk input should generally
+/ be done through the C routine xbread(), which calls _xbread() with an
+/ aligned buffer.
+/
+////////
+	.globl	_xbread_
+_xbread_:
+	push	es			/ Save registers
+	push	si
+	push	di
+	push	bp
+	push	dx
+	push	ds
+	pop	es			/ Set es:bp to address of the buffer.
+	mov	bp, sp
+	mov	ax, 12(bp)		/ Get low word of block number.
+	mov	dx, 14(bp)		/ Get high word of block number.
+	mov	bx, 16(bp)		/ Get a buffer to put it in.
+	mov	bp, bx
+	/ Translate block number into cylinder, head, and sector.
+3:
+	mov	bx, ax			/ save block number
+	movb	al, heads		/ get number of heads
+	movb	cl, sects		/ get number of sectors
+	mulb	cl			/ calculate sectors per cylinder
+	xchg	bx,ax			/ swap block/sectors
+	div	bx			/ calculate track
+	xchg	dx, ax			/ put track in DX
+	divb	cl			/ calculate head/sector
+	movb	cl, ah			/ set sector
+	inc	cx			/ sectors start at 1 [incb cl]
+	
+	cmp	dx, traks		/ check for second side
+	jb	0f
+	sub	dx, traks		/ fold track
+	inc	ax			/ next head [incb al]
+0:	rorb	dh, $1			/ rotate track(low) into
+	rorb	dh, $1			/  msbits of DX
+	orb	cl, dh			/ set track(high)
+	movb	ch, dl			/ set track(low)
+	movb	dh, al			/ set head
+	movb	dl, drive		/ set drive
+	mov	bx, bp			/ set offset [bbuf]
+	mov	ax, $READ1		/ Read, 1 sector.
+	int	DISK			/ Disk I/O.
+	jnc	2f			/ Jump if no error.
+	mov	ax, $READ1		/ try again
+	int	DISK
+	jc	berror
+2:
+	/ al contains the number of blocks read (should be 1).
+	pop	dx			/ restore registers.
+	pop	bp
+	pop	di
+	pop	si
+	pop	es
+	ret				/ return.
+/* builtin.c -- builtin routines for tboot.
+ *
+ * Add new ones by adding a check for them in interpret().
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+extern int slow_flag;	/* Slow down pacifier.  */
+extern int feet_flag;	/* Enable pacifier footprints.  */
+/* If possible, execute "command".
+ * Return "true" if the command exists, "false" otherwise.
+ */
+int
+interpret(command)
+	char *command;
+{
+} /* interpret() */
+/* Display the BIOS parameters loaded up by the startup code.  */
+void
+dpb()
+{
+} /* dpb() */
+/* Ask the BIOS how many drives are attached.  */
+int get_num_of_drives()
+{
+} /* get_num_of_drives() */
+/* Create a listing of file names in /.  */
+void
+dir()
+{
+} /* dir() */
+/* cbootlib.c -- C routines for use by boot programs.
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+/* puts() -- put a NUL terminated string.
+ * Takes one argument--a pointer to a NUL terminated character string.
+ * Does no error checking.  Calls the assembly language routine putc().
+ */
+void
+puts(s)
+	register char *s;
+{
+} /* puts() */
+/* gets() -- Read string from keyboard.
+ * Takes one argument--a pointer to a buffer big enough for the
+ * expected response.
+ * It stops reading as soon as it detects a carriage return.  The CR
+ * is replaced with a NUL.
+ */
+char *
+gets(s)
+	char *s;
+{
+} /* gets() */
+/* Reverse string s in place.
+ * Straight from K&R.
+ */
+void
+reverse(s)
+	char s[];
+{
+} /* reverse() */
+/* Convert n to decimal characters in s.
+ * Straight from K&R  (with minor sylistic changes.)
+ */
+void
+itoa(n, s)
+	char s[];
+	int n;
+{
+} /* itoa() */
+/* Convert n to digits in s, base base.
+ * Works for any base from 2 to 36.
+ * Modified itoa() from K&R.
+ */
+void
+itobase(n, s, base)
+	uint16 n;
+	char s[];
+	int base;
+{
+} /* itobase() */
+/* basetoi(char *s, int base)
+ * Convert a string base "base" to an integer.
+ * Good through base 36.
+ * Loosely based on K&R's atoi().
+ */
+uint16
+basetoi(s, base)
+	char *s;
+	int base;
+{
+} /* basetoi() */
+/* seginc(uint16 *offset,
+ *	  uint16 *segment,
+ *	  uint16 increment)
+ * Add an offset to a segment.  We may adjust the segment base
+ * to make everything fit.
+ */
+				 * segments are PP aligned.
+				 */
+ 
+void
+seginc(offset, segment, increment)
+	uint16 *offset;
+	uint16 *segment;
+ 	uint16 increment;
+{
+} /* seginc() */
+/* Pad a string s on the left with character c, to length n.
+ * The old contents of s are replaced by the padded version.
+ */
+char *
+lpad(s, c, n)
+	char *s;
+	char c;
+	int n;
+{
+} /* lpad() */
+/*
+ * Print a 32 bit integer in hexadecimal.
+ */
+void
+print32(my_int)
+	uint32 my_int;
+{
+}
+/*
+ * Print a 16 bit integer in hexadecimal.
+ */
+void
+print16(my_int)
+	uint16 my_int;
+{
+}
+/*
+ * Print an 8 bit integer in hexadecimal.
+ */
+void
+print8(my_int)
+	uint8 my_int;
+{
+}
+/*
+ * Wrapper for far-far copy.  Changes the segment so that the requested
+ * length does not wrap past the end of the segment.
+ *
+ * For Intel 8086 Real Mode.
+ */
+void
+ffcopy(to_offset, to_seg, from_offset, from_seg, length)
+	uint16 to_offset;
+	uint16 to_seg;
+	uint16 from_offset;
+	uint16 from_seg;
+	uint16 length;
+{
+} /* ffcopy() */
+/*
+ * Align a far address so that its offset is within a paragraph of
+ * the start of the segment.
+ *
+ * Note that we ignore overflow in the segment, since this is exactly
+ * what happens when you offset past the end of the highest segment.
+ *
+ * WARNING: This routine is destructive to its arguments.
+ *
+ * For Intel 8086 Real Mode.
+ */
+void
+seg_align(offset, segment)
+	uint16 *offset;
+	uint16 *segment;
+{
+} /* seg_align() */
+/*
+ * wait_for_keystroke() -- wait for a specific keystroke.
+ */
+/* Location of BIOS-run timer.  */
+/*
+ * Waits delay ticks for the requested keystroke.  Returns TRUE if
+ * keystroke came, FALSE if delay runs out.
+ * If key == -1, accept ANY keystroke.
+ */
+int
+wait_for_keystroke(delay, key)
+	int delay;
+	int key;
+{
+} /* wait_for_keystrok() */
+/* coff.c -- rutines for manipulating coff executable files.  */
+/* Convert COFF to load table.
+ * Used to generate loading instructions for use by tboot main().
+ * Returns true on successful translation.
+ */
+int
+coff2load(ip, table, data_seg)
+	struct inode *ip;		/* input: File to read.		*/
+	struct load_segment table[];	/* output: How to read it.	*/
+	uint16 *data_seg;	/* output: Where to point es.	*/
+{
+}
+/*
+ * Symbol name.
+ */
+static char *
+symName(sym, str_tab, work)
+SYMENT *sym;
+char *str_tab, *work;
+{
+}
+/*
+ * Look up the value of a single data symbol in a coff file,
+ * relative to the start of the data segment.
+ *
+ * We use the symbol "sdata" to find the start of the data segment--
+ * this works for 386 COHERENT kernels but will not work in general.
+ * It should really fetch the address of the start of the data segment
+ * from the data section header.
+ */
+uint32
+wrap_coffnlist(fn, symbol)
+	char *fn;	/* file name */
+	char *symbol;	/* symbol to look up */
+{
+} /* wrap_coffnlist() */
+int
+coffnlist(fn, nlp, names, count)
+char *fn;	/* file name */
+SYMENT *nlp;	/* names to look up */
+char *names;	/* long names */
+int count;	/* size of passed table */
+{
+}
+main()
+{
+}
+/* diskio.c -- C routines for disk i/o in tertiary boot programs.
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+/* Aligning bread.
+ * Reads 1 block into an arbitrary buffer.  The assembly language
+ * routine bread() needs a buffer aligned on a 4K boundary.
+ */
+char bufspace[FOURK+BLOCK];
+char *lbuf = NULL;	/* Buffer for bread.  */
+BUF *
+bread(blockno)
+	daddr_t blockno;	/* Block number.  */
+{
+} /* bread() */
+/*
+ * Inode OPEN: Load the inode for a file into memory.
+ * iopen(struct inode *ip,
+ *	 ino_t inode_number)
+ *
+ */  
+int
+iopen(meminode, inode_number)
+	struct inode *meminode;
+	ino_t inode_number;
+{
+} /* iopen() */
+/* Convert a filename to an inode number.  Returns inode number 0 on
+ * failure.
+ */ 
+ino_t
+namei(filename)
+	char *filename;
+{
+} /* namei() */
+/*
+ * Inode READ: Load a local buffer from a file.
+ * iread(struct inode *ip,
+ *	 char *buffer,
+ *	 fsize_t offset,
+ *	 uint16 lenarg);
+ */
+void
+iread(ip, buffer, offset, lenarg)
+	struct inode *ip;	/* Read from this file,		*/
+	char *buffer;		/* into this buffer,		*/
+	fsize_t offset;		/* from here in the file,	*/
+	uint16 lenarg;	/* for this many bytes.		*/
+{
+} /* iread() */
+/*
+ * Inode to Far READ: Load an arbitrary length from a file into a far address.
+ * ifread(struct inode *ip,
+ *	  uint16 toseg,
+ *	  uint16 tooffset,
+ *	  fsize_t offset,
+ *	  fsize_t length);
+ */
+void
+ifread(ip, toseg, tooffset, offset, lenarg)
+	struct inode *ip;	/* Read from this file,		*/
+	uint16 toseg;	/* into this far buffer,	*/
+	uint16 tooffset;
+	fsize_t offset;		/* from here in the file,	*/
+	fsize_t lenarg;		/* for this many bytes.		*/
+{
+} /* ifread() */
+/* Aligning xbread.
+ * Disk addresses are relative to the start of the disk, rather than
+ * the start of the partition.
+ * Reads 1 block into an arbitrary buffer.  The assembly language
+ * routine xbread() needs a buffer aligned on a 4K boundary.
+ */
+BUF *
+xbread(blockno)
+	daddr_t blockno;	/* Block number.  */
+{
+} /* xbread() */
+/*
+ *
+ * fdisk( fp )	--	Fixed Disk Configuration
+ * dev_t dev;
+ * struct fdisk_s *fp;
+ *
+ *	Input:	fp  = pointer to memory-resident partition info (to update)
+ *
+ *	Action:	Read first block from the device.
+ *		If valid signature present on block,
+ *			copy partition information to memory
+ *
+ *	Return:	1 = partition information successfully updated
+ *		0 = failure (could not read block, or bad signature)
+ */
+int
+fdisk( fp )
+register FDISK_S *fp;
+{
+}
+/*
+ * fifo_b.c -- Extra routines for handling typed fifos.
+ * Both fifo_b.c (boot fifo) and fifo_k.c (kernel fifo) are needed by the
+ * boot code.
+ */
+/* How long is an open fifo?  */
+long
+fifo_len(ffp)
+	FIFO *ffp;
+{
+} /* fifo_len() */
+/* Write a typed space into a FIFO.  */
+typed_space *
+fifo_write(ffp, space)
+	FIFO *ffp;
+	typed_space *space;
+{
+} /* fifo_write() */
+/* Write a chunk of data into an open fifo as a typed space.
+ * Takes a FIFO to be written to, ffp; a pointer to the data, datum; a
+ * size for the datum, size; and a type for the new space, type.
+ *
+ * Returns a pointer to the newly written space.  Returns NULL if the
+ * new space could not be written.
+ *
+ * Note that while sizes throughout this package refer to TOTAL sizes
+ * including headers, the size argument here is ONLY for the datum.
+ *
+ * Only FIFOs of type T_FIFO_SIC are implimented.
+ */
+typed_space *
+fifo_write_untyped(ffp, datum, size, type)
+	FIFO *ffp;
+	char *datum;
+	long size;
+	space_type type;
+{
+} /* fifo_write_untyped() */
+/*
+ * fifo_k.c -- Routines for reading interally typed fifos.
+ * These are all that need to be included in the kernel.
+ */
+/* The input channel from tboot to the kernel.  */
+TYPED_SPACE(boot_gift, 512, T_FIFO_SIC);
+/* Read a typed space from a fifo.
+ * Return a pointer to the next typed space in the fifo ffp.  Returns
+ * NULL on end of fifo.
+ *
+ * This read assumes that ffp->f_space has type T_FIFO_SIC.
+ */
+typed_space *
+fifo_read(ffp)
+	register FIFO *ffp;
+{
+} /* fifo_read() */
+/* Go back to the start of the fifo.
+ * Takes a FIFO.  For reading, go back to the first space; for writing
+ * truncate the FIFO to empty.
+ * Returns 1 on success, 0 otherwise.
+ */
+int
+fifo_rewind(ffp)
+	FIFO *ffp;
+{
+} /* fifo_rewind() */
+/* Finish with using a typed space as a fifo.
+ * Free up FIFO structure associated with a typed space.
+ * Returns 0 if ffp was not open, 1 otherwise.
+ */
+int
+fifo_close(ffp)
+	FIFO *ffp;
+{
+} /* fifo_close() */
+/* Open a typed space as a fifo.
+ *
+ * Takes a typed_space that is already allocated, and a mode.    The type of
+ * the typed space must be a FIFO.  Only T_FIFO_SIC has been implimented
+ * (static, in-core fifo).
+ *
+ * The mode indicates whether to open for reading or writing.
+ *  mode == 0 means read only.
+ *  mode == 1 means write only.
+ *  Other values are illegal.
+ *
+ * Returns a pointer to an initialized FIFO structure.  FIFO structures are
+ * allocated from a pre-allocated array.  Returns F_NULL if it can't open
+ * the fifo.
+ */
+FIFO *
+fifo_open(fifo_space, mode)
+	typed_space *fifo_space;
+	int mode;
+{
+} /* fifo_open() */
+/* This is the typed space we will use for our FIFO operations.  */
+TYPED_SPACE(global_space, 128, T_FIFO_SIC);	/* Static In-Core Fifo.  */
+int
+main()
+{
+} /* main() */
+/* gift.c -- Prepare a gift of information for the program currently loaded.
+ *
+ * To pass a new data structure into the kernel:
+ *
+ * 1. Define your new data structure in typed.h.  You will probably want
+ *    to define some supporting routines for your data structure.  These
+ *    should go in a file by themselves.  Be sure to add the file to the
+ *    tboot Makefile.
+ * 
+ * 2. Write a routine that takes at least an ffp, which will generate your
+ *    data structure and write it into the ffp.  The routine should return 0
+ *    if it ran out of space in the FIFO.  Other return values are permissible,
+ *    but ignored.  Add arguments to prepare_gift() as needed.  It is called
+ *    only from the end of main() in tboot.c
+ *
+ * 3. Add a call to your routine to prepare_gift() in the section marked
+ *    FILL THE BOX.  This is an if statement with || seperated calls.  The
+ *    most important data structures should be called first, because later
+ *    calls will be skipped if the FIFO fills.
+ *
+ * 4. In the kernel (probably in a driver) you will want to add a loop to
+ *    look through the gift for your data structure:
+ *
+ *    FIFO *ffp;
+ *    typed_space *tp;
+ *
+ *    ffp = fifo_open(&boot_gift, 0);	-- Open gift for reading. 
+ * 
+ *    if (F_NULL == ffp) {
+ *	  indicate_error("Could not open boot_gift.");
+ *    } else {
+ *        while (T_NULL != (tp = fifo_read(ffp))) {	-- While not EOFIFO.
+ *	      if (T_MYTYPE == tp->ts_type) {	-- Is this my type?
+ *		  my_handler(tp->ts_data);	-- Process the data.
+ *	      }
+ *        }
+ *    }
+ *
+ *    Be sure to include fifo.c and typed.h into your kernel.
+ *	  
+ */
+/* We have to build the gift in the local segment and then copy it in
+ * place.  In a better world, the gift could be built in place.
+ */
+TYPED_SPACE(local_gift, GIFTBOX, T_FIFO_SIC); /* Static In-Core Fifo.  */
+/* Prepare a gift of information for the program currently loaded.
+ *
+ * The gift is a Static In-Core FIFO whose objects are typed spaces.
+ *
+ * cmd_line is the command line needby by gift_argf().
+ *
+ * It should be placed in memory at data_seg:offset.
+ */
+void
+prepare_gift(data_seg, offset, cmd_line)
+	uint16 data_seg;
+	uint16 offset;
+	char *cmd_line;
+{
+} /* prepare_gift() */
+/* Load the BIOS parameters loaded up by the startup code.  */
+int
+gift_drive_params(ffp)
+	FIFO *ffp;
+{
+} /* gift_drive_params() */
+/* We'd really rather have a dynamic in-core fifo, but they are not
+ * yet implimented.  We'll have to settle for a fixed length argument list.
+ */
+TYPED_SPACE(argf, BLOCK, T_FIFO_SIC);
+/*
+ * To read this item from bootgift, use the procedure outlined above in
+ * point 4 to find the entry marked T_STR_ARGF.  You must then explicitly
+ * recast it with RETYPE(tp->ts_data, T_FIFO_SIC).  Then you can open it
+ * as a FIFO, with code modeled on point 4 above.  This scheme seemed
+ * the simplest for uniquely identifying the argument FIFO.
+ * Each element of the FIFO is a T_STR_STR, so ts_data for these is
+ * just a NUL terminated string.  You can a
+ */
+/* Write an argument fifo into ffp from the command line cmd_line.
+ * Returns 0 if it runs out of space, 1 on success, and 2 if something else
+ * goes wrong.
+ */
+int
+gift_argf(ffp, cmd_line)
+	FIFO *ffp;
+	char *cmd_line;
+{
+} /* gift_argf() */
+/* Write a structure describing the boot partition into a fifo.
+ * Returns 1 on success, 0 if it runs out of space, or 2 if it
+ * can't read the boot block.
+ */
+int
+gift_rootdev(ffp)
+	FIFO *ffp;
+{
+} /* gift_rootdev() */
+/* Dump the contents of boot_gift.  */
+void
+dump_gift()
+{
+}
+/* Dump the contents of a fifo.  */
+void
+dump_fifo(fifo)
+	typed_space *fifo;
+{
+} /* dump_gift() */
+/* Dump a T_BIOS_DISK typed_space.  */
+void
+dump_bios_disk(a_disk)
+	BIOS_DISK *a_disk;
+{
+} /* dump_bios_disk() */
+/* Dump a T_BIOS_ROOTDEV typed_space.  */
+void
+dump_rootdev(a_rootdev)
+	BIOS_ROOTDEV *a_rootdev;
+{
+} /* dump_rootdev() */
+/*
+ * Handle the indirections in Unix-style file system.
+ *
+ * Uses a recursive scheme to follow up indirections.
+ *
+ * Needs optimization.  A good place to start would be caching of
+ * lookup tables.
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+extern BUF *bread();
+daddr_t vmap();
+daddr_t indirect();
+daddr_t ind_lookup();
+uint16 ind_index();
+/* Convert the given virtual block to a physical block for the given inode.
+ * ip points to the in-core inode for a file.
+ * vblockno is a block number relative to the start of that file.
+ */
+daddr_t
+vmap(ip, vblockno)
+	struct inode *ip;
+	daddr_t vblockno;
+{
+} /* vmap() */
+/* indirect(uint16 ind_level, daddr_t ind_table_ptr, daddr_t vblockno)
+ * Recursively follow an indirection for a given virtual block number
+ * vblockno.
+ * ind_level must be the level of indirection still un-resolved.
+ * ind_table is the physical block number of the next indirection.
+ */
+daddr_t
+indirect(ind_level, ind_table_ptr, vblockno)
+	uint16 ind_level;
+	daddr_t ind_table_ptr;
+	daddr_t vblockno;
+{
+} /* indirect() */
+/* ind_lookup(uint16 ind_level, daddr_t *ind_table, daddr_t vblockno)
+ * Look up the next level of block in table ind_table, for virtual
+ * block number vblockno.
+ * Note that this table is in DISK CANNONICAL format.  If the local
+ * notion of daddr_t is a different size from DISK CANONICAL daddr_t
+ */
+daddr_t
+ind_lookup(ind_level, ind_table, vblockno)
+	uint16 ind_level;
+	daddr_t *ind_table;
+	daddr_t vblockno;
+{
+}
+/* uint16 ind_index(uint16 ind_level, daddr_t vblockno);
+ * Calculate the index needed for virtual block vblockno into
+ * a table of the given indirection level.
+ */
+			 * NBN = 128 entries = 7 bit address.
+			 */
+uint16
+ind_index(ind_level, vblockno)
+	uint16 ind_level;
+	daddr_t vblockno;
+{}
+//////////
+/ From MSDOS MWC86 system call interface.
+/ Interrupt simulation.
+/ Modified for use with tertiary boot code for COHERENT.
+/ 
+/ Modified September 1991 by La Monte H. Yarroll <piggy@mwc.com>
+/
+/ DANGER!! THIS IS SELF MODIFYING CODE.  IT WILL ONLY WORK IN A STRICTLY
+/ SINGLE THREADED ENVIRONMENT.
+//////////
+//////////
+/ void
+/ intcall(src, dest, intnum)
+/ struct reg *src;		/* All regs are loaded except flags */
+/ struct reg *dest;		/* All regs are stored here */
+/ int intnum;			/* Int number */
+//////////
+src	=	6+RASIZE
+dest	=	src+PTRSIZE
+intnum	=	dest+PTRSIZE
+	.globl	intcall_
+intcall_:
+	push	si			/ Save register variables.
+	push	di
+	push	bp
+	mov	bp, sp
+	movb	al, intnum(bp)		/ Get intnum in AL
+	movb	cs:myint+1, al		/ Modify the code
+	Lds	si, src(bp)		/ Load DS:SI with src pointer.
+	mov	ax, (si)		/ Set AX
+	mov	bx, 2(si)		/ and BX
+	mov	cx, 4(si)		/ and CX
+	mov	dx, 6(si)		/ and DX
+	mov	di, 10(si)		/ and DI,
+	push	12(si)			/ save src DS,
+	mov	es, 14(si)		/ set ES
+	mov	si, 8(si)		/ and SI
+	pop	ds			/ and DS.
+					/ Actually do the interrupt.
+myint:	int	0			/ This instruction gets modified.
+/ The interrupt handler preserves SS:SP.
+/ The iret to the handler pops the handler address and flags pushed above,
+/ the iret from the handler pops the retint address and flags.
+retint:
+	mov	bp, sp			/ Restore BP.
+	pushf				/ Save result flags
+	push	es			/ and ES
+	push	ds			/ and DS
+	push	si			/ and SI.
+	mov	si, ss
+	mov	ds, si			/ Restore DS
+	mov	es, si			/ and ES.
+	Lds	si, dest(bp)		/ Get dest in DS:SI.
+	mov	(si), ax		/ Load dest with returned AX
+	mov	2(si), bx		/ and BX
+	mov	4(si), cx		/ and CX
+	mov	6(si), dx		/ and DX
+	pop	8(si)			/ and SI
+	mov	10(si), di		/ and DI
+	pop	12(si)			/ and DS
+	pop	14(si)			/ and ES
+	pop	16(si)			/ and flags.
+	pop	bp
+	pop	di
+	pop	si
+	Gret
+/ end of intcall.m
+/* l.out.c -- routines for manipulating l.out executable files.  */
+/* Convert l.out to load table.
+ * Used to generate loading instructions for use by tboot main().
+ * Returns true on successful translation.
+ */
+int
+lout2load(ip, table, data_seg)
+	struct inode *ip;		/* input: File to read.		*/
+	struct load_segment table[];	/* output: How to read it.	*/
+	uint16 *data_seg;	/* output: Where to point es.	*/
+{
+}
+/*
+ * Get entries from l.out name list.
+ */
+void
+l_out_nlist(fn, nlp)
+char *fn;
+struct nlist *nlp;
+{
+}
+/* Mini-monitor for testing boot code.
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+void
+monitor()
+{
+}
+/* objects.c -- routines for handling different object formats.
+ * Currently, only COFF and COHERENT l.out are supported.
+ */
+/* Extract information from an object file that describes how to
+ * load an executable.
+ * The magic number of the file is in "magic".
+ * The object file's inode is in "ip".
+ *
+ * The information needed is extracted into "table".
+ * The value for the data segment is put in "data_seg".
+ *
+ * Returns TRUE if the needed information could be extracted, FALSE ow.
+ */
+int
+object2load(magic, ip, table, data_seg)
+	uint16 magic;
+	struct inode *ip;
+	struct load_segment table[];
+	uint16 *data_seg;
+{
+} /* object2load() */
+/* Look up symbol(s) in an object file. 
+ * searches  the name list  (symbol table) of  the load module
+ * "filename" for each symbol in the array pointed to by "nlp".
+ *
+ * nlp points to an array of nlist structures, terminated by a
+ * structure with a null string as its n_name member.
+ *
+ * If "filename" is not a load module or has had its symbol table
+ * stripped, all returned n_type and n_value entries will be zero.
+ *
+ */
+uint16
+object_nlist(magic, filename, symbol)
+	uint16 magic;
+	char *filename;
+	char *symbol;
+{
+} /* object_nlist() */
+/* Determine the value for sys_base based on the type of the load file.  */
+uint16
+object_sys_base(magic)
+	int magic;
+{
+} /* object_sys_base() */
+main()
+{
+} /* main () */
+/*
+ * pacifier.c - state machine for putting something interesting on the screen.
+ */
+int slow_flag = FALSE;		/* Slow down pacifier.  */
+int feet_flag = FALSE;		/* Print footprints?  */
+void pac_init();		/* Initialise the state machine.  */
+void pac_cleanup();		/* Clean up after the state machine.  */
+void pacifier();		/* Run the next step of the state machine.  */
+void subliminal();	/* Print a subliminal message.  */
+static int pac_inited = FALSE;	/* Has pac_init() been called?  */
+static int pac_dirty = FALSE;	/* Has pacifier() been called?  */
+static int state;
+static int substate;
+static int count;
+void
+pacifier()
+{
+} /* pacifier() */
+/*
+ * Print a subliminal message on the console.
+ * It does this by printing the message, backspacing over it,
+ * spacing over it, and the backspacing again.
+ */
+void
+subliminal(msg)
+	char *msg;
+{
+} /* subliminal() */
+/*
+ * Initialize the pacifier state machine.
+ */
+void
+pac_init()
+{
+} /* pac_init() */
+/*
+ * Clean up the screen after the pacifier.
+ */
+void
+pac_cleanup()
+{
+} /* pac_cleanup() */
+/* sys.c -- Simulate kernel calls for file i/o.
+ */
+int errno;
+/* Table of file descriptors.  */
+static FD u_filep[NUFILE];
+static struct inode ip_table[NUFILE];
+static inited = (1==2);
+/* Open a file.
+ * Takes a file name, file; and a way of opening it, type as follows:
+ * 	0	Read only
+ *	1	Write
+ *	2	Read and write
+ * Only read is implimented.
+ *
+ * Returns a file descriptor, or -1 if the open failed.
+ */
+int
+open(file, type)
+	char *file;
+	int type;
+{
+} /* open() */
+/* Read from a file.
+ * Takes a file descriptor, a buffer, and a length to read.
+ *
+ * Returns the number of characters read, or -1 if an error occurs.
+ */
+int
+read(fd, buffer, n)
+	int fd;
+	char *buffer;
+	int n;
+{
+} /* read() */
+/* Close a file.
+ * Takes a file descriptor.
+ */
+int
+close(fd)
+	int fd;
+{
+} /* close() */
+/* Set a read/write position.
+ * Changes the seek position for file descriptor fd.
+ * where and  how describe the  new seek position.   where gives the
+ * number of  bytes that you wish  to move the seek  position; it is
+ * measured from the beginning of the  file if how is zero, from the
+ * current seek position if how is  one, or from the end of the file
+ * if how is  two.  A successful call to lseek  returns the new seek
+ * position; a failure returns (int32) -1.
+ */
+long
+lseek(fd, where, how)
+	int fd;
+	long where;
+	int how;
+{
+} /* lseek() */
+/* tboot.c -- tertiary boot
+ * This is invoked by the secondary boot to do all the things we can't
+ * do in just 512 bytes.
+ *
+ * Includes an interpreter for builtin commands.  Just type "info" or "dir"
+ * to get disk information, or a directory listing of "/".
+ *
+ * Can load an image up to 1 gigabyte in length.  Segments can be as
+ * big as the whole file.
+ *
+ * La Monte H. Yarroll <piggy@mwc.com>, September 1991
+ */
+/* Potentially communicated information from an earlier tboot.  */
+TYPED_SPACE(boot_gift, 8192, T_FIFO_SIC);	/* Static In-Core FIFO.  */
+main()
+{
+}

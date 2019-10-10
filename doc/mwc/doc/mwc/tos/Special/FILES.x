@@ -1,0 +1,9 @@
+/v/fwb/doc/mwc/lx/TOS/xbios
+/v/fwb/doc/mwc/lx/TOS/xbios.h
+/v/fwb/doc/mwc/lx/TOS/xbtimer
+/v/fwb/doc/mwc/lx/MULTI/xctype.h
+/v/fwb/doc/mwc/lx/MULTI/xmath.h
+/v/fwb/doc/mwc/lx/MULTI/xoff
+/v/fwb/doc/mwc/lx/MULTI/xon
+/v/fwb/doc/mwc/lx/MULTI/xstdio.h
+/v/fwb/doc/mwc/lx/MULTI/xtime.h

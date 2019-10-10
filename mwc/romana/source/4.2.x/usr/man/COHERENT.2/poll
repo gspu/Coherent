@@ -1,0 +1,100 @@
+ppoollll() -- System Call (libc)
+
+Query several I/O devices
+#iinncclluuddee <ppoollll.hh>
+iinntt ppoollll(_f_d_s, _n_f_d_s, _t_i_m_e_o_u_t)
+ssttrruucctt ppoollllffdd _f_d_s[]; uunnssiiggnneedd lloonngg _n_f_d_s; iinntt _t_i_m_e_o_u_t;
+
+The COHERENT system  call ppoollll() polls one or more  file streams for one or
+more polling conditions.   _f_d_s gives the address of an  array of ssttrruucctts of
+type ppoollllffdd, which has the following structure:
+
+struct pollfd {
+    int fd; /* file descriptor */
+    short   events; /* requested events */
+    short   revents;    /* returned events */
+};
+
+Field ffdd gives the file descriptor for a file stream, as returned by a call
+to ooppeenn(),  or ccrreeaatt(). Fields  eevveennttss and rreevveennttss  give, respectively, the
+polling conditions  that interest you,  and those that  have occurred.  The
+legal conditions, as defined in header file ppoollll.hh, are as follows:
+
+PPOOLLLLIINN  Input, or  a non-priority  or file-descriptor  passing  message, is
+        available for reading.  In rreevveennttss, this  bit is mutually exclusive
+        with PPOOLLLLPPRRII.
+
+PPOOLLLLPPRRII
+        A priority message is available for  reading.  In rreevveennttss, this bit
+        is mutually exclusive with PPOOLLLLIINN.
+
+PPOOLLLLOOUUTT
+        Output may be performed; the output queue is not full.
+
+PPOOLLLLEERRRR
+        An error message has arrived.  This  field is used only in rreevveennttss,
+        and is ignored in eevveennttss.
+
+PPOOLLLLHHUUPP
+        A hangup has occurred.  This field  is used only in rreevveennttss, and is
+        ignored in eevveennttss.
+
+PPOOLLLLNNVVAALL
+        The specified ffdd value does not belong to an open I/O stream.  This
+        field is used only in rreevveennttss, and is ignored in eevveennttss.
+
+_n_f_d_s gives the number of entries in _f_d_s.
+
+For each array element _f_d_s[_i],   ppoollll()   examines   the  file   descriptor
+_f_d_s[_i].ffdd for the events specified by bits set in _f_d_s[_i].eevveennttss, and places
+the resulting status into _f_d_s[_i].rreevveennttss.   If the  ffdd value  is  less than
+zero, rreevveennttss for that entry is  set to zero.  Event flags PPOOLLLLIINN, PPOOLLLLPPRRII,
+and PPOOLLLLOOUUTT are set in rreevveennttss  only if the same bits are set in eevveennttss _a_n_d
+the  corresponding  condition holds.   Event  flags  PPOOLLLLHHUUPP, PPOOLLLLEERRRR,  and
+PPOOLLLLNNVVAALL are  always set in  rreevveennttss if the  corresponding condition holds,
+regardless of the contents of eevveennttss.
+
+If none of the defined events for any of the file descriptors has occurred,
+ppoollll() waits  for _t_i_m_e_o_u_t milliseconds.   Because the system  clock runs at
+100 hertz,  the value used for  _t_i_m_e_o_u_t is the next  higher multiple of ten
+milliseconds.  If _t_i_m_e_o_u_t  is zero, ppoollll() returns immediately.  If _t_i_m_e_o_u_t
+is -1, ppoollll() blocks until a  requested event occurs or a signal interrupts
+the call.
+
+ppoollll() returns the number of file descriptors for which rreevveennttss is nonzero.
+It  returns zero  if it  timed out  with no matching  events.  If  the call
+failed, it returns -1 and sets eerrrrnnoo to an appropriate value.
+
+_E_x_a_m_p_l_e
+For an example of using ppoollll() to read a serial port, see the Lexicon entry
+for iiooccttll(). The following example uses ppoollll() to sleep for a fraction of a
+second.
+
+#include <poll.h>
+#include <sys/v_types.h>
+#include <sys/times.h>
+
+main()
+{
+    struct pollfd fds;
+    int timeout;
+    struct tms tmp;
+    int before; /* time in millisec before poll() */
+    int after; /* time in millisec after poll() */
+
+    timeout = 270; /* sleep time is timeout * 10 millisec */
+
+    fds.fd = -1; /* no file needed for sleeping */
+
+    before = times(&tmp); /* Get time before poll */
+
+    /* sleep not less than 0.270 sec */
+    poll(&fds, 1, timeout);
+
+    after = times(&tmp); /* Get time after poll */
+
+    printf("%d\n", (after - before) * 1000 / CLK_TCK);
+}
+
+_S_e_e _A_l_s_o
+lliibbcc, ppoollll.hh

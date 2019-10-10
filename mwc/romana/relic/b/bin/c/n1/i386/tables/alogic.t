@@ -1,0 +1,91 @@
+//////////
+/ n1/i386/tables/alogic.t
+//////////
+
+/////////
+/
+/ Assigned AND (&=), assigned OR (|=), assigned XOR (^=).
+/ [OP0] is ZAND, ZOR or ZXOR.
+/ The [TL OP0] macro maps e.g. ZOR into ZORB or ZORW; see n1/i386/outmch.c.
+/
+/////////
+
+AAND:
+AOR:
+AXOR:
+
+//////////
+/ Longs.
+//////////
+
+/ Long register op= easy.
+%	PEFFECT|PVALUE|PREL
+	LONG		ANYR	*	*	TEMP
+		REG|MMX		LONG
+		EASY|MMX	LONG
+/ Integer op= immediate.
+%	PEFFECT|PVALUE|PREL
+	LONG		ANYR	*	*	TEMP
+		ADR|LV		SINT|UINT
+		IMM|MMX		LONG
+			[TL OP0]	[AL],[TL AR]
+		[IFV]	[TL ZMOVSX]	[R],[AL]
+		[IFR]	[REL0]		[LAB]
+
+/ Integer op= long.
+%	PEFFECT|PVALUE|PREL|P_SRT|PBYTE
+	LONG		ANYR	*	ANYR	TEMP
+		ADR|LV		SINT|UINT
+		TREG		LONG
+			[TL OP0]	[AL],[TL R]
+		[IFV]	[TL ZMOVSX]	[R],[AL]
+		[IFR]	[REL0]		[LAB]
+
+/////////
+/
+/ Fields.
+/ The modifier masks and shifts the right subtree appropriately.
+/ The right therefore may be simply OPed into the left.
+/ Distinguish between signed and unsigned fields.
+/ If the value is needed, unsigned result must be masked;
+/ the sign extend shifts make the mask unnecessary, so it gets optimized out.
+/
+/////////
+
+/ Signed field op= immediate.
+%	PEFFECT|PVALUE
+	FS32		ANYR	*	*	TEMP
+		ADR|LV		FLD
+		IMM|MMX		LONG
+			[TL OP0]	[AL],[TL AR]
+		[IFV]	[TL ZMOVZX]	[R],[AL]
+
+/ Signed field op= long.
+%	PEFFECT|PVALUE|P_SRT|PBYTE
+	FS32		ANYR	*	ANYR	TEMP
+		ADR|LV		FLD
+		TREG		LONG
+			[TL OP0]	[AL],[TL R]
+		[IFV]	[TL ZMOVZX]	[R],[AL]
+
+/ Unsigned field op= immediate.
+%	PEFFECT|PVALUE
+	FU32		ANYR	*	*	TEMP
+		ADR|LV		FLD
+		IMM|MMX		LONG
+			[TL OP0]	[AL],[TL AR]
+		[IFV]	[TL ZMOVZX]	[R],[AL]
+		[IFV]	[ZAND]		[R],[EMASK]
+
+/ Unsigned long field op= long.
+%	PEFFECT|PVALUE|P_SRT|PBYTE
+	FU32		ANYR	*	ANYR	TEMP
+		ADR|LV		FLD
+		TREG		LONG
+			[TL OP0]	[AL],[TL R]
+		[IFV]	[TL ZMOVZX]	[R],[AL]
+		[IFV]	[ZAND]		[R],[EMASK]
+
+//////////
+/ end of n1/i386/tables/alogic.t
+//////////

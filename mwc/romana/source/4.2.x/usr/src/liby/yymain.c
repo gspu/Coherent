@@ -1,0 +1,4 @@
+main()
+{
+	return yyparse();
+}

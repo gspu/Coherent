@@ -1,0 +1,9 @@
+/v/fwb/doc/mwc/lx/TOS/kbdvbase
+/v/fwb/doc/mwc/lx/TOS/kbrate
+/v/fwb/doc/mwc/lx/TOS/kbrate_
+/v/fwb/doc/mwc/lx/TOS/keyboard
+/v/fwb/doc/mwc/lx/TOS/keytbl
+/v/fwb/doc/mwc/lx/ANSI/keywords
+/v/fwb/doc/mwc/lx/TOS/kgettime
+/v/fwb/doc/mwc/lx/TOS/kick
+/v/fwb/doc/mwc/lx/TOS/ksettime

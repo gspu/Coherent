@@ -1,0 +1,47 @@
+/*
+ *	Output edit box and edit input field
+ *
+ *      Copyright (c) 1990-93 by Udo Munk
+ */
+
+#ifdef AIX
+#define NLS
+#endif
+
+#include <curses.h>
+#include <string.h>
+ 
+extern WINDOW *open_window();
+extern int close_window();
+extern int edit_field();
+
+edit_box(t, s, n, e, fn)
+char *t[], *s;
+int n, e;
+int (*fn) ();
+{
+	register int i, j;
+	int bw, bh, nt;
+	int ret;
+	WINDOW *w;
+
+	i = bh = 0;
+	bw = n + 2;
+	while (t[i] != NULL)
+		if ((j = strlen(t[i++]) + 2) > bw)
+			bw = j; /* with of the box */
+	bh = (i == 0) ? 3 : i + 4;
+	nt = i;
+	if ((w = open_window(bh, bw, (LINES-bh)/2, (COLS-bw)/2)) == (WINDOW *) 0)
+		nomem();
+	wattron(w, A_REVERSE);
+	for (i = 0; i < bh; i++)/* output inverted box */
+		for (j = 0; j < bw; j++)
+			mvwaddch(w, i, j, ' ');
+	for (i = 0; i < nt; i++)
+		mvwaddstr(w, i+1, 1, t[i]);
+	wattroff(w, A_REVERSE);
+	ret = edit_field(w, ((nt>0) ? nt+2 : nt+1), (bw-n)/2, s, n, e, fn);
+	close_window(w);
+	return(ret);
+}

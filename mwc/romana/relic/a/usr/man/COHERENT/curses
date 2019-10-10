@@ -1,0 +1,726 @@
+
+
+curses                       Overview                      curses
+
+
+
+
+Library of screen-handling functions
+
+
+curses  is a  set of  routines that allow  you to  manipulate the
+screen in a sophisticated manner.  These routines use the tteerrmmccaapp
+functions to  read information  about the user's  terminal.  This
+allows  you  to  write  programs  that  can  perform  rudimentary
+graphics on a wide variety of terminals.
+
+curses contains routines that do the following:
+
+*  Move the cursor about the screen.
+
+*  Insert text onto the screen, either in normal or reverse video
+   (if supported by the display device).
+
+*  Read what is typed by the user and display it properly.
+
+*  Organize  the screen into one or  more rectangular regions, or
+   _w_i_n_d_o_w_s, optionally draw a border around each, and manage each
+   independently.
+
+curses  organizes  the screen  into  a  two-dimensional array  of
+cells, one cell for  every character that the device can display.
+It maintains in memory an image of the screen, called the curscr.
+A second  image, called the  stdcur, is manipulated  by the user;
+when the  user has finished  a given manipulation,  curses copies
+the changes from the stdcur to the curscr, which results in their
+being displayed on the physical screen.  This act of copying from
+the stdscr to the curscr is called refreshing the screen.  curses
+keeps track of where all changes have begun and ended between one
+refresh and  the next; this lets it rewrite  only the portions of
+the curscr  that the user has changed, and  so speed up rewriting
+of the screen.
+
+curses records the position of a ``logical cursor'', which points
+to the  position in the  stdscr that is being  manipulated by the
+user, and also records the position of the physical cursor.  Note
+that the  two are  not necessarily  identical: it is  possible to
+manipulate the logical  cursor without repositioning the physical
+cursor, and  vice versa, depending  on the task you  wish to per-
+form.
+
+Most curses routines  work by manipulating WINDOW object.  WINDOW
+is defined in the header curses.h as follows:
+
+
+#define WINDOW _win_st
+struct _win_st {
+     short               _cury, _curx;
+     short               _maxy, _maxx;
+     short               _begy, _begx;
+     short               _flags;
+     short               _ch_off;
+
+
+COHERENT Lexicon                                           Page 1
+
+
+
+
+curses                       Overview                      curses
+
+
+
+     bool                _clear;
+     bool                _leave;
+     bool                _scroll;
+     char                **_y;
+     short               *_firstch;
+     short               *_lastch;
+     struct _win_st      *_nextp, *_orig;
+};
+
+
+Type bool is defined in curses.h; an object of this type can hold
+the value of true (nonzero) or false (zero).
+
+The following describes each WINDOW field in detail.
+
+_ccuurryy, _ccuurrxx
+          Give the Y and  X positions of the logical cursor.  The
+          upper  left corner  of  the window  is, by  definition,
+          position  0,0.  Note  that curses  by  convention gives
+          positions as  Y/X (column/row)  rather than X/Y,  as is
+          usual elsewhere.
+
+_mmaaxxyy, _mmaaxxxx
+          Width and height of the window.
+
+_bbeeggyy, _bbeeggxx
+          Position of  the upper left corner  of the window rela-
+          tive to  the upper left corner  of the physical screen.
+          For example, if  the window's upper left corner is five
+          rows from  the top of  the screen and  ten columns from
+          the left,  then _begy and _begx will be  set to ten and
+          five, respectively.
+
+_ffllaaggss     One or  more of  the  following flags,  logically OR'd
+          together:
+
+          _SSUUBBWWIINN -- Window is a sub-window
+          _EENNDDLLIINNEE -- Right edge of window touches edge of the screen
+          _FFUULLLLWWIINN -- Window fills the physical screen
+          _SSCCRROOLLLLWWIINN -- Window touches lower right corner of physical screen
+          _FFUULLLLIINNEE -- Window extends across entire physical screen
+          _SSTTAANNDDOOUUTT -- Write text in reverse video
+          _IINNSSLL -- Line has been inserted into window
+          _DDEELLLL -- Line has been deleted from window
+
+
+_cchh_ooffff   Character offset.
+
+_cclleeaarr    Clear  the physical screen  before next refresh  of the
+          screen.
+
+_lleeaavvee    Do  not move the  physical cursor after  refreshing the
+          screen.
+
+
+
+
+COHERENT Lexicon                                           Page 2
+
+
+
+
+curses                       Overview                      curses
+
+
+
+_ssccrroollll   Enable scrolling for this window.
+
+_yy        Pointer to an array of pointers to the character arrays
+          that hold the window's text.
+
+_ffiirrssttcchh  Pointer  to an array of integers, one  for each line in
+          the window,  whose value is the  first character in the
+          line to  have been altered by the user.   If a line has
+          not been  changed, then its corresponding  entry in the
+          array is set to _NNOOCCHHAANNGGEE.
+
+_llaassttcchh    Same as  _ffiirrssttcchh, except that  it indicates  the last
+          character to have been changed on the line.
+
+_nneexxttpp    Point to next window.
+
+_oorriigg     Point to parent window.
+
+When curses  is first  invoked, it  defines the entire  screen as
+being one  large window.  The  programmer has the  choice of sub-
+dividing an existing window  or creating new windows; when a win-
+dow is  subdivided, it shares the same curscr  as its parent win-
+dow, whereas a new window has its own stdscr.
+
+Mark Williams Company will document its curses library in full in
+a later  release of this  manual.  The following  table, however,
+summarizes the functions  and macros that that compose the curses
+library.
+
+aaddddcchh(_c_h) cchhaarr _c_h;
+     Insert a character into stdscr.
+
+aaddddssttrr(_s_t_r) cchhaarr *_s_t_r;
+     Insert a string into stdscr.
+
+bbooxx(_w_i_n, _v_e_r_t, _h_o_r) WWIINNDDOOWW *_w_i_n; cchhaarr _v_e_r_t, _h_o_r;
+     Draw a box.  vert is the character used to draw the vertical
+     lines, and  hor is used  to draw the  horizontal lines.  For
+     example
+
+          box(win, '|', '-');
+
+     draws a box around window  win, using `|' to draw the verti-
+     cal lines and `-' to draw the horizontal lines.
+
+cclleeaarr()
+     Clear the stdscr.
+
+cclleeaarrookk(_w_i_n,_b_f) WWIINNDDOOWW *_w_i_n; bbooooll _b_f;
+     Set  the clear  flag for  window win.   This will  clear the
+     screen at the next refresh, but not reset the window.
+
+ccllrrttoobboott()
+     Clear from the position  of the logical cursor to the bottom
+     of the window.
+
+
+COHERENT Lexicon                                           Page 3
+
+
+
+
+curses                       Overview                      curses
+
+
+
+
+ccllrrttooeeooll()
+     Clear from the logical cursor to the end of the line.
+
+ccrrmmooddee()
+     Turn  on  control-character mode;  i.e.,  force terminal  to
+     receive cooked input.
+
+ddeellcchh()
+     Delete  a  character  from stdscr;  shift  the  rest of  the
+     characters on the line one position to the left.
+
+ddeelleetteellnn()
+     Delete all  of the  current line; shift  up the rest  of the
+     lines in the window.
+
+ddeellwwiinn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Delete window win.
+
+eecchhoo()
+     Turn on  both physical and logical  echoing; i.e., character
+     are automatically inserted  into the current window and onto
+     the physical screen.
+
+eennddwwiinn()
+     Terminate text processing with curses.
+
+eerraassee()
+     Erase a window; do not clear the screen.
+
+ggeettcchh()
+     Read a character from the terminal.
+
+ggeettssttrr(_s_t_r) cchhaarr *_s_t_r;
+     Read a string from the terminal.
+
+ggeettyyxx(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x;
+     Read the position of the  logical cursor in win and store it
+     in y,x.  Note that this is a macro, and due to its construc-
+     tion the variables y and x must be integers, not pointers to
+     integers.
+
+iinncchh()
+     Read the  character pointed to by  the stdscr's logical cur-
+     sor.
+
+WWIINNDDOOWW *iinniittssccrr()
+     Initialize curses.
+
+iinnsscchh(_c_h) cchhaarr _c_h;
+     Insert character ch into the stdscr.
+
+iinnsseerrttllnn()
+     Insert a blank line into stdscr, above the current line.
+
+
+
+COHERENT Lexicon                                           Page 4
+
+
+
+
+curses                       Overview                      curses
+
+
+
+lleeaavveeookk(_w_i_n,_b_f) WWIINNDDOOWW *_w_i_n; bbooooll _b_f;
+     Set _leave in win to bf.
+
+cchhaarr *lloonnggnnaammee(_t_e_r_m_b_u_f, _n_a_m_e) cchhaarr *_t_e_r_m_b_u_f, *_n_a_m_e;
+     Copy the long name for the terminal from termbuf into name.
+
+mmoovvee(_y,_x) sshhoorrtt _y,_x;
+     Move logical cursor to position y,x in stdscr.
+
+mmvvaaddddbbyytteess(_y,_x,_d_a,_c_o_u_n_t) iinntt _y,_x; cchhaarr *_d_a; iinntt _c_o_u_n_t;
+     Move to  position y,x and print count  bytes from the string
+     pointed to by da.
+
+mmvvaaddddcchh(_y,_x,_c_h) sshhoorrtt _y,_x; cchhaarr _c_h;
+     Move the logical cursor to position y,x and insert character
+     ch.
+
+mmvvaaddddssttrr(_y,_x,_s_t_r) sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move the  logical cursor to  position y,x and  insert string
+     str.
+
+mmvvccuurr(_y__c_u_r,_x__c_u_r,_y__n_e_w,_x__n_e_w) iinntt _y__c_u_r, _x__c_u_r, _y__n_e_w, _x__n_e_w;
+     Move   cursor   from   position  y_cur,x_cur   to   position
+     y_new,x_new.
+
+mmvvddeellcchh(_y,_x) sshhoorrtt _y,_x;
+     Move to position y,x and delete the character found there.
+
+mmvvggeettcchh(_y,_x) sshhoorrtt _y,_x;
+     Move to position y,x and get a character through stdscr.
+
+mmvvggeettssttrr(_y,_x,_s_t_r) sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move to position y,x,  get a string through stdscr, and copy
+     it into string.
+
+mmvviinncchh(_y,_x) sshhoorrtt _y,_x;
+     Move to position y,x and get the character found there.
+
+mmvviinnsscchh(_y,_x,_c_h) sshhoorrtt _y,_x; cchhaarr _c_h;
+     Move to position y,x and insert a character into stdscr.
+
+mmvvwwaaddddbbyytteess(_w_i_n,_y,_x,_d_a,_c_o_u_n_t) WWIINNDDOOWW *_w_i_n; iinntt _y,_x; cchhaarr *_d_a; iinntt
+     _c_o_u_n_t;
+     Move to  position y,x and print count  bytes from the string
+     pointed to by da into window win.
+
+mmvvwwaaddddcchh(_w_i_n,_y,_x,_c_h) WWIINNDDOOWW *_w_i_n; iinntt _y,_x; cchhaarr _c_h;
+     Move  to position  y,x and insert  character ch  into window
+     win.
+
+mmvvwwaaddddssttrr(_w_i_n,_y,_x,_s_t_r) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move to position y,x and insert character ch.
+
+mmvvwwddeellcchh(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; iinntt _y,_x;
+     Move  to position  y,x and delete  character ch  from window
+
+
+COHERENT Lexicon                                           Page 5
+
+
+
+
+curses                       Overview                      curses
+
+
+
+     win.
+
+mmvvwwggeettcchh(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x;
+     Move to position y,x and get a character.
+
+mmvvwwggeettssttrr(_w_i_n,_y,_x,_s_t_r) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x; cchhaarr *_s_t_r;
+     Move to position y,x, get a string, and write it into str.
+
+mmvvwwiinn(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; iinntt _y,_x;
+     Move window win to position y,x.
+
+mmvvwwiinncchh(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x;
+     Move to position y,x and get character found there.
+
+mmvvwwiinnsscchh(_w_i_n,_y,_x,_c_h) WWIINNDDOOWW *_w_i_n; sshhoorrtt _y,_x; cchhaarr _c_h;
+     Move to position y,x and insert character ch there.
+
+WWIINNDDOOWW *nneewwwwiinn(lliinneess, ccoollss, yy11, xx11) iinntt _l_i_n_e_s, _c_o_l_s, _y_1, _x_1;
+     Create a  new window.  The  new window is  lines lines high,
+     cols columns  wide, with  the upper-left corner  at position
+     y1,x1.
+
+nnll()  Turn  on  newline  mode;  i.e.,  force terminal  to  output
+     <newline> after <linefeed>.
+
+nnooccrrmmooddee()
+     Turn off control-character mode; i.e., force terminal to ac-
+     cept raw input.
+
+nnooeecchhoo()
+     Turn off echo mode.
+
+nnoonnll()
+     Turn off newline mode.
+
+nnoorraaww()
+     Turn off raw mode.
+
+oovveerrllaayy(_w_i_n_1,_w_i_n_2) WWIINNDDOOWW *_w_i_n_1, _w_i_n_2;
+     Copy  all  characters,  except  spaces, from  their  current
+     positions in win1 to identical positions in win2.
+
+oovveerrwwrriittee(_w_i_n_1,_w_i_n_2) WWIINNDDOOWW *_w_i_n_1, _w_i_n_2;
+     Copy all  characters, including  spaces, from win1  to their
+     identical positions in win2.
+
+pprriinnttww(_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N])    cchhaarr   *_f_o_r_m_a_t;    [_d_a_t_a   _t_y_p_e]
+     _a_r_g_1,.._a_r_g_N;
+     Print formatted text on the standard screen.
+
+rraaww()
+     Turn  on raw  mode; i.e.,  kernel does  not process  what is
+     typed at the keyboard, but passes it directly to curses.  In
+     normal (or _c_o_o_k_e_d) mode, the kernel intercepts and processes
+     the  control characters  <ctrl-C>,  <ctrl-S>, <ctrl-Q>,  and
+
+
+COHERENT Lexicon                                           Page 6
+
+
+
+
+curses                       Overview                      curses
+
+
+
+     <ctrl-Y>.  See the entry for stty for more information.
+
+rreeffrreesshh()
+     Copy the contents of stdscr to the physical screen.
+
+rreesseettttyy()
+     Reset the terminal flags to values stored by earlier call to
+     savetty.
+
+ssaavveettttyy()
+     Save the current terminal settings.
+
+ssccaannww(_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N])    cchhaarr    *_f_o_r_m_a_t;   [_d_a_t_a    _t_y_p_e]
+     _a_r_g_1,.._a_r_g_N;
+     Read the standard input; translate what is read into the ap-
+     propriate data type.
+
+ssccrroollll(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Scroll win up by one line.
+
+ssccrroollllookk(_w_i_n,_b_f) WWIINNDDOOWW *_w_i_n; bbooooll _b_f;
+     Permit  or forbid  scrolling of  window win,  depending upon
+     whether bf is set to true or false.
+
+ssttaannddeenndd()
+     Turn off standout mode.
+
+ssttaannddoouutt()
+     Turn on  standout mode for  text.  Usually, this  means that
+     text will be displayed in reverse video.
+
+WWIINNDDOOWW *ssuubbwwiinn(_w_i_n,_l_i_n_e_s,_c_o_l_s,_y_1,_x_1) iinntt _w_i_n,_l_i_n_e_s,_c_o_l_s,_y_1,_x_1;
+     Create a sub-window  in window win.  New sub-window is lines
+     lines  high, cols  columns wide,  and  is fixed  at position
+     y1,x1.  Note that the position is relative to the upper-left
+     corner of the physical screen.
+
+ttoouucchhwwiinn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Copy all characters in window win to the screen.
+
+wwaaddddcchh(_w_i_n,_c_h) WWIINNDDOOWW *_w_i_n; cchhaarr _c_h;
+     Add character ch win.
+
+wwaaddddssttrr(_w_i_n,_s_t_r) WWIINNDDOOWW *_w_i_n; cchhaarr *_s_t_r;
+     Add the string pointed to by str to window win.
+
+wwcclleeaarr(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window  win.  Move cursor to position  0,0 and set the
+     screen's clear flag.
+
+wwccllrrttoobboott(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window win from current position to the bottom.
+
+wwccllrrttooeeooll(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window win from the current position to the end of the
+
+
+COHERENT Lexicon                                           Page 7
+
+
+
+
+curses                       Overview                      curses
+
+
+
+     line.
+
+wwddeellcchh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Delete the character  at the current position in window win;
+     shift all  remaining characters to the  right of the current
+     position one position left.
+
+wwddeelleetteellnn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Delete the  current line  and shift  all lines below  it one
+     line up.
+
+wweerraassee(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Clear window  win.  Move the  cursor to position  0,0 but do
+     not set the screen's clear flag.
+
+wwggeettcchh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Read one character from the standard input.
+
+wwggeettssttrr(_w_i_n,_s_t_r) WWIINNDDOOWW *_w_i_n; cchhaarr *_s_t_r;
+     Read a string from the  standard input; write it in the area
+     pointed to by str.
+
+wwiinncchh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Force  the next  call  to refresh()  to  rewrite the  entire
+     screen.
+
+wwiinnsscchh(_w_i_n,_c_h) WWIINNDDOOWW *_w_i_n; cchhaarr _c_h;
+     Insert character ch into window win at the current position.
+     Shift all existing characters one position to the right.
+
+wwiinnsseerrttllnn(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Insert a blank line into window win at the current position.
+     Move all lines down by one position.
+
+wwmmoovvee(_w_i_n,_y,_x) WWIINNDDOOWW *_w_i_n; iinntt _y, _x;
+     Move current position in the window win to position y,x.
+
+wwpprriinnttww(_w_i_n,_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N])  WWIINNDDOOWW  *_w_i_n;  cchhaarr  *_f_o_r_m_a_t;
+     [_d_a_t_a _t_y_p_e] aarrgg11,..aarrggNN;
+     Format text  and print it to the  current position in window
+     win.
+
+wwrreeffrreesshh(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Refresh a window.
+
+wwssccaannww(_w_i_n,_f_o_r_m_a_t[,_a_r_g_1,..._a_r_g_N])  WWIINNDDOOWW   *_w_i_n;  cchhaarr  *_f_o_r_m_a_t;
+     [_d_a_t_a _t_y_p_e] _a_r_g_1,.._a_r_g_N;
+     Read standard input from the current position in window win,
+     format it, and store it in the indicated places.
+
+wwssttaannddeenndd(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Turn off standout (reverse video) mode for window win.
+
+wwssttaannddoouutt(_w_i_n) WWIINNDDOOWW *_w_i_n;
+     Turn on standout (reverse video) mode for window win.
+
+
+COHERENT Lexicon                                           Page 8
+
+
+
+
+curses                       Overview                      curses
+
+
+
+
+These routines  are declared and defined in  the header file cur-
+ses.h.
+
+***** Structure of a curses Program *****
+
+To use  the curses routines,  a program must  included the header
+file curses.h, which  declares and defines the functions and mac-
+ros that comprise the curses library.
+
+Before  a program  can perform any  graphics operations,  it must
+call the function initscr() to initialize the curses environment.
+Then, the program must call cmdwind() to open the curscr.
+
+As noted  above, curses manipulates text in a  copy of the screen
+that  it maintains  in memory.  After  a program  has manipulated
+text,  it must  call  refresh() to  copy  these alterations  from
+memory to the physical  screen.  (This is done because writing to
+the screen  is slow; this  scheme permits mass  alterations to be
+made to copy in memory, then written to the screen in a batch.)
+
+Finally, when  the program has  finished working with  curses, it
+must call the  function endwin().  This frees memory allocated by
+curses,  and   generally  closes  down   the  curses  environment
+gracefully.
+
+***** Example *****
+
+The following  program, called  curexample.c, gives a  simple ex-
+ample of  programming with curses.  To  compile this program, use
+the command line:
+
+
+     cc curexample.c -lcurses -lterm
+
+
+Note that order in which the libraries are called is significant.
+
+When this  program is run,  it clears the screen,  then waits for
+you to  type a Y coordinate,  a space, and then  an X coordinate.
+Note that these  do not echo on the screen.   It moves the cursor
+to the  requested coordinates, and there  display any non-numeric
+string that you type.   If you type numerals, curexample will as-
+sume that  you wish  to move  the cursor to  a new  location.  To
+exit, type <ctrl-C>.
+
+
+#include <ascii.h>
+#include <ctype.h>
+#include <curses.h>
+
+
+
+
+
+
+
+COHERENT Lexicon                                           Page 9
+
+
+
+
+curses                       Overview                      curses
+
+
+
+#define NORMAL 0
+#define INY  1
+#define INX  2
+
+
+
+main()
+{
+     int c, y, x, state;
+
+
+
+     initscr();          /* initialize curses */
+     noecho();
+     raw();
+
+
+
+     clear();
+     move(0, 0);
+
+
+
+     for(state = NORMAL;;) {
+                         refresh();
+                         c = getch();
+                         if(isdigit(c)) {
+
+
+
+                         switch (state) {
+                         case NORMAL:
+                          y = x = 0;
+                          state = INY;
+                         case INY:
+                          y *= 10;
+                          y += c - '0';
+                          break;
+                         case INX:
+                          x *= 10;
+                          x += c - '0';
+                         }
+                         } else {
+
+
+
+                         if (c == A_ETX) { /* ctl-c */
+                          noraw();
+                          echo();
+                          endwin();
+                          exit(0);
+                         }
+
+
+
+
+
+COHERENT Lexicon                                          Page 10
+
+
+
+
+curses                       Overview                      curses
+
+
+
+
+                         switch (state) {
+                         case INX:
+                          state = NORMAL;
+                          move(y, x);
+                         case NORMAL:
+                          addch(c);
+                          break;
+                         case INY:
+                          state = INX;
+                         }
+                         }
+     }
+}
+
+
+***** See Also *****
+
+curses.h, libraries, termcap
+Strang J: _P_r_o_g_r_a_m_m_i_n_g  _w_i_t_h _c_u_r_s_e_s. Sebastopol, Calif, O'Reilly &
+Associates Inc., 1986.
+
+***** Notes *****
+
+curses  is  copyrighted  by  the  Regents  of the  University  of
+California.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COHERENT Lexicon                                          Page 11
+
+

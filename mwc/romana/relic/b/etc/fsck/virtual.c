@@ -1,0 +1,336 @@
+/*
+ * Virtual memory for fsck. Uses hash algorithm
+ * rather than LRU to get it up fast.
+ */
+#include "assert.h"	/* special copy with printf() not fprintf() */
+#include <sys/stat.h>
+#include "fsck.h"
+#if SMALLMODEL
+
+#define VBLKB 9			/* bytes in virtual block as power of 2 */
+#define VBLK (1 << VBLKB)	/* bytes in a virtual block */
+#define MBKSB 6			/* number of virtual blocks as power of 2 */
+#define MBKS (1 << MBKSB)	/* number of virtual blocks */
+
+#define DVTMP "/dev/rram1"	/* Default Virtual Temp Filename */
+#define DVTMPCLS "/dev/rram1close" /* Default Virtual Temp File Close */
+#define	MAJORRAM 8		/* Major Device Number for the Ram Disk	*/
+
+struct mapper {
+	unsigned dirty:1;
+	unsigned what_in:15;	/* which block is in memory */
+};
+
+static unsigned long flagdsp, blkdsp, dupdsp, duplim;
+static struct mapper map[MBKS];
+static unsigned char data[MBKS][VBLK];
+static int tmp;
+
+static char *dvtmp = DVTMP;
+static char *dvtmpcls = DVTMPCLS;
+
+/*
+ * Init file system for virtual arrays.
+ * Data is ordered links, flags, blocks then dups.
+ */
+initV(links, flags, blocks, dups)
+unsigned links, flags, blocks, dups;
+{
+	register long bp;
+	struct stat st;
+	unsigned datasiz;
+
+	flagdsp = links;
+	blkdsp = flagdsp + flags;
+	dupdsp = blkdsp + blocks;
+	duplim = dupdsp + dups;
+
+	memset(map, 0, sizeof(map));	/* zero ram arrays */
+	memset(data, 0, sizeof(data));
+
+	tmp = -1;
+
+	datasiz = sizeof(data);
+	if ( duplim < datasiz )
+		return;
+
+	if ( tempFile == NULL ) {
+		switch ( is_fs(dvtmp) ) {
+		case -1:
+			fatal(
+"Can't access ram disk \"%s\", use the -t option", dvtmp);
+		case 0:
+			break;
+		case 1:
+			fatal(
+"Possible file system on ram disk \"%s\", use the -t option", dvtmp);
+		}
+		if ( (-1 == stat(dvtmp, &st)) || !(st.st_mode&S_IFCHR) ||
+			(major(st.st_rdev) != MAJORRAM) )
+				fatal("Ram disk \"%s\" not mknod'ed properly",
+								dvtmp);
+		if ( -1 == (tmp = open(dvtmp, 2)) )
+			fatal("Cannot open read/write Ram Disk \"%s\"", dvtmp);
+
+		/* Ram disk driver may not promise zeroed start.
+		 * This code may go later. Extra write not important. */
+		for(bp = 0; bp < duplim; bp += VBLK) /* zero disk stuff */
+			if ( VBLK != write(tmp, data[0], VBLK) )
+				fatal("Error writing to tmp file");
+	} else {
+		if ( -1 == (tmp = open(tempFile, 2)) ) {
+			if ( -1 == (tmp = creat(tempFile, 0600)) )
+				fatal("Cannot create temp file \"%s\"", 
+								tempFile);
+			close(tmp);
+			tmp = open(tempFile, 2);
+			unlink(tempFile);
+		}
+		if ( -1 == fstat(tmp, &st) )
+			fatal("Can't stat temp file \"%s\"", tempFile);
+		if ( st.st_dev == fsysrdev )
+			fatal("Temp File must not be on file system to fsck");
+	}
+}
+
+/*
+ * cleanup virtual system
+ */
+cleanV()
+{
+	struct stat st;
+
+	if ( tmp == -1 )		/* No Virtual Temp File Opened	*/
+		return;
+
+	close(tmp);
+	if ( tempFile != NULL )		/* Virtual File not Default RAMDisk */
+		return;
+					/* Virtual File is Default RAMDisk */
+	if ( (-1 == stat(dvtmpcls, &st)) || !(st.st_mode&S_IFCHR) ||
+		(major(st.st_rdev) != MAJORRAM) ||
+		((minor(st.st_rdev)&0x7F) != 0) )
+		fatal("Ram disk close \"%s\" not mknod'ed properly", dvtmpcls);
+	if ( -1 == (tmp = open(dvtmpcls, 2)) )
+		fatal("Cannot open Ram Disk Close \"%s\"", dvtmpcls);
+	if ( close(tmp) < 0 )
+		fatal("Cannot close Ram Disk Close \"%s\"", dvtmpcls);
+}
+
+/*
+ * All actions for virtual array
+ */
+findblock(bp, action, odata)
+long bp;		/* data address */
+enum vact action;	/* what to do */
+unsigned odata;		/* optional data */
+{
+	unsigned which, what_in, byte_no, bit;
+	unsigned long diskad;
+	unsigned char *byte;
+	extern long lseek();
+
+	switch(action) {	/* use displacment to correct part of file */
+	case testBlock:
+	case markBlock:
+	case unmarkBlock:
+		bit = 1 << (bp & 7);
+		bp >>= 3;
+	case grabBlock:		/* 8 at a time for copy */
+		assert(bp >= 0);
+		bp += blkdsp;
+		assert(bp < dupdsp);
+		break;
+	case testDup:
+	case markDup:
+	case unmarkDup:
+		bit = 1 << (bp & 7);
+		bp >>= 3;
+	case setDup:		/* 8 at a time for copy */
+		assert(bp >= 0);
+		bp += dupdsp;
+		assert(bp < duplim);
+		break;
+	case Flags:
+	case setFlags:
+	case orFlags:
+		assert(bp > 0);
+		bp += flagdsp - 1;
+		assert(bp < blkdsp);
+		break;
+	case linkCtr:
+	case incLinkctr:
+	case setLinkctr:
+		assert(bp > 0);
+		bp--;
+		assert(bp < flagdsp);
+	}
+
+	byte_no = bp & (VBLK - 1);
+	bp >>= VBLKB;
+	which = bp & (MBKS - 1);
+	bp >>= MBKSB;
+	what_in = bp & 0x7fff;
+
+	if((diskad = map[which].what_in) != what_in)	{
+		if(map[which].dirty) {
+			diskad <<= VBLKB + MBKSB;
+			diskad += which << VBLKB;
+			if(-1 == lseek(tmp, diskad, 0))
+				fatal("Error seeking tmp file");
+			if(VBLK != write(tmp, data[which], VBLK))
+				fatal("Error writing tmp file");
+		}
+		diskad = what_in;
+		diskad <<= VBLKB + MBKSB;
+		diskad += which << VBLKB;
+		if(-1 == lseek(tmp, diskad, 0))
+			fatal("Error seeking tmp file");
+		if(VBLK != read(tmp, data[which], VBLK))
+			memset(data[which], 0, VBLK);
+		map[which].what_in = what_in;
+		map[which].dirty = 0; /* clean */
+	}
+	byte = &data[which][byte_no];
+
+	switch(action) {
+	case testBlock:
+	case testDup:
+		return(*byte & bit);
+	case markBlock:
+	case markDup:
+		map[which].dirty = 1;
+		return(*byte |= bit);
+	case unmarkBlock:
+	case unmarkDup:
+		map[which].dirty = 1;
+		return(*byte ^= bit);
+	case linkCtr:
+	case Flags:
+	case grabBlock:
+		return(*byte);
+	case setLinkctr:
+	case setFlags:
+	case setDup:
+		map[which].dirty = 1;
+		return(*byte = odata);
+	case orFlags:
+		map[which].dirty = 1;
+		return(*byte |= odata);
+	case incLinkctr:
+		map[which].dirty = 1;
+		return(++*byte);
+	default:
+		fatal("Bad action in virtual system");
+	}
+}
+
+/*
+ * copy virtual memory blockmap to dupmap
+ * read and write groups to avoid possable thrashing.
+ */
+void
+copyV(size)
+unsigned size;
+{
+	char buf[128];
+	register int i;
+	long bp, bs;
+
+	for(bs = bp = 0; bp < size; ) {
+		for(i = 0; (i < 128) && (bp < size); i++, bp++)
+			buf[i] = findblock(bp, grabBlock);
+
+		for(i = 0; (i < 128) && (bs < size); i++, bs++)
+			findblock(bs, setDup, buf[i]);
+	}
+}
+
+#ifdef TEST
+fatal(s)
+char *s;
+{
+	printf("%s\n", s);
+	exit(1);
+}
+
+static	char buf[80];
+gbuf()
+{
+	if(NULL == gets(buf)) {
+		unlink("vtmp");
+		exit(0);
+	}
+	return(buf[0]);
+}
+
+main()
+{
+	unsigned long b;
+	char data;
+
+	initV(10000, 10000, 20000);
+	for(;;) {
+		printf("b = block, d = dup, f = flags, l = linkctr\n");
+		switch(gbuf()) {
+		case 'l':
+			printf("s = set, d = display, i = increment: then loc\n");
+			gbuf();
+			sscanf(buf + 2, "%ld", &b);
+			switch(buf[0]) {
+			case 's':
+				setlinkctr(b, 0); /* no data */
+			case 'd':
+				printf("%d\n", linkctr(b));
+				break;
+			case 'i':
+				printf("%d\n", inclinkctr(b));
+			}
+			break;
+		case 'f':
+			printf("d = display, s = set, o = or: then loc\n");
+			gbuf();
+			sscanf(buf + 2, "%ld %c", &b, &data);
+			switch(buf[0]) {
+			case 's':
+				setflags(b, data);
+			case 'd':
+				break;
+			case 'o':
+				orflags(b, data);
+			}
+			printf("%c\n", flags(b));
+			break;
+		case 'b':
+			printf("t = test, m = mark, u = unmark: then loc\n");
+			gbuf();
+			sscanf(buf + 2, "%ld", &b);
+			switch(buf[0]) {
+			case 'm':
+				markblock(b);
+			case 't':
+				break;
+			case 'u':
+				unmarkblock(b);
+			}
+			printf("%c\n", testblock(b) ? '1' : '0');
+			break;
+		case 'd':
+			printf("t = test, m = mark, u = unmark: then loc\n");
+			gbuf();
+			sscanf(buf + 2, "%ld", &b);
+			switch(buf[0]) {
+			case 'm':
+				markdup(b);
+			case 't':
+				break;
+			case 'u':
+				unmarkdup(b);
+			}
+			printf("%c\n", testdup(b) ? '1' : '0');
+			break;
+		}
+	}
+}
+#endif
+#endif

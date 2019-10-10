@@ -1,0 +1,235 @@
+head     1.1;
+branch   ;
+access   ;
+symbols  ;
+locks    bin:1.1;
+comment  @# @;
+
+
+1.1
+date     93.08.10.12.38.16;  author bin;  state Exp;
+branches ;
+next     ;
+
+
+desc
+@@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@# Shell version of something similar to the System V 'idcheck' command
+
+##################### FUNCTION DEFINITIONS #######################
+
+# Call with the $0 of the script as a parameter; this commands writes the
+# name of the directory containing the script to standard output.
+# Example:
+#	conf_path $0
+
+conf_path () {
+	set `which $1 2>/dev/null` X
+	if [ $# -ne 2 ]; then
+		echo .		# Assume the current directory.
+		return 1
+	fi
+	set `expr $1 : '\(.*\)/.*'` X
+	if [ $# -ne 2 ]; then
+		echo .		# Must be in the current directory.
+	else
+		echo $1
+	fi
+	return 0
+}
+
+# Report a usage message to standard output, with the name of the script
+# passed as the argument to this function.
+
+usage () {
+	echo $1 ": Check conditions related to installable devices"
+	echo "usage :\t-p device_name [-i dir] [-r]"
+	echo "\t-v vector [-i dir] [-r]"
+	echo "\t-d dma_channel [-i dir] [-r]"
+	echo "\t-a -l lower_address -u upper_address [-i dir] [-r]"
+	echo "\t-c -l lower_address -u upper_address [-i dir] [-r]"
+}
+
+# Check whether the indicated package is installed already
+
+check_name () {
+	grep "^$1" $CONF_DIR/mdevice 2>/dev/null 1>&2
+	set $?
+	if [ $1 -gt 1 ]; then
+		echo Unable to check $CONF_DIR/mdevice 1>&2
+	fi
+	return $1
+}
+
+# Check to see whether the indicated interrupt vector is in use. We do this
+# by telling 'devadm' about a bogus new device that requires that vector for
+# exclusive use, and asking it to list conflicting devices to stdout.
+
+check_vector () {
+	set X `$HOME_DIR/devadm -M"foo - H foo 0 0 0 0 -1 -1" \
+				-S"foo Y 0 7 1 $1 0x0 0x0 0x0 0x0" \
+				-r -I $CONF_DIR`
+	if [ $# -gt 1 ]; then
+		if [ -n "$REPORT_CONFLICTS" ]; then
+			shift; echo $*
+		fi
+		return 1
+	fi
+	return 0
+}
+
+# Check to see whether the indicated IOA range is in use. We use this by
+# telling 'devadm' about a bogus new device that requires that IOA range for
+# its own use, and asking it to list conflicting devices to stdout.
+
+check_ioa () {
+	set X `$HOME_DIR/devadm -M"foo - H foo 0 0 0 0 -1 -1" \
+				-S"foo Y 0 0 0 0 $LOWER $UPPER 0x0 0x0" \
+				-r -I $CONF_DIR`
+	if [ $# -gt 1 ]; then
+		if [ -n "$REPORT_CONFLICTS" ]; then
+			shift; echo $*
+		fi
+		return 1
+	fi
+	return 0
+}
+
+# Check to see whether the indicated CMA range is in use. We use this by
+# telling 'devadm' about a bogus new device that requires that CMA range for
+# its own use, and asking it to list conflicting devices to stdout.
+
+check_cma () {
+	set X `$HOME_DIR/devadm -M"foo - H foo 0 0 0 0 -1 -1" \
+				-S"foo Y 0 0 0 0 0x0 0x0 $LOWER $UPPER" \
+				-r -I $CONF_DIR`
+	if [ $# -gt 1 ]; then
+		if [ -n "$REPORT_CONFLICTS" ]; then
+			shift; echo $*
+		fi
+		return 1
+	fi
+	return 0
+}
+
+# Check to see whether the indicated DMA channel is in use.
+
+check_dma () {
+	echo DMA channel configuration is not yet supported 1>&2
+	return 1
+}
+
+
+# internal function used by check_block (), and check_char () to invoke
+# 'devadm' with a similar bogus device but different flags
+
+check_dev () {
+	set X `$HOME_DIR/devadm -M"foo - $1 foo $LOWER $UPPER 0 0 -1 -1" \
+				-S"foo Y 0 0 0 0 0x0 0x0 0x0 0x0" \
+				-r -I $CONF_DIR`
+	if [ $# -gt 1 ]; then
+		if [ -n "$REPORT_CONFLICTS" ]; then
+			shift; echo $*
+		fi
+		return 1
+	fi
+	return 0
+}
+
+# Check to see whether the indicated block major range is in use. We use this
+# by telling 'devadm' about a bogus new device that requires that range for
+# its own use, and asking it to list conflicting devices to stdout.
+
+check_block () {
+	if [ $LOWER -lt 32 ]; then
+		check_dev CGo
+	else
+		check_dev bD
+	fi
+	return $?
+}
+
+# Check to see whether the indicated character major range is in use. We use
+# this by telling 'devadm' about a bogus new device that requires that range
+# for its own use, and asking it to list conflicting devices to stdout.
+
+check_char () {
+	if [ $LOWER -lt 32 ]; then
+		check_dev CGo
+	else
+		check_dev cD
+	fi
+	return $?
+}
+
+HOME_DIR=`conf_path $0`
+CONF_DIR=$HOME_DIR/..
+
+if [ $# -lt 1 ]; then
+	usage $0 1>&2
+	exit 100
+fi
+
+while [ $# -gt 0 ]; do
+	ARG=$1; shift
+	case $ARG in
+	-p)	NEW_COMMAND="check_name $1" ; shift
+		;;
+
+	-i)	CONF_DIR=$1; shift
+		;;
+
+	-v)	NEW_COMMAND="check_vector $1" ; shift
+		;;
+
+	-l)	LOWER="$1"; : ${UPPER:=$1}; shift
+		;;
+
+	-u)	UPPER="$1"; : ${LOWER:=$1}; shift
+		;;
+
+	-a)	NEW_COMMAND="check_ioa"
+		;;
+
+	-c)	NEW_COMMAND="check_cma"
+		;;
+
+	-d)	NEW_COMMAND="check_dma $1"; shift
+		;;
+
+	-B)	NEW_COMMAND="check_block"
+		;;
+
+	-C)	NEW_COMMAND="check_char"
+		;;
+
+	-r)	REPORT_CONFLICTS=1
+		;;
+
+	*)	echo Bad argument ": $ARG" 1>&2
+		usage $0 1>&2
+		exit 100
+		;;
+	esac
+
+	if [ -n "$NEW_COMMAND" ]; then
+		if [ -n "$COMMAND" ]; then
+			echo Bad argument ": $ARG" 1>&2
+			usage $0 1>&2
+			exit 100
+		fi
+		COMMAND="$NEW_COMMAND"
+		NEW_COMMAND=
+	fi
+done
+
+$COMMAND
+@

@@ -1,0 +1,52 @@
+#!/bin/sh
+# Run.help
+#
+# Build the COHERENT help files
+#
+# you must su to bin before running
+
+if [ `whoami` != "bin" ] ; then
+	echo "Sorry, only user 'bin' can run this program"
+	exit
+fi
+
+LEX=/v/doc/coherent/lx
+FAST=/tmp
+>$FAST/TEMPFILE
+>$FAST/SRCFILE
+>$FAST/Help.r
+>$FAST/Help.x
+
+# check the number of arguments/type of first argument
+#
+# find all COHERENT-related articles
+#
+for i in E _ a b c d e f g h i j k l m n o p q r s t u v w x y z
+do
+	ls $LEX/$i* >>$FAST/SRCFILE 2>>$FAST/Help.x
+done
+
+#
+# pull the appropriate chunks of each article out
+#
+for i in `cat $FAST/SRCFILE`
+do
+	sed -n -e /\\.TH/,/\\.PP/p -e /\\.HS/,/\\.HE/p $i >> $FAST/Help.r
+done
+
+#
+# And nroff the extracted stuff.
+#
+nroff -x -mcohhelp /v/doc/doc/coherent/manual/top.r $FAST/Help.r \
+		> $FAST/FOO 2> $FAST/Help.x
+sed -e '/^@/s/()$//' < $FAST/FOO > /usr/lib/helpfile
+
+# build the index file for the new helpfile
+help -f/usr/lib/helpfile -i/usr/lib/helpindex -r
+
+# copy files for use by MicroEMACS
+
+# tidy up
+rm $FAST/Help.r $FAST/TEMPFILE $FAST/SRCFILE $FAST/FOO
+
+# End of Run.help

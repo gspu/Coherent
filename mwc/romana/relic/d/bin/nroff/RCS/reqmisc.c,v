@@ -1,0 +1,102 @@
+head     1.1;
+access   ;
+symbols  ;
+locks    ;
+comment  @ * @;
+
+
+1.1
+date     91.02.04.16.56.15;  author bin;  state Exp;
+branches ;
+next	;
+
+
+desc
+@init ver prov by stevesf
+@
+
+
+
+1.1
+log
+@Initial revision
+@
+text
+@/*
+ * Nroff/Troff.
+ * Miscellaneous routines.
+ */
+#include <stdio.h>
+#include "roff.h"
+#include "code.h"
+#include "env.h"
+#include "div.h"
+#include "reg.h"
+#include "str.h"
+
+/*
+ * Define a macro.  `mp' is a pointer to a macro descriptor which is
+ * filled in with the appropriate information and name is the name
+ * of the macro upon which the definition ends.
+ */
+deftext(mp, name)
+register MAC *mp;
+char name[2];
+{
+	static char residue[4];
+	register STR *sp;
+	register char *bp;
+
+	if (mp != NULL) {
+		mp->m_next = NULL;
+		mp->m_type = MTEXT;
+		mp->m_core = NULL;
+		mp->m_seek = tmpseek;
+	}
+	ifeflag = 1;
+	bp = miscbuf;
+	goto nwl;
+	for (;;) {
+		if (bp >= &miscbuf[MSCSIZE-3]) {
+			if (mp != NULL)
+				nwrite(miscbuf, 1, bp-miscbuf);
+			bp = miscbuf;
+		}
+		if ((*bp++=getf(2)) != '\n')
+			continue;
+	nwl:
+		if (name[0]=='\0') {
+			if ((*bp++=getf(2))!='.' || escflag!=0)
+				continue;
+			if ((*bp++=getf(2))!='.' || escflag!=0)
+				continue;
+			if ((*bp++=getf(2)) != '\n')
+				continue;
+			bp -= 3;
+			break;
+		} else {
+			if ((*bp++=getf(2))!=ccc || escflag!=0)
+				continue;
+			if ((*bp++=getf(2))!=name[0] || escflag!=0)
+				continue;
+			if ((*bp++=getf(2))!=name[1] || escflag!=0)
+				continue;
+			bp -= 3;
+			residue[0] = bp[0];
+			residue[1] = bp[1];
+			residue[2] = bp[2];
+			residue[3] = '\0';
+			sp = allstr(SCORE);
+			sp->s_next = strp;
+			strp = sp;
+			sp->s_cp = residue;
+			sp->s_srel = NULL;
+			break;
+		}
+	}
+	*bp++ = '\0';
+	if (mp != NULL)
+		nwrite(miscbuf, 1, bp-miscbuf);
+	ifeflag = 0;
+}
+@

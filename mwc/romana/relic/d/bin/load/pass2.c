@@ -1,0 +1,315 @@
+/*
+ * ld/pass2.c
+ * Pass 2
+ * Read, relocate and output segments of module
+ */
+
+#include "data.h"
+
+void
+loadmod( mp )
+mod_t *  mp;
+{
+	seg_t	*isgp, *irsp, *osgp, *orsp;
+	sym_t	*sp;
+	int	opcode, relseg;
+	int	segn;
+	uaddr_t	addr, bias;
+	unsigned int	symno;
+	FILE	*ifp, *irfp, *ofp, *orfp;
+	static	FILE	*inputf[NLSEG];
+	static	char	*fname = NULL;
+
+	if ( watch )
+		mpmsg( mp, "loading" );
+
+	for ( segn = 0; segn < NLSEG; segn++ ) {
+
+		if ( (segn != L_REL) && (outputf[segn] == NULL) )
+			continue;
+
+		if ( fname != mp->fname ) {
+
+			if ( fname != NULL )
+				fclose( inputf[segn] );
+
+			if (( inputf[segn] = fopen(mp->fname, "r")) == NULL ) {
+				filemsg(mp->fname, "can't open (pass 2)");
+				exit(1);
+			}
+		}
+
+		fseek( inputf[segn], mp->seg[segn].daddr, 0 );
+
+		if ( watch && (mp->seg[segn].size != 0) )
+			message("relocating seg#%d[%06lo]@%06lo to %06lo",
+				segn, (long)mp->seg[segn].size,
+				(long)mp->seg[segn].vbase,
+				(long)oseg[segn].vbase);
+	}
+
+	fname = mp->fname;
+	irfp  = inputf[L_REL];
+	irsp  = &mp->seg[L_REL];
+	orfp  = outputf[L_REL];
+	orsp  = &oseg[L_REL];
+
+	while ( (opcode = getbyte(irfp, irsp)) != EOF ) {
+
+		addr = getaddr( irfp, irsp );
+
+		/*
+		 * Find segment in which it address lies
+		 */
+		for (segn=0, isgp=&mp->seg[0]; segn < L_SYM; segn++, isgp++) {
+			if ( (addr >= isgp->vbase)
+			  && (addr < isgp->vbase+isgp->size) )
+				break;
+		}
+
+		if ( (segn == L_BSSI)
+		  || (segn == L_BSSD)
+		  || (segn == L_SYM) ) {
+			mpmsg( mp, "bad relocation address %06lo", (long)addr);
+			continue;
+		}
+
+		ifp  = inputf[segn];
+		ofp  = outputf[segn];
+		osgp = &oseg[segn];
+
+		/*
+		 * Put unrelocated stuff
+		 */
+		while ( isgp->vbase < addr )
+			putbyte( getbyte(ifp, isgp), ofp, osgp );
+
+		bias = 0;
+
+		switch ( relseg = (opcode & LR_SEG) ) {
+
+		case L_SYM:
+			/*
+			 * Symbolic reference:
+			 *	L_SYM[+LR_PCR+LR_WORD],addr-16,symno-16,offset
+			 */
+			symno = getsymno( irfp, irsp );
+
+			if ( symno >= mp->nsym ) {
+				mpmsg( mp, "bad reloc. sym. no. %d", symno );
+			}
+
+			else if ( (sp = mp->sym[symno]) == NULL ) {
+				mpmsg( mp, "symbol %d not kept", symno );
+			}
+			
+			/*
+			 * Symbolic reference not resolved.
+			 */
+			else if ( sp->s.ls_type == (L_GLOBAL|L_REF) ) {
+				if ( orfp != NULL ) {
+					putbyte( opcode, orfp, orsp );
+					putaddr( osgp->vbase, orfp, orsp );
+					putsymno( sp->symno, orfp, orsp );
+				}
+			}
+			
+			/*
+			 * Convert symbolic reference to segment reference.
+			 */
+			else {
+				bias = sp->s.ls_addr;
+
+				if ( orfp != NULL ) {
+					putbyte(sp->s.ls_type&LR_SEG
+						|opcode&~LR_SEG,
+						orfp, orsp);
+					putaddr( osgp->vbase, orfp, orsp );
+
+					/*
+					 * Keep segment size correct
+					 */
+					orsp->size -= sizeof(short);
+				}
+			}
+			break;
+
+		case L_SHRI:
+		case L_PRVI:
+		case L_BSSI:
+		case L_SHRD:
+		case L_PRVD:
+		case L_BSSD:
+			bias	= oseg[relseg].vbase
+				- mp->seg[relseg].vbase;
+			/* no break */
+
+		case L_ABS:
+			if ( orfp != NULL ) {
+				putbyte( opcode, orfp, orsp );
+				putaddr( osgp->vbase, orfp, orsp );
+			}
+			break;
+
+		default:
+			goto BadCode;
+		}
+
+		if ( opcode & LR_PCR )
+			bias += isgp->vbase - osgp->vbase;
+
+		switch ( opcode & LR_OP ) {
+
+		default:
+		BadCode:
+			mpmsg( mp, "bad relocation opcode %03o", opcode );
+			break;
+
+		case LR_BYTE:
+			bias += getbyte( ifp, isgp );
+			putbyte( (char)bias, ofp, osgp );
+			break;
+
+		case LR_WORD:
+			bias += getword( ifp, isgp );
+			putword( (short)bias, ofp, osgp );
+			break;
+		}
+	}
+
+	/*
+	 * Copy remainder of segments.
+	 */
+	for ( segn = 0; segn < L_SYM; segn++ )
+		if ( (ofp = outputf[segn]) != NULL )
+			copyseg(inputf[segn], &mp->seg[segn], ofp, &oseg[segn]);
+
+	/*
+	 * Adjust bss bases (others done by copyseg).
+	 */
+	oseg[L_BSSD].vbase += mp->seg[L_BSSD].size;
+	oseg[L_BSSI].vbase += mp->seg[L_BSSI].size;
+}
+
+/*
+ * I/O routines
+ */
+void
+putstruc( p, s, fp, sgp )
+register char	*p;
+register unsigned int	s;
+register FILE	*fp;
+register seg_t	*sgp;
+{
+	while ( s-- )
+		putbyte( *p++, fp, sgp );
+}
+
+unsigned short
+getword( fp, sgp )
+FILE	*fp;
+seg_t	*sgp;
+{
+	return( (worder == LOHI) ? getlohi(fp,sgp) : gethilo(fp,sgp) );
+}
+
+unsigned short
+getlohi( fp, sgp )
+FILE	*fp;
+seg_t	*sgp;
+{
+	register unsigned char	b;
+
+	b = getbyte( fp, sgp );
+	return( (getbyte(fp,sgp) << 8) | b );
+}
+
+unsigned short
+gethilo( fp, sgp )
+FILE	*fp;
+seg_t	*sgp;
+{
+	register unsigned char	b;
+
+	b = getbyte(fp, sgp);
+	return( (b << 8) | getbyte(fp,sgp) );
+}
+
+int
+getbyte( fp, sgp )
+FILE	*fp;
+seg_t	*sgp;
+{
+	if ( sgp->size == 0 )
+		return( EOF );
+
+	else {
+		sgp->size--;
+		sgp->vbase++;
+		return( getc(fp) );
+	}
+}
+
+void
+putword( w, fp, sgp )
+unsigned short	w;
+FILE	*fp;
+seg_t	*sgp;
+{
+	if ( worder == LOHI )
+		putlohi( w, fp, sgp );
+
+	else
+		puthilo( w, fp, sgp );
+}
+
+void
+putlohi( w, fp, sgp )
+unsigned short	w;
+FILE	*fp;
+seg_t	*sgp;
+{
+	putbyte( w & 0377, fp, sgp );
+	putbyte( w >>8, fp, sgp );
+}
+
+void
+puthilo( w, fp, sgp )
+unsigned short	w;
+FILE	*fp;
+seg_t	*sgp;
+{
+	putbyte( w >> 8, fp, sgp );
+	putbyte( w & 0377, fp, sgp );
+}
+
+void
+putbyte( b, fp, sgp )
+unsigned char	b;
+FILE	*fp;
+seg_t	*sgp;
+{
+	sgp->vbase++;
+	putc( b, fp );
+}
+
+/*
+ * Copy a segment.
+ * Watch out for EOF before the expected size.
+ */
+copyseg(ifp, isgp, ofp, osgp) FILE *ifp, *ofp; seg_t *isgp, *osgp;
+{
+	register int b;
+	register fsize_t n;
+
+	for (n = isgp->size; n > 0; n--) {
+		if ((b = getc(ifp)) == EOF)
+			break;
+		putc(b, ofp);
+	}
+	while (n-- > 0)
+		putc(0, ofp);
+	n = isgp->size;
+	isgp->vbase += n;
+	osgp->vbase += n;
+}

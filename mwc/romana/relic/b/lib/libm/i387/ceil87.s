@@ -1,0 +1,58 @@
+//////////
+/ /usr/src/libm/i387/ceil87.s
+/ i387 mathematics library
+/ ceil(d), floor(d)
+//////////
+
+RASIZE	=	4
+
+	.globl	ceil
+	.globl	floor
+	.globl	_floor
+
+cwup	=	0xBFF		/ round up NDP control word
+cwdown	=	0x7FF		/ round down NDP control word
+
+d	=	RASIZE		/ arg offset
+
+//////////
+/ double
+/ ceil(d)
+/ double d;
+//////////
+
+
+ceil:
+	fldl	d(%esp)		/ Load argument d.
+	movw	%ax, $cwup	/ New control word to AX.
+	jmp	.L0
+
+//////////
+/ double
+/ floor(d)
+/ double d;
+/
+/ _floor() rounds the NDP stacktop %st down to the int below.
+/ It saves and restores the current NDP control word.
+//////////
+
+oldcw	=	0		/ old NDP control word offset off %esp
+newcw	=	2		/ new NDP control word offset off %esp
+
+floor:
+	fldl	d(%esp)		/ Load argument d.
+
+_floor:				/ d
+	movw	%ax, $cwdown	/ New control word to AX.
+
+.L0:				/ d in %st, new control word in AX.
+	push	%eax		/ Claim two words.
+	movw	newcw(%esp),%ax	/ Save new control word.
+	fstcw	oldcw(%esp)	/ Save old control word.
+	fldcw	newcw(%esp)	/ Load new control word.
+	frndint			/ int(d)
+	fldcw	oldcw(%esp)	/ Restore saved control word.
+	pop	%eax		/ Clean stack.
+	ret
+
+/ end of ceil87.s
