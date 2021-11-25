@@ -4,9 +4,11 @@ Coherent is a clone of the Unix operating system for IBM PC compatibles and othe
 https://en.wikipedia.org/wiki/Coherent_(operating_system)
 
 Manpages:
+
 http://www.nesssoftware.com/home/mwc/manpage.php?contents
 
 Manual:
+
 http://www.nesssoftware.com/home/mwc/manual.php
 
 VM:
