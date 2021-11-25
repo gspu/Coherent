@@ -8,3 +8,7 @@ http://www.nesssoftware.com/home/mwc/manpage.php?contents
 
 Manual:
 http://www.nesssoftware.com/home/mwc/manual.php
+
+VM:
+https://www.autometer.de/unix4fun/coherent/#vbox
+https://www.autometer.de/unix4fun/coherent/ftp/vms/
