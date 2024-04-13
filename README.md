@@ -12,7 +12,8 @@ Manual:
 http://www.nesssoftware.com/home/mwc/manual.php
 
 VM:
-
+https://web.archive.org/web/20230924204715/https://www.autometer.de/unix4fun/coherent/#vbox
 https://www.autometer.de/unix4fun/coherent/#vbox
 
+https://web.archive.org/web/20230924225928/https://www.autometer.de/unix4fun/coherent/ftp/vms/
 https://www.autometer.de/unix4fun/coherent/ftp/vms/
